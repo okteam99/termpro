@@ -297,3 +297,191 @@
   min-height: 0;
   flex-direction: column;
 }
+
+/* ---- markdown 预览 ---- */
+
+.md-preview {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 28px;
+  line-height: 1.65;
+  font-size: 14px;
+  color: var(--fg);
+  user-select: text;
+  min-height: 0;
+}
+
+/* headings */
+.md-preview h1,
+.md-preview h2 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}
+
+.md-preview h1 { font-size: 1.6em; }
+.md-preview h2 { font-size: 1.3em; }
+.md-preview h3 { font-size: 1.1em; }
+
+/* inline code */
+.md-preview code {
+  background: var(--bg-active);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: Menlo, Monaco, "SF Mono", monospace;
+  font-size: 0.9em;
+}
+
+/* fenced code blocks */
+.md-preview pre {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.md-preview pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+/* links */
+.md-preview a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.md-preview a:hover {
+  text-decoration: underline;
+}
+
+/* blockquote */
+.md-preview blockquote {
+  border-left: 3px solid var(--border);
+  margin: 0;
+  padding: 4px 12px;
+  color: var(--fg-dim);
+}
+
+/* tables */
+.md-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+}
+
+.md-preview th,
+.md-preview td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.md-preview th {
+  background: var(--bg-panel);
+}
+
+/* images */
+.md-preview img {
+  max-width: 100%;
+}
+
+/* hr */
+.md-preview hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+/* lists */
+.md-preview ul,
+.md-preview ol {
+  padding-left: 24px;
+}
+
+.md-preview li {
+  margin: 3px 0;
+}
+
+/* mermaid 流程图容器 */
+.md-mermaid {
+  margin: 12px 0;
+  display: flex;
+  justify-content: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.md-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.md-mermaid-error {
+  font-size: 12px;
+  color: var(--fg-dim);
+  margin-top: 6px;
+  text-align: center;
+}
+
+/* lightbox 放大层 */
+.md-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.md-lightbox-panel {
+  position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  max-width: 92vw;
+  max-height: 92vh;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.md-lightbox-svg {
+  max-width: 100%;
+  max-height: calc(92vh - 64px);
+}
+
+.md-lightbox-svg svg {
+  width: 100%;
+  height: auto;
+}
+
+.md-lightbox-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.md-lightbox-close:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
