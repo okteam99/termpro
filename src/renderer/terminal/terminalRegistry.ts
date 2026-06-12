@@ -41,6 +41,8 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: true,
+    // macOS 默认右键会改选中光标下的词,破坏用户拖选;菜单流程下保持原选区
+    rightClickSelectsWord: false,
     fontSize: 13,
     fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
     scrollback: 10_000,

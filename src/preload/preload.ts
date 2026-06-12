@@ -1,4 +1,4 @@
-import { clipboard, contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
 // 壳层 API:仅暴露与「本地 OS / 窗口」相关的能力。
 // 一切工程数据(fs/pty/git)走 HostService 协议,不经过这里。
@@ -60,10 +60,10 @@ contextBridge.exposeInMainWorld('termpro', {
     return ipcRenderer.invoke('terminal:context-menu', opts);
   },
   clipboardWriteText(text: string): void {
-    clipboard.writeText(text);
+    ipcRenderer.send('clipboard:write-text', text);
   },
-  clipboardReadText(): string {
-    return clipboard.readText();
+  clipboardReadText(): Promise<string> {
+    return ipcRenderer.invoke('clipboard:read-text');
   },
   openExternal(url: string): void {
     ipcRenderer.send('shell:open-external', url);

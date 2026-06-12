@@ -8,7 +8,7 @@ import {
   utilityProcess,
 } from 'electron';
 import { spawn } from 'node:child_process';
-import { shell } from 'electron';
+import { clipboard, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -107,6 +107,12 @@ ipcMain.on('editor:open', (_event, editor: string, targetPath: string) => {
   child.on('error', (err) => console.error('[main] editor open failed:', err));
   child.unref();
 });
+
+// 剪贴板:沙箱 preload 里 clipboard 模块不可用,必须经 main
+ipcMain.on('clipboard:write-text', (_event, text: string) => {
+  if (typeof text === 'string') clipboard.writeText(text);
+});
+ipcMain.handle('clipboard:read-text', () => clipboard.readText());
 
 // 终端右键菜单:渲染层报选区状态,这里弹原生菜单并回传动作
 ipcMain.handle(

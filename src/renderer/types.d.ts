@@ -27,7 +27,7 @@ declare global {
         hasSelection: boolean;
       }): Promise<string | null>;
       clipboardWriteText(text: string): void;
-      clipboardReadText(): string;
+      clipboardReadText(): Promise<string>;
       openExternal(url: string): void;
       openPath(path: string): void;
       onViewerAddTab(callback: (path: string) => void): () => void;

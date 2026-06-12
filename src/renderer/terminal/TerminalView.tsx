@@ -84,7 +84,7 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
         if (selection) window.termpro.clipboardWriteText(selection);
         break;
       case 'paste': {
-        const text = window.termpro.clipboardReadText();
+        const text = await window.termpro.clipboardReadText();
         if (text) inst.term.paste(text);
         inst.term.focus();
         break;
