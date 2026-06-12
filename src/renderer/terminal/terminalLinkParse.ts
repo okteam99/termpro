@@ -8,6 +8,8 @@ export interface LinkCandidate {
   /** string 索引区间 [start, end) */
   start: number;
   end: number;
+  /** web=http(s)(激活由 WebLinksAddon 负责,这里只用于上色);fs=文件/路径 */
+  kind: 'web' | 'fs';
 }
 
 const HTTP_RE = /https?:\/\/\S+/g;
@@ -31,27 +33,26 @@ export function extractCandidates(text: string): LinkCandidate[] {
   const overlaps = (s: number, e: number) =>
     taken.some(([a, b]) => s < b && e > a);
 
-  // http(s):占位,不产出
-  for (const m of text.matchAll(HTTP_RE)) {
-    taken.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
-  }
-
-  const push = (raw: string, start: number) => {
+  const push = (raw: string, start: number, kind: 'web' | 'fs') => {
     const str = trimTrailingPunct(raw);
     if (!str) return;
     const end = start + str.length;
     // 纯斜杠、单字符等噪音
-    if (str.replace(/[/:.~]/g, '').length < 2) return;
+    if (kind === 'fs' && str.replace(/[/:.~]/g, '').length < 2) return;
     if (overlaps(start, end)) return;
     taken.push([start, end]);
-    out.push({ text: str, start, end });
+    out.push({ text: str, start, end, kind });
   };
 
+  // http(s):产出 web 候选(激活归 WebLinksAddon,高亮用)
+  for (const m of text.matchAll(HTTP_RE)) {
+    push(m[0], m.index ?? 0, 'web');
+  }
   for (const m of text.matchAll(FILE_URL_RE)) {
-    push(m[0], m.index ?? 0);
+    push(m[0], m.index ?? 0, 'fs');
   }
   for (const m of text.matchAll(PATH_RE)) {
-    push(m[0], m.index ?? 0);
+    push(m[0], m.index ?? 0, 'fs');
   }
   return out.sort((a, b) => a.start - b.start);
 }

@@ -70,7 +70,7 @@ export class FsLinkProvider implements ILinkProvider {
       return;
     }
     const { text, cols } = lineToString(line);
-    const cands = extractCandidates(text);
+    const cands = extractCandidates(text).filter((c) => c.kind === 'fs');
     if (cands.length === 0) {
       callback(undefined);
       return;
@@ -112,28 +112,36 @@ export class FsLinkProvider implements ILinkProvider {
     return kind;
   }
 
+  /** 文本候选 → 绝对路径 + 类型(不存在返回 null);高亮器复用同一套缓存 */
+  async resolveCandidateText(
+    text: string,
+  ): Promise<{ abs: string; kind: 'file' | 'dir' } | null> {
+    let p: string | null = text;
+    if (p.startsWith('file://')) {
+      p = fileUrlToPath(p);
+      if (!p) return null;
+    }
+    p = stripLineCol(p);
+    const home = hostClient.info?.homedir ?? '';
+    if (p.startsWith('~')) p = home + p.slice(1);
+    if (!p.startsWith('/')) {
+      const cwd = await this.cwd();
+      p = `${cwd.replace(/\/$/, '')}/${p}`;
+    }
+    const kind = await this.stat(p);
+    return kind ? { abs: p, kind } : null;
+  }
+
   private async resolve(
     cands: ReturnType<typeof extractCandidates>,
     cols: number[],
     y: number,
   ): Promise<ILink[] | undefined> {
-    const home = hostClient.info?.homedir ?? '';
-    const cwd = await this.cwd();
     const links: ILink[] = [];
-
     await Promise.all(
       cands.map(async (c) => {
-        let p: string | null = c.text;
-        if (p.startsWith('file://')) {
-          p = fileUrlToPath(p);
-          if (!p) return;
-        }
-        p = stripLineCol(p);
-        if (p.startsWith('~')) p = home + p.slice(1);
-        if (!p.startsWith('/')) p = `${cwd.replace(/\/$/, '')}/${p}`;
-        const kind = await this.stat(p);
-        if (!kind) return;
-        const abs = p;
+        const hit = await this.resolveCandidateText(c.text);
+        if (!hit) return;
         links.push({
           range: {
             start: { x: cols[c.start] + 1, y },
@@ -141,10 +149,109 @@ export class FsLinkProvider implements ILinkProvider {
           },
           text: c.text,
           decorations: { underline: true, pointerCursor: true },
-          activate: () => openTarget(abs, kind),
+          activate: () => openTarget(hit.abs, hit.kind),
         });
       }),
     );
     return links.length > 0 ? links : undefined;
+  }
+}
+
+// ---- 链接常驻高亮(蓝色):随输出/滚动扫描可视区,decoration 上色 ----
+
+const LINK_COLOR = '#4a8df8';
+const HIGHLIGHT_DEBOUNCE_MS = 200;
+
+export class LinkHighlighter {
+  private decos: { dispose(): void }[] = [];
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private epoch = 0;
+
+  constructor(
+    private term: Terminal,
+    private provider: FsLinkProvider,
+  ) {}
+
+  attach(): void {
+    this.term.onWriteParsed(() => this.schedule());
+    this.term.onScroll(() => this.schedule());
+    this.term.onResize(() => this.schedule());
+    this.schedule();
+  }
+
+  private schedule(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.scan();
+    }, HIGHLIGHT_DEBOUNCE_MS);
+  }
+
+  private clear(): void {
+    for (const d of this.decos) d.dispose();
+    this.decos = [];
+  }
+
+  private async scan(): Promise<void> {
+    const myEpoch = ++this.epoch;
+    const buf = this.term.buffer.active;
+    const top = buf.viewportY;
+    const bottom = Math.min(top + this.term.rows, buf.length);
+
+    interface Hit {
+      absLine: number;
+      startCol: number;
+      widthCells: number;
+    }
+    const hits: Hit[] = [];
+
+    for (let y = top; y < bottom; y++) {
+      const line = buf.getLine(y);
+      if (!line) continue;
+      const { text, cols } = lineToString(line);
+      for (const c of extractCandidates(text)) {
+        if (c.kind === 'web') {
+          hits.push({
+            absLine: y,
+            startCol: cols[c.start],
+            widthCells: cols[c.end - 1] - cols[c.start] + 1,
+          });
+        } else {
+          const hit = await this.provider.resolveCandidateText(c.text);
+          if (this.epoch !== myEpoch) return; // 已有新一轮扫描
+          if (!hit) continue;
+          hits.push({
+            absLine: y,
+            startCol: cols[c.start],
+            widthCells: cols[c.end - 1] - cols[c.start] + 1,
+          });
+        }
+      }
+    }
+    if (this.epoch !== myEpoch) return;
+
+    this.clear();
+    const cursorAbs = buf.baseY + buf.cursorY;
+    for (const h of hits) {
+      // marker 以光标行为锚点
+      const marker = this.term.registerMarker(h.absLine - cursorAbs);
+      if (!marker) continue;
+      const deco = this.term.registerDecoration({
+        marker,
+        x: h.startCol,
+        width: h.widthCells,
+        foregroundColor: LINK_COLOR,
+      });
+      if (deco) {
+        this.decos.push({
+          dispose: () => {
+            deco.dispose();
+            marker.dispose();
+          },
+        });
+      } else {
+        marker.dispose();
+      }
+    }
   }
 }

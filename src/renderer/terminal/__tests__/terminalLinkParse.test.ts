@@ -8,10 +8,14 @@ import {
 const texts = (s: string) => extractCandidates(s).map((c) => c.text);
 
 describe('extractCandidates', () => {
-  it('file:// URL 识别,且 http(s) 不产出(留给 WebLinksAddon)', () => {
-    expect(
-      texts('see https://chatgpt.com/codex?x=1 and file:///Users/liam/a.png'),
-    ).toEqual(['file:///Users/liam/a.png']);
+  it('file:// 为 fs 候选;http(s) 为 web 候选(仅高亮,激活归 WebLinksAddon)', () => {
+    const cands = extractCandidates(
+      'see https://chatgpt.com/codex?x=1 and file:///Users/liam/a.png',
+    );
+    expect(cands.map((c) => [c.text, c.kind])).toEqual([
+      ['https://chatgpt.com/codex?x=1', 'web'],
+      ['file:///Users/liam/a.png', 'fs'],
+    ]);
   });
 
   it('绝对 / ~ / ./ ../ / 相对路径', () => {
@@ -39,6 +43,7 @@ describe('extractCandidates', () => {
 
   it('URL 内部路径不重复产出;噪音不命中', () => {
     expect(texts('https://x.com/a/b/c plain words and/or nothing')).toEqual([
+      'https://x.com/a/b/c',
       'and/or',
     ]); // and/or 形似路径,靠 stat 校验兜底过滤
     expect(texts('no links here')).toEqual([]);

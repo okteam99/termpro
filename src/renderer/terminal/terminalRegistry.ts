@@ -8,7 +8,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import { hostClient } from '../services/hostClient';
-import { FsLinkProvider } from './terminalLinks';
+import { FsLinkProvider, LinkHighlighter } from './terminalLinks';
 
 export interface TermCallbacks {
   onTitle?(processName: string): void;
@@ -83,13 +83,14 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     }),
   );
   // 文件/路径链接(file://、绝对、~、相对)→ 校验存在后可点击
-  term.registerLinkProvider(
-    new FsLinkProvider(
-      term,
-      () => inst.sessionId,
-      () => inst.spawnCwd || (hostClient.info?.homedir ?? '/'),
-    ),
+  const linkProvider = new FsLinkProvider(
+    term,
+    () => inst.sessionId,
+    () => inst.spawnCwd || (hostClient.info?.homedir ?? '/'),
   );
+  term.registerLinkProvider(linkProvider);
+  // 可视区链接常驻蓝色高亮
+  new LinkHighlighter(term, linkProvider).attach();
 
   // OSC 7:shell 上报当前目录(file://host/path),用于持久化 tab cwd
   term.parser.registerOscHandler(7, (data) => {
