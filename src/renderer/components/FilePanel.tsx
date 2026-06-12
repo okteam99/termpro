@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { hostClient } from '../services/hostClient';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
-import { getSessionId } from '../terminal/terminalRegistry';
-import type { DirEntry, GitFileStatus, GitInfo, GitStatusEntry, WorktreeInfo } from '../../shared/protocol';
+import type { DirEntry, GitFileStatus } from '../../shared/protocol';
+import { gitStatusClass, joinPath, worktreeLabel } from '../filepanel/core';
+import { useFilePanel } from '../filepanel/useFilePanel';
 import './FilePanel.css';
 
 interface TreeNode {
@@ -11,59 +12,11 @@ interface TreeNode {
   depth: number;
 }
 
-// 路径拼接
-function joinPath(parent: string, name: string): string {
-  return parent.endsWith('/') ? parent + name : parent + '/' + name;
-}
-
-// 目录优先排序
-function sortEntries(entries: DirEntry[]): DirEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.kind === 'dir' && b.kind !== 'dir') return -1;
-    if (a.kind !== 'dir' && b.kind === 'dir') return 1;
-    return a.name.localeCompare(b.name);
-  });
-}
-
-// Compute set of ancestor dir rel-paths that have any git status
-// (ignored 不参与上卷:被忽略的内容不该把祖先目录标脏)
-function computeDirtyDirs(entries: GitStatusEntry[], displayedRoot: string): Set<string> {
-  const dirs = new Set<string>();
-  for (const e of entries) {
-    if (e.status === 'ignored') continue;
-    // e.path is relative to the git toplevel which equals displayedRoot in both modes
-    const parts = e.path.split('/');
-    // add all ancestor dirs (not the file itself)
-    for (let i = 1; i < parts.length; i++) {
-      dirs.add(parts.slice(0, i).join('/'));
-    }
-  }
-  return dirs;
-}
-
-// Build a CSS class suffix for a given git status
-function gitStatusClass(status: GitFileStatus): string {
-  switch (status) {
-    case 'modified':   return 'git-modified';
-    case 'added':      return 'git-added';
-    case 'untracked':  return 'git-untracked';
-    case 'deleted':    return 'git-deleted';
-    case 'renamed':    return 'git-renamed';
-    case 'ignored':    return 'git-ignored';
-    case 'conflicted': return 'git-conflicted';
-  }
-}
-
-// Compute a display label for a worktree entry relative to the main worktree path
-function worktreeLabel(wt: WorktreeInfo, mainPath: string): string {
-  if (wt.path === mainPath) return '.';
-  if (wt.path.startsWith(mainPath + '/')) return wt.path.slice(mainPath.length + 1);
-  return wt.path;
-}
-
+// 异步编排(Phase 1 解析/树+watch/着色/刷新/cwd 轮询)全部收敛在
+// src/renderer/filepanel/(单 reducer + Controller);本组件只剩
+// 渲染派生与交互回调,不再持有任何 epoch ref / 异步 effect。
 export function FilePanel() {
   const workspace = useAppStore(selectActiveWorkspace);
-  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const updateTabFilePanel = useAppStore((s) => s.updateTabFilePanel);
 
   // Active tab from the workspace
@@ -73,186 +26,31 @@ export function FilePanel() {
   const fp = activeTab?.filePanel;
   const mode = fp?.mode ?? 'root';
 
-  // Auto-detected values (computed async)
-  const [autoRoot, setAutoRoot] = useState<string>('');
-  const [autoWorktree, setAutoWorktree] = useState<string>('');
-  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
+  // 编排输入:tab 标识 + 持久化绑定 + 兜底 cwd。
+  // sessionId 不在其中——spawn 不触发 React 渲染,由 deps.getSessionId 实时读。
+  const { view, toggleDir, refresh } = useFilePanel({
+    tabId: activeTab?.id ?? null,
+    mode,
+    rootPath: fp?.rootPath,
+    worktreePath: fp?.worktreePath,
+    fallbackCwd: activeTab?.cwd ?? workspace?.root ?? '',
+  });
+  const {
+    effectiveRoot,
+    autoRoot,
+    autoWorktree,
+    gitInfo,
+    worktrees,
+    topEntries,
+    expanded,
+    cache,
+    errPaths,
+    statusMap,
+    dirtyDirs,
+  } = view;
 
   // Root mode: draft path for the text input (mirrors effective root, reset on tab/root change)
   const [rootInputDraft, setRootInputDraft] = useState<string>('');
-
-  // Effective displayed root
-  const effectiveRoot = mode === 'root'
-    ? (fp?.rootPath ?? autoRoot)
-    : (fp?.worktreePath ?? autoWorktree);
-
-  // Git status: map relPath -> status, plus dirty-dir set
-  const [statusMap, setStatusMap] = useState<Map<string, GitFileStatus>>(new Map());
-  const [dirtyDirs, setDirtyDirs] = useState<Set<string>>(new Set());
-
-  // Top-level entries
-  const [topEntries, setTopEntries] = useState<DirEntry[]>([]);
-  // Expanded state Set<absPath>
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Child dir cache Map<absPath, DirEntry[]>
-  const [cache, setCache] = useState<Map<string, DirEntry[]>>(new Map());
-  // Error paths Set<absPath>
-  const [errPaths, setErrPaths] = useState<Set<string>>(new Set());
-  // Refresh counter for forced re-fetch
-  const [refreshKey, setRefreshKey] = useState(0);
-  // 活动 tab 实时 cwd 变化计数:只触发 Phase 1 重解析(提示行/auto 值),不重拉树
-  const [cwdEpoch, setCwdEpoch] = useState(0);
-  const lastCwdRef = useRef<string | null>(null);
-
-  // epoch counters guard stale async results。Phase 1(auto 解析)与
-  // Phase 2(树/watch)是相互独立的异步流,必须各用各的计数器:
-  // 首启时持久化的 rootPath 让 Phase 2 与 Phase 1 并发,共用会互相误杀
-  const epochRef = useRef(0);
-  const resolveEpochRef = useRef(0);
-
-  // Track current watchId and unsubscribe function so we can clean up
-  const watchIdRef = useRef<number | null>(null);
-  const fsUnsubRef = useRef<(() => void) | null>(null);
-  // debounce timer ref for watch-triggered refresh
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Scheduled refresh: re-fetch tree + expanded dirs + git status without collapsing
-  const scheduleRefresh = useCallback(() => {
-    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      setRefreshKey((k) => k + 1);
-    }, 250);
-  }, []);
-
-  // Cleanup watcher helper
-  const cleanupWatcher = useCallback(() => {
-    if (fsUnsubRef.current) {
-      fsUnsubRef.current();
-      fsUnsubRef.current = null;
-    }
-    if (watchIdRef.current !== null) {
-      const id = watchIdRef.current;
-      watchIdRef.current = null;
-      void hostClient.rpc('fs.unwatch', { watchId: id }).catch(() => {});
-    }
-    if (debounceRef.current !== null) {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = null;
-    }
-  }, []);
-
-  // 轮询活动 tab 的 shell 实时 cwd(2s):没有 OSC 7 的 shell 下,
-  // 提示行与 WorkTree 默认值也能跟随 cd。只盯一个会话,lsof 成本可忽略。
-  const pollTabId = activeTab?.id;
-  useEffect(() => {
-    if (!pollTabId) return;
-    lastCwdRef.current = null;
-    const timer = setInterval(() => {
-      const sid = getSessionId(pollTabId);
-      if (!sid) return;
-      hostClient
-        .rpc('pty.cwd', { sessionId: sid })
-        .then(({ cwd }) => {
-          if (!cwd) return;
-          if (lastCwdRef.current !== null && cwd !== lastCwdRef.current) {
-            setCwdEpoch((e) => e + 1);
-          }
-          lastCwdRef.current = cwd;
-        })
-        .catch(() => {});
-    }, 2_000);
-    return () => clearInterval(timer);
-  }, [pollTabId]);
-
-  // ── Phase 1: resolve auto root/worktree + git info + worktrees whenever active tab / refreshKey changes ──
-  useEffect(() => {
-    if (!workspace) return;
-
-    const epoch = ++resolveEpochRef.current;
-
-    async function resolve() {
-      if (!workspace) return;
-
-      const tab = workspace.tabs.find((t) => t.id === workspace.activeTabId);
-
-      // Resolve live cwd
-      const sid = tab ? getSessionId(tab.id) : null;
-      let cwd: string | null = null;
-      if (sid) {
-        try {
-          const res = await hostClient.rpc('pty.cwd', { sessionId: sid });
-          cwd = res.cwd;
-        } catch {
-          cwd = null;
-        }
-      }
-      cwd = cwd ?? tab?.cwd ?? workspace.root;
-
-      if (resolveEpochRef.current !== epoch) return;
-
-      // Resolve git info
-      let info: GitInfo = { toplevel: null, mainWorktree: null, branch: null };
-      try {
-        info = await hostClient.rpc('git.info', { cwd });
-      } catch {
-        // not a git repo or unreachable
-      }
-
-      if (resolveEpochRef.current !== epoch) return;
-
-      // live cwd 只用于提示行与首次锁定
-      const newAutoRoot = info.mainWorktree ?? cwd;
-
-      // WorkTree 锚点 = Root 绑定目录(未绑定则用本次解析的主目录):
-      // worktree 列表、默认选中、着色守卫都从锚点仓库推导,不随 cd 漂移
-      const anchor = tab?.filePanel?.rootPath ?? newAutoRoot;
-
-      let anchorInfo: GitInfo = {
-        toplevel: null,
-        mainWorktree: null,
-        branch: null,
-      };
-      try {
-        anchorInfo = await hostClient.rpc('git.info', { cwd: anchor });
-      } catch {
-        // 锚点不是 git 目录
-      }
-
-      if (resolveEpochRef.current !== epoch) return;
-
-      let wts: WorktreeInfo[] = [];
-      try {
-        const res = await hostClient.rpc('git.worktrees', { cwd: anchor });
-        wts = res.worktrees;
-      } catch {
-        // non-git or unavailable
-      }
-
-      if (resolveEpochRef.current !== epoch) return;
-
-      setAutoRoot(newAutoRoot);
-      setAutoWorktree(anchorInfo.toplevel ?? anchor);
-      setGitInfo(anchorInfo);
-      setWorktrees(wts);
-
-      // Root 锁定语义:tab 首次进入时把主目录写死到绑定里,
-      // 此后不随终端 cd 漂移,只有显式输入/Choose/Apply 才变更
-      if (tab && newAutoRoot) {
-        const live = useAppStore.getState();
-        const liveTab = live.workspaces
-          .flatMap((w) => w.tabs)
-          .find((t) => t.id === tab.id);
-        if (liveTab && liveTab.filePanel?.rootPath === undefined) {
-          live.updateTabFilePanel(tab.id, { rootPath: newAutoRoot });
-        }
-      }
-    }
-
-    void resolve();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, fp?.rootPath, refreshKey, cwdEpoch]);
 
   // Reset rootInputDraft whenever the effective root or active tab changes
   const activeTabId = activeTab?.id;
@@ -261,183 +59,6 @@ export function FilePanel() {
     setRootInputDraft(effectiveRoot);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveRoot, activeTabId, fpRootPath]);
-
-  // ── Phase 2: when effectiveRoot changes, fetch tree + git status + setup watcher ──
-  useEffect(() => {
-    if (!effectiveRoot) return;
-
-    const epoch = ++epochRef.current;
-    // cancelled flag covers unmount race vs in-flight fs.watch
-    let cancelled = false;
-    const stale = () => cancelled || epochRef.current !== epoch;
-
-    // Clean up old watcher before setting a new one
-    cleanupWatcher();
-
-    // Reset tree state when root changes
-    setTopEntries([]);
-    setStatusMap(new Map());
-    setDirtyDirs(new Set());
-
-    async function fetchAll() {
-      // Fetch top-level entries
-      try {
-        const { entries } = await hostClient.rpc('fs.readdir', { path: effectiveRoot });
-        if (stale()) return;
-        setTopEntries(sortEntries(entries));
-      } catch {
-        if (stale()) return;
-        setTopEntries([]);
-      }
-
-      // git 状态由独立 effect 拉取(见下),这里只管树与 watch
-
-      // Setup fs.watch — return watchId immediately if stale
-      if (stale()) return;
-      try {
-        const { watchId } = await hostClient.rpc('fs.watch', { path: effectiveRoot });
-        if (stale()) {
-          void hostClient.rpc('fs.unwatch', { watchId }).catch(() => {});
-          return;
-        }
-        watchIdRef.current = watchId;
-        fsUnsubRef.current = hostClient.onFsChanged((id) => {
-          if (id === watchId) scheduleRefresh();
-        });
-      } catch {
-        // fs.watch not available, continue without watcher
-      }
-    }
-
-    void fetchAll();
-
-    return () => {
-      cancelled = true;
-      cleanupWatcher();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveRoot]);
-
-  // ── git 状态着色:独立 effect ──
-  // 首启竞态:持久化 rootPath 使 Phase 2 先于 Phase 1 执行,彼时
-  // worktrees/autoWorktree 还是空值,「是否 git 根」误判为否而跳过
-  // git.status;Phase 1 补全后 effectiveRoot 未变、Phase 2 不重跑,
-  // 颜色永远缺席。独立依赖这些输入后,谁后到都能补上。
-  const statusEpochRef = useRef(0);
-  useEffect(() => {
-    if (!effectiveRoot) return;
-    const epoch = ++statusEpochRef.current;
-    const isGitToplevel =
-      (worktrees.length > 0 &&
-        worktrees.some((wt) => wt.path === effectiveRoot)) ||
-      (autoWorktree !== '' && autoWorktree === effectiveRoot);
-    if (!isGitToplevel) {
-      setStatusMap(new Map());
-      setDirtyDirs(new Set());
-      return;
-    }
-    hostClient
-      .rpc('git.status', { toplevel: effectiveRoot })
-      .then(({ entries }) => {
-        if (statusEpochRef.current !== epoch) return;
-        const map = new Map<string, GitFileStatus>();
-        for (const e of entries) map.set(e.path, e.status);
-        setStatusMap(map);
-        setDirtyDirs(computeDirtyDirs(entries, effectiveRoot));
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveRoot, worktrees, autoWorktree, refreshKey]);
-
-  // ── Watch-triggered partial refresh ──
-  const effectiveRootRef = useRef(effectiveRoot);
-  effectiveRootRef.current = effectiveRoot;
-  const expandedRef = useRef(expanded);
-  expandedRef.current = expanded;
-
-  const refreshEpochRef = useRef(0);
-  const prevRootRef = useRef('');
-  useEffect(() => {
-    const root = effectiveRootRef.current;
-    if (!root) return;
-    // If root changed, Phase 2 handles it; skip partial refresh here
-    if (prevRootRef.current !== root) {
-      prevRootRef.current = root;
-      return;
-    }
-
-    const epoch = ++refreshEpochRef.current;
-
-    async function partialRefresh() {
-      const root = effectiveRootRef.current;
-      if (!root) return;
-
-      // Re-fetch top-level
-      try {
-        const { entries } = await hostClient.rpc('fs.readdir', { path: root });
-        if (refreshEpochRef.current !== epoch) return;
-        setTopEntries(sortEntries(entries));
-      } catch {
-        if (refreshEpochRef.current !== epoch) return;
-      }
-
-      // Re-fetch all expanded dirs to keep cache fresh
-      const expandedPaths = [...expandedRef.current];
-      for (const absPath of expandedPaths) {
-        try {
-          const { entries } = await hostClient.rpc('fs.readdir', { path: absPath });
-          if (refreshEpochRef.current !== epoch) return;
-          setCache((c) => new Map(c).set(absPath, sortEntries(entries)));
-        } catch {
-          // keep existing cached data
-        }
-      }
-
-      // git 状态:由独立的着色 effect 随 refreshKey 一并刷新
-    }
-
-    void partialRefresh();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
-
-  // Reset tree expansion only when effectiveRoot actually changes
-  useEffect(() => {
-    setExpanded(new Set());
-    setCache(new Map());
-    setErrPaths(new Set());
-  }, [effectiveRoot]);
-
-  // ── Manual refresh ──
-  const handleRefresh = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-  }, []);
-
-  // ── Expand / collapse ──
-  const toggleDir = useCallback(
-    (absPath: string) => {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        if (next.has(absPath)) {
-          next.delete(absPath);
-        } else {
-          next.add(absPath);
-          // lazy-load if not yet cached
-          if (!cache.has(absPath)) {
-            hostClient
-              .rpc('fs.readdir', { path: absPath })
-              .then(({ entries }) => {
-                setCache((c) => new Map(c).set(absPath, sortEntries(entries)));
-              })
-              .catch(() => {
-                setErrPaths((s) => new Set(s).add(absPath));
-              });
-          }
-        }
-        return next;
-      });
-    },
-    [cache],
-  );
 
   // ── Flatten tree ──
   function flattenTree(entries: DirEntry[], parentPath: string, depth: number): TreeNode[] {
@@ -506,8 +127,8 @@ export function FilePanel() {
   /** Diff 窗口上下文(头部 Diff 按钮与行级 diff 按钮共用) */
   function diffContext(): { toplevel: string; baseRef: string | null } {
     const toplevel = worktrees.some((wt) => wt.path === effectiveRoot)
-      ? effectiveRoot!
-      : autoWorktree!;
+      ? effectiveRoot
+      : autoWorktree;
     const isMainWorktree = effectiveRoot === mainWorktreePath;
     const mainBranch = worktrees[0]?.branch ?? null;
     return {
@@ -552,10 +173,6 @@ export function FilePanel() {
     },
     [activeTab, updateTabFilePanel],
   );
-
-  const handleWorktreeReload = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-  }, []);
 
   // ── Mode toggle ──
   const handleModeRoot = useCallback(() => {
@@ -668,7 +285,7 @@ export function FilePanel() {
               </select>
               <button
                 className="file-panel__ctrl-btn file-panel__ctrl-btn--icon"
-                onClick={handleWorktreeReload}
+                onClick={refresh}
                 title="Reload worktrees"
               >
                 ⟳
@@ -706,7 +323,7 @@ export function FilePanel() {
               Diff
             </button>
           )}
-          <button className="file-panel__refresh" onClick={handleRefresh} title="Refresh">
+          <button className="file-panel__refresh" onClick={refresh} title="Refresh">
             ⟳
           </button>
         </div>
