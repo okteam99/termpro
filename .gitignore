@@ -1,0 +1,15 @@
+# dependencies & build
+node_modules/
+dist/
+out/
+.vite/
+
+# local research clones
+ghostty/
+
+# OS / editor
+.DS_Store
+*.log
+
+# claude code local settings
+.claude/settings.local.json
