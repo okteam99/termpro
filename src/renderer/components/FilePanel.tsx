@@ -173,6 +173,10 @@ export function FilePanel() {
     if (!displayedRoot) return;
 
     const epoch = ++epochRef.current;
+    // 卸载时 effect body 不再执行、epoch 不会推进,必须用本地 cancelled 旗标
+    // 兜住「unmount 与在途 fs.watch 竞态」,否则 host 侧 watcher 泄漏
+    let cancelled = false;
+    const stale = () => cancelled || epochRef.current !== epoch;
 
     // Clean up old watcher before setting a new one
     cleanupWatcher();
@@ -187,10 +191,10 @@ export function FilePanel() {
       // Fetch top-level entries
       try {
         const { entries } = await hostClient.rpc('fs.readdir', { path: displayedRoot });
-        if (epochRef.current !== epoch) return;
+        if (stale()) return;
         setTopEntries(sortEntries(entries));
       } catch {
-        if (epochRef.current !== epoch) return;
+        if (stale()) return;
         setTopEntries([]);
       }
 
@@ -198,7 +202,7 @@ export function FilePanel() {
       if (gitInfo?.toplevel) {
         try {
           const { entries } = await hostClient.rpc('git.status', { toplevel: displayedRoot });
-          if (epochRef.current !== epoch) return;
+          if (stale()) return;
           const map = new Map<string, GitFileStatus>();
           for (const e of entries) map.set(e.path, e.status);
           setStatusMap(map);
@@ -208,43 +212,31 @@ export function FilePanel() {
         }
       }
 
-      // Setup fs.watch — use a local capture to handle async race
-      if (epochRef.current !== epoch) return;
-      let localWatchId: number | null = null;
+      // Setup fs.watch — stale(含 unmount)时立即归还 watchId
+      if (stale()) return;
       try {
         const { watchId } = await hostClient.rpc('fs.watch', { path: displayedRoot });
-        if (epochRef.current !== epoch) {
-          // stale: immediately unwatch
+        if (stale()) {
           void hostClient.rpc('fs.unwatch', { watchId }).catch(() => {});
           return;
         }
-        localWatchId = watchId;
         watchIdRef.current = watchId;
-        const unsub = hostClient.onFsChanged((id) => {
+        fsUnsubRef.current = hostClient.onFsChanged((id) => {
           if (id === watchId) scheduleRefresh();
         });
-        fsUnsubRef.current = unsub;
       } catch {
         // fs.watch not available, continue without watcher
-        localWatchId;
       }
     }
 
     void fetchAll();
 
     return () => {
-      // Mark epoch stale so in-flight fetches are ignored
-      // (epochRef is incremented at next effect invocation, but ensure cleanup here too)
+      cancelled = true;
+      cleanupWatcher();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayedRoot]);
-
-  // Unmount cleanup
-  useEffect(() => {
-    return () => {
-      cleanupWatcher();
-    };
-  }, [cleanupWatcher]);
 
   // ── Watch-triggered partial refresh: re-fetch top-level + expanded dirs + git status ──
   // We use a separate effect that responds to refreshKey but NOT displayedRoot reset
@@ -256,6 +248,9 @@ export function FilePanel() {
   expandedRef.current = expanded;
 
   // When refreshKey increments due to watcher (not root-change), do a partial refresh
+  // 独立 epoch:不与 Phase 1/2 共用,否则会把同样由 refreshKey 触发的
+  // Phase 1 重解析(手动 ⟳ 需要重新拿 cwd)误判为过期
+  const refreshEpochRef = useRef(0);
   const prevRootRef = useRef('');
   useEffect(() => {
     const root = displayedRootRef.current;
@@ -266,7 +261,7 @@ export function FilePanel() {
       return;
     }
 
-    const epoch = ++epochRef.current;
+    const epoch = ++refreshEpochRef.current;
 
     async function partialRefresh() {
       const root = displayedRootRef.current;
@@ -275,10 +270,10 @@ export function FilePanel() {
       // Re-fetch top-level
       try {
         const { entries } = await hostClient.rpc('fs.readdir', { path: root });
-        if (epochRef.current !== epoch) return;
+        if (refreshEpochRef.current !== epoch) return;
         setTopEntries(sortEntries(entries));
       } catch {
-        if (epochRef.current !== epoch) return;
+        if (refreshEpochRef.current !== epoch) return;
       }
 
       // Re-fetch all expanded dirs to keep cache fresh
@@ -286,7 +281,7 @@ export function FilePanel() {
       for (const absPath of expandedPaths) {
         try {
           const { entries } = await hostClient.rpc('fs.readdir', { path: absPath });
-          if (epochRef.current !== epoch) return;
+          if (refreshEpochRef.current !== epoch) return;
           setCache((c) => new Map(c).set(absPath, sortEntries(entries)));
         } catch {
           // keep existing cached data
@@ -298,7 +293,7 @@ export function FilePanel() {
       if (info?.toplevel) {
         try {
           const { entries } = await hostClient.rpc('git.status', { toplevel: root });
-          if (epochRef.current !== epoch) return;
+          if (refreshEpochRef.current !== epoch) return;
           const map = new Map<string, GitFileStatus>();
           for (const e of entries) map.set(e.path, e.status);
           setStatusMap(map);

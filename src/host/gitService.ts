@@ -80,7 +80,12 @@ export async function gitStatus(
     const path = rec.slice(3);
     let status: GitFileStatus;
     if (x === '?') status = 'untracked';
-    else if (x === 'U' || y === 'U' || (x === 'A' && y === 'A')) {
+    else if (
+      x === 'U' ||
+      y === 'U' ||
+      (x === 'A' && y === 'A') ||
+      (x === 'D' && y === 'D') // both-deleted 也是未合并冲突态
+    ) {
       status = 'conflicted';
     } else if (x === 'R' || x === 'C') {
       status = 'renamed';

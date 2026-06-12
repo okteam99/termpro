@@ -60,15 +60,16 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
 > tab 只是会话,跑在主仓还是某个 worktree 由用户决定;关 tab 不碰 worktree。
 > TermPro 只做「感知与展示」:识别会话所在的仓库/工作区并联动 UI。
 
-- [ ] Workspace 可重命名(侧栏内联编辑,持久化)
-- [ ] 侧栏 workspace 项显示主工作区(main worktree)当前分支名
-- [ ] 新建 tab 可选择起始目录(默认 workspace root,也可指到任意目录,如已有 worktree)
-- [ ] 文件面板随会话联动:切换/点击 session 时——
+✅ 2026-06 完成:
+- [x] Workspace 可重命名(侧栏内联编辑,持久化)
+- [x] 侧栏 workspace 项显示主工作区(main worktree)当前分支名
+- [x] 新建 tab 可选择起始目录(默认 workspace root,也可指到任意目录,如已有 worktree)
+- [x] 文件面板随会话联动:切换/点击 session 时——
       Root 视图 = 该会话所属仓库的主工作区根;
-      WorkTree 视图 = 该会话所在工作区根(`git rev-parse --show-toplevel`,非 git 目录回退 cwd)
-- [ ] 右侧文件树:watch 自动刷新、git 状态着色
-- [ ] Host 新增 git 服务:`git.info(cwd)` → { toplevel, mainWorktree, branch }
-      (shell out `git rev-parse` / `git worktree list --porcelain` / `git branch --show-current`)
+      WorkTree 视图 = 该会话所在工作区根(`git rev-parse --show-toplevel`,非 git 目录回退 cwd;
+      实时 cwd 经 `pty.cwd`/lsof 按需查询,OSC 7 可用时即时跟随)
+- [x] 右侧文件树:watch 自动刷新(保留展开态)、git 状态着色(含目录上卷)
+- [x] Host git 服务:`git.info(cwd)` / `git.status(toplevel)` / `pty.cwd` / `fs.watch`
 
 ### M3 — 状态感知与通知(差异化核心)
 - [ ] 信号①:轮询 `pty.process` 前台进程名(running / idle 的硬信号,零协议依赖)
