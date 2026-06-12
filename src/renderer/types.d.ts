@@ -16,7 +16,7 @@ declare global {
       openInEditor(editor: 'vscode' | 'zed', path: string): void;
       onUpdateEvent(
         callback: (e: {
-          state: 'available' | 'downloading' | 'restarting' | 'error';
+          state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
           version?: string;
         }) => void,
       ): () => void;

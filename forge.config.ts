@@ -50,6 +50,7 @@ const config: ForgeConfig = {
     // spawn-helper 可执行文件,留在 asar 内无法 exec
     asar: { unpack: '**/node_modules/node-pty/**' },
     appBundleId: 'com.okteam99.termpro',
+    icon: './assets/icon', // packager 自动按平台补 .icns/.ico
     ...(signingIdentity
       ? {
           osxSign: { identity: signingIdentity },

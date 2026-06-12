@@ -8,6 +8,7 @@ import {
   utilityProcess,
 } from 'electron';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
@@ -287,6 +288,11 @@ const createWindow = () => {
 };
 
 app.on('ready', () => {
+  // dev 模式 Dock 图标(打包版由 packagerConfig.icon 提供)
+  if (!app.isPackaged && process.platform === 'darwin') {
+    const devIcon = path.join(__dirname, '../../assets/icon.png');
+    if (fs.existsSync(devIcon)) app.dock?.setIcon(devIcon);
+  }
   buildMenu();
   createWindow();
 });

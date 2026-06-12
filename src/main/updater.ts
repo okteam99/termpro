@@ -12,12 +12,22 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const FIRST_CHECK_DELAY_MS = 10_000;
 
 export interface UpdateEvent {
-  state: 'available' | 'downloading' | 'restarting' | 'error';
+  state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
   version?: string;
 }
 
 let latest: { version: string; htmlUrl: string } | null = null;
 let installing = false;
+/** Squirrel 无下载进度事件,只能靠看门狗兜底真卡死的情况 */
+let watchdog: NodeJS.Timeout | null = null;
+const WATCHDOG_MS = 15 * 60 * 1000;
+
+function clearWatchdog(): void {
+  if (watchdog) {
+    clearTimeout(watchdog);
+    watchdog = null;
+  }
+}
 
 function broadcast(payload: UpdateEvent): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -61,6 +71,7 @@ async function check(): Promise<void> {
 }
 
 function fallbackToReleasePage(): void {
+  clearWatchdog();
   installing = false;
   broadcast({ state: 'error', version: latest?.version });
   if (latest) void shell.openExternal(latest.htmlUrl);
@@ -70,7 +81,12 @@ export function initUpdater(): void {
   ipcMain.on('update:install', () => {
     if (!latest || installing) return;
     installing = true;
-    broadcast({ state: 'downloading', version: latest.version });
+    console.log('[updater] install requested for v%s', latest.version);
+    broadcast({ state: 'checking', version: latest.version });
+    watchdog = setTimeout(() => {
+      console.error('[updater] watchdog timeout (15min), falling back');
+      fallbackToReleasePage();
+    }, WATCHDOG_MS);
     try {
       autoUpdater.checkForUpdates();
     } catch (err) {
@@ -95,8 +111,19 @@ export function initUpdater(): void {
   autoUpdater.setFeedURL({
     url: `https://update.electronjs.org/${REPO}/darwin-${process.arch}/${app.getVersion()}`,
   });
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[updater] checking feed…');
+  });
+  autoUpdater.on('update-available', () => {
+    if (!installing) return;
+    // Squirrel:available 即开始下载(无进度事件,包 ~120MB 需数分钟)
+    console.log('[updater] update found, downloading…');
+    broadcast({ state: 'downloading', version: latest?.version });
+  });
   autoUpdater.on('update-downloaded', () => {
     if (!installing) return;
+    console.log('[updater] downloaded, restarting to install');
+    clearWatchdog();
     broadcast({ state: 'restarting', version: latest?.version });
     autoUpdater.quitAndInstall();
   });

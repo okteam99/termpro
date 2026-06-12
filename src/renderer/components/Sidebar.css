@@ -279,11 +279,22 @@
   opacity: 0.88;
 }
 
+.sidebar-update-pill--checking,
 .sidebar-update-pill--downloading,
 .sidebar-update-pill--restarting {
   background: var(--bg-active);
   color: var(--fg-dim);
   cursor: default;
+}
+
+.sidebar-update-pill--checking,
+.sidebar-update-pill--downloading {
+  animation: update-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes update-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 .sidebar-update-pill--error {

@@ -50,7 +50,7 @@ function BellIcon() {
 /** 左下角升级胶囊:有新 Release 时出现,点击下载并升级 */
 function UpdatePill() {
   const [ev, setEv] = useState<{
-    state: 'available' | 'downloading' | 'restarting' | 'error';
+    state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
     version?: string;
   } | null>(null);
 
@@ -60,17 +60,23 @@ function UpdatePill() {
   const label =
     ev.state === 'available'
       ? `⬆ 新版本 v${ev.version} — 点击升级`
-      : ev.state === 'downloading'
-        ? '正在下载更新…'
-        : ev.state === 'restarting'
-          ? '即将重启完成升级…'
-          : '自动升级失败,已打开发布页';
+      : ev.state === 'checking'
+        ? '正在连接更新源…'
+        : ev.state === 'downloading'
+          ? '下载中(约 120MB,完成后自动重启)…'
+          : ev.state === 'restarting'
+            ? '即将重启完成升级…'
+            : '自动升级失败,已打开发布页';
 
   return (
     <button
       className={`sidebar-update-pill sidebar-update-pill--${ev.state}`}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      disabled={ev.state === 'downloading' || ev.state === 'restarting'}
+      disabled={
+        ev.state === 'checking' ||
+        ev.state === 'downloading' ||
+        ev.state === 'restarting'
+      }
       onClick={() => window.termpro.installUpdate()}
       title="下载新版本并自动重启升级"
     >
