@@ -290,24 +290,7 @@ export function FilePanel() {
         setTopEntries([]);
       }
 
-      // Fetch git status — only when effectiveRoot is a known git toplevel.
-      // Check: worktrees list contains effectiveRoot, or autoWorktree === effectiveRoot.
-      const isGitToplevel =
-        (worktrees.length > 0 && worktrees.some((wt) => wt.path === effectiveRoot)) ||
-        (autoWorktree !== '' && autoWorktree === effectiveRoot);
-
-      if (isGitToplevel) {
-        try {
-          const { entries } = await hostClient.rpc('git.status', { toplevel: effectiveRoot });
-          if (stale()) return;
-          const map = new Map<string, GitFileStatus>();
-          for (const e of entries) map.set(e.path, e.status);
-          setStatusMap(map);
-          setDirtyDirs(computeDirtyDirs(entries, effectiveRoot));
-        } catch {
-          // ignore git status errors
-        }
-      }
+      // git 状态由独立 effect 拉取(见下),这里只管树与 watch
 
       // Setup fs.watch — return watchId immediately if stale
       if (stale()) return;
@@ -335,17 +318,42 @@ export function FilePanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveRoot]);
 
+  // ── git 状态着色:独立 effect ──
+  // 首启竞态:持久化 rootPath 使 Phase 2 先于 Phase 1 执行,彼时
+  // worktrees/autoWorktree 还是空值,「是否 git 根」误判为否而跳过
+  // git.status;Phase 1 补全后 effectiveRoot 未变、Phase 2 不重跑,
+  // 颜色永远缺席。独立依赖这些输入后,谁后到都能补上。
+  const statusEpochRef = useRef(0);
+  useEffect(() => {
+    if (!effectiveRoot) return;
+    const epoch = ++statusEpochRef.current;
+    const isGitToplevel =
+      (worktrees.length > 0 &&
+        worktrees.some((wt) => wt.path === effectiveRoot)) ||
+      (autoWorktree !== '' && autoWorktree === effectiveRoot);
+    if (!isGitToplevel) {
+      setStatusMap(new Map());
+      setDirtyDirs(new Set());
+      return;
+    }
+    hostClient
+      .rpc('git.status', { toplevel: effectiveRoot })
+      .then(({ entries }) => {
+        if (statusEpochRef.current !== epoch) return;
+        const map = new Map<string, GitFileStatus>();
+        for (const e of entries) map.set(e.path, e.status);
+        setStatusMap(map);
+        setDirtyDirs(computeDirtyDirs(entries, effectiveRoot));
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveRoot, worktrees, autoWorktree, refreshKey]);
+
   // ── Watch-triggered partial refresh ──
   const effectiveRootRef = useRef(effectiveRoot);
   effectiveRootRef.current = effectiveRoot;
-  const gitInfoRef = useRef(gitInfo);
-  gitInfoRef.current = gitInfo;
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
-  const worktreesRef = useRef(worktrees);
-  worktreesRef.current = worktrees;
-  const autoWorktreeRef = useRef(autoWorktree);
-  autoWorktreeRef.current = autoWorktree;
 
   const refreshEpochRef = useRef(0);
   const prevRootRef = useRef('');
@@ -385,25 +393,7 @@ export function FilePanel() {
         }
       }
 
-      // Re-fetch git status
-      const wts = worktreesRef.current;
-      const awt = autoWorktreeRef.current;
-      const isGitToplevel =
-        (wts.length > 0 && wts.some((wt) => wt.path === root)) ||
-        (awt !== '' && awt === root);
-
-      if (isGitToplevel) {
-        try {
-          const { entries } = await hostClient.rpc('git.status', { toplevel: root });
-          if (refreshEpochRef.current !== epoch) return;
-          const map = new Map<string, GitFileStatus>();
-          for (const e of entries) map.set(e.path, e.status);
-          setStatusMap(map);
-          setDirtyDirs(computeDirtyDirs(entries, root));
-        } catch {
-          // ignore
-        }
-      }
+      // git 状态:由独立的着色 effect 随 refreshKey 一并刷新
     }
 
     void partialRefresh();
