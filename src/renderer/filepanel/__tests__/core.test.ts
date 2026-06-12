@@ -420,6 +420,29 @@ describe('topDone/statusDone/childFail', () => {
 
 // ── 9. 迁移纯函数 ─────────────────────────────────────────────────────────────
 
+describe('watchReady', () => {
+  it('首个 watcher → 采纳,无 effect', () => {
+    const s = stateWithRoot('/repo');
+    const out = reduce(s, { t: 'watchReady', root: '/repo', watchId: 7 });
+    expect(out.state.watchId).toBe(7);
+    expect(out.effects).toHaveLength(0);
+  });
+
+  it('同根并发两个 startWatch(A→B→A 往返)→ 采纳后到者,旧 watchId 补 stopWatch', () => {
+    const s = stateWithRoot('/repo', { watchId: 7 });
+    const out = reduce(s, { t: 'watchReady', root: '/repo', watchId: 9 });
+    expect(out.state.watchId).toBe(9);
+    expect(out.effects).toEqual([{ k: 'stopWatch', watchId: 7 }]);
+  });
+
+  it('重复送达同一 watchId → 采纳,不自停', () => {
+    const s = stateWithRoot('/repo', { watchId: 7 });
+    const out = reduce(s, { t: 'watchReady', root: '/repo', watchId: 7 });
+    expect(out.state.watchId).toBe(7);
+    expect(out.effects).toHaveLength(0);
+  });
+});
+
 describe('computeDirtyDirs', () => {
   it('ignored 不上卷', () => {
     const entries: GitStatusEntry[] = [

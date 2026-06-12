@@ -616,6 +616,7 @@ describe('FilePanelController', () => {
   });
 
   // 10. cd 轮询触发重解析不重拉树
+  // 验证语义:rootPath 锁定情况下,cd 漂移触发 resolve 重跑,但 effectiveRoot 不变所以树不重拉
   it('cd 轮询:同值不触发 resolve;漂移触发 resolve 不重拉树', async () => {
     const fake = makeFakeDeps();
     const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
@@ -640,38 +641,39 @@ describe('FilePanelController', () => {
     const readdirAfterStable = fake.readdir.callCount();
     const gitInfoAfterStable = fake.gitInfo.callCount();
 
-    // 第一次 tick:liveCwd 已经是 '/repo'(resolveDone 把 lastPolledCwd 设为 '/repo')
-    // 轮询 tick cwd='/repo'(同值)→ 只记录
+    // 同值 tick:不触发 resolve
     vi.advanceTimersByTime(2000);
     await flush();
     fake.ptyCwd.resolveNext({ cwd: '/repo' });
     await flush();
-    // 同值不触发 resolve → gitInfo 没有新增调用
     expect(fake.gitInfo.callCount()).toBe(gitInfoAfterStable);
 
-    // 第二次 tick:漂移到 '/elsewhere'
+    // 漂移 tick:cd 到 '/elsewhere' → 触发 resolve(gen+1)
+    // 轮询 → ptyCwd('/elsewhere') → pollTick dispatch → runResolve → ptyCwd again
+    // 用辅助函数帮助释放所有未决的 ptyCwd 队列
     vi.advanceTimersByTime(2000);
     await flush();
-    // 这次 ptyCwd 来自轮询 interval(#3)
-    const ptyCwdBeforeDriftTick = fake.ptyCwd.callCount();
-    fake.ptyCwd.resolveNext({ cwd: '/elsewhere' });
-    // 等 pollTick dispatch 完成 → resolve effect → runResolve 启动
-    await flush();
-    await flush();
-    await flush();
-    await flush();
-    // runResolve 调了 ptyCwd(#4);如果确有新 ptyCwd 调用则放行
-    if (fake.ptyCwd.callCount() > ptyCwdBeforeDriftTick + 1) {
-      // 有额外的 ptyCwd(来自 runResolve)
-      fake.ptyCwd.resolveNext({ cwd: '/elsewhere' });
+    // 循环放行所有 pending ptyCwd 直到 gitInfo 被调或超时
+    let attempts = 0;
+    while (fake.gitInfo.callCount() <= gitInfoAfterStable && attempts < 10) {
+      const idx = fake.ptyCwd.calls.findIndex((c) => !(c as { settled?: boolean }).settled);
+      if (idx !== -1) {
+        (fake.ptyCwd.calls[idx] as { settled?: boolean }).settled = true;
+        fake.ptyCwd.calls[idx].deferred.resolve({ cwd: '/elsewhere' });
+      }
       await flush();
+      attempts++;
     }
 
     // 触发新 resolve(gen+1) → gitInfo 被再次调用
     expect(fake.gitInfo.callCount()).toBeGreaterThan(gitInfoAfterStable);
 
-    // resolve 链放行(rootPath='/repo',effectiveRoot 不变)
-    fake.gitInfo.resolveNext(makeGitInfo('/repo'));
+    // resolve 链放行:cwd='/elsewhere',anchor=rootPath='/repo'
+    // runResolve:gitInfo(cwd) → autoRoot='/repo';anchor='/repo'≠cwd → anchorInfo=gitInfo(anchor)
+    fake.gitInfo.resolveNext(makeGitInfo('/repo'));   // gitInfo('/elsewhere') 结果
+    await flush();
+    // anchor !== cwd → 第二次调用 gitInfo(anchor='/repo')
+    fake.gitInfo.resolveNext(makeGitInfo('/repo'));   // gitInfo('/repo') 结果
     await flush();
     fake.gitWorktrees.resolveNext({ worktrees: [wt('/repo')] });
     await flush();
@@ -680,8 +682,7 @@ describe('FilePanelController', () => {
 
     // readdir 顶层计数不变(树没动)
     expect(fake.readdir.callCount()).toBe(readdirAfterStable);
-    // autoRoot 跟随(cwd 为 '/elsewhere' → 非 git → autoRoot = '/elsewhere')
-    // 但 snapshot.effectiveRoot 仍为 '/repo'(rootPath 绑定不动)
+    // effectiveRoot 仍为 '/repo'(rootPath 绑定不动)
     expect(ctrl.getSnapshot().effectiveRoot).toBe('/repo');
 
     ctrl.dispose();

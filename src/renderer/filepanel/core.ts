@@ -367,8 +367,13 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
     }
 
     case 'watchReady': {
-      // root 闸已过
-      return { state: { ...state, watchId: ev.watchId }, effects: [] };
+      // root 闸已过。同根快速往返(A→B→A)可能并发两个 startWatch:
+      // 采纳后到者,旧 watchId 必须补停,否则 host 侧 watcher 泄漏
+      const effects: FilePanelEffect[] =
+        state.watchId !== null && state.watchId !== ev.watchId
+          ? [{ k: 'stopWatch', watchId: state.watchId }]
+          : [];
+      return { state: { ...state, watchId: ev.watchId }, effects };
     }
 
     case 'statusDone': {
