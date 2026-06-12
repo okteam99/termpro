@@ -106,6 +106,7 @@ export function initUpdater(): void {
   });
 
   if (!app.isPackaged) return; // dev 构建不查更新、不配 autoUpdater
+  if (app.getName().includes('Dev')) return; // DEV 渠道包同样不查
 
   // listener 与 feed 全局只配一次;installing 门控使其只在安装期生效
   autoUpdater.setFeedURL({

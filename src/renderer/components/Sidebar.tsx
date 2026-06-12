@@ -219,8 +219,13 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* 左下角:升级提示 */}
+      {/* 左下角:DEV 渠道标识 + 升级提示 */}
       <div className="sidebar-footer">
+        {window.termpro.devChannel && (
+          <span className="sidebar-dev-badge" title="开发渠道构建,独立数据目录,不检查更新">
+            DEV
+          </span>
+        )}
         <UpdatePill />
       </div>
 

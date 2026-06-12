@@ -44,12 +44,18 @@ const canNotarize =
   !!process.env.APPLE_APP_SPECIFIC_PASSWORD &&
   !!process.env.APPLE_TEAM_ID;
 
+// make:dev 出 DEV 渠道包:独立名称/bundleId/userData,与正式版可同时安装
+const isDevBuild = !!process.env.TERMPRO_DEV_BUILD;
+
 const config: ForgeConfig = {
   packagerConfig: {
     // node-pty 整目录解出 asar:prebuilds 里除了 .node 还有
     // spawn-helper 可执行文件,留在 asar 内无法 exec
     asar: { unpack: '**/node_modules/node-pty/**' },
-    appBundleId: 'com.okteam99.termpro',
+    name: isDevBuild ? 'TermPro Dev' : 'TermPro',
+    appBundleId: isDevBuild
+      ? 'com.okteam99.termpro.dev'
+      : 'com.okteam99.termpro',
     icon: './assets/icon', // packager 自动按平台补 .icns/.ico
     ...(signingIdentity
       ? {

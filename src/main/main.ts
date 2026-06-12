@@ -19,6 +19,13 @@ if (started) {
   app.quit();
 }
 
+// DEV 渠道:npm start(未打包)或 make:dev 出的 "TermPro Dev" 包。
+// 独立 userData、不查更新、UI 显示红色 DEV 徽标,与正式版可同时安装。
+const isDevChannel = !app.isPackaged || app.getName().includes('Dev');
+if (!app.isPackaged && !process.env.TERMPRO_SMOKE) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'TermPro-Dev'));
+}
+
 // 冒烟模式用独立 userData:不污染真实布局存档,且结果可复现
 if (process.env.TERMPRO_SMOKE) {
   app.setPath('userData', path.join(os.tmpdir(), 'termpro-smoke'));
@@ -87,6 +94,39 @@ ipcMain.on('editor:open', (_event, editor: string, targetPath: string) => {
   child.on('error', (err) => console.error('[main] editor open failed:', err));
   child.unref();
 });
+
+// 终端右键菜单:渲染层报选区状态,这里弹原生菜单并回传动作
+ipcMain.handle(
+  'terminal:context-menu',
+  (event, opts: { hasSelection: boolean }) => {
+    return new Promise<string | null>((resolve) => {
+      let settled = false;
+      const done = (v: string | null) => {
+        if (!settled) {
+          settled = true;
+          resolve(v);
+        }
+      };
+      const menu = Menu.buildFromTemplate([
+        {
+          label: '复制',
+          enabled: !!opts?.hasSelection,
+          click: () => done('copy'),
+        },
+        { label: '粘贴', click: () => done('paste') },
+        { type: 'separator' },
+        { label: '全选', click: () => done('selectAll') },
+        { label: '清屏', click: () => done('clear') },
+      ]);
+      const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      // callback 在菜单关闭时触发;延后一拍让 click 先落
+      menu.popup({
+        window: win,
+        callback: () => setTimeout(() => done(null), 60),
+      });
+    });
+  },
+);
 
 ipcMain.handle('dialog:pick-directory', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -259,9 +299,10 @@ const createWindow = () => {
       nodeIntegration: false,
       sandbox: true,
       // 沙箱 preload 没有 process.env,冒烟开关经 argv 传递
-      additionalArguments: process.env.TERMPRO_SMOKE
-        ? ['--termpro-smoke']
-        : [],
+      additionalArguments: [
+        ...(process.env.TERMPRO_SMOKE ? ['--termpro-smoke'] : []),
+        ...(isDevChannel ? ['--termpro-dev'] : []),
+      ],
     },
   });
 

@@ -70,11 +70,40 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
     return () => ro.disconnect();
   }, [active, tabId]);
 
+  // 右键菜单:复制/粘贴/全选/清屏(原生菜单,粘贴走 term.paste
+  // 以正确处理 bracketed paste)
+  const handleContextMenu = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    const inst = getOrCreateTerminal(tabId);
+    const selection = inst.term.getSelection();
+    const action = await window.termpro.showTerminalContextMenu({
+      hasSelection: selection.length > 0,
+    });
+    switch (action) {
+      case 'copy':
+        if (selection) window.termpro.clipboardWriteText(selection);
+        break;
+      case 'paste': {
+        const text = window.termpro.clipboardReadText();
+        if (text) inst.term.paste(text);
+        inst.term.focus();
+        break;
+      }
+      case 'selectAll':
+        inst.term.selectAll();
+        break;
+      case 'clear':
+        inst.term.clear();
+        break;
+    }
+  };
+
   return (
     <div
       ref={containerRef}
       className="terminal-host"
       style={{ display: active ? 'block' : 'none' }}
+      onContextMenu={(e) => void handleContextMenu(e)}
     />
   );
 }

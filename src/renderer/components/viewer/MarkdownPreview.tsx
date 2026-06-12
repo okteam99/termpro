@@ -91,11 +91,12 @@ interface Transform {
 const SCALE_MIN = 0.2;
 const SCALE_MAX = 8;
 
-function SvgLightbox({ svg, onClose }: { svg: string; onClose: () => void }) {
+function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const naturalRef = useRef({ w: 800, h: 600 });
   const [t, setT] = useState<Transform>({ scale: 1, x: 0, y: 0 });
+  const [renderError, setRenderError] = useState<string | null>(null);
   const dragRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
 
   const fit = useCallback(() => {
@@ -110,22 +111,39 @@ function SvgLightbox({ svg, onClose }: { svg: string; onClose: () => void }) {
     });
   }, []);
 
-  // 初始:量取 svg 固有尺寸 → 适配视口
+  // 用原始 mermaid 源码在灯箱内重新渲染(与内联同一条管线,
+  // 不做「序列化 + 再消毒」——那条路会丢标签),然后量尺寸适配视口
   useEffect(() => {
-    const ct = contentRef.current;
-    if (!ct) return;
-    const svgEl = ct.querySelector('svg');
-    if (!svgEl) return;
-    // mermaid 给 svg 带 max-width 行内样式,清掉才能按真实尺寸缩放
-    svgEl.style.maxWidth = 'none';
-    const vb = svgEl.viewBox?.baseVal;
-    const w = vb?.width || svgEl.getBoundingClientRect().width || 800;
-    const h = vb?.height || svgEl.getBoundingClientRect().height || 600;
-    svgEl.setAttribute('width', String(w));
-    svgEl.setAttribute('height', String(h));
-    naturalRef.current = { w, h };
-    fit();
-  }, [svg, fit]);
+    let cancelled = false;
+    setRenderError(null);
+    void (async () => {
+      try {
+        const mmd = await getMermaid();
+        const id = `lb-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6)}`;
+        const { svg } = await mmd.render(id, chunk);
+        if (cancelled) return;
+        const ct = contentRef.current;
+        if (!ct) return;
+        ct.innerHTML = svg; // strict 模式输出,mermaid 内置消毒
+        const svgEl = ct.querySelector('svg');
+        if (!svgEl) return;
+        // mermaid 给 svg 带 max-width 行内样式,清掉才能按真实尺寸缩放
+        svgEl.style.maxWidth = 'none';
+        const vb = svgEl.viewBox?.baseVal;
+        const w = vb?.width || svgEl.getBoundingClientRect().width || 800;
+        const h = vb?.height || svgEl.getBoundingClientRect().height || 600;
+        svgEl.setAttribute('width', String(w));
+        svgEl.setAttribute('height', String(h));
+        naturalRef.current = { w, h };
+        fit();
+      } catch {
+        if (!cancelled) setRenderError('mermaid 渲染失败');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chunk, fit]);
 
   // 滚轮缩放(锚定光标);React 的 wheel 是 passive,必须原生监听
   useEffect(() => {
@@ -165,6 +183,8 @@ function SvgLightbox({ svg, onClose }: { svg: string; onClose: () => void }) {
       ref={viewportRef}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
+        // 工具条上的按下不进入拖拽,否则 pointer capture 会吞掉按钮 click
+        if ((e.target as Element).closest('.md-lb-toolbar')) return;
         dragRef.current = { px: e.clientX, py: e.clientY, ox: t.x, oy: t.y };
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       }}
@@ -189,13 +209,8 @@ function SvgLightbox({ svg, onClose }: { svg: string; onClose: () => void }) {
         ref={contentRef}
         className="md-lb-content"
         style={{ transform: `translate(${t.x}px, ${t.y}px) scale(${t.scale})` }}
-        // 防御纵深:htmlLabels:false 后纯 SVG,svg profile 消毒不丢内容
-        dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(svg, {
-            USE_PROFILES: { svg: true, svgFilters: true },
-          }),
-        }}
       />
+      {renderError && <div className="viewer-message">{renderError}</div>}
       <div className="md-lb-toolbar">
         <button onClick={() => zoomBy(1 / 1.25)} title="缩小">
           −
@@ -225,23 +240,24 @@ interface OutlineItem {
 
 export function MarkdownPreview({ path, getEditorValue }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [lightboxSvg, setLightboxSvg] = useState<string | null>(null);
+  const chunksRef = useRef<string[]>([]);
+  const [lightboxChunk, setLightboxChunk] = useState<string | null>(null);
   const [outline, setOutline] = useState<OutlineItem[]>([]);
   const [outlineOpen, setOutlineOpen] = useState(true);
 
   // 灯箱:Esc 关闭(capture + stopPropagation,不触发窗口级关闭)
   useEffect(() => {
-    if (!lightboxSvg) return;
+    if (!lightboxChunk) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        setLightboxSvg(null);
+        setLightboxChunk(null);
       }
     };
     window.addEventListener('keydown', onKey, { capture: true });
     return () =>
       window.removeEventListener('keydown', onKey, { capture: true });
-  }, [lightboxSvg]);
+  }, [lightboxChunk]);
 
   // 主渲染:挂载 / path 变化时执行
   useEffect(() => {
@@ -289,6 +305,7 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
       const nonce = crypto.randomUUID();
       const { html, chunks } = buildHtml(rawText, nonce);
       if (cancelled) return;
+      chunksRef.current = chunks;
       root.innerHTML = html;
 
       // 3. 大纲:h1-h4 赋 id 收集
@@ -352,13 +369,16 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
 
-  // 点击 mermaid 图 → 灯箱
+  // 点击 mermaid 图 → 灯箱(传原始源码,灯箱内重新渲染)
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = (e.target as Element).closest<HTMLElement>('.md-mermaid');
     if (!el) return;
-    const svgEl = el.querySelector('svg');
-    if (!svgEl) return;
-    setLightboxSvg(svgEl.outerHTML);
+    const key = el.getAttribute('data-mmd');
+    if (!key) return;
+    const idx = Number(key.slice(key.lastIndexOf('-') + 1));
+    const chunk = chunksRef.current[idx];
+    if (chunk == null) return;
+    setLightboxChunk(chunk);
   };
 
   const scrollToHeading = (id: string) => {
@@ -407,16 +427,19 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
           />
         </div>
       </div>
-      {lightboxSvg && (
+      {lightboxChunk && (
         <div
           className="md-lightbox"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setLightboxSvg(null);
+            if (e.target === e.currentTarget) setLightboxChunk(null);
           }}
           role="dialog"
           aria-modal="true"
         >
-          <SvgLightbox svg={lightboxSvg} onClose={() => setLightboxSvg(null)} />
+          <SvgLightbox
+            chunk={lightboxChunk}
+            onClose={() => setLightboxChunk(null)}
+          />
         </div>
       )}
     </>

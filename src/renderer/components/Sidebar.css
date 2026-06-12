@@ -302,3 +302,20 @@
   border: 1px solid var(--border);
   color: var(--fg-dim);
 }
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-dev-badge {
+  flex: none;
+  color: #e06c75;
+  border: 1px solid #e06c75;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+}

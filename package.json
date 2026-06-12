@@ -12,7 +12,8 @@
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "make:dev": "TERMPRO_DEV_BUILD=1 electron-forge make"
   },
   "keywords": [],
   "author": {

@@ -5,6 +5,7 @@ declare global {
     termpro: {
       platform: string;
       smoke: boolean;
+      devChannel: boolean;
       requestHostPort(): void;
       pickDirectory(): Promise<string | null>;
       onMenu(callback: (action: string) => void): () => void;
@@ -22,6 +23,11 @@ declare global {
       ): () => void;
       installUpdate(): void;
       openViewerWindow(payload: unknown): void;
+      showTerminalContextMenu(opts: {
+        hasSelection: boolean;
+      }): Promise<string | null>;
+      clipboardWriteText(text: string): void;
+      clipboardReadText(): string;
       onViewerAddTab(callback: (path: string) => void): () => void;
     };
   }
