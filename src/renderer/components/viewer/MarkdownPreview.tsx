@@ -1,10 +1,11 @@
-// Markdown 预览:marked + DOMPurify + mermaid(懒加载)+ 点击放大灯箱。
+// Markdown 预览:marked + DOMPurify + mermaid(懒加载)+ 大纲 + 可缩放灯箱。
 // 内容源:优先编辑器未保存值,否则读磁盘。
 // 安全边界:marked 原样透传 HTML,一切防护依赖 DOMPurify 默认严格配置;
-// mermaid 块走 lexer token 级抽取(围栏感知,文档里展示 ```mermaid 示例
-// 不会被误渲染),占位符用每次渲染的随机 nonce,用户内容无法伪造命中。
+// mermaid 块走 lexer token 级抽取(围栏感知),占位符用随机 nonce 防伪造;
+// mermaid 配置 htmlLabels:false → 标签为纯 SVG <text>,可安全序列化进灯箱
+// (svg profile 消毒不再剥掉 foreignObject 文本)。
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { marked, type Token, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import { hostClient } from '../../services/hostClient';
@@ -25,8 +26,11 @@ async function getMermaid(): Promise<typeof import('mermaid').default> {
       m.default.initialize({
         startOnLoad: false,
         theme: 'dark',
-        securityLevel: 'strict', // 输出经 mermaid 内置 DOMPurify 消毒
+        securityLevel: 'strict',
         darkMode: true,
+        // 纯 SVG 文本标签:灯箱序列化/svg-profile 消毒后文字不丢
+        flowchart: { htmlLabels: false },
+        class: { htmlLabels: false },
       });
       return m.default;
     });
@@ -73,14 +77,157 @@ function buildHtml(raw: string, nonce: string): BuildResult {
   const tokens = marked.lexer(raw, { gfm: true, breaks: false });
   replaceInList(tokens);
   const html = marked.parser(tokens);
-  // DOMPurify 默认配置即可:div/class/data-* 本就在默认白名单,
-  // on*/javascript:/script 等全部默认拒绝。占位符防伪造靠 nonce。
   return { html: DOMPurify.sanitize(html), chunks };
+}
+
+// ---- 可缩放拖拽灯箱 ----
+
+interface Transform {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+const SCALE_MIN = 0.2;
+const SCALE_MAX = 8;
+
+function SvgLightbox({ svg, onClose }: { svg: string; onClose: () => void }) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const naturalRef = useRef({ w: 800, h: 600 });
+  const [t, setT] = useState<Transform>({ scale: 1, x: 0, y: 0 });
+  const dragRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+
+  const fit = useCallback(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const { w, h } = naturalRef.current;
+    const scale = Math.min(vp.clientWidth / w, vp.clientHeight / h, 2) * 0.92;
+    setT({
+      scale,
+      x: (vp.clientWidth - w * scale) / 2,
+      y: (vp.clientHeight - h * scale) / 2,
+    });
+  }, []);
+
+  // 初始:量取 svg 固有尺寸 → 适配视口
+  useEffect(() => {
+    const ct = contentRef.current;
+    if (!ct) return;
+    const svgEl = ct.querySelector('svg');
+    if (!svgEl) return;
+    // mermaid 给 svg 带 max-width 行内样式,清掉才能按真实尺寸缩放
+    svgEl.style.maxWidth = 'none';
+    const vb = svgEl.viewBox?.baseVal;
+    const w = vb?.width || svgEl.getBoundingClientRect().width || 800;
+    const h = vb?.height || svgEl.getBoundingClientRect().height || 600;
+    svgEl.setAttribute('width', String(w));
+    svgEl.setAttribute('height', String(h));
+    naturalRef.current = { w, h };
+    fit();
+  }, [svg, fit]);
+
+  // 滚轮缩放(锚定光标);React 的 wheel 是 passive,必须原生监听
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = vp.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      setT((prev) => {
+        const factor = Math.exp(-e.deltaY * 0.0015);
+        const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, prev.scale * factor));
+        const k = scale / prev.scale;
+        return { scale, x: px - (px - prev.x) * k, y: py - (py - prev.y) * k };
+      });
+    };
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    return () => vp.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const zoomBy = (factor: number) => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const cx = vp.clientWidth / 2;
+    const cy = vp.clientHeight / 2;
+    setT((prev) => {
+      const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, prev.scale * factor));
+      const k = scale / prev.scale;
+      return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k };
+    });
+  };
+
+  return (
+    <div
+      className="md-lb-panel"
+      ref={viewportRef}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        dragRef.current = { px: e.clientX, py: e.clientY, ox: t.x, oy: t.y };
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        const d = dragRef.current;
+        if (!d) return;
+        setT((prev) => ({
+          ...prev,
+          x: d.ox + (e.clientX - d.px),
+          y: d.oy + (e.clientY - d.py),
+        }));
+      }}
+      onPointerUp={() => {
+        dragRef.current = null;
+      }}
+      onPointerCancel={() => {
+        dragRef.current = null;
+      }}
+      onDoubleClick={fit}
+    >
+      <div
+        ref={contentRef}
+        className="md-lb-content"
+        style={{ transform: `translate(${t.x}px, ${t.y}px) scale(${t.scale})` }}
+        // 防御纵深:htmlLabels:false 后纯 SVG,svg profile 消毒不丢内容
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(svg, {
+            USE_PROFILES: { svg: true, svgFilters: true },
+          }),
+        }}
+      />
+      <div className="md-lb-toolbar">
+        <button onClick={() => zoomBy(1 / 1.25)} title="缩小">
+          −
+        </button>
+        <span className="md-lb-scale">{Math.round(t.scale * 100)}%</span>
+        <button onClick={() => zoomBy(1.25)} title="放大">
+          +
+        </button>
+        <button onClick={fit} title="适配窗口(双击同效)">
+          重置
+        </button>
+        <button onClick={onClose} title="关闭(Esc)">
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- 大纲 ----
+
+interface OutlineItem {
+  id: string;
+  text: string;
+  level: number;
 }
 
 export function MarkdownPreview({ path, getEditorValue }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [lightboxSvg, setLightboxSvg] = useState<string | null>(null);
+  const [outline, setOutline] = useState<OutlineItem[]>([]);
+  const [outlineOpen, setOutlineOpen] = useState(true);
 
   // 灯箱:Esc 关闭(capture + stopPropagation,不触发窗口级关闭)
   useEffect(() => {
@@ -100,7 +247,6 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    // render 是提升的函数声明,TS 闭包收窄失效;显式重绑非空引用
     const root: HTMLDivElement = container;
     let cancelled = false;
 
@@ -110,6 +256,7 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
       msg.className = 'viewer-message';
       msg.textContent = text;
       container.appendChild(msg);
+      setOutline([]);
     };
 
     async function render() {
@@ -144,9 +291,23 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
       if (cancelled) return;
       root.innerHTML = html;
 
+      // 3. 大纲:h1-h4 赋 id 收集
+      const headings = Array.from(
+        root.querySelectorAll<HTMLElement>('h1, h2, h3, h4'),
+      );
+      const items: OutlineItem[] = [];
+      headings.forEach((h, i) => {
+        const text = h.textContent?.trim() ?? '';
+        if (!text) return;
+        const id = `md-h-${i}`;
+        h.id = id;
+        items.push({ id, text, level: Number(h.tagName[1]) });
+      });
+      setOutline(items);
+
       if (chunks.length === 0) return;
 
-      // 3. mermaid 渲染
+      // 4. mermaid 渲染
       let mmd: typeof import('mermaid').default;
       try {
         mmd = await getMermaid();
@@ -200,13 +361,52 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
     setLightboxSvg(svgEl.outerHTML);
   };
 
+  const scrollToHeading = (id: string) => {
+    containerRef.current
+      ?.querySelector(`#${CSS.escape(id)}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <>
-      <div
-        className="md-preview"
-        ref={containerRef}
-        onClick={handleContainerClick}
-      />
+      <div className="md-layout">
+        <div
+          className={`md-outline${outlineOpen ? '' : ' md-outline--closed'}`}
+        >
+          <button
+            className="md-outline-toggle"
+            onClick={() => setOutlineOpen((v) => !v)}
+            title={outlineOpen ? '收起大纲' : '展开大纲'}
+          >
+            {outlineOpen ? '‹ OUTLINE' : '›'}
+          </button>
+          {outlineOpen && (
+            <div className="md-outline-list">
+              {outline.length === 0 && (
+                <div className="md-outline-empty">(无标题)</div>
+              )}
+              {outline.map((it) => (
+                <div
+                  key={it.id}
+                  className="md-outline-item"
+                  style={{ paddingLeft: 10 + (it.level - 1) * 14 }}
+                  onClick={() => scrollToHeading(it.id)}
+                  title={it.text}
+                >
+                  {it.text}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="md-scroll">
+          <div
+            className="md-preview"
+            ref={containerRef}
+            onClick={handleContainerClick}
+          />
+        </div>
+      </div>
       {lightboxSvg && (
         <div
           className="md-lightbox"
@@ -216,24 +416,7 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
           role="dialog"
           aria-modal="true"
         >
-          <div className="md-lightbox-panel">
-            <button
-              className="md-lightbox-close"
-              onClick={() => setLightboxSvg(null)}
-              aria-label="关闭"
-            >
-              ×
-            </button>
-            <div
-              className="md-lightbox-svg"
-              // 防御纵深:即便上游已是 mermaid strict 消毒输出,灯箱再过一遍
-              dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(lightboxSvg, {
-                  USE_PROFILES: { svg: true, svgFilters: true },
-                }),
-              }}
-            />
-          </div>
+          <SvgLightbox svg={lightboxSvg} onClose={() => setLightboxSvg(null)} />
         </div>
       )}
     </>

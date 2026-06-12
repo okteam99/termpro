@@ -301,9 +301,7 @@
 /* ---- markdown 预览 ---- */
 
 .md-preview {
-  flex: 1;
-  overflow: auto;
-  padding: 20px 28px;
+  padding: 28px 10% 64px;
   line-height: 1.65;
   font-size: 14px;
   color: var(--fg);
@@ -443,45 +441,139 @@
   justify-content: center;
 }
 
-.md-lightbox-panel {
-  position: relative;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  max-width: 92vw;
-  max-height: 92vh;
-  overflow: auto;
+
+/* ---- markdown 布局:大纲 + 滚动区 ---- */
+
+.md-layout {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.md-lightbox-svg {
-  max-width: 100%;
-  max-height: calc(92vh - 64px);
+.md-outline {
+  flex: none;
+  width: 230px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.md-lightbox-svg svg {
-  width: 100%;
-  height: auto;
+.md-outline--closed {
+  width: 28px;
 }
 
-.md-lightbox-close {
-  position: absolute;
-  top: 8px;
-  right: 10px;
+.md-outline-toggle {
+  flex: none;
   background: transparent;
   border: none;
   color: var(--fg-dim);
-  font-size: 20px;
   cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  padding: 10px 12px;
+}
+
+.md-outline-toggle:hover {
+  color: var(--fg);
+}
+
+.md-outline-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 6px 12px;
+}
+
+.md-outline-item {
+  font-size: 12px;
+  color: var(--fg-dim);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.md-outline-item:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.md-outline-empty {
+  font-size: 11px;
+  color: var(--fg-dim);
+  padding: 8px;
+}
+
+.md-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+/* ---- 可缩放拖拽灯箱 ---- */
+
+.md-lb-panel {
+  position: relative;
+  width: 92vw;
+  height: 92vh;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.md-lb-panel:active {
+  cursor: grabbing;
+}
+
+.md-lb-content {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.md-lb-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  z-index: 5;
+}
+
+.md-lb-toolbar button {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 14px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: 3px 7px;
   border-radius: 4px;
 }
 
-.md-lightbox-close:hover {
+.md-lb-toolbar button:hover {
   background: var(--bg-active);
   color: var(--fg);
+}
+
+.md-lb-scale {
+  font-size: 11px;
+  color: var(--fg-dim);
+  min-width: 38px;
+  text-align: center;
 }
