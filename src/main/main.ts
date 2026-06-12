@@ -32,6 +32,21 @@ if (process.env.TERMPRO_SMOKE) {
   app.setPath('userData', path.join(os.tmpdir(), 'termpro-smoke'));
 }
 
+// 单实例锁(按 userData 区分:dev 与正式版可共存,各自只跑一个);
+// 二次启动直接退出,已有实例把主窗口拉到前台
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    app.focus({ steal: true });
+  });
+}
+
 registerAppStore();
 initUpdater();
 
