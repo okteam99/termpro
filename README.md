@@ -79,12 +79,15 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
       WorkTree 从 `git worktree list` 下拉选择绑定(`相对路径 · 分支`,信息行 `分支 · 短SHA`);
       WorkTree 的仓库锚点 = Root 绑定目录,列表与默认选中均不随终端 cd 漂移
 
-### M3 — 状态感知与通知(差异化核心)
-- [ ] 信号①:轮询 `pty.process` 前台进程名(running / idle 的硬信号,零协议依赖)
-- [ ] 信号②:OSC 133 shell integration 注入(命令开始 / 结束的精确事件)
-- [ ] 信号③:BEL + OSC 9/777 → 系统通知
-- [ ] 信号④:备用屏 + 输出静默计时 → "可能在等输入"软标记
-- [ ] tab 状态机 `running / waiting / done / idle` → 侧栏徽标、Dock 角标、通知中心
+### M3 — 状态感知与通知(差异化核心)✅ 2026-06
+- [x] 信号①:轮询 `pty.process` 前台进程名(running / idle 的硬信号,零协议依赖)
+- [x] 信号②:OSC 133 shell integration 自动注入(zsh ZDOTDIR 包装;命令边界精确事件,
+      出现后压过信号①,15s 无声自动解除闩锁;`TERMPRO_NO_SHELL_INTEGRATION=1` 可关)
+- [x] 信号③:BEL + OSC 9/777 → 通知中心 + 系统通知(铃声 5s/tab 限流;OSC 9 进度协议不误报)
+- [x] 信号④:运行中输出静默 10s → "可能在等输入"软标记(只进应用内,不发系统通知)
+- [x] tab 状态机驻留 Host(VT 感知扫描器,UI 断开照常跟踪)→ tab 状态圆点、
+      侧栏注意力计数、🔔 通知中心、Dock 角标、系统通知(点击跳回对应 tab)
+- 打扰策略:聚焦中的 tab 永不打扰;窗口失焦才发系统通知;激活 tab 即清除注意力标记
 
 ### M4 — 文件查看与 diff
 - [ ] Monaco(懒加载):文件只读 / 轻编辑

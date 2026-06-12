@@ -5,6 +5,8 @@
 import { SessionEvent } from '../shared/protocol';
 
 export const QUIET_MS = 10_000;
+/** OSC 133 静默超过该时长后,进程名信号重新接管(防 exec 进无注入 shell 后状态冻结) */
+export const OSC133_STALE_MS = 15_000;
 
 export interface TrackerOptions {
   /** spawn 的 shell 名(basename,如 zsh),区分「回到 shell」与「子进程在跑」 */
@@ -20,6 +22,7 @@ export class SessionTracker {
   private lastOutput: number;
   /** 见过 OSC 133 后,进程名信号退居其次(语义信号更准) */
   private osc133 = false;
+  private lastOsc133 = 0;
   private readonly now: () => number;
 
   constructor(private opts: TrackerOptions) {
@@ -44,7 +47,9 @@ export class SessionTracker {
     if (code === 133) {
       this.onOsc133(payload);
     } else if (code === 9) {
-      // OSC 9:整个 payload 即通知文本
+      // OSC 9 有两种用法:iTerm2 通知(9;text)与 ConEmu/WezTerm 进度条
+      // (9;4;state;pct)。数字子命令开头的是进度协议,不是通知。
+      if (/^\d+;/.test(payload)) return;
       this.opts.emit({ kind: 'notify', title: '', body: payload });
     } else if (code === 777) {
       // OSC 777;notify;title;body
@@ -65,7 +70,11 @@ export class SessionTracker {
 
   /** pty.process 轮询喂入(变化时) */
   onProcessName(name: string): void {
-    if (this.osc133) return;
+    if (this.osc133) {
+      // 闩锁出口:133 长时间无声(如 exec 进了无注入的 shell)则解除
+      if (this.now() - this.lastOsc133 < OSC133_STALE_MS) return;
+      this.osc133 = false;
+    }
     const bare = name.replace(/^-/, '');
     this.setState(bare === this.opts.shellName ? 'idle' : 'running', 'process');
   }
@@ -81,6 +90,7 @@ export class SessionTracker {
 
   private onOsc133(payload: string): void {
     this.osc133 = true;
+    this.lastOsc133 = this.now();
     const cmd = payload[0];
     if (cmd === 'C') {
       this.setState('running', 'osc133');

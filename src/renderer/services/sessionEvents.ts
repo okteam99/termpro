@@ -10,6 +10,9 @@ import { useAppStore } from '../state/store';
 let inited = false;
 /** tabId → 最近一次 cmd-done 的退出码(state:idle 到来时消费) */
 const lastExit = new Map<string, number | null>();
+/** tabId → 上次铃声系统通知时间(限流,防 bell 风暴) */
+const lastBellNotify = new Map<string, number>();
+const BELL_THROTTLE_MS = 5_000;
 
 export function initSessionEvents(): void {
   if (inited) return;
@@ -32,25 +35,26 @@ export function initSessionEvents(): void {
     switch (event.kind) {
       case 'state': {
         const prev = tab.activity ?? 'idle';
-        s.updateTab(tabId, { activity: event.state });
-        if (event.state === 'idle') {
-          s.updateTab(tabId, { waiting: false });
-          if (prev === 'running' && !focusedTab) {
-            const ec = lastExit.get(tabId);
-            lastExit.delete(tabId);
-            const text =
-              ec === undefined || ec === null
-                ? `${label} · 命令完成`
-                : `${label} · 命令完成(退出码 ${ec})`;
-            s.updateTab(tabId, { unseenDone: true });
-            s.pushNotification({
-              workspaceId: ws.id,
-              tabId,
-              kind: 'done',
-              text,
-            });
-            osNotify('TermPro · 完成', text, ws.id, tabId);
-          }
+        if (event.state === 'running') {
+          s.updateTab(tabId, { activity: 'running' });
+          break;
+        }
+        // idle:单次 set 合并全部变更,避免徽标订阅看到撕裂中间态
+        const finishedInBackground = prev === 'running' && !focusedTab;
+        const ec = lastExit.get(tabId);
+        lastExit.delete(tabId);
+        s.updateTab(tabId, {
+          activity: 'idle',
+          waiting: false,
+          ...(finishedInBackground ? { unseenDone: true } : {}),
+        });
+        if (finishedInBackground) {
+          const text =
+            ec === undefined || ec === null
+              ? `${label} · 命令完成`
+              : `${label} · 命令完成(退出码 ${ec})`;
+          s.pushNotification({ workspaceId: ws.id, tabId, kind: 'done', text });
+          osNotify('TermPro · 完成', text, ws.id, tabId);
         }
         break;
       }
@@ -63,6 +67,10 @@ export function initSessionEvents(): void {
       case 'bell': {
         if (focusedTab) break;
         s.updateTab(tabId, { waiting: true });
+        // 铃声限流:同 tab 5s 内只进一次通知(防 cat 二进制等 bell 风暴)
+        const last = lastBellNotify.get(tabId) ?? 0;
+        if (Date.now() - last < BELL_THROTTLE_MS) break;
+        lastBellNotify.set(tabId, Date.now());
         const text = `${label} · 响铃(可能在等输入)`;
         s.pushNotification({ workspaceId: ws.id, tabId, kind: 'bell', text });
         osNotify('TermPro · 注意', text, ws.id, tabId);
@@ -101,14 +109,23 @@ export function initSessionEvents(): void {
     }
   });
 
-  // Dock 角标 = 需要注意的 tab 数(waiting / unseenDone)
+  // Dock 角标 = 需要注意的 tab 数(waiting / unseenDone);顺带清理
+  // 已关闭 tab 的辅助 Map,避免缓慢泄漏
   let lastBadge = -1;
   useAppStore.subscribe((s) => {
     let count = 0;
+    const liveTabs = new Set<string>();
     for (const w of s.workspaces) {
       for (const t of w.tabs) {
+        liveTabs.add(t.id);
         if (t.waiting || t.unseenDone) count++;
       }
+    }
+    for (const id of [...lastExit.keys()]) {
+      if (!liveTabs.has(id)) lastExit.delete(id);
+    }
+    for (const id of [...lastBellNotify.keys()]) {
+      if (!liveTabs.has(id)) lastBellNotify.delete(id);
     }
     if (count !== lastBadge) {
       lastBadge = count;

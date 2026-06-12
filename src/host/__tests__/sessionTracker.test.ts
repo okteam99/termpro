@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SessionTracker, QUIET_MS } from '../sessionTracker';
+import { SessionTracker, QUIET_MS, OSC133_STALE_MS } from '../sessionTracker';
 import type { SessionEvent } from '../../shared/protocol';
 
 function make(shellName = 'zsh') {
@@ -78,6 +78,27 @@ describe('SessionTracker', () => {
       { kind: 'state', state: 'running', via: 'process' },
       { kind: 'quiet', quiet: true },
       { kind: 'quiet', quiet: false },
+      { kind: 'state', state: 'idle', via: 'process' },
+    ]);
+  });
+
+  it('OSC 9 进度协议(数字子命令)不当作通知', () => {
+    const { tracker, events } = make();
+    tracker.onOsc(9, '4;1;50'); // ConEmu/WezTerm 进度条
+    tracker.onOsc(9, 'real message');
+    expect(events).toEqual([
+      { kind: 'notify', title: '', body: 'real message' },
+    ]);
+  });
+
+  it('OSC 133 长时间无声后,进程名信号重新接管', () => {
+    const { tracker, events, advance } = make();
+    tracker.onOsc(133, 'C'); // running via osc133
+    tracker.onProcessName('bash'); // 闩锁中,被忽略
+    advance(OSC133_STALE_MS + 1);
+    tracker.onProcessName('zsh'); // 解锁 → idle
+    expect(events).toEqual([
+      { kind: 'state', state: 'running', via: 'osc133' },
       { kind: 'state', state: 'idle', via: 'process' },
     ]);
   });
