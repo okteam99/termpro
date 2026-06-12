@@ -62,6 +62,7 @@ export function FilePanel() {
   const workspace = useAppStore(selectActiveWorkspace);
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const updateTabFilePanel = useAppStore((s) => s.updateTabFilePanel);
+  const openViewer = useAppStore((s) => s.openViewer);
 
   // Active tab from the workspace
   const activeTab = workspace?.tabs.find((t) => t.id === workspace.activeTabId);
@@ -688,7 +689,13 @@ export function FilePanel() {
               key={node.absPath}
               className={rowClass}
               style={{ paddingLeft }}
-              onClick={isDir && !isErr ? () => toggleDir(node.absPath) : undefined}
+              onClick={
+                isErr
+                  ? undefined
+                  : isDir
+                    ? () => toggleDir(node.absPath)
+                    : () => openViewer({ mode: 'file', path: node.absPath })
+              }
             >
               <span className="file-panel__arrow">
                 {isDir && !isErr ? (isExpanded ? '▾' : '▸') : null}

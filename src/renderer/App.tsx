@@ -7,6 +7,7 @@ import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
 import { PaneHandle } from './components/PaneHandle';
+import { ViewerOverlay } from './components/viewer/ViewerOverlay';
 import TerminalView from './terminal/TerminalView';
 import type { TermCallbacks } from './terminal/terminalRegistry';
 import type { HostInfo } from '../shared/protocol';
@@ -162,6 +163,7 @@ export default function App() {
           {!activeWs && (
             <div className="placeholder">在左侧添加一个 Workspace 开始</div>
           )}
+          <ViewerOverlay />
         </div>
       </div>
       <PaneHandle side="right" />

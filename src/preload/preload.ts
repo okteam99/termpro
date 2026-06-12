@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('termpro', {
   setDockBadge(count: number): void {
     ipcRenderer.send('dock:badge', count);
   },
+  openInEditor(editor: 'vscode' | 'zed', path: string): void {
+    ipcRenderer.send('editor:open', editor, path);
+  },
   focusWindow(): void {
     ipcRenderer.send('window:focus-self');
   },

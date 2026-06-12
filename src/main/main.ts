@@ -7,6 +7,7 @@ import {
   ipcMain,
   utilityProcess,
 } from 'electron';
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
@@ -66,6 +67,22 @@ ipcMain.on('window:focus-self', (event) => {
   win.show();
   win.focus();
   app.focus({ steal: true });
+});
+
+// 外跳本地编辑器(壳层职责,macOS 用 open -a 不依赖 PATH)
+const EDITOR_APPS: Record<string, string> = {
+  vscode: 'Visual Studio Code',
+  zed: 'Zed',
+};
+ipcMain.on('editor:open', (_event, editor: string, targetPath: string) => {
+  const appName = EDITOR_APPS[editor];
+  if (!appName || typeof targetPath !== 'string') return;
+  const child = spawn('open', ['-a', appName, targetPath], {
+    stdio: 'ignore',
+    detached: true,
+  });
+  child.on('error', (err) => console.error('[main] editor open failed:', err));
+  child.unref();
 });
 
 ipcMain.handle('dialog:pick-directory', async (event) => {

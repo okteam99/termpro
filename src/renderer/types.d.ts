@@ -13,6 +13,7 @@ declare global {
       storeSet(state: unknown): void;
       setDockBadge(count: number): void;
       focusWindow(): void;
+      openInEditor(editor: 'vscode' | 'zed', path: string): void;
     };
   }
 }

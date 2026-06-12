@@ -29,6 +29,11 @@ export interface TabState {
   unseenDone?: boolean;
 }
 
+export type ViewerState =
+  | { mode: 'file'; path: string }
+  | { mode: 'diff'; toplevel: string; baseRef: string | null }
+  | null;
+
 export interface NotificationItem {
   id: string;
   workspaceId: string;
@@ -104,6 +109,10 @@ export interface AppState {
   clearNotifications(): void;
   /** 用户查看后清除 tab 的注意力标记 */
   clearTabAttention(tabId: string): void;
+  // ---- 中央查看器(文件 / diff)----
+  viewer: ViewerState;
+  openViewer(v: NonNullable<ViewerState>): void;
+  closeViewer(): void;
   sidebarWidth: number;
   filePanelWidth: number;
   setPaneWidths(patch: {
@@ -345,6 +354,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       })),
     }));
+  },
+
+  viewer: null,
+
+  openViewer(v) {
+    set({ viewer: v });
+  },
+
+  closeViewer() {
+    set({ viewer: null });
   },
 }));
 
