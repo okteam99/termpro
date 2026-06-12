@@ -1,4 +1,5 @@
 import './Sidebar.css';
+import { useState, useRef } from 'react';
 import { useAppStore, tildify } from '../state/store';
 import { hostClient } from '../services/hostClient';
 
@@ -8,8 +9,14 @@ export function Sidebar() {
   const addWorkspace = useAppStore((s) => s.addWorkspace);
   const removeWorkspace = useAppStore((s) => s.removeWorkspace);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
+  const updateWorkspace = useAppStore((s) => s.updateWorkspace);
 
   const homedir = hostClient.info?.homedir ?? undefined;
+
+  // Track which workspace is being renamed and the draft value
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleAdd() {
     const path = await window.termpro.pickDirectory();
@@ -20,6 +27,35 @@ export function Sidebar() {
     e.stopPropagation();
     if (window.confirm(`Remove workspace "${name}"? Terminal sessions will be closed.`)) {
       removeWorkspace(id);
+    }
+  }
+
+  function startRename(e: React.MouseEvent, id: string, currentName: string) {
+    e.stopPropagation();
+    setRenamingId(id);
+    setRenameValue(currentName);
+    // autofocus + select-all happens via autoFocus + onFocus on the input
+  }
+
+  function commitRename(id: string) {
+    const trimmed = renameValue.trim();
+    if (trimmed) {
+      updateWorkspace(id, { name: trimmed });
+    }
+    setRenamingId(null);
+  }
+
+  function cancelRename() {
+    setRenamingId(null);
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent, id: string) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitRename(id);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelRename();
     }
   }
 
@@ -50,19 +86,42 @@ export function Sidebar() {
         ) : (
           workspaces.map((ws) => {
             const isActive = ws.id === activeWorkspaceId;
+            const isRenaming = renamingId === ws.id;
+            const tildifiedPath = tildify(ws.root, homedir);
+            const metaLine = ws.branch
+              ? `⎇ ${ws.branch} · ${tildifiedPath}`
+              : tildifiedPath;
+
             return (
               <div
                 key={ws.id}
                 className={`sidebar-item${isActive ? ' sidebar-item--active' : ''}`}
-                onClick={() => setActiveWorkspace(ws.id)}
+                onClick={() => {
+                  if (!isRenaming) setActiveWorkspace(ws.id);
+                }}
               >
-                <span className="sidebar-item-name">{ws.name}</span>
-                <span className="sidebar-item-path">
-                  {tildify(ws.root, homedir)}
-                </span>
-                <span className="sidebar-item-tabs">
-                  {ws.tabs.length} {ws.tabs.length === 1 ? 'tab' : 'tabs'}
-                </span>
+                {isRenaming ? (
+                  <input
+                    ref={inputRef}
+                    className="sidebar-item-rename-input"
+                    value={renameValue}
+                    autoFocus
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => commitRename(ws.id)}
+                    onKeyDown={(e) => handleRenameKeyDown(e, ws.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                  />
+                ) : (
+                  <span
+                    className="sidebar-item-name"
+                    onDoubleClick={(e) => startRename(e, ws.id, ws.name)}
+                  >
+                    {ws.name}
+                  </span>
+                )}
+                <span className="sidebar-item-meta">{metaLine}</span>
                 <button
                   className="sidebar-remove-btn"
                   style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}

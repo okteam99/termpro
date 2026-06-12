@@ -1,4 +1,5 @@
 import './TabBar.css';
+import { useState, useEffect, useRef } from 'react';
 import { useAppStore, selectActiveWorkspace } from '../state/store';
 import type { TabState } from '../state/store';
 
@@ -7,6 +8,37 @@ export function TabBar() {
   const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const dropBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Close popover on outside click or Escape
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    function handleMouseDown(e: MouseEvent) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        dropBtnRef.current &&
+        !dropBtnRef.current.contains(e.target as Node)
+      ) {
+        setMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMenuOpen(false);
+    }
+
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpen]);
 
   // 无活跃工作区时渲染空拖拽条
   if (!ws) {
@@ -31,6 +63,19 @@ export function TabBar() {
 
   function handleAdd() {
     if (!ws) return;
+    addTab(ws.id);
+  }
+
+  async function handleAddWithDir() {
+    if (!ws) return;
+    setMenuOpen(false);
+    const dir = await window.termpro.pickDirectory();
+    if (dir) addTab(ws.id, dir);
+  }
+
+  function handleMenuAddRoot() {
+    if (!ws) return;
+    setMenuOpen(false);
     addTab(ws.id);
   }
 
@@ -69,6 +114,37 @@ export function TabBar() {
         <button className="tabbar-add-btn" onClick={handleAdd} title="New tab">
           +
         </button>
+
+        {/* 下拉菜单触发按钮 */}
+        <div className="tabbar-dropdown-wrap">
+          <button
+            ref={dropBtnRef}
+            className="tabbar-dropdown-btn"
+            onClick={() => setMenuOpen((v) => !v)}
+            title="New tab options"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            ▾
+          </button>
+          {menuOpen && (
+            <div ref={menuRef} className="tabbar-dropdown-menu">
+              <button
+                className="tabbar-dropdown-item"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleMenuAddRoot}
+              >
+                新 Tab（workspace 根）
+              </button>
+              <button
+                className="tabbar-dropdown-item"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleAddWithDir}
+              >
+                新 Tab（选择目录…）
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 末尾可拖拽空白区 */}

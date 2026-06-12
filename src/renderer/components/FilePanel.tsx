@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { hostClient } from '../services/hostClient';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
-import type { DirEntry } from '../../shared/protocol';
+import { getSessionId } from '../terminal/terminalRegistry';
+import type { DirEntry, GitFileStatus, GitInfo } from '../../shared/protocol';
 import './FilePanel.css';
 
 type Mode = 'root' | 'worktree';
@@ -17,7 +18,7 @@ function joinPath(parent: string, name: string): string {
   return parent.endsWith('/') ? parent + name : parent + '/' + name;
 }
 
-// 目录优先排序（host 已排序，但保险起见）
+// 目录优先排序
 function sortEntries(entries: DirEntry[]): DirEntry[] {
   return [...entries].sort((a, b) => {
     if (a.kind === 'dir' && b.kind !== 'dir') return -1;
@@ -26,16 +27,48 @@ function sortEntries(entries: DirEntry[]): DirEntry[] {
   });
 }
 
+// Compute set of ancestor dir rel-paths that have any git status
+function computeDirtyDirs(entries: { path: string }[], displayedRoot: string): Set<string> {
+  const dirs = new Set<string>();
+  for (const e of entries) {
+    // e.path is relative to the git toplevel which equals displayedRoot in both modes
+    const parts = e.path.split('/');
+    // add all ancestor dirs (not the file itself)
+    for (let i = 1; i < parts.length; i++) {
+      dirs.add(parts.slice(0, i).join('/'));
+    }
+  }
+  return dirs;
+}
+
+// Build a CSS class suffix for a given git status
+function gitStatusClass(status: GitFileStatus): string {
+  switch (status) {
+    case 'modified':   return 'git-modified';
+    case 'added':      return 'git-added';
+    case 'untracked':  return 'git-untracked';
+    case 'deleted':    return 'git-deleted';
+    case 'renamed':    return 'git-renamed';
+    case 'conflicted': return 'git-conflicted';
+  }
+}
+
 export function FilePanel() {
   const workspace = useAppStore(selectActiveWorkspace);
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const [mode, setMode] = useState<Mode>('root');
 
-  // 当前树根路径
+  // Active tab from the workspace
   const activeTab = workspace?.tabs.find((t) => t.id === workspace.activeTabId);
-  const rootPath =
-    mode === 'worktree'
-      ? (activeTab?.cwd ?? workspace?.root ?? '')
-      : (workspace?.root ?? '');
+
+  // Resolved displayed root (computed async, stored here)
+  const [displayedRoot, setDisplayedRoot] = useState<string>('');
+  // gitInfo for the resolved cwd
+  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+
+  // Git status: map relPath -> status, plus dirty-dir set
+  const [statusMap, setStatusMap] = useState<Map<string, GitFileStatus>>(new Map());
+  const [dirtyDirs, setDirtyDirs] = useState<Set<string>>(new Set());
 
   // 顶层条目
   const [topEntries, setTopEntries] = useState<DirEntry[]>([]);
@@ -48,39 +81,251 @@ export function FilePanel() {
   // 刷新计数器，用于强制重取
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // 用 ref 跟踪 rootPath，避免过时闭包
-  const rootPathRef = useRef(rootPath);
-  rootPathRef.current = rootPath;
+  // epoch counter to guard stale async results
+  const epochRef = useRef(0);
 
-  // 取顶层
+  // Track current watchId and unsubscribe function so we can clean up
+  const watchIdRef = useRef<number | null>(null);
+  const fsUnsubRef = useRef<(() => void) | null>(null);
+  // debounce timer ref for watch-triggered refresh
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Scheduled refresh: re-fetch tree + expanded dirs + git status without collapsing
+  const scheduleRefresh = useCallback(() => {
+    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      setRefreshKey((k) => k + 1);
+    }, 250);
+  }, []);
+
+  // Cleanup watcher helper
+  const cleanupWatcher = useCallback(() => {
+    if (fsUnsubRef.current) {
+      fsUnsubRef.current();
+      fsUnsubRef.current = null;
+    }
+    if (watchIdRef.current !== null) {
+      const id = watchIdRef.current;
+      watchIdRef.current = null;
+      void hostClient.rpc('fs.unwatch', { watchId: id }).catch(() => {});
+    }
+    if (debounceRef.current !== null) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+  }, []);
+
+  // ── Phase 1: resolve displayedRoot whenever active tab / mode / refreshKey changes ──
   useEffect(() => {
-    if (!rootPath) return;
-    let cancelled = false;
+    if (!workspace) return;
+
+    const epoch = ++epochRef.current;
+
+    async function resolve() {
+      if (!workspace) return;
+
+      const tab = workspace.tabs.find((t) => t.id === workspace.activeTabId);
+
+      // Resolve live cwd
+      const sid = tab ? getSessionId(tab.id) : null;
+      let cwd: string | null = null;
+      if (sid) {
+        try {
+          const res = await hostClient.rpc('pty.cwd', { sessionId: sid });
+          cwd = res.cwd;
+        } catch {
+          cwd = null;
+        }
+      }
+      cwd = cwd ?? tab?.cwd ?? workspace.root;
+
+      if (epochRef.current !== epoch) return;
+
+      // Resolve git info
+      let info: GitInfo = { toplevel: null, mainWorktree: null, branch: null };
+      try {
+        info = await hostClient.rpc('git.info', { cwd });
+      } catch {
+        // not a git repo or unreachable
+      }
+
+      if (epochRef.current !== epoch) return;
+
+      // Derive displayed root based on mode
+      let root: string;
+      if (mode === 'root') {
+        root = info.mainWorktree ?? workspace.root;
+      } else {
+        root = info.toplevel ?? cwd;
+      }
+
+      setDisplayedRoot(root);
+      setGitInfo(info);
+    }
+
+    void resolve();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, mode, refreshKey]);
+
+  // ── Phase 2: when displayedRoot changes, fetch tree + git status + setup watcher ──
+  useEffect(() => {
+    if (!displayedRoot) return;
+
+    const epoch = ++epochRef.current;
+
+    // Clean up old watcher before setting a new one
+    cleanupWatcher();
+
+    // Reset tree state only when root actually changes (not on watch-driven refresh)
+    // We track previous root to decide whether to reset expansion
     setTopEntries([]);
+    setStatusMap(new Map());
+    setDirtyDirs(new Set());
+
+    async function fetchAll() {
+      // Fetch top-level entries
+      try {
+        const { entries } = await hostClient.rpc('fs.readdir', { path: displayedRoot });
+        if (epochRef.current !== epoch) return;
+        setTopEntries(sortEntries(entries));
+      } catch {
+        if (epochRef.current !== epoch) return;
+        setTopEntries([]);
+      }
+
+      // Fetch git status if this root is a git toplevel
+      if (gitInfo?.toplevel) {
+        try {
+          const { entries } = await hostClient.rpc('git.status', { toplevel: displayedRoot });
+          if (epochRef.current !== epoch) return;
+          const map = new Map<string, GitFileStatus>();
+          for (const e of entries) map.set(e.path, e.status);
+          setStatusMap(map);
+          setDirtyDirs(computeDirtyDirs(entries, displayedRoot));
+        } catch {
+          // ignore git status errors
+        }
+      }
+
+      // Setup fs.watch — use a local capture to handle async race
+      if (epochRef.current !== epoch) return;
+      let localWatchId: number | null = null;
+      try {
+        const { watchId } = await hostClient.rpc('fs.watch', { path: displayedRoot });
+        if (epochRef.current !== epoch) {
+          // stale: immediately unwatch
+          void hostClient.rpc('fs.unwatch', { watchId }).catch(() => {});
+          return;
+        }
+        localWatchId = watchId;
+        watchIdRef.current = watchId;
+        const unsub = hostClient.onFsChanged((id) => {
+          if (id === watchId) scheduleRefresh();
+        });
+        fsUnsubRef.current = unsub;
+      } catch {
+        // fs.watch not available, continue without watcher
+        localWatchId;
+      }
+    }
+
+    void fetchAll();
+
+    return () => {
+      // Mark epoch stale so in-flight fetches are ignored
+      // (epochRef is incremented at next effect invocation, but ensure cleanup here too)
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedRoot]);
+
+  // Unmount cleanup
+  useEffect(() => {
+    return () => {
+      cleanupWatcher();
+    };
+  }, [cleanupWatcher]);
+
+  // ── Watch-triggered partial refresh: re-fetch top-level + expanded dirs + git status ──
+  // We use a separate effect that responds to refreshKey but NOT displayedRoot reset
+  const displayedRootRef = useRef(displayedRoot);
+  displayedRootRef.current = displayedRoot;
+  const gitInfoRef = useRef(gitInfo);
+  gitInfoRef.current = gitInfo;
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+
+  // When refreshKey increments due to watcher (not root-change), do a partial refresh
+  const prevRootRef = useRef('');
+  useEffect(() => {
+    const root = displayedRootRef.current;
+    if (!root) return;
+    // If root changed, Phase 2 effect handles it; skip here
+    if (prevRootRef.current !== root) {
+      prevRootRef.current = root;
+      return;
+    }
+
+    const epoch = ++epochRef.current;
+
+    async function partialRefresh() {
+      const root = displayedRootRef.current;
+      if (!root) return;
+
+      // Re-fetch top-level
+      try {
+        const { entries } = await hostClient.rpc('fs.readdir', { path: root });
+        if (epochRef.current !== epoch) return;
+        setTopEntries(sortEntries(entries));
+      } catch {
+        if (epochRef.current !== epoch) return;
+      }
+
+      // Re-fetch all expanded dirs to keep cache fresh
+      const expandedPaths = [...expandedRef.current];
+      for (const absPath of expandedPaths) {
+        try {
+          const { entries } = await hostClient.rpc('fs.readdir', { path: absPath });
+          if (epochRef.current !== epoch) return;
+          setCache((c) => new Map(c).set(absPath, sortEntries(entries)));
+        } catch {
+          // keep existing cached data
+        }
+      }
+
+      // Re-fetch git status
+      const info = gitInfoRef.current;
+      if (info?.toplevel) {
+        try {
+          const { entries } = await hostClient.rpc('git.status', { toplevel: root });
+          if (epochRef.current !== epoch) return;
+          const map = new Map<string, GitFileStatus>();
+          for (const e of entries) map.set(e.path, e.status);
+          setStatusMap(map);
+          setDirtyDirs(computeDirtyDirs(entries, root));
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    void partialRefresh();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
+
+  // Reset tree expansion only when displayedRoot actually changes
+  useEffect(() => {
     setExpanded(new Set());
     setCache(new Map());
     setErrPaths(new Set());
-    hostClient
-      .rpc('fs.readdir', { path: rootPath })
-      .then(({ entries }) => {
-        if (cancelled) return;
-        setTopEntries(sortEntries(entries));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setTopEntries([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [rootPath, refreshKey]);
+  }, [displayedRoot]);
 
-  // 刷新：清空缓存并重取
+  // ── Manual refresh ──
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
   }, []);
 
-  // 展开/收起目录
+  // ── Expand / collapse ──
   const toggleDir = useCallback(
     (absPath: string) => {
       setExpanded((prev) => {
@@ -89,7 +334,7 @@ export function FilePanel() {
           next.delete(absPath);
         } else {
           next.add(absPath);
-          // 第一次展开时，懒加载
+          // lazy-load if not yet cached
           if (!cache.has(absPath)) {
             hostClient
               .rpc('fs.readdir', { path: absPath })
@@ -107,7 +352,7 @@ export function FilePanel() {
     [cache],
   );
 
-  // 将树展平为行列表（深度优先）
+  // ── Flatten tree ──
   function flattenTree(entries: DirEntry[], parentPath: string, depth: number): TreeNode[] {
     const rows: TreeNode[] = [];
     for (const entry of entries) {
@@ -115,7 +360,6 @@ export function FilePanel() {
       rows.push({ entry, absPath, depth });
       if (entry.kind === 'dir' && expanded.has(absPath)) {
         if (errPaths.has(absPath)) {
-          // 无法读取，显示占位行
           rows.push({
             entry: { name: '(unreadable)', kind: 'other' },
             absPath: absPath + '/__err__',
@@ -132,8 +376,26 @@ export function FilePanel() {
     return rows;
   }
 
+  // ── Git class for a row ──
+  function gitClassForPath(absPath: string, kind: DirEntry['kind']): string {
+    if (!gitInfo?.toplevel || !displayedRoot) return '';
+    // relPath relative to displayedRoot
+    const rel = absPath.startsWith(displayedRoot + '/')
+      ? absPath.slice(displayedRoot.length + 1)
+      : absPath.startsWith(displayedRoot)
+        ? absPath.slice(displayedRoot.length)
+        : '';
+    if (!rel) return '';
+
+    if (kind === 'dir') {
+      return dirtyDirs.has(rel) ? 'git-modified-dim' : '';
+    }
+    const status = statusMap.get(rel);
+    return status ? gitStatusClass(status) : '';
+  }
+
   const homedir = hostClient.info?.homedir;
-  const displayPath = rootPath ? tildify(rootPath, homedir) : '';
+  const displayPath = displayedRoot ? tildify(displayedRoot, homedir) : '';
 
   if (!workspace) {
     return (
@@ -143,7 +405,7 @@ export function FilePanel() {
     );
   }
 
-  const rows = flattenTree(topEntries, rootPath, 0);
+  const rows = flattenTree(topEntries, displayedRoot, 0);
 
   return (
     <div className="file-panel">
@@ -166,7 +428,7 @@ export function FilePanel() {
       </div>
 
       {/* 当前根路径（rtl截断头部） */}
-      <div className="file-panel__root-path" title={rootPath}>
+      <div className="file-panel__root-path" title={displayedRoot}>
         {displayPath}
       </div>
 
@@ -188,10 +450,13 @@ export function FilePanel() {
           const isExpanded = expanded.has(node.absPath);
           const paddingLeft = 10 + node.depth * 14;
 
+          const gitCls = isErr ? '' : gitClassForPath(node.absPath, node.entry.kind);
+
           let rowClass = 'file-panel__row';
           if (isErr) rowClass += ' file-panel__row--unreadable';
           else if (isDir) rowClass += ' file-panel__row--dir';
           else rowClass += ' file-panel__row--file';
+          if (gitCls) rowClass += ` file-panel__row--${gitCls}`;
 
           return (
             <div

@@ -180,3 +180,37 @@
   color: var(--fg-dim);
   font-size: 12px;
 }
+
+/* ── Git status coloring ── */
+
+/* Files */
+.file-panel__row--git-modified > .file-panel__name {
+  color: #d19a66;
+}
+
+.file-panel__row--git-added > .file-panel__name {
+  color: #98c379;
+}
+
+.file-panel__row--git-untracked > .file-panel__name {
+  color: #e5c07b;
+}
+
+.file-panel__row--git-deleted > .file-panel__name {
+  color: #e06c75;
+  text-decoration: line-through;
+}
+
+.file-panel__row--git-renamed > .file-panel__name {
+  color: #61afef;
+}
+
+.file-panel__row--git-conflicted > .file-panel__name {
+  color: #e06c75;
+  font-weight: bold;
+}
+
+/* Directories: dim version when any child has a status */
+.file-panel__row--git-modified-dim > .file-panel__name {
+  color: rgba(209, 154, 102, 0.80);
+}

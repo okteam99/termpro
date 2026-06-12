@@ -102,7 +102,7 @@
   text-overflow: ellipsis;
 }
 
-.sidebar-item-path {
+.sidebar-item-meta {
   font-size: 11px;
   color: var(--fg-dim);
   white-space: nowrap;
@@ -110,9 +110,20 @@
   text-overflow: ellipsis;
 }
 
-.sidebar-item-tabs {
-  font-size: 11px;
-  color: var(--fg-dim);
+/* Inline rename input */
+.sidebar-item-rename-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  line-height: 1.4;
 }
 
 /* 条目右上角关闭按钮,默认隐藏,hover 时显示 */

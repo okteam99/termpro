@@ -128,6 +128,69 @@
   color: var(--fg);
 }
 
+/* 下拉按钮及其弹出菜单包裹容器 */
+.tabbar-dropdown-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ▾ 触发按钮,与 + 相同的扁平风格 */
+.tabbar-dropdown-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 7px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.tabbar-dropdown-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fg);
+}
+
+/* 弹出菜单 */
+.tabbar-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  min-width: 180px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  -webkit-app-region: no-drag;
+}
+
+.tabbar-dropdown-item {
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  padding: 6px 14px;
+  white-space: nowrap;
+}
+
+.tabbar-dropdown-item:hover {
+  background: var(--bg-active);
+}
+
 /* 末尾可拖拽空白区占满剩余宽度 */
 .tabbar-drag-strip {
   flex: 1;
