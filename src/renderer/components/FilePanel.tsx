@@ -464,6 +464,18 @@ export function FilePanel() {
   }
 
   // ── Git class for a row ──
+  /** 最近被整体折叠的祖先目录状态(git status 把未跟踪/忽略目录
+   *  折叠成一条 `?? dir/`,目录内的条目没有自己的记录,需继承) */
+  function ancestorStatus(rel: string): GitFileStatus | null {
+    let idx = rel.lastIndexOf('/');
+    while (idx > 0) {
+      const s = statusMap.get(rel.slice(0, idx));
+      if (s === 'untracked' || s === 'ignored') return s;
+      idx = rel.lastIndexOf('/', idx - 1);
+    }
+    return null;
+  }
+
   function gitClassForPath(absPath: string, kind: DirEntry['kind']): string {
     if (!gitInfo?.toplevel || !effectiveRoot) return '';
     const rel = absPath.startsWith(effectiveRoot + '/')
@@ -474,13 +486,14 @@ export function FilePanel() {
     if (!rel) return '';
 
     if (kind === 'dir') {
-      // 目录自身状态优先(整目录 ignored/untracked),否则看子孙上卷
-      const direct = statusMap.get(rel);
+      // 目录自身状态优先(整目录 ignored/untracked),再看祖先折叠,
+      // 否则看子孙上卷
+      const direct = statusMap.get(rel) ?? ancestorStatus(rel);
       if (direct === 'ignored') return 'git-ignored';
       if (direct === 'untracked') return 'git-untracked';
       return dirtyDirs.has(rel) ? 'git-modified-dim' : '';
     }
-    const status = statusMap.get(rel);
+    const status = statusMap.get(rel) ?? ancestorStatus(rel);
     return status ? gitStatusClass(status) : '';
   }
 
@@ -741,7 +754,7 @@ export function FilePanel() {
               <span className="file-panel__name">{node.entry.name}</span>
               {canDiff && (
                 <button
-                  className="file-panel__row-diff"
+                  className="file-panel__row-action"
                   title="查看该文件 diff"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -756,6 +769,28 @@ export function FilePanel() {
                   }}
                 >
                   diff
+                </button>
+              )}
+              {isDir && !isErr && (
+                <button
+                  className="file-panel__row-action"
+                  title="在 Finder 中打开"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.termpro.openPath(node.absPath);
+                  }}
+                >
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
+                  </svg>
                 </button>
               )}
             </div>

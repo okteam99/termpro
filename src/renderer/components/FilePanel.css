@@ -335,14 +335,13 @@
   color: rgba(209, 154, 102, 0.80);
 }
 
-/* 行级 diff 直达按钮:仅 hover 时浮现,贴行右侧 */
-.file-panel__row-diff {
+/* 行级动作按钮(文件 diff / 目录 Finder):仅 hover 时浮现,贴行右侧 */
+.file-panel__row-action {
   display: none;
   margin-left: auto;
   margin-right: 6px;
   padding: 0 6px;
   height: 16px;
-  line-height: 14px;
   font-size: 10px;
   color: var(--fg-dim);
   background: transparent;
@@ -350,13 +349,15 @@
   border-radius: 3px;
   cursor: pointer;
   flex: none;
+  align-items: center;
+  justify-content: center;
 }
 
-.file-panel__row:hover .file-panel__row-diff {
-  display: inline-block;
+.file-panel__row:hover .file-panel__row-action {
+  display: inline-flex;
 }
 
-.file-panel__row-diff:hover {
+.file-panel__row-action:hover {
   color: var(--fg);
   border-color: var(--fg-dim);
 }
