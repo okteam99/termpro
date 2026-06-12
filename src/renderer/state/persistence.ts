@@ -41,6 +41,7 @@ function serialize(s: AppState): PersistedState {
       tabs: w.tabs.map((t) => ({
         id: t.id,
         cwd: t.cwd,
+        customName: t.customName,
         filePanel: t.filePanel,
       })),
     })),

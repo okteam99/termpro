@@ -2,6 +2,7 @@ import './TabBar.css';
 import { useState, useEffect, useRef } from 'react';
 import { useAppStore, selectActiveWorkspace } from '../state/store';
 import type { TabState } from '../state/store';
+import { RenameModal } from './RenameModal';
 
 /** Small terminal icon: rounded rect with > chevron and underscore line */
 function TerminalIcon() {
@@ -35,8 +36,11 @@ export function TabBar() {
   const closeTab = useAppStore((s) => s.closeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const moveTab = useAppStore((s) => s.moveTab);
+  const updateTab = useAppStore((s) => s.updateTab);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  // 双击 tab 弹出改名 modal
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const dropBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -161,13 +165,18 @@ export function TabBar() {
         {ws.tabs.map((tab, idx) => {
           const isActive = tab.id === ws.activeTabId;
           const isDragging = tab.id === draggingId;
-          const label = tab.processName ?? tab.title;
+          // 显示规则:自定义名-默认名(默认名=前台进程名/目录名)
+          const defaultTitle = tab.processName ?? tab.title;
+          const label = tab.customName
+            ? `${tab.customName}-${defaultTitle}`
+            : defaultTitle;
           return (
             <div
               key={tab.id}
               draggable
               className={`tabbar-tab${isActive ? ' tabbar-tab--active' : ''}${tab.exited ? ' tabbar-tab--exited' : ''}${isDragging ? ' tabbar-tab--dragging' : ''}`}
               onClick={() => handleTabClick(tab)}
+              onDoubleClick={() => setRenamingTabId(tab.id)}
               onDragStart={(e) => handleDragStart(e, tab.id)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => handleDragOver(e, tab.id, idx)}
@@ -230,6 +239,23 @@ export function TabBar() {
         className="tabbar-drag-strip"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
+
+      {/* Tab 改名 modal:留空保存 = 恢复默认名 */}
+      {renamingTabId &&
+        (() => {
+          const tab = ws.tabs.find((t) => t.id === renamingTabId);
+          if (!tab) return null;
+          return (
+            <RenameModal
+              title="重命名 Tab"
+              initialValue={tab.customName ?? ''}
+              placeholder="留空恢复默认名"
+              allowEmpty
+              onSave={(v) => updateTab(tab.id, { customName: v || undefined })}
+              onClose={() => setRenamingTabId(null)}
+            />
+          );
+        })()}
     </div>
   );
 }

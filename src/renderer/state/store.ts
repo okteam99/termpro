@@ -16,6 +16,8 @@ export interface TabState {
   title: string;
   /** 初始 cwd;shell 经 OSC 7 上报后更新(持久化恢复用) */
   cwd: string;
+  /** 用户自定义名;显示为「自定义名-默认名」,持久化 */
+  customName?: string;
   processName?: string;
   exited?: boolean;
   filePanel?: TabFilePanelState;
@@ -36,6 +38,7 @@ export interface WorkspaceState {
 export interface PersistedTab {
   id: string;
   cwd: string;
+  customName?: string;
   filePanel?: TabFilePanelState;
 }
 
@@ -121,6 +124,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: t.id,
         title: basename(t.cwd),
         cwd: t.cwd,
+        customName: t.customName,
         filePanel: t.filePanel,
       }));
       return {

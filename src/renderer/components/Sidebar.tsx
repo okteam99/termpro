@@ -2,6 +2,7 @@ import './Sidebar.css';
 import { useState, useRef } from 'react';
 import { useAppStore, tildify } from '../state/store';
 import { hostClient } from '../services/hostClient';
+import { RenameModal } from './RenameModal';
 
 /** Small pencil icon 12×12 */
 function PencilIcon() {
@@ -20,75 +21,6 @@ function PencilIcon() {
       <path d="M8.5 1.5 L10.5 3.5 L4 10 L1.5 10.5 L2 8 Z" />
       <line x1="7" y1="3" x2="9" y2="5" />
     </svg>
-  );
-}
-
-interface RenameModalProps {
-  workspaceId: string;
-  initialName: string;
-  onSave: (id: string, name: string) => void;
-  onClose: () => void;
-}
-
-function RenameModal({ workspaceId, initialName, onSave, onClose }: RenameModalProps) {
-  const [value, setValue] = useState(initialName);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function handleSave() {
-    const trimmed = value.trim();
-    if (trimmed) {
-      onSave(workspaceId, trimmed);
-    }
-    onClose();
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSave();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      onClose();
-    }
-  }
-
-  function handleBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
-    // Only close if the click was directly on the backdrop (not the card)
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  }
-
-  return (
-    <div
-      className="rename-modal-backdrop"
-      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      onMouseDown={handleBackdropClick}
-    >
-      <div
-        className="rename-modal-card"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="rename-modal-title">重命名 Workspace</div>
-        <input
-          ref={inputRef}
-          className="rename-modal-input"
-          value={value}
-          autoFocus
-          onChange={(e) => setValue(e.target.value)}
-          onFocus={(e) => e.target.select()}
-          onKeyDown={handleKeyDown}
-        />
-        <div className="rename-modal-actions">
-          <button className="rename-modal-cancel" onClick={onClose}>
-            取消
-          </button>
-          <button className="rename-modal-save" onClick={handleSave}>
-            保存
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -202,9 +134,9 @@ export function Sidebar() {
       {/* Rename modal — rendered at sidebar root level */}
       {editingWorkspace && (
         <RenameModal
-          workspaceId={editingWorkspace.id}
-          initialName={editingWorkspace.name}
-          onSave={handleModalSave}
+          title="重命名 Workspace"
+          initialValue={editingWorkspace.name}
+          onSave={(name) => handleModalSave(editingWorkspace.id, name)}
           onClose={handleModalClose}
         />
       )}
