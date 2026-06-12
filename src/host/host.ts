@@ -29,6 +29,7 @@ interface PortLike {
     event: 'message',
     listener: (e: { data: unknown; ports: PortLike[] }) => void,
   ): void;
+  on(event: 'close', listener: () => void): void;
   start?(): void;
   close?(): void;
 }
@@ -44,14 +45,18 @@ if (!parentPort) {
 }
 
 interface Client {
+  id: number;
   port: PortLike;
-  pool: PtyPool;
   watches: WatchService;
+  /** 该客户端 spawn 的会话(端口关闭时回收) */
+  sessions: Set<string>;
 }
 
-// M1 策略:单客户端。新客户端(窗口重载)接入时,旧客户端的会话全部回收,
-// 避免泄漏。M3 做「UI 断开会话保活」时改为会话与客户端解耦。
-let active: Client | null = null;
+// 多客户端:主窗口 + N 个查看器窗口共用一个 host。
+// PTY 池共享,会话输出按归属客户端路由;端口关闭只回收自己的资源。
+const pool = new PtyPool();
+const clients = new Map<number, Client>();
+let clientSeq = 0;
 
 parentPort.on('message', (e) => {
   const data = e.data as { t?: string } | undefined;
@@ -71,21 +76,21 @@ if (process.env.TERMPRO_SMOKE) {
 }
 
 function attachClient(port: PortLike): void {
-  if (active) {
-    active.pool.dispose();
-    active.watches.dispose();
-    active.port.close?.();
-  }
+  const id = ++clientSeq;
   const send = (msg: HostMessage) => port.postMessage(msg);
-  const pool = new PtyPool(send);
-  const watches = new WatchService(send);
-  active = { port, pool, watches };
+  const client: Client = {
+    id,
+    port,
+    watches: new WatchService(send),
+    sessions: new Set(),
+  };
+  clients.set(id, client);
 
   port.on('message', (e) => {
     const msg = e.data as ClientMessage;
     switch (msg.t) {
       case 'rpc:req':
-        void handleRpc(msg, send, pool, watches);
+        void handleRpc(msg, send, client);
         break;
       case 'pty:input':
         pool.input(msg.sessionId, msg.data);
@@ -98,14 +103,28 @@ function attachClient(port: PortLike): void {
         break;
     }
   });
+
+  // 窗口关闭/重载 → 端口关闭 → 只回收该客户端的会话与 watcher
+  port.on('close', () => {
+    for (const sid of client.sessions) pool.kill(sid);
+    client.watches.dispose();
+    clients.delete(id);
+    console.log(
+      '[host] client %d detached (sessions cleaned: %d, clients left: %d)',
+      id,
+      client.sessions.size,
+      clients.size,
+    );
+  });
+
   port.start?.();
+  console.log('[host] client %d attached (total %d)', id, clients.size);
 }
 
 async function handleRpc(
   msg: Extract<ClientMessage, { t: 'rpc:req' }>,
   send: (m: HostMessage) => void,
-  pool: PtyPool,
-  watches: WatchService,
+  client: Client,
 ): Promise<void> {
   try {
     let result: unknown;
@@ -121,12 +140,18 @@ async function handleRpc(
         result = info;
         break;
       }
-      case 'pty.spawn':
-        result = { sessionId: pool.spawn(msg.params as SpawnOptions) };
+      case 'pty.spawn': {
+        const sessionId = pool.spawn(msg.params as SpawnOptions, send);
+        client.sessions.add(sessionId);
+        result = { sessionId };
         break;
-      case 'pty.kill':
-        pool.kill((msg.params as { sessionId: string }).sessionId);
+      }
+      case 'pty.kill': {
+        const sid = (msg.params as { sessionId: string }).sessionId;
+        pool.kill(sid);
+        client.sessions.delete(sid);
         break;
+      }
       case 'pty.cwd': {
         const pid = pool.pid((msg.params as { sessionId: string }).sessionId);
         result = { cwd: pid === null ? null : await processCwd(pid) };
@@ -140,11 +165,11 @@ async function handleRpc(
         break;
       case 'fs.watch':
         result = {
-          watchId: watches.watch((msg.params as { path: string }).path),
+          watchId: client.watches.watch((msg.params as { path: string }).path),
         };
         break;
       case 'fs.unwatch':
-        watches.unwatch((msg.params as { watchId: number }).watchId);
+        client.watches.unwatch((msg.params as { watchId: number }).watchId);
         break;
       case 'git.info':
         result = await gitInfo((msg.params as { cwd: string }).cwd);

@@ -15,6 +15,8 @@ interface Session {
   lastProcess: string;
   scanner: OutputScanner;
   tracker: SessionTracker;
+  /** 会话归属客户端的发送通道(多窗口:输出只回归属方) */
+  send: (msg: HostMessage) => void;
 }
 
 const PROCESS_POLL_MS = 1500;
@@ -24,9 +26,8 @@ export class PtyPool {
   private seq = 0;
   private pollTimer: NodeJS.Timeout | null = null;
 
-  constructor(private send: (msg: HostMessage) => void) {}
-
-  spawn(opts: SpawnOptions): string {
+  /** 共享单例:会话归属由 spawn 时传入的 send 决定 */
+  spawn(opts: SpawnOptions, send: (msg: HostMessage) => void): string {
     const shell =
       opts.shell ??
       process.env.SHELL ??
@@ -54,7 +55,7 @@ export class PtyPool {
         if (process.env.TERMPRO_SMOKE) {
           console.log('[host] session:event %s %s', id, JSON.stringify(event));
         }
-        this.send({ t: 'session:event', sessionId: id, event });
+        send({ t: 'session:event', sessionId: id, event });
       },
     });
     const scanner = new OutputScanner({
@@ -71,6 +72,7 @@ export class PtyPool {
       lastProcess: '',
       scanner,
       tracker,
+      send,
     };
 
     proc.onData((data) => {
@@ -83,13 +85,13 @@ export class PtyPool {
         session.paused = true;
         proc.pause();
       }
-      this.send({ t: 'pty:data', sessionId: id, data, bytes });
+      send({ t: 'pty:data', sessionId: id, data, bytes });
     });
 
     proc.onExit(({ exitCode }) => {
       this.sessions.delete(id);
       this.stopPollingIfIdle();
-      this.send({ t: 'pty:exit', sessionId: id, exitCode });
+      send({ t: 'pty:exit', sessionId: id, exitCode });
     });
 
     this.sessions.set(id, session);
@@ -139,7 +141,7 @@ export class PtyPool {
         const name = s.pty.process;
         if (name && name !== s.lastProcess) {
           s.lastProcess = name;
-          this.send({ t: 'pty:title', sessionId: s.id, processName: name });
+          s.send({ t: 'pty:title', sessionId: s.id, processName: name });
           s.tracker.onProcessName(name);
         }
         s.tracker.tick();
