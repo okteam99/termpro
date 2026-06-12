@@ -658,12 +658,43 @@ export function FilePanel() {
         )}
       </div>
 
-      {/* Meta row: entry count + refresh */}
+      {/* Meta row: entry count + Diff button + refresh */}
       <div className="file-panel__meta">
         <span className="file-panel__count">{topEntries.length} entries</span>
-        <button className="file-panel__refresh" onClick={handleRefresh} title="Refresh">
-          ⟳
-        </button>
+        <div className="file-panel__meta-actions">
+          {isGitRepo && (
+            <button
+              className="file-panel__diff-btn"
+              title="打开 Diff 视图"
+              onClick={() => {
+                // Determine toplevel: use effectiveRoot if it's a known git toplevel,
+                // otherwise fall back to autoWorktree.
+                const diffToplevel =
+                  worktrees.some((wt) => wt.path === effectiveRoot)
+                    ? effectiveRoot
+                    : autoWorktree;
+
+                // Determine baseRef: if effectiveRoot is NOT the main worktree and
+                // the main worktree has a branch, diff against that branch.
+                const isMainWorktree = effectiveRoot === mainWorktreePath;
+                const mainBranch = worktrees[0]?.branch ?? null;
+                const diffBaseRef =
+                  !isMainWorktree && mainBranch ? mainBranch : null;
+
+                openViewer({
+                  mode: 'diff',
+                  toplevel: diffToplevel,
+                  baseRef: diffBaseRef,
+                });
+              }}
+            >
+              Diff
+            </button>
+          )}
+          <button className="file-panel__refresh" onClick={handleRefresh} title="Refresh">
+            ⟳
+          </button>
+        </div>
       </div>
 
       <div className="file-panel__divider" />

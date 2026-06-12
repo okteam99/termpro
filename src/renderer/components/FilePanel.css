@@ -155,13 +155,19 @@
   min-width: 0;
 }
 
-/* 元信息行：条目数 + 刷新按钮 */
+/* 元信息行：条目数 + Diff 按钮 + 刷新按钮 */
 .file-panel__meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 2px 10px 6px;
   flex-shrink: 0;
+}
+
+.file-panel__meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .file-panel__count {
@@ -181,6 +187,24 @@
 }
 
 .file-panel__refresh:hover {
+  color: var(--fg);
+}
+
+/* Diff button in meta row */
+.file-panel__diff-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 1px 6px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.file-panel__diff-btn:hover {
+  background: var(--bg-active);
   color: var(--fg);
 }
 

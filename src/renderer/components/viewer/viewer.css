@@ -106,3 +106,101 @@
   flex: 1;
   min-width: 0;
 }
+
+/* ── Diff file list header ── */
+.diff-files__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.diff-files__mode {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-files__reload {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-dim);
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.diff-files__reload:hover {
+  color: var(--fg);
+}
+
+/* Message (loading / error / empty) inside the file list */
+.diff-files__message {
+  padding: 12px 8px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  text-align: center;
+}
+
+.diff-files__message--error {
+  color: #e06c75;
+}
+
+/* ── Individual file rows ── */
+.diff-file-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  border-left: 2px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.diff-file-row:hover {
+  background: var(--bg-active);
+}
+
+.diff-file-row--selected {
+  background: var(--bg-active);
+  border-left-color: var(--fg-dim);
+}
+
+.diff-file-row__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  color: var(--fg-dim);
+  font-family: Menlo, Monaco, "SF Mono", monospace;
+  font-size: 11px;
+}
+
+/* ── Status letter chips ── */
+.diff-status {
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.diff-status--modified  { color: #d19a66; }
+.diff-status--added     { color: #98c379; }
+.diff-status--untracked { color: #e5c07b; }
+.diff-status--deleted   { color: #e06c75; }
+.diff-status--renamed   { color: #61afef; }
+.diff-status--conflicted { color: #e06c75; font-weight: 700; }
