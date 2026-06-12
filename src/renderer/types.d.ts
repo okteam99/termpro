@@ -11,6 +11,8 @@ declare global {
       smokeOk(): void;
       storeGet(): Promise<unknown>;
       storeSet(state: unknown): void;
+      setDockBadge(count: number): void;
+      focusWindow(): void;
     };
   }
 }

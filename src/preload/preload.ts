@@ -29,6 +29,12 @@ contextBridge.exposeInMainWorld('termpro', {
   storeSet(state: unknown): void {
     ipcRenderer.send('store:set', state);
   },
+  setDockBadge(count: number): void {
+    ipcRenderer.send('dock:badge', count);
+  },
+  focusWindow(): void {
+    ipcRenderer.send('window:focus-self');
+  },
 });
 
 // 把 main 转交的 MessagePort 透传给主世界(Electron 官方模式:

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { hostClient } from './services/hostClient';
 import { selectActiveWorkspace, useAppStore } from './state/store';
 import { initPersistence } from './state/persistence';
+import { initSessionEvents } from './services/sessionEvents';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
@@ -49,9 +50,11 @@ export default function App() {
     );
   }, []);
 
-  // Host 就绪后加载布局存档(先 hydrate 再启动持久化订阅)
+  // Host 就绪后加载布局存档(先 hydrate 再启动持久化订阅)+ 会话事件接线
   useEffect(() => {
-    if (hostInfo) void initPersistence();
+    if (!hostInfo) return;
+    void initPersistence();
+    initSessionEvents();
   }, [hostInfo]);
 
   // 冒烟模式:空状态自动建一个 workspace,跑通 store→终端全链路

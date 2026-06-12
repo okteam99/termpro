@@ -7,6 +7,7 @@ import {
   HostMessage,
   RpcMethodName,
   RpcMethods,
+  SessionEvent,
 } from '../../shared/protocol';
 
 export interface PtyListener {
@@ -31,6 +32,9 @@ class HostClient {
   private down = false;
   private downListeners = new Set<() => void>();
   private fsListeners = new Set<(watchId: number) => void>();
+  private sessionListeners = new Set<
+    (sessionId: string, event: SessionEvent) => void
+  >();
 
   info: HostInfo | null = null;
 
@@ -54,6 +58,16 @@ class HostClient {
     this.fsListeners.add(cb);
     return () => {
       this.fsListeners.delete(cb);
+    };
+  }
+
+  /** 订阅会话状态事件(host 状态机产出),返回退订函数 */
+  onSessionEvent(
+    cb: (sessionId: string, event: SessionEvent) => void,
+  ): () => void {
+    this.sessionListeners.add(cb);
+    return () => {
+      this.sessionListeners.delete(cb);
     };
   }
 
@@ -189,6 +203,9 @@ class HostClient {
         break;
       case 'fs:changed':
         this.fsListeners.forEach((cb) => cb(msg.watchId));
+        break;
+      case 'session:event':
+        this.sessionListeners.forEach((cb) => cb(msg.sessionId, msg.event));
         break;
     }
   }

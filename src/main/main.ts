@@ -53,6 +53,21 @@ ipcMain.on('host:request-port', (event) => {
 
 // ---- 壳层服务 -----------------------------------------------------------
 
+ipcMain.on('dock:badge', (_event, count: number) => {
+  if (process.platform === 'darwin') {
+    app.dock?.setBadge(count > 0 ? String(count) : '');
+  }
+});
+
+ipcMain.on('window:focus-self', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  app.focus({ steal: true });
+});
+
 ipcMain.handle('dialog:pick-directory', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return null;

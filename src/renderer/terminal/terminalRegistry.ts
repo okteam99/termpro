@@ -131,6 +131,14 @@ export function getSessionId(tabId: string): string | null {
   return registry.get(tabId)?.sessionId ?? null;
 }
 
+/** 反查:sessionId → tabId(会话事件路由用) */
+export function findTabBySessionId(sessionId: string): string | null {
+  for (const [tabId, inst] of registry) {
+    if (inst.sessionId === sessionId) return tabId;
+  }
+  return null;
+}
+
 export function disposeTerminal(tabId: string): void {
   const inst = registry.get(tabId);
   if (!inst) return;

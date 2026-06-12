@@ -31,6 +31,44 @@
   -webkit-app-region: drag;
 }
 
+/* Bell notification button */
+.sidebar-bell-btn {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+  margin-right: 2px;
+}
+
+.sidebar-bell-btn:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+/* Unread count badge on the bell */
+.sidebar-bell-badge {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  background: #e5a04a;
+  color: #1e2227;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 13px;
+  padding: 0 3px;
+  line-height: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+
 .sidebar-add-btn {
   background: transparent;
   border: none;
@@ -199,4 +237,19 @@
 .sidebar-add-ws-btn:hover {
   background: var(--bg-active);
   color: var(--fg);
+}
+
+/* Workspace attention pill — shows count of waiting/unseenDone tabs */
+.sidebar-attention-pill {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: #e5a04a;
+  color: #1e2227;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 5px;
+  line-height: 16px;
+  pointer-events: none;
 }

@@ -21,6 +21,22 @@ export interface TabState {
   processName?: string;
   exited?: boolean;
   filePanel?: TabFilePanelState;
+  // ---- 会话状态(运行时,host 状态机驱动,不持久化)----
+  activity?: 'idle' | 'running';
+  /** 可能在等输入(铃声/静默/外部通知) */
+  waiting?: boolean;
+  /** 后台完成、尚未被查看 */
+  unseenDone?: boolean;
+}
+
+export interface NotificationItem {
+  id: string;
+  workspaceId: string;
+  tabId: string;
+  kind: 'waiting' | 'done' | 'bell' | 'notify';
+  text: string;
+  ts: number;
+  read: boolean;
 }
 
 export interface WorkspaceState {
@@ -78,6 +94,16 @@ export interface AppState {
   updateTab(tabId: string, patch: Partial<Omit<TabState, 'id'>>): void;
   /** 合并更新 tab 的文件面板绑定(mode 默认 root) */
   updateTabFilePanel(tabId: string, patch: Partial<TabFilePanelState>): void;
+  // ---- 通知中心 ----
+  notifications: NotificationItem[];
+  pushNotification(
+    n: Omit<NotificationItem, 'id' | 'read' | 'ts'> & { ts?: number },
+  ): void;
+  markNotificationRead(id: string): void;
+  markAllNotificationsRead(): void;
+  clearNotifications(): void;
+  /** 用户查看后清除 tab 的注意力标记 */
+  clearTabAttention(tabId: string): void;
   sidebarWidth: number;
   filePanelWidth: number;
   setPaneWidths(patch: {
@@ -217,7 +243,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveTab(workspaceId, tabId) {
     set((s) => ({
       workspaces: s.workspaces.map((w) =>
-        w.id === workspaceId ? { ...w, activeTabId: tabId } : w,
+        w.id === workspaceId
+          ? {
+              ...w,
+              activeTabId: tabId,
+              // 激活即视作已查看,清注意力标记
+              tabs: w.tabs.map((t) =>
+                t.id === tabId
+                  ? { ...t, waiting: false, unseenDone: false }
+                  : t,
+              ),
+            }
+          : w,
       ),
     }));
   },
@@ -264,6 +301,49 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       sidebarWidth: patch.sidebarWidth ?? s.sidebarWidth,
       filePanelWidth: patch.filePanelWidth ?? s.filePanelWidth,
+    }));
+  },
+
+  notifications: [],
+
+  pushNotification(n) {
+    const item: NotificationItem = {
+      ...n,
+      id: crypto.randomUUID(),
+      ts: n.ts ?? Date.now(),
+      read: false,
+    };
+    set((s) => ({ notifications: [item, ...s.notifications].slice(0, 50) }));
+  },
+
+  markNotificationRead(id) {
+    set((s) => ({
+      notifications: s.notifications.map((n) =>
+        n.id === id ? { ...n, read: true } : n,
+      ),
+    }));
+  },
+
+  markAllNotificationsRead() {
+    set((s) => ({
+      notifications: s.notifications.map((n) =>
+        n.read ? n : { ...n, read: true },
+      ),
+    }));
+  },
+
+  clearNotifications() {
+    set({ notifications: [] });
+  },
+
+  clearTabAttention(tabId) {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => ({
+        ...w,
+        tabs: w.tabs.map((t) =>
+          t.id === tabId ? { ...t, waiting: false, unseenDone: false } : t,
+        ),
+      })),
     }));
   },
 }));

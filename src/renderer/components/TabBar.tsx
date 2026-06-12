@@ -165,22 +165,32 @@ export function TabBar() {
         {ws.tabs.map((tab, idx) => {
           const isActive = tab.id === ws.activeTabId;
           const isDragging = tab.id === draggingId;
+          const hasAttention = !!(tab.waiting || tab.unseenDone);
           // 显示规则:自定义名-默认名(默认名=前台进程名/目录名)
           const defaultTitle = tab.processName ?? tab.title;
           const label = tab.customName
             ? `${tab.customName}-${defaultTitle}`
             : defaultTitle;
+          // Compute dot state class (priority order)
+          const dotState = tab.waiting
+            ? 'tab-dot--waiting'
+            : tab.unseenDone
+              ? 'tab-dot--done'
+              : tab.activity === 'running'
+                ? 'tab-dot--running'
+                : 'tab-dot--idle';
           return (
             <div
               key={tab.id}
               draggable
-              className={`tabbar-tab${isActive ? ' tabbar-tab--active' : ''}${tab.exited ? ' tabbar-tab--exited' : ''}${isDragging ? ' tabbar-tab--dragging' : ''}`}
+              className={`tabbar-tab${isActive ? ' tabbar-tab--active' : ''}${tab.exited ? ' tabbar-tab--exited' : ''}${isDragging ? ' tabbar-tab--dragging' : ''}${hasAttention ? ' tabbar-tab--attention' : ''}`}
               onClick={() => handleTabClick(tab)}
               onDoubleClick={() => setRenamingTabId(tab.id)}
               onDragStart={(e) => handleDragStart(e, tab.id)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => handleDragOver(e, tab.id, idx)}
             >
+              <span className={`tab-dot ${dotState}`} />
               <TerminalIcon />
               <span className="tabbar-tab-title">{label}</span>
               {tab.exited && (

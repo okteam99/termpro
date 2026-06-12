@@ -3,6 +3,7 @@ import { useState, useRef } from 'react';
 import { useAppStore, tildify } from '../state/store';
 import { hostClient } from '../services/hostClient';
 import { RenameModal } from './RenameModal';
+import { NotificationCenter } from './NotificationCenter';
 
 /** Small pencil icon 12×12 */
 function PencilIcon() {
@@ -24,6 +25,28 @@ function PencilIcon() {
   );
 }
 
+/** Bell icon 13×13 */
+function BellIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 13 13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Bell body */}
+      <path d="M6.5 1.5 C4.567 1.5 3 3.067 3 5 L3 8 L2 9 L11 9 L10 8 L10 5 C10 3.067 8.433 1.5 6.5 1.5 Z" />
+      {/* Clapper */}
+      <path d="M5.5 9.5 C5.5 10.328 5.948 11 6.5 11 C7.052 11 7.5 10.328 7.5 9.5" />
+    </svg>
+  );
+}
+
 export function Sidebar() {
   const workspaces = useAppStore((s) => s.workspaces);
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
@@ -31,11 +54,17 @@ export function Sidebar() {
   const removeWorkspace = useAppStore((s) => s.removeWorkspace);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const updateWorkspace = useAppStore((s) => s.updateWorkspace);
+  const notifications = useAppStore((s) => s.notifications);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const homedir = hostClient.info?.homedir ?? undefined;
 
   // Modal state: null = closed, string = workspace id being renamed
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [ncOpen, setNcOpen] = useState(false);
+  const bellRef = useRef<HTMLButtonElement>(null);
 
   async function handleAdd() {
     const path = await window.termpro.pickDirectory();
@@ -72,6 +101,19 @@ export function Sidebar() {
       {/* 顶部标题栏,留出 traffic light 空间 */}
       <div className="sidebar-header">
         <span className="sidebar-title">Workspaces</span>
+        {/* Bell notification button */}
+        <button
+          ref={bellRef}
+          className="sidebar-bell-btn"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          onClick={() => setNcOpen((v) => !v)}
+          title="通知"
+        >
+          <BellIcon />
+          {unreadCount > 0 && (
+            <span className="sidebar-bell-badge">{badgeLabel}</span>
+          )}
+        </button>
         <button
           className="sidebar-add-btn"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -81,6 +123,9 @@ export function Sidebar() {
           +
         </button>
       </div>
+
+      {/* Notification center dropdown — anchored to sidebar */}
+      <NotificationCenter open={ncOpen} onClose={() => setNcOpen(false)} />
 
       {/* 工作区列表 */}
       <div className="sidebar-list">
@@ -98,6 +143,8 @@ export function Sidebar() {
             const metaLine = ws.branch
               ? `⎇ ${ws.branch} · ${tildifiedPath}`
               : tildifiedPath;
+
+            const attention = ws.tabs.filter((t) => t.waiting || t.unseenDone).length;
 
             return (
               <div
@@ -125,6 +172,9 @@ export function Sidebar() {
                 >
                   &times;
                 </button>
+                {attention > 0 && (
+                  <span className="sidebar-attention-pill">{attention}</span>
+                )}
               </div>
             );
           })

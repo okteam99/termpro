@@ -65,6 +65,48 @@
   opacity: 0.5;
 }
 
+/* ---- Per-tab status dot ---- */
+.tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  margin-right: 5px;
+}
+
+/* waiting: orange with gentle pulse */
+.tab-dot--waiting {
+  background: #e5a04a;
+  animation: tab-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tab-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+/* unseenDone: green, steady */
+.tab-dot--done {
+  background: #98c379;
+}
+
+/* running: accent color, steady */
+.tab-dot--running {
+  background: var(--accent);
+}
+
+/* idle: transparent, border-only */
+.tab-dot--idle {
+  background: transparent;
+  border: 1px solid var(--fg-dim);
+  opacity: 0.35;
+}
+
+/* Attention modifier: full fg color on the title even when tab is inactive */
+.tabbar-tab--attention .tabbar-tab-title {
+  color: var(--fg);
+}
+
 /* Terminal icon before the tab title */
 .tab-icon {
   display: inline-flex;
