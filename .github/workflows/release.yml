@@ -1,8 +1,11 @@
 # 出包流水线:打 v* tag 自动构建 macOS 包并附到 GitHub Release;
 # 也可在 Actions 页手动触发(workflow_dispatch)验证打包,只传 artifact 不发 Release。
 # 注意:私有仓库 macOS runner 按 10× 计费,故仅在出包时使用。
-# 包为 ad-hoc 签名(无开发者证书):下载后首次打开需右键 → 打开,
-# 或 `xattr -dr com.apple.quarantine TermPro.app`。
+#
+# 签名/公证复用 cmux-pro 的 secrets 体系(同名,见 docs/DEV.md):
+#   APPLE_CERTIFICATE_BASE64 / APPLE_CERTIFICATE_PASSWORD /
+#   APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+# secrets 未配置时自动回退 ad-hoc 签名(首次打开需右键 → 打开)。
 name: Release
 
 on:
@@ -17,7 +20,9 @@ jobs:
   build-macos:
     # Apple Silicon(arm64)。如需 Intel 包,改为矩阵并加 macos-13。
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 40
+    env:
+      HAS_SIGNING: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -38,8 +43,45 @@ jobs:
         run: TERMPRO_SMOKE=1 npx electron-forge start
         timeout-minutes: 6
 
-      - name: 打包
+      # ---- 签名证书导入(复用 cmux-pro 的临时 keychain 方案)----
+      - name: Import signing cert
+        if: env.HAS_SIGNING == 'true'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "Missing certificate secrets" >&2
+            exit 1
+          fi
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: 打包(签名/公证由 forge osxSign/osxNotarize 接管)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run make
+
+      - name: Gatekeeper 验收(已签名时)
+        if: env.HAS_SIGNING == 'true'
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find out -maxdepth 3 -name '*.app' -type d | head -1)"
+          echo "checking $APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl -a -vv --type execute "$APP_PATH"
 
       - name: 上传构建产物(所有触发方式)
         uses: actions/upload-artifact@v5
@@ -54,3 +96,9 @@ jobs:
         with:
           files: out/make/**/*.zip
           generate_release_notes: true
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12

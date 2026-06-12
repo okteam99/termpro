@@ -136,8 +136,28 @@ git push --follow-tags   # 推 tag 即触发出包
 ```
 
 注意:私有仓库 macOS runner 按 10× 计费,release.yml 只在出包时跑。
-产物为 ad-hoc 签名(无开发者证书),下载后首次打开需右键 → 打开,
-或 `xattr -dr com.apple.quarantine TermPro.app`。
+
+### 签名与公证(复用 cmux-pro 的 secrets 体系)
+
+forge 的 `osxSign`/`osxNotarize` 从环境变量读取;secrets 未配置时自动回退
+ad-hoc 签名(下载后首次打开需右键 → 打开,或 `xattr -dr com.apple.quarantine`)。
+
+termpro 仓库需要与 cmux-pro 同名的 6 个 secrets(值从你保存证书的地方取,
+GitHub API 读不出已存 secret 的值):
+
+```bash
+gh secret set APPLE_CERTIFICATE_BASE64     -R okteam99/termpro < cert.p12.base64
+gh secret set APPLE_CERTIFICATE_PASSWORD   -R okteam99/termpro
+gh secret set APPLE_SIGNING_IDENTITY       -R okteam99/termpro   # "Developer ID Application: …(TEAMID)"
+gh secret set APPLE_ID                     -R okteam99/termpro
+gh secret set APPLE_APP_SPECIFIC_PASSWORD  -R okteam99/termpro
+gh secret set APPLE_TEAM_ID                -R okteam99/termpro
+```
+
+更省事的做法:在 okteam99 组织设置里把这 6 个升级为 **org-level secrets**
+(可见范围选 cmux-pro + termpro),两个仓库共用、以后新仓库也免配。
+配好后 Actions 手动触发一次 Release 工作流即可验证签名+公证全链路
+(流水线带 Gatekeeper 验收步骤:codesign --verify + stapler validate + spctl)。
 
 ## 5. 已知约束
 

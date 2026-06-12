@@ -3,13 +3,37 @@ import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
+import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
+// 签名/公证:与 cmux-pro 同一套 secrets 体系(APPLE_*)。
+// 环境变量缺省时回退 ad-hoc 签名,本地 npm run make 不受影响。
+const signingIdentity = process.env.APPLE_SIGNING_IDENTITY;
+const canNotarize =
+  !!process.env.APPLE_ID &&
+  !!process.env.APPLE_APP_SPECIFIC_PASSWORD &&
+  !!process.env.APPLE_TEAM_ID;
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    appBundleId: 'com.okteam99.termpro',
+    ...(signingIdentity
+      ? {
+          osxSign: { identity: signingIdentity },
+          ...(canNotarize
+            ? {
+                osxNotarize: {
+                  appleId: process.env.APPLE_ID!,
+                  appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD!,
+                  teamId: process.env.APPLE_TEAM_ID!,
+                },
+              }
+            : {}),
+        }
+      : {}),
   },
   rebuildConfig: {},
   makers: [
@@ -19,6 +43,8 @@ const config: ForgeConfig = {
     new MakerDeb({}),
   ],
   plugins: [
+    // node-pty 等原生模块必须解出 asar,否则打包后运行时加载失败
+    new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       // `build` can specify multiple entry builds, which can be Main process, Preload scripts, Worker process, etc.
       // If you are familiar with Vite configuration, it will look really familiar.
