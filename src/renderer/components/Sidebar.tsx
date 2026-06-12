@@ -1,5 +1,5 @@
 import './Sidebar.css';
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAppStore, tildify } from '../state/store';
 import { hostClient } from '../services/hostClient';
 import { RenameModal } from './RenameModal';
@@ -44,6 +44,38 @@ function BellIcon() {
       {/* Clapper */}
       <path d="M5.5 9.5 C5.5 10.328 5.948 11 6.5 11 C7.052 11 7.5 10.328 7.5 9.5" />
     </svg>
+  );
+}
+
+/** 左下角升级胶囊:有新 Release 时出现,点击下载并升级 */
+function UpdatePill() {
+  const [ev, setEv] = useState<{
+    state: 'available' | 'downloading' | 'restarting' | 'error';
+    version?: string;
+  } | null>(null);
+
+  useEffect(() => window.termpro.onUpdateEvent(setEv), []);
+
+  if (!ev) return null;
+  const label =
+    ev.state === 'available'
+      ? `⬆ 新版本 v${ev.version} — 点击升级`
+      : ev.state === 'downloading'
+        ? '正在下载更新…'
+        : ev.state === 'restarting'
+          ? '即将重启完成升级…'
+          : '自动升级失败,已打开发布页';
+
+  return (
+    <button
+      className={`sidebar-update-pill sidebar-update-pill--${ev.state}`}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      disabled={ev.state === 'downloading' || ev.state === 'restarting'}
+      onClick={() => window.termpro.installUpdate()}
+      title="下载新版本并自动重启升级"
+    >
+      {label}
+    </button>
   );
 }
 
@@ -179,6 +211,11 @@ export function Sidebar() {
             );
           })
         )}
+      </div>
+
+      {/* 左下角:升级提示 */}
+      <div className="sidebar-footer">
+        <UpdatePill />
       </div>
 
       {/* Rename modal — rendered at sidebar root level */}

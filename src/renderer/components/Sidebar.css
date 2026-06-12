@@ -253,3 +253,41 @@
   line-height: 16px;
   pointer-events: none;
 }
+
+/* ---- 左下角升级胶囊 ---- */
+
+.sidebar-footer {
+  margin-top: auto;
+  flex-shrink: 0;
+  padding: 8px;
+}
+
+.sidebar-update-pill {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+  background: var(--accent);
+  color: #fff;
+}
+
+.sidebar-update-pill:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.sidebar-update-pill--downloading,
+.sidebar-update-pill--restarting {
+  background: var(--bg-active);
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+.sidebar-update-pill--error {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+}

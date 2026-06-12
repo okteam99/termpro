@@ -14,6 +14,13 @@ declare global {
       setDockBadge(count: number): void;
       focusWindow(): void;
       openInEditor(editor: 'vscode' | 'zed', path: string): void;
+      onUpdateEvent(
+        callback: (e: {
+          state: 'available' | 'downloading' | 'restarting' | 'error';
+          version?: string;
+        }) => void,
+      ): () => void;
+      installUpdate(): void;
     };
   }
 }

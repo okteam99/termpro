@@ -35,6 +35,23 @@ contextBridge.exposeInMainWorld('termpro', {
   openInEditor(editor: 'vscode' | 'zed', path: string): void {
     ipcRenderer.send('editor:open', editor, path);
   },
+  /** 订阅更新事件(available/downloading/restarting/error),返回退订函数 */
+  onUpdateEvent(
+    callback: (e: { state: string; version?: string }) => void,
+  ): () => void {
+    const listener = (
+      _e: unknown,
+      payload: { state: string; version?: string },
+    ) => callback(payload);
+    ipcRenderer.on('update:event', listener);
+    ipcRenderer.send('update:query');
+    return () => {
+      ipcRenderer.removeListener('update:event', listener);
+    };
+  },
+  installUpdate(): void {
+    ipcRenderer.send('update:install');
+  },
   focusWindow(): void {
     ipcRenderer.send('window:focus-self');
   },

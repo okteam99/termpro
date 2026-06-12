@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { registerAppStore } from './appStore';
+import { initUpdater } from './updater';
 
 if (started) {
   app.quit();
@@ -23,6 +24,7 @@ if (process.env.TERMPRO_SMOKE) {
 }
 
 registerAppStore();
+initUpdater();
 
 // ---- Host 进程(utilityProcess)----------------------------------------
 
