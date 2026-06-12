@@ -110,19 +110,15 @@ if (process.env.TERMPRO_SMOKE) {
   });
 }
 
-// ---- 查看器独立窗口(文件预览 / diff,不占用主视图终端区)----------------
+// ---- 三窗口模型 ----------------------------------------------------------
+// 主窗口(终端工作台)/ 文件内容窗口(单例,多 tab,所有可编辑文件共用)/
+// git diff 窗口(单例,模态挂主窗口;打开期间禁止再开任何查看窗口)。
 
-function createViewerWindow(payload: unknown): void {
-  const win = new BrowserWindow({
-    width: 1100,
-    height: 760,
-    minWidth: 600,
-    minHeight: 400,
-    backgroundColor: '#1e2227',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-    },
-  });
+let mainWin: BrowserWindow | null = null;
+let fileWin: BrowserWindow | null = null;
+let diffWin: BrowserWindow | null = null;
+
+function loadViewer(win: BrowserWindow, payload: unknown): void {
   const json = JSON.stringify(payload);
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(
@@ -136,8 +132,55 @@ function createViewerWindow(payload: unknown): void {
   }
 }
 
+function openFileWindow(filePath: string): void {
+  if (fileWin && !fileWin.isDestroyed()) {
+    fileWin.show();
+    fileWin.focus();
+    fileWin.webContents.send('viewer:add-tab', filePath);
+    return;
+  }
+  fileWin = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 600,
+    minHeight: 400,
+    backgroundColor: '#1e2227',
+    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+  });
+  fileWin.on('closed', () => {
+    fileWin = null;
+  });
+  loadViewer(fileWin, { mode: 'files', initialPath: filePath });
+}
+
+function openDiffWindow(payload: unknown): void {
+  diffWin = new BrowserWindow({
+    // 模态:macOS 下呈现为挂在主窗口的 sheet
+    parent: mainWin ?? undefined,
+    modal: !!mainWin,
+    width: 1200,
+    height: 800,
+    backgroundColor: '#1e2227',
+    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+  });
+  diffWin.on('closed', () => {
+    diffWin = null;
+  });
+  loadViewer(diffWin, payload);
+}
+
 ipcMain.on('viewer:open-window', (_event, payload: unknown) => {
-  createViewerWindow(payload);
+  // diff 模态期间禁止再开任何查看窗口
+  if (diffWin && !diffWin.isDestroyed()) {
+    diffWin.focus();
+    return;
+  }
+  const p = payload as { mode?: string; path?: string } | undefined;
+  if (p?.mode === 'diff') {
+    openDiffWindow(payload);
+  } else if (p?.mode === 'file' && typeof p.path === 'string') {
+    openFileWindow(p.path);
+  }
 });
 
 // ---- 应用菜单:把 ⌘T/⌘W 从系统默认行为里解放出来交给渲染层 ----------------
@@ -213,6 +256,11 @@ const createWindow = () => {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
     );
   }
+
+  mainWin = mainWindow;
+  mainWindow.on('closed', () => {
+    if (mainWin === mainWindow) mainWin = null;
+  });
 };
 
 app.on('ready', () => {

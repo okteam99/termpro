@@ -1,22 +1,30 @@
-// 独立查看器窗口(V3 完整实现)。
+// 查看窗口入口:files(文件内容窗口,多 tab)/ diff(git diff,模态)。
 import './viewer.css';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { hostClient } from '../../services/hostClient';
 import { tildify } from '../../state/store';
-import { FileView } from './FileView';
 import { DiffPanel } from './DiffPanel';
+import { FilesWindow } from './FilesWindow';
 
 export type ViewerPayload =
-  | { mode: 'file'; path: string }
+  | { mode: 'files'; initialPath: string }
   | { mode: 'diff'; toplevel: string; baseRef: string | null };
 
 export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
+  if (payload.mode === 'files') {
+    return <FilesWindow initialPath={payload.initialPath} />;
+  }
+  return <DiffWindow payload={payload} />;
+}
+
+function DiffWindow({
+  payload,
+}: {
+  payload: Extract<ViewerPayload, { mode: 'diff' }>;
+}) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const saveRef = useRef<(() => void) | null>(null);
 
-  // Connect to host on mount;host 崩溃时给出恢复提示
   useEffect(() => {
     hostClient.connect().then(
       () => setReady(true),
@@ -27,21 +35,16 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
     );
   }, []);
 
-  // Set document.title once host is ready (homedir available)
   useEffect(() => {
     if (!ready) return;
     const homedir = hostClient.info?.homedir;
-    if (payload.mode === 'file') {
-      document.title = tildify(payload.path, homedir);
-    } else {
-      const base = `Diff · ${tildify(payload.toplevel, homedir)}`;
-      document.title = payload.baseRef
-        ? `${base} · vs ${payload.baseRef}`
-        : `${base} · 未提交变更`;
-    }
+    const base = `Diff · ${tildify(payload.toplevel, homedir)}`;
+    document.title = payload.baseRef
+      ? `${base} · vs ${payload.baseRef}`
+      : `${base} · 未提交变更`;
   }, [ready, payload]);
 
-  // Esc closes the window (skip inside .monaco-editor)
+  // Esc / ⌘W 关窗(模态生命周期由 main 管)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -49,14 +52,13 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
       window.close();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  // ⌘W via native menu → close-tab action
-  useEffect(() => {
-    return window.termpro.onMenu((action) => {
+    const offMenu = window.termpro.onMenu((action) => {
       if (action === 'close-tab') window.close();
     });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      offMenu();
+    };
   }, []);
 
   if (error) {
@@ -66,7 +68,6 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
       </div>
     );
   }
-
   if (!ready) {
     return (
       <div className="viewer-window">
@@ -76,38 +77,25 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
   }
 
   const homedir = hostClient.info?.homedir;
-  const title =
-    payload.mode === 'file'
-      ? tildify(payload.path, homedir)
-      : `Diff · ${tildify(payload.toplevel, homedir)}${payload.baseRef ? ` · vs ${payload.baseRef}` : ' · 未提交变更'}`;
-
-  const openIn = (editor: 'vscode' | 'zed') => {
-    const target = payload.mode === 'file' ? payload.path : payload.toplevel;
-    window.termpro.openInEditor(editor, target);
-  };
+  const title = `Diff · ${tildify(payload.toplevel, homedir)}${payload.baseRef ? ` · vs ${payload.baseRef}` : ' · 未提交变更'}`;
 
   return (
     <div className="viewer-window">
       <div className="viewer-header">
         <span className="viewer-title" title={title}>
           {title}
-          {dirty ? ' ●' : ''}
         </span>
         <div className="viewer-actions">
-          {payload.mode === 'file' && (
-            <button
-              className="viewer-btn"
-              disabled={!dirty}
-              onClick={() => saveRef.current?.()}
-              title="⌘S"
-            >
-              保存
-            </button>
-          )}
-          <button className="viewer-btn" onClick={() => openIn('vscode')}>
+          <button
+            className="viewer-btn"
+            onClick={() => window.termpro.openInEditor('vscode', payload.toplevel)}
+          >
             VS Code
           </button>
-          <button className="viewer-btn" onClick={() => openIn('zed')}>
+          <button
+            className="viewer-btn"
+            onClick={() => window.termpro.openInEditor('zed', payload.toplevel)}
+          >
             Zed
           </button>
           <button
@@ -119,17 +107,7 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
           </button>
         </div>
       </div>
-      {payload.mode === 'file' ? (
-        <FileView
-          path={payload.path}
-          onDirtyChange={setDirty}
-          registerSave={(fn) => {
-            saveRef.current = fn;
-          }}
-        />
-      ) : (
-        <DiffPanel toplevel={payload.toplevel} baseRef={payload.baseRef} />
-      )}
+      <DiffPanel toplevel={payload.toplevel} baseRef={payload.baseRef} />
     </div>
   );
 }

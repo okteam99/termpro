@@ -211,3 +211,89 @@
 .diff-status--deleted   { color: #e06c75; }
 .diff-status--renamed   { color: #61afef; }
 .diff-status--conflicted { color: #e06c75; font-weight: 700; }
+
+/* ---- 文件内容窗口:多 tab ---- */
+
+.files-header {
+  padding-left: 0;
+}
+
+.files-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.files-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.files-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 12px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  cursor: default;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.files-tab--active {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.files-tab-name {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-tab-close {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.files-tab-close:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.files-seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.files-seg .viewer-btn {
+  border: none;
+  border-radius: 0;
+}
+
+.viewer-btn--on {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.files-body {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.files-pane {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}

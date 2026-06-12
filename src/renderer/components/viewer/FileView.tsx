@@ -10,6 +10,8 @@ interface Props {
   /** 保存状态回传给 header(脏标记/保存按钮) */
   onDirtyChange?(dirty: boolean): void;
   registerSave?(fn: (() => void) | null): void;
+  /** 暴露当前编辑器内容(markdown 预览读取未保存修改用) */
+  registerGetValue?(fn: (() => string) | null): void;
 }
 
 type LoadState =
@@ -17,7 +19,12 @@ type LoadState =
   | { phase: 'error'; message: string }
   | { phase: 'ready' };
 
-export function FileView({ path, onDirtyChange, registerSave }: Props) {
+export function FileView({
+  path,
+  onDirtyChange,
+  registerSave,
+  registerGetValue,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monacoNs.editor.IStandaloneCodeEditor | null>(null);
   const savedVersionRef = useRef(0);
@@ -106,6 +113,7 @@ export function FileView({ path, onDirtyChange, registerSave }: Props) {
           });
       };
       registerSave?.(save);
+      registerGetValue?.(() => editor?.getModel()?.getValue() ?? '');
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, save);
 
       setState({ phase: 'ready' });
@@ -115,6 +123,7 @@ export function FileView({ path, onDirtyChange, registerSave }: Props) {
     return () => {
       disposed = true;
       registerSave?.(null);
+      registerGetValue?.(null);
       editor?.dispose();
       model?.dispose();
       editorRef.current = null;

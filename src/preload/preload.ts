@@ -56,6 +56,14 @@ contextBridge.exposeInMainWorld('termpro', {
   openViewerWindow(payload: unknown): void {
     ipcRenderer.send('viewer:open-window', payload);
   },
+  /** 文件内容窗口:订阅"追加 tab"指令(窗口复用),返回退订函数 */
+  onViewerAddTab(callback: (path: string) => void): () => void {
+    const listener = (_e: unknown, path: string) => callback(path);
+    ipcRenderer.on('viewer:add-tab', listener);
+    return () => {
+      ipcRenderer.removeListener('viewer:add-tab', listener);
+    };
+  },
   focusWindow(): void {
     ipcRenderer.send('window:focus-self');
   },

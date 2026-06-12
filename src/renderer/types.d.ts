@@ -22,6 +22,7 @@ declare global {
       ): () => void;
       installUpdate(): void;
       openViewerWindow(payload: unknown): void;
+      onViewerAddTab(callback: (path: string) => void): () => void;
     };
   }
 }
