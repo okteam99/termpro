@@ -1,6 +1,8 @@
 import * as pty from 'node-pty';
 import os from 'node:os';
 import { FLOW, HostMessage, SpawnOptions } from '../shared/protocol';
+import { OutputScanner } from './outputScanner';
+import { SessionTracker } from './sessionTracker';
 
 interface Session {
   id: string;
@@ -9,6 +11,8 @@ interface Session {
   unacked: number;
   paused: boolean;
   lastProcess: string;
+  scanner: OutputScanner;
+  tracker: SessionTracker;
 }
 
 const PROCESS_POLL_MS = 1500;
@@ -33,15 +37,35 @@ export class PtyPool {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env } as Record<string, string>,
     });
+    const tracker = new SessionTracker({
+      shellName: shell.split('/').pop() ?? shell,
+      emit: (event) => {
+        if (process.env.TERMPRO_SMOKE) {
+          console.log('[host] session:event %s %s', id, JSON.stringify(event));
+        }
+        this.send({ t: 'session:event', sessionId: id, event });
+      },
+    });
+    const scanner = new OutputScanner({
+      onBell: () => tracker.onBell(),
+      onOsc: (code, payload) => tracker.onOsc(code, payload),
+      onAltScreen: (on) => tracker.onAltScreen(on),
+    });
+
     const session: Session = {
       id,
       pty: proc,
       unacked: 0,
       paused: false,
       lastProcess: '',
+      scanner,
+      tracker,
     };
 
     proc.onData((data) => {
+      // 观察(只读)→ 流控记账 → 转发
+      scanner.feed(data);
+      tracker.onOutput();
       const bytes = Buffer.byteLength(data);
       session.unacked += bytes;
       if (!session.paused && session.unacked > FLOW.highWatermark) {
@@ -105,7 +129,9 @@ export class PtyPool {
         if (name && name !== s.lastProcess) {
           s.lastProcess = name;
           this.send({ t: 'pty:title', sessionId: s.id, processName: name });
+          s.tracker.onProcessName(name);
         }
+        s.tracker.tick();
       }
     }, PROCESS_POLL_MS);
   }

@@ -85,6 +85,15 @@ export interface RpcMethods {
 
 export type RpcMethodName = keyof RpcMethods;
 
+// 会话状态事件(host 侧状态机产出;UI 不解析终端输出,只消费语义事件)
+export type SessionEvent =
+  | { kind: 'state'; state: 'idle' | 'running'; via: 'process' | 'osc133' }
+  | { kind: 'cmd-done'; exitCode: number | null }
+  | { kind: 'bell' }
+  | { kind: 'notify'; title: string; body: string }
+  | { kind: 'quiet'; quiet: boolean }
+  | { kind: 'altscreen'; on: boolean };
+
 // UI → Host
 export type ClientMessage =
   | { t: 'rpc:req'; id: number; method: RpcMethodName; params?: unknown }
@@ -99,4 +108,5 @@ export type HostMessage =
   | { t: 'pty:data'; sessionId: string; data: string; bytes: number }
   | { t: 'pty:exit'; sessionId: string; exitCode: number }
   | { t: 'pty:title'; sessionId: string; processName: string }
+  | { t: 'session:event'; sessionId: string; event: SessionEvent }
   | { t: 'fs:changed'; watchId: number };
