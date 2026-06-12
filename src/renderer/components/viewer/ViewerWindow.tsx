@@ -8,7 +8,13 @@ import { FilesWindow } from './FilesWindow';
 
 export type ViewerPayload =
   | { mode: 'files'; initialPath: string }
-  | { mode: 'diff'; toplevel: string; baseRef: string | null };
+  | {
+      mode: 'diff';
+      toplevel: string;
+      baseRef: string | null;
+      /** 打开时初选的文件(toplevel 相对路径) */
+      initialPath?: string;
+    };
 
 export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
   if (payload.mode === 'files') {
@@ -102,7 +108,11 @@ function DiffWindow({
           </button>
         </div>
       </div>
-      <DiffPanel toplevel={payload.toplevel} baseRef={payload.baseRef} />
+      <DiffPanel
+        toplevel={payload.toplevel}
+        baseRef={payload.baseRef}
+        initialPath={payload.initialPath}
+      />
     </div>
   );
 }

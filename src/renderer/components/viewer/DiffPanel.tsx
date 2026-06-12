@@ -9,6 +9,8 @@ import type { GitStatusEntry, GitFileStatus } from '../../../shared/protocol';
 interface Props {
   toplevel: string;
   baseRef: string | null;
+  /** 打开时初选的文件(toplevel 相对路径);仅首轮列表加载生效 */
+  initialPath?: string;
 }
 
 // path helpers
@@ -48,8 +50,10 @@ interface SideState {
   message?: string;
 }
 
-export function DiffPanel({ toplevel, baseRef }: Props) {
+export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // 初选只消费一次:之后的 ⟳ 重载回到「选第一条」的默认行为
+  const initialPathRef = useRef<string | null>(initialPath ?? null);
 
   // List state
   const [entries, setEntries] = useState<GitStatusEntry[]>([]);
@@ -87,10 +91,13 @@ export function DiffPanel({ toplevel, baseRef }: Props) {
       setEntries(res.entries);
       setMergeBase(res.mergeBase);
       setListPhase('ready');
-      // Auto-select first
-      if (res.entries.length > 0) {
-        setSelected(res.entries[0].path);
-      }
+      // 有初选且仍在列表中 → 选它;否则选第一条
+      const want = initialPathRef.current;
+      initialPathRef.current = null;
+      const hit =
+        want && res.entries.some((e) => e.path === want) ? want : null;
+      if (hit) setSelected(hit);
+      else if (res.entries.length > 0) setSelected(res.entries[0].path);
     } catch (e) {
       if (listEpochRef.current !== epoch) return;
       setListPhase('error');

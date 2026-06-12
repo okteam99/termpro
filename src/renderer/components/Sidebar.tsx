@@ -138,7 +138,6 @@ export function Sidebar() {
     <aside className="sidebar">
       {/* 顶部标题栏,留出 traffic light 空间 */}
       <div className="sidebar-header">
-        <span className="sidebar-title">Workspaces</span>
         {/* Bell notification button */}
         <button
           ref={bellRef}

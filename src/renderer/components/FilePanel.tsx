@@ -484,6 +484,25 @@ export function FilePanel() {
     return status ? gitStatusClass(status) : '';
   }
 
+  /** 文件相对 effectiveRoot 的 git 状态(无状态/越界 → null) */
+  function fileStatusForPath(absPath: string): GitFileStatus | null {
+    if (!effectiveRoot || !absPath.startsWith(effectiveRoot + '/')) return null;
+    return statusMap.get(absPath.slice(effectiveRoot.length + 1)) ?? null;
+  }
+
+  /** Diff 窗口上下文(头部 Diff 按钮与行级 diff 按钮共用) */
+  function diffContext(): { toplevel: string; baseRef: string | null } {
+    const toplevel = worktrees.some((wt) => wt.path === effectiveRoot)
+      ? effectiveRoot!
+      : autoWorktree!;
+    const isMainWorktree = effectiveRoot === mainWorktreePath;
+    const mainBranch = worktrees[0]?.branch ?? null;
+    return {
+      toplevel,
+      baseRef: !isMainWorktree && mainBranch ? mainBranch : null,
+    };
+  }
+
   const homedir = hostClient.info?.homedir;
 
   // ── Header control: Root mode ──
@@ -663,24 +682,11 @@ export function FilePanel() {
               className="file-panel__diff-btn"
               title="打开 Diff 视图"
               onClick={() => {
-                // Determine toplevel: use effectiveRoot if it's a known git toplevel,
-                // otherwise fall back to autoWorktree.
-                const diffToplevel =
-                  worktrees.some((wt) => wt.path === effectiveRoot)
-                    ? effectiveRoot
-                    : autoWorktree;
-
-                // Determine baseRef: if effectiveRoot is NOT the main worktree and
-                // the main worktree has a branch, diff against that branch.
-                const isMainWorktree = effectiveRoot === mainWorktreePath;
-                const mainBranch = worktrees[0]?.branch ?? null;
-                const diffBaseRef =
-                  !isMainWorktree && mainBranch ? mainBranch : null;
-
+                const { toplevel, baseRef } = diffContext();
                 window.termpro.openViewerWindow({
                   mode: 'diff',
-                  toplevel: diffToplevel,
-                  baseRef: diffBaseRef,
+                  toplevel,
+                  baseRef,
                 });
               }}
             >
@@ -711,6 +717,11 @@ export function FilePanel() {
           else rowClass += ' file-panel__row--file';
           if (gitCls) rowClass += ` file-panel__row--${gitCls}`;
 
+          // 有变动的文件(着色非 ignored)hover 时给行级 diff 直达按钮
+          const fileStatus =
+            isDir || isErr ? null : fileStatusForPath(node.absPath);
+          const canDiff = !!fileStatus && fileStatus !== 'ignored';
+
           return (
             <div
               key={node.absPath}
@@ -728,6 +739,25 @@ export function FilePanel() {
                 {isDir && !isErr ? (isExpanded ? '▾' : '▸') : null}
               </span>
               <span className="file-panel__name">{node.entry.name}</span>
+              {canDiff && (
+                <button
+                  className="file-panel__row-diff"
+                  title="查看该文件 diff"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const { toplevel, baseRef } = diffContext();
+                    if (!node.absPath.startsWith(toplevel + '/')) return;
+                    window.termpro.openViewerWindow({
+                      mode: 'diff',
+                      toplevel,
+                      baseRef,
+                      initialPath: node.absPath.slice(toplevel.length + 1),
+                    });
+                  }}
+                >
+                  diff
+                </button>
+              )}
             </div>
           );
         })}
