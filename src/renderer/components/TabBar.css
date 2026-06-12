@@ -1,0 +1,137 @@
+.tabbar {
+  height: 38px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tabbar--empty {
+  width: 100%;
+}
+
+/* 横向可滚动标签容器,隐藏滚动条 */
+.tabbar-tabs {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+  flex-shrink: 0;
+  max-width: calc(100% - 20px);
+}
+
+.tabbar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* 单个标签 */
+.tabbar-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  height: 38px;
+  font-size: 12px;
+  cursor: default;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border-radius: 6px 6px 0 0;
+  color: var(--fg-dim);
+  background: transparent;
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.tabbar-tab:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tabbar-tab:hover .tabbar-close-btn {
+  opacity: 1;
+}
+
+/* 活跃标签:融入下方终端区域 */
+.tabbar-tab--active {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* exited 状态:整体半透明 */
+.tabbar-tab--exited {
+  opacity: 0.5;
+}
+
+.tabbar-tab-title {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* exited 提示小字 */
+.tabbar-tab-exited-hint {
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+
+/* 关闭按钮:非活跃标签默认隐藏,hover 时显示 */
+.tabbar-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 1px 2px;
+  border-radius: 3px;
+  opacity: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+
+/* 活跃标签的关闭按钮始终可见 */
+.tabbar-close-btn--always {
+  opacity: 1;
+}
+
+.tabbar-close-btn:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+/* 新建标签按钮 */
+.tabbar-add-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 10px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.tabbar-add-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fg);
+}
+
+/* 末尾可拖拽空白区占满剩余宽度 */
+.tabbar-drag-strip {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  -webkit-app-region: drag;
+}

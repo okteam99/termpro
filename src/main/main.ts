@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  Menu,
   MessageChannelMain,
   dialog,
   ipcMain,
@@ -62,6 +63,44 @@ if (process.env.TERMPRO_SMOKE) {
   });
 }
 
+// ---- 应用菜单:把 ⌘T/⌘W 从系统默认行为里解放出来交给渲染层 ----------------
+
+function buildMenu(): void {
+  const sendMenu = (action: string) => () =>
+    BrowserWindow.getFocusedWindow()?.webContents.send('menu', action);
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin'
+      ? [{ role: 'appMenu' as const }]
+      : []),
+    {
+      label: 'Shell',
+      submenu: [
+        {
+          label: 'New Tab',
+          accelerator: 'CmdOrCtrl+T',
+          click: sendMenu('new-tab'),
+        },
+        {
+          label: 'Close Tab',
+          accelerator: 'CmdOrCtrl+W',
+          click: sendMenu('close-tab'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Close Window',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          role: 'close',
+        },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 // ---- 窗口 ---------------------------------------------------------------
 
 const createWindow = () => {
@@ -75,8 +114,19 @@ const createWindow = () => {
     backgroundColor: '#1e2227',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      // 沙箱 preload 没有 process.env,冒烟开关经 argv 传递
+      additionalArguments: process.env.TERMPRO_SMOKE
+        ? ['--termpro-smoke']
+        : [],
     },
   });
+
+  if (process.env.TERMPRO_SMOKE) {
+    // 冒烟模式下把渲染层 console 转发到 stdout,便于无头排查
+    mainWindow.webContents.on('console-message', (details) => {
+      console.log(`[renderer:${details.level}] ${details.message}`);
+    });
+  }
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -87,7 +137,10 @@ const createWindow = () => {
   }
 };
 
-app.on('ready', createWindow);
+app.on('ready', () => {
+  buildMenu();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

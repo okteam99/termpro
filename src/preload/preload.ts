@@ -4,12 +4,21 @@ import { contextBridge, ipcRenderer } from 'electron';
 // 一切工程数据(fs/pty/git)走 HostService 协议,不经过这里。
 contextBridge.exposeInMainWorld('termpro', {
   platform: process.platform,
+  smoke: process.argv.includes('--termpro-smoke'),
   /** 请求 main 建一条直连 Host 的 MessageChannel,port 经 window message 送达 */
   requestHostPort(): void {
     ipcRenderer.send('host:request-port');
   },
   pickDirectory(): Promise<string | null> {
     return ipcRenderer.invoke('dialog:pick-directory');
+  },
+  /** 订阅原生菜单动作(new-tab / close-tab),返回退订函数 */
+  onMenu(callback: (action: string) => void): () => void {
+    const listener = (_e: unknown, action: string) => callback(action);
+    ipcRenderer.on('menu', listener);
+    return () => {
+      ipcRenderer.removeListener('menu', listener);
+    };
   },
   smokeOk(): void {
     ipcRenderer.send('smoke:ok');

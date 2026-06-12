@@ -1,16 +1,83 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { hostClient } from './services/hostClient';
+import { selectActiveWorkspace, useAppStore } from './state/store';
+import { Sidebar } from './components/Sidebar';
+import { TabBar } from './components/TabBar';
+import { FilePanel } from './components/FilePanel';
 import TerminalView from './terminal/TerminalView';
+import type { TermCallbacks } from './terminal/terminalRegistry';
 import type { HostInfo } from '../shared/protocol';
 
-// S3 阶段:单 tab 冒烟壳。S4 替换为完整三栏 UI。
+let smokeSent = false;
+
+// 终端事件 → store 的稳定回调(getState 始终取最新 action,不受组件卸载影响)
+const tabCallbacks = new Map<string, TermCallbacks>();
+function callbacksFor(tabId: string): TermCallbacks {
+  let cb = tabCallbacks.get(tabId);
+  if (!cb) {
+    cb = {
+      onTitle: (name) =>
+        useAppStore.getState().updateTab(tabId, { processName: name }),
+      onCwd: (cwd) => useAppStore.getState().updateTab(tabId, { cwd }),
+      onExit: () => useAppStore.getState().updateTab(tabId, { exited: true }),
+      onFirstData: () => {
+        if (!smokeSent) {
+          smokeSent = true;
+          window.termpro.smokeOk();
+        }
+      },
+    };
+    tabCallbacks.set(tabId, cb);
+  }
+  return cb;
+}
+
 export default function App() {
-  const [info, setInfo] = useState<HostInfo | null>(null);
+  const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const smokeSent = useRef(false);
+  const activeWs = useAppStore(selectActiveWorkspace);
 
   useEffect(() => {
-    hostClient.connect().then(setInfo, (e) => setError(String(e)));
+    hostClient.connect().then(setHostInfo, (e) => setError(String(e)));
+  }, []);
+
+  // 冒烟模式:空状态自动建一个 workspace,跑通 store→终端全链路
+  useEffect(() => {
+    if (!hostInfo || !window.termpro.smoke) return;
+    const s = useAppStore.getState();
+    if (s.workspaces.length === 0) s.addWorkspace(hostInfo.homedir);
+  }, [hostInfo]);
+
+  // 原生菜单事件(⌘T 新建 tab / ⌘W 关闭 tab)
+  useEffect(() => {
+    return window.termpro.onMenu((action) => {
+      const s = useAppStore.getState();
+      const ws = selectActiveWorkspace(s);
+      if (!ws) return;
+      if (action === 'new-tab') s.addTab(ws.id);
+      else if (action === 'close-tab' && ws.activeTabId) {
+        s.closeTab(ws.id, ws.activeTabId);
+      }
+    });
+  }, []);
+
+  // ⌘1..9 切换 tab
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= 9) {
+        const s = useAppStore.getState();
+        const ws = selectActiveWorkspace(s);
+        const tab = ws?.tabs[n - 1];
+        if (ws && tab) {
+          e.preventDefault();
+          s.setActiveTab(ws.id, tab.id);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
   if (error) {
@@ -20,7 +87,7 @@ export default function App() {
       </div>
     );
   }
-  if (!info) {
+  if (!hostInfo) {
     return (
       <div className="app-shell">
         <div className="placeholder">连接 Host…</div>
@@ -30,21 +97,28 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <div className="terminal-area">
-        <TerminalView
-          tabId="smoke"
-          cwd={info.homedir}
-          active
-          callbacks={{
-            onFirstData: () => {
-              if (!smokeSent.current) {
-                smokeSent.current = true;
-                window.termpro.smokeOk();
-              }
-            },
-          }}
-        />
+      <Sidebar />
+      <div className="main-column">
+        <TabBar />
+        <div className="terminal-area">
+          {activeWs?.tabs.map((tab) => (
+            <TerminalView
+              key={tab.id}
+              tabId={tab.id}
+              cwd={tab.cwd}
+              active={tab.id === activeWs.activeTabId}
+              callbacks={callbacksFor(tab.id)}
+            />
+          ))}
+          {activeWs && activeWs.tabs.length === 0 && (
+            <div className="placeholder">⌘T 新建终端</div>
+          )}
+          {!activeWs && (
+            <div className="placeholder">在左侧添加一个 Workspace 开始</div>
+          )}
+        </div>
       </div>
+      <FilePanel />
     </div>
   );
 }
