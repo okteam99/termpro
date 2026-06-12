@@ -19,9 +19,33 @@ export interface WorkspaceState {
   activeTabId: string | null;
 }
 
+// ---- 持久化形状(只存能恢复的:布局 + cwd,不存会话/进程态)----
+
+export interface PersistedTab {
+  id: string;
+  cwd: string;
+}
+
+export interface PersistedWorkspace {
+  id: string;
+  name: string;
+  root: string;
+  activeTabId: string | null;
+  tabs: PersistedTab[];
+}
+
+export interface PersistedState {
+  version: 1;
+  activeWorkspaceId: string | null;
+  workspaces: PersistedWorkspace[];
+}
+
 export interface AppState {
   workspaces: WorkspaceState[];
   activeWorkspaceId: string | null;
+  /** 存档已加载(或确认无存档),UI 渲染与持久化订阅以此为门 */
+  hydrated: boolean;
+  hydrate(persisted: PersistedState | null): void;
   addWorkspace(root: string): void;
   removeWorkspace(id: string): void;
   setActiveWorkspace(id: string): void;
@@ -49,6 +73,37 @@ function makeTab(cwd: string): TabState {
 export const useAppStore = create<AppState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
+  hydrated: false,
+
+  hydrate(persisted) {
+    if (!persisted || persisted.version !== 1) {
+      set({ hydrated: true });
+      return;
+    }
+    const workspaces: WorkspaceState[] = persisted.workspaces.map((w) => {
+      const tabs: TabState[] = w.tabs.map((t) => ({
+        id: t.id,
+        title: basename(t.cwd),
+        cwd: t.cwd,
+      }));
+      return {
+        id: w.id,
+        name: w.name,
+        root: w.root,
+        tabs,
+        activeTabId:
+          tabs.find((t) => t.id === w.activeTabId)?.id ?? tabs[0]?.id ?? null,
+      };
+    });
+    set({
+      workspaces,
+      activeWorkspaceId:
+        workspaces.find((w) => w.id === persisted.activeWorkspaceId)?.id ??
+        workspaces[0]?.id ??
+        null,
+      hydrated: true,
+    });
+  },
 
   addWorkspace(root) {
     const tab = makeTab(root);

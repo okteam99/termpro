@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('termpro', {
   smokeOk(): void {
     ipcRenderer.send('smoke:ok');
   },
+  storeGet(): Promise<unknown> {
+    return ipcRenderer.invoke('store:get');
+  },
+  storeSet(state: unknown): void {
+    ipcRenderer.send('store:set', state);
+  },
 });
 
 // 把 main 转交的 MessagePort 透传给主世界(Electron 官方模式:

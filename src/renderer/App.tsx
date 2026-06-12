@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { hostClient } from './services/hostClient';
 import { selectActiveWorkspace, useAppStore } from './state/store';
+import { initPersistence } from './state/persistence';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
@@ -36,17 +37,23 @@ export default function App() {
   const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeWs = useAppStore(selectActiveWorkspace);
+  const hydrated = useAppStore((s) => s.hydrated);
 
   useEffect(() => {
     hostClient.connect().then(setHostInfo, (e) => setError(String(e)));
   }, []);
 
+  // Host 就绪后加载布局存档(先 hydrate 再启动持久化订阅)
+  useEffect(() => {
+    if (hostInfo) void initPersistence();
+  }, [hostInfo]);
+
   // 冒烟模式:空状态自动建一个 workspace,跑通 store→终端全链路
   useEffect(() => {
-    if (!hostInfo || !window.termpro.smoke) return;
+    if (!hostInfo || !hydrated || !window.termpro.smoke) return;
     const s = useAppStore.getState();
     if (s.workspaces.length === 0) s.addWorkspace(hostInfo.homedir);
-  }, [hostInfo]);
+  }, [hostInfo, hydrated]);
 
   // 原生菜单事件(⌘T 新建 tab / ⌘W 关闭 tab)
   useEffect(() => {
@@ -87,7 +94,7 @@ export default function App() {
       </div>
     );
   }
-  if (!hostInfo) {
+  if (!hostInfo || !hydrated) {
     return (
       <div className="app-shell">
         <div className="placeholder">连接 Host…</div>

@@ -7,12 +7,21 @@ import {
   ipcMain,
   utilityProcess,
 } from 'electron';
+import os from 'node:os';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+import { registerAppStore } from './appStore';
 
 if (started) {
   app.quit();
 }
+
+// 冒烟模式用独立 userData:不污染真实布局存档,且结果可复现
+if (process.env.TERMPRO_SMOKE) {
+  app.setPath('userData', path.join(os.tmpdir(), 'termpro-smoke'));
+}
+
+registerAppStore();
 
 // ---- Host 进程(utilityProcess)----------------------------------------
 

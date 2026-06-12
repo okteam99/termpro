@@ -9,6 +9,8 @@ declare global {
       pickDirectory(): Promise<string | null>;
       onMenu(callback: (action: string) => void): () => void;
       smokeOk(): void;
+      storeGet(): Promise<unknown>;
+      storeSet(state: unknown): void;
     };
   }
 }
