@@ -1,5 +1,6 @@
 .sidebar {
-  width: 240px;
+  width: var(--sidebar-w, 240px);
+  flex: none;
   flex-shrink: 0;
   height: 100%;
   display: flex;

@@ -53,6 +53,15 @@ export interface GitStatusEntry {
   status: GitFileStatus;
 }
 
+export interface WorktreeInfo {
+  /** 工作区根(绝对路径);列表第一项为主工作区 */
+  path: string;
+  /** 分支名;detached 为 null */
+  branch: string | null;
+  /** HEAD 短 SHA */
+  head: string;
+}
+
 // RPC 方法签名表:新增方法在这里登记,两端自动获得类型。
 export interface RpcMethods {
   'host.info': { params: undefined; result: HostInfo };
@@ -70,6 +79,8 @@ export interface RpcMethods {
     params: { toplevel: string };
     result: { entries: GitStatusEntry[] };
   };
+  /** 列出 cwd 所属仓库的全部工作区(供 WorkTree 面板下拉绑定) */
+  'git.worktrees': { params: { cwd: string }; result: { worktrees: WorktreeInfo[] } };
 }
 
 export type RpcMethodName = keyof RpcMethods;

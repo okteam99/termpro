@@ -2,7 +2,12 @@
 // 只读操作,TermPro 不代办任何 worktree 写操作(README §四 M2 边界)。
 
 import { execFile } from 'node:child_process';
-import { GitFileStatus, GitInfo, GitStatusEntry } from '../shared/protocol';
+import {
+  GitFileStatus,
+  GitInfo,
+  GitStatusEntry,
+  WorktreeInfo,
+} from '../shared/protocol';
 
 const GIT_TIMEOUT_MS = 5_000;
 const MAX_BUFFER = 4 * 1024 * 1024;
@@ -58,6 +63,35 @@ export async function gitInfo(cwd: string): Promise<GitInfo> {
   }
 
   return { toplevel, mainWorktree: mainWorktree ?? toplevel, branch };
+}
+
+export async function gitWorktrees(
+  cwd: string,
+): Promise<{ worktrees: WorktreeInfo[] }> {
+  let out: string;
+  try {
+    out = await git(['worktree', 'list', '--porcelain'], cwd);
+  } catch {
+    return { worktrees: [] };
+  }
+  const worktrees: WorktreeInfo[] = [];
+  // porcelain 块以空行分隔:worktree <path> / HEAD <sha> / branch refs/heads/<x> 或 detached
+  for (const block of out.split('\n\n')) {
+    const lines = block.split('\n').filter(Boolean);
+    const pathLine = lines.find((l) => l.startsWith('worktree '));
+    if (!pathLine) continue;
+    if (lines.some((l) => l === 'bare')) continue;
+    const headLine = lines.find((l) => l.startsWith('HEAD '));
+    const branchLine = lines.find((l) => l.startsWith('branch '));
+    worktrees.push({
+      path: pathLine.slice('worktree '.length).trim(),
+      head: headLine ? headLine.slice('HEAD '.length).trim().slice(0, 7) : '',
+      branch: branchLine
+        ? branchLine.slice('branch '.length).trim().replace(/^refs\/heads\//, '')
+        : null,
+    });
+  }
+  return { worktrees };
 }
 
 export async function gitStatus(

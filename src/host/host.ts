@@ -12,7 +12,7 @@ import {
 } from '../shared/protocol';
 import { PtyPool } from './ptyPool';
 import { homeDir, listDir } from './fsService';
-import { gitInfo, gitStatus } from './gitService';
+import { gitInfo, gitStatus, gitWorktrees } from './gitService';
 import { WatchService } from './watchService';
 import { processCwd } from './proc';
 
@@ -147,6 +147,9 @@ async function handleRpc(
         result = await gitStatus(
           (msg.params as { toplevel: string }).toplevel,
         );
+        break;
+      case 'git.worktrees':
+        result = await gitWorktrees((msg.params as { cwd: string }).cwd);
         break;
       default:
         throw new Error(`unknown rpc method: ${String(msg.method)}`);

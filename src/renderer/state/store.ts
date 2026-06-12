@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { disposeTerminal } from '../terminal/terminalRegistry';
 
+/** 文件面板与 tab 的绑定状态(每个 tab 独立,持久化) */
+export interface TabFilePanelState {
+  mode: 'root' | 'worktree';
+  /** Root 视图手动指定的根;未设置时默认 = 该 tab 所在仓库主工作区根 */
+  rootPath?: string;
+  /** WorkTree 视图绑定的工作区根;未设置时默认 = 会话所在工作区根 */
+  worktreePath?: string;
+}
+
 export interface TabState {
   id: string;
   /** 显示名:默认 basename(cwd),前台进程名变化后覆盖 */
@@ -9,6 +18,7 @@ export interface TabState {
   cwd: string;
   processName?: string;
   exited?: boolean;
+  filePanel?: TabFilePanelState;
 }
 
 export interface WorkspaceState {
@@ -26,6 +36,7 @@ export interface WorkspaceState {
 export interface PersistedTab {
   id: string;
   cwd: string;
+  filePanel?: TabFilePanelState;
 }
 
 export interface PersistedWorkspace {
@@ -40,6 +51,7 @@ export interface PersistedState {
   version: 1;
   activeWorkspaceId: string | null;
   workspaces: PersistedWorkspace[];
+  ui?: { sidebarWidth?: number; filePanelWidth?: number };
 }
 
 export interface AppState {
@@ -59,6 +71,14 @@ export interface AppState {
   closeTab(workspaceId: string, tabId: string): void;
   setActiveTab(workspaceId: string, tabId: string): void;
   updateTab(tabId: string, patch: Partial<Omit<TabState, 'id'>>): void;
+  /** 合并更新 tab 的文件面板绑定(mode 默认 root) */
+  updateTabFilePanel(tabId: string, patch: Partial<TabFilePanelState>): void;
+  sidebarWidth: number;
+  filePanelWidth: number;
+  setPaneWidths(patch: {
+    sidebarWidth?: number;
+    filePanelWidth?: number;
+  }): void;
 }
 
 export function basename(p: string): string {
@@ -80,17 +100,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
   hydrated: false,
+  sidebarWidth: 240,
+  filePanelWidth: 280,
 
   hydrate(persisted) {
     if (!persisted || persisted.version !== 1) {
       set({ hydrated: true });
       return;
     }
+    if (persisted.ui) {
+      set({
+        sidebarWidth: persisted.ui.sidebarWidth ?? 240,
+        filePanelWidth: persisted.ui.filePanelWidth ?? 280,
+      });
+    }
     const workspaces: WorkspaceState[] = persisted.workspaces.map((w) => {
       const tabs: TabState[] = w.tabs.map((t) => ({
         id: t.id,
         title: basename(t.cwd),
         cwd: t.cwd,
+        filePanel: t.filePanel,
       }));
       return {
         id: w.id,
@@ -193,6 +222,26 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...w,
         tabs: w.tabs.map((t) => (t.id === tabId ? { ...t, ...patch } : t)),
       })),
+    }));
+  },
+
+  updateTabFilePanel(tabId, patch) {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => ({
+        ...w,
+        tabs: w.tabs.map((t) =>
+          t.id === tabId
+            ? { ...t, filePanel: { mode: 'root', ...t.filePanel, ...patch } }
+            : t,
+        ),
+      })),
+    }));
+  },
+
+  setPaneWidths(patch) {
+    set((s) => ({
+      sidebarWidth: patch.sidebarWidth ?? s.sidebarWidth,
+      filePanelWidth: patch.filePanelWidth ?? s.filePanelWidth,
     }));
   },
 }));

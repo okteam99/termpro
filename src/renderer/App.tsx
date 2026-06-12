@@ -5,6 +5,7 @@ import { initPersistence } from './state/persistence';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
+import { PaneHandle } from './components/PaneHandle';
 import TerminalView from './terminal/TerminalView';
 import type { TermCallbacks } from './terminal/terminalRegistry';
 import type { HostInfo } from '../shared/protocol';
@@ -38,6 +39,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const activeWs = useAppStore(selectActiveWorkspace);
   const hydrated = useAppStore((s) => s.hydrated);
+  const sidebarWidth = useAppStore((s) => s.sidebarWidth);
+  const filePanelWidth = useAppStore((s) => s.filePanelWidth);
 
   useEffect(() => {
     hostClient.connect().then(setHostInfo, (e) => setError(String(e)));
@@ -127,8 +130,17 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      style={
+        {
+          '--sidebar-w': `${sidebarWidth}px`,
+          '--filepanel-w': `${filePanelWidth}px`,
+        } as React.CSSProperties
+      }
+    >
       <Sidebar />
+      <PaneHandle side="left" />
       <div className="main-column">
         <TabBar />
         <div className="terminal-area">
@@ -149,6 +161,7 @@ export default function App() {
           )}
         </div>
       </div>
+      <PaneHandle side="right" />
       <FilePanel />
     </div>
   );
