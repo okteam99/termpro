@@ -136,7 +136,17 @@ function openFileWindow(filePath: string): void {
   if (fileWin && !fileWin.isDestroyed()) {
     fileWin.show();
     fileWin.focus();
-    fileWin.webContents.send('viewer:add-tab', filePath);
+    const wc = fileWin.webContents;
+    if (wc.isLoading()) {
+      // 窗口冷启动尚未完成:渲染层还没订阅 add-tab,延迟到加载完成
+      wc.once('did-finish-load', () => {
+        if (fileWin && !fileWin.isDestroyed()) {
+          wc.send('viewer:add-tab', filePath);
+        }
+      });
+    } else {
+      wc.send('viewer:add-tab', filePath);
+    }
     return;
   }
   fileWin = new BrowserWindow({
@@ -145,7 +155,12 @@ function openFileWindow(filePath: string): void {
     minWidth: 600,
     minHeight: 400,
     backgroundColor: '#1e2227',
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
   });
   fileWin.on('closed', () => {
     fileWin = null;
@@ -161,7 +176,12 @@ function openDiffWindow(payload: unknown): void {
     width: 1200,
     height: 800,
     backgroundColor: '#1e2227',
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
   });
   diffWin.on('closed', () => {
     diffWin = null;
@@ -234,6 +254,9 @@ const createWindow = () => {
     backgroundColor: '#1e2227',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
       // 沙箱 preload 没有 process.env,冒烟开关经 argv 传递
       additionalArguments: process.env.TERMPRO_SMOKE
         ? ['--termpro-smoke']

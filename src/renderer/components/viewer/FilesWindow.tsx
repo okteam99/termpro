@@ -26,6 +26,32 @@ export function FilesWindow({ initialPath }: { initialPath: string }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const saveFns = useRef(new Map<string, () => void>());
   const getValueFns = useRef(new Map<string, () => string>());
+  // beforeunload 守卫用:实时镜像 tabs / 用户已确认放弃修改
+  const tabsRef = useRef<FileTab[]>([]);
+  tabsRef.current = tabs;
+  const closeConfirmedRef = useRef(false);
+
+  // 任何关窗路径(Esc/×/最后一个 tab/红绿灯/⌘R)统一经 beforeunload
+  // 拦截:有脏 tab 时先确认,避免无声丢失未保存修改
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (closeConfirmedRef.current) return;
+      const dirtyCount = tabsRef.current.filter((t) => t.dirty).length;
+      if (dirtyCount === 0) return;
+      e.preventDefault();
+      e.returnValue = false;
+      setTimeout(() => {
+        if (
+          window.confirm(`有 ${dirtyCount} 个未保存的文件,确定关闭窗口?`)
+        ) {
+          closeConfirmedRef.current = true;
+          window.close();
+        }
+      });
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
 
   useEffect(() => {
     hostClient.connect().then(
