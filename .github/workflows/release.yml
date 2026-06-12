@@ -1,6 +1,6 @@
 # 出包流水线:打 v* tag 自动构建 macOS 包并附到 GitHub Release;
 # 也可在 Actions 页手动触发(workflow_dispatch)验证打包,只传 artifact 不发 Release。
-# 注意:私有仓库 macOS runner 按 10× 计费,故仅在出包时使用。
+# 公开仓库 GitHub-hosted runner 免费;fork PR 不注入 secrets(自动回退 ad-hoc)。
 #
 # 签名/公证复用 cmux-pro 的 secrets 体系(同名,见 docs/DEV.md):
 #   APPLE_CERTIFICATE_BASE64 / APPLE_CERTIFICATE_PASSWORD /

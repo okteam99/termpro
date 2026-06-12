@@ -1,4 +1,4 @@
-# 日常质量门:类型检查 + 单测。跑在 ubuntu(私有仓库 1× 计费)。
+# 日常质量门:类型检查 + 单测(ubuntu,公开仓库 runner 免费)。
 # 打包与冒烟见 release.yml(macOS,仅 tag / 手动触发)。
 name: CI
 

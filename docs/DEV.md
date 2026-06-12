@@ -135,7 +135,7 @@ npm version patch        # 或 minor/major:改版本号 + commit + 打 tag
 git push --follow-tags   # 推 tag 即触发出包
 ```
 
-注意:私有仓库 macOS runner 按 10× 计费,release.yml 只在出包时跑。
+仓库已公开:GitHub-hosted runner 免费(含 macOS)。
 
 ### 签名与公证(复用 cmux-pro 的 secrets 体系)
 

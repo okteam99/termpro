@@ -1,5 +1,7 @@
 # TermPro
 
+[![CI](https://github.com/okteam99/termpro/actions/workflows/ci.yml/badge.svg)](https://github.com/okteam99/termpro/actions/workflows/ci.yml)
+
 > AI IDE:以终端为主体的多工程、多并行会话工作台。
 > 终端不关心里面跑的是什么 agent——工具无关是第一设计原则。
 
