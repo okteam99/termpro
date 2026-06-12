@@ -121,6 +121,24 @@ preload 是沙箱环境，无法直接通过 contextBridge 传递 MessagePort，
 
 ---
 
+## 4.5 CI 与发版
+
+| 工作流 | 触发 | 内容 |
+|---|---|---|
+| `ci.yml` | push main / PR | typecheck + vitest(ubuntu,1× 计费) |
+| `release.yml` | 打 `v*` tag / 手动触发 | macOS(arm64)构建:测试 + 冒烟 + `npm run make`,tag 时附 zip 发 GitHub Release;手动触发只传 artifact |
+
+发版流程:
+
+```bash
+npm version patch        # 或 minor/major:改版本号 + commit + 打 tag
+git push --follow-tags   # 推 tag 即触发出包
+```
+
+注意:私有仓库 macOS runner 按 10× 计费,release.yml 只在出包时跑。
+产物为 ad-hoc 签名(无开发者证书),下载后首次打开需右键 → 打开,
+或 `xattr -dr com.apple.quarantine TermPro.app`。
+
 ## 5. 已知约束
 
 | 约束 | 说明 |

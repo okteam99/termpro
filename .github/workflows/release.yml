@@ -1,0 +1,56 @@
+# 出包流水线:打 v* tag 自动构建 macOS 包并附到 GitHub Release;
+# 也可在 Actions 页手动触发(workflow_dispatch)验证打包,只传 artifact 不发 Release。
+# 注意:私有仓库 macOS runner 按 10× 计费,故仅在出包时使用。
+# 包为 ad-hoc 签名(无开发者证书):下载后首次打开需右键 → 打开,
+# 或 `xattr -dr com.apple.quarantine TermPro.app`。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    # Apple Silicon(arm64)。如需 Intel 包,改为矩阵并加 macos-13。
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查与单测
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: 端到端冒烟(渲染层↔Host↔PTY)
+        run: TERMPRO_SMOKE=1 npx electron-forge start
+        timeout-minutes: 6
+
+      - name: 打包
+        run: npm run make
+
+      - name: 上传构建产物(所有触发方式)
+        uses: actions/upload-artifact@v4
+        with:
+          name: termpro-darwin-arm64
+          path: out/make/**/*.zip
+          retention-days: 14
+
+      - name: 发布 GitHub Release(仅 tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/make/**/*.zip
+          generate_release_notes: true
