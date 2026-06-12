@@ -102,8 +102,11 @@ export function FilePanel() {
   const [cwdEpoch, setCwdEpoch] = useState(0);
   const lastCwdRef = useRef<string | null>(null);
 
-  // epoch counter to guard stale async results
+  // epoch counters guard stale async results。Phase 1(auto 解析)与
+  // Phase 2(树/watch)是相互独立的异步流,必须各用各的计数器:
+  // 首启时持久化的 rootPath 让 Phase 2 与 Phase 1 并发,共用会互相误杀
   const epochRef = useRef(0);
+  const resolveEpochRef = useRef(0);
 
   // Track current watchId and unsubscribe function so we can clean up
   const watchIdRef = useRef<number | null>(null);
@@ -164,7 +167,7 @@ export function FilePanel() {
   useEffect(() => {
     if (!workspace) return;
 
-    const epoch = ++epochRef.current;
+    const epoch = ++resolveEpochRef.current;
 
     async function resolve() {
       if (!workspace) return;
@@ -184,7 +187,7 @@ export function FilePanel() {
       }
       cwd = cwd ?? tab?.cwd ?? workspace.root;
 
-      if (epochRef.current !== epoch) return;
+      if (resolveEpochRef.current !== epoch) return;
 
       // Resolve git info
       let info: GitInfo = { toplevel: null, mainWorktree: null, branch: null };
@@ -194,7 +197,7 @@ export function FilePanel() {
         // not a git repo or unreachable
       }
 
-      if (epochRef.current !== epoch) return;
+      if (resolveEpochRef.current !== epoch) return;
 
       // live cwd 只用于提示行与首次锁定
       const newAutoRoot = info.mainWorktree ?? cwd;
@@ -214,7 +217,7 @@ export function FilePanel() {
         // 锚点不是 git 目录
       }
 
-      if (epochRef.current !== epoch) return;
+      if (resolveEpochRef.current !== epoch) return;
 
       let wts: WorktreeInfo[] = [];
       try {
@@ -224,7 +227,7 @@ export function FilePanel() {
         // non-git or unavailable
       }
 
-      if (epochRef.current !== epoch) return;
+      if (resolveEpochRef.current !== epoch) return;
 
       setAutoRoot(newAutoRoot);
       setAutoWorktree(anchorInfo.toplevel ?? anchor);
