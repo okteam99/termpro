@@ -131,6 +131,7 @@ preload 是沙箱环境，无法直接通过 contextBridge 传递 MessagePort，
 | 协议版本 | `PROTOCOL_VERSION = 1`；M5 远程接入时需做版本握手校验 |
 | UI 关闭期间无系统通知 | M1-M4 靠重连对账兜底；推送通道留 M5 后 |
 | shell integration 仅 zsh | spawn zsh 时经 ZDOTDIR 包装自动注入 OSC 133/7；`TERMPRO_NO_SHELL_INTEGRATION=1` 关闭；bash/fish 待后续 |
+| 查看器保存无 mtime 守卫 | 轻编辑场景:文件被外部修改后保存会直接覆盖（跟进项：读时记 mtime，写时校验） |
 | p10k instant prompt | 注入钩子在 .zshrc 末尾输出 OSC 序列，Powerlevel10k instant-prompt 可能提示"console output during init"（与 VS Code 同模式，无功能影响） |
 
 ---

@@ -89,10 +89,13 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
       侧栏注意力计数、🔔 通知中心、Dock 角标、系统通知(点击跳回对应 tab)
 - 打扰策略:聚焦中的 tab 永不打扰;窗口失焦才发系统通知;激活 tab 即清除注意力标记
 
-### M4 — 文件查看与 diff
-- [ ] Monaco(懒加载):文件只读 / 轻编辑
-- [ ] worktree vs 基线分支的 diff 视图(Monaco diff editor)
-- [ ] "Open in VS Code / Zed" 一键外跳
+### M4 — 文件查看与 diff ✅ 2026-06
+- [x] Monaco(懒加载,首屏不含):文件树点击即看,轻编辑 + ⌘S 保存
+      (二进制 / >2MB 降级提示;重编辑外跳)
+- [x] diff 视图(Monaco diff editor):未提交变更(vs HEAD)/
+      worktree vs 基线分支(merge-base,含未跟踪文件);
+      变更文件列表着色,FilePanel 一键进入(非主工作区默认对比主分支)
+- [x] "Open in VS Code / Zed" 一键外跳(open -a,不依赖 PATH)
 
 ### M5 — 远程 Host(架构兑现)
 - [ ] Host 打包为独立可执行(纯 node,单文件);`ssh` 隧道 + WebSocket 接入,不自研认证

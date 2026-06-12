@@ -204,5 +204,19 @@ export async function gitChangedFiles(
   } catch {
     return { entries: [], mergeBase };
   }
-  return { entries: parseDiffNameStatusZ(out), mergeBase };
+  const entries = parseDiffNameStatusZ(out);
+  // diff <base> 不含未跟踪文件,补上以与「未提交变更」模式语义一致
+  try {
+    const others = await git(
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+      toplevel,
+    );
+    const seen = new Set(entries.map((e) => e.path));
+    for (const p of others.split('\0')) {
+      if (p && !seen.has(p)) entries.push({ path: p, status: 'untracked' });
+    }
+  } catch {
+    /* 尽力而为 */
+  }
+  return { entries, mergeBase };
 }

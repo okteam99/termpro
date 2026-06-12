@@ -17,13 +17,13 @@ export function ViewerOverlay() {
   useEffect(() => {
     if (!viewer) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        closeViewer();
-      }
+      if (e.key !== 'Escape') return;
+      // 冒泡阶段 + 跳过来自 Monaco 内部的 Esc(查找框/多光标/IME 需要它)
+      if ((e.target as HTMLElement | null)?.closest?.('.monaco-editor')) return;
+      closeViewer();
     };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [viewer, closeViewer]);
 
   if (!viewer) return null;
