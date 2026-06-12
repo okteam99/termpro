@@ -56,9 +56,19 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
 开发与冒烟见 [docs/DEV.md](docs/DEV.md)。
 
 ### M2 — 工程与 git
-- [ ] 新建 tab 可选"顺手 `git worktree add`";关 tab 可选清理 worktree
-- [ ] 左侧栏 / tab 显示分支、dirty、ahead/behind;PR 状态(shell out `gh`)
-- [ ] 右侧文件树:chokidar watch、git 状态着色、Root / WorkTree 切换
+> 边界:worktree 的创建/删除是用户自己的事,TermPro 不代办。
+> tab 只是会话,跑在主仓还是某个 worktree 由用户决定;关 tab 不碰 worktree。
+> TermPro 只做「感知与展示」:识别会话所在的仓库/工作区并联动 UI。
+
+- [ ] Workspace 可重命名(侧栏内联编辑,持久化)
+- [ ] 侧栏 workspace 项显示主工作区(main worktree)当前分支名
+- [ ] 新建 tab 可选择起始目录(默认 workspace root,也可指到任意目录,如已有 worktree)
+- [ ] 文件面板随会话联动:切换/点击 session 时——
+      Root 视图 = 该会话所属仓库的主工作区根;
+      WorkTree 视图 = 该会话所在工作区根(`git rev-parse --show-toplevel`,非 git 目录回退 cwd)
+- [ ] 右侧文件树:watch 自动刷新、git 状态着色
+- [ ] Host 新增 git 服务:`git.info(cwd)` → { toplevel, mainWorktree, branch }
+      (shell out `git rev-parse` / `git worktree list --porcelain` / `git branch --show-current`)
 
 ### M3 — 状态感知与通知(差异化核心)
 - [ ] 信号①:轮询 `pty.process` 前台进程名(running / idle 的硬信号,零协议依赖)
