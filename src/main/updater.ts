@@ -8,7 +8,8 @@
 import { app, autoUpdater, BrowserWindow, ipcMain, shell } from 'electron';
 
 const REPO = 'okteam99/termpro';
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// 每 10 分钟周期检测;窗口聚焦(用户行为)且距上次检查 >10 分钟时立即触发
+const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const FIRST_CHECK_DELAY_MS = 10_000;
 
 export interface UpdateEvent {
@@ -18,6 +19,7 @@ export interface UpdateEvent {
 
 let latest: { version: string; htmlUrl: string } | null = null;
 let installing = false;
+let lastCheckTs = 0;
 /** Squirrel 无下载进度事件,只能靠看门狗兜底真卡死的情况 */
 let watchdog: NodeJS.Timeout | null = null;
 const WATCHDOG_MS = 15 * 60 * 1000;
@@ -45,6 +47,7 @@ function isNewer(remote: string, local: string): boolean {
 }
 
 async function check(): Promise<void> {
+  lastCheckTs = Date.now();
   try {
     const res = await fetch(
       `https://api.github.com/repos/${REPO}/releases/latest`,
@@ -59,11 +62,13 @@ async function check(): Promise<void> {
     if (json.prerelease) return; // 预发布不推给用户
     const version = (json.tag_name ?? '').replace(/^v/, '');
     if (version && isNewer(version, app.getVersion())) {
+      const isNewFinding = latest?.version !== version;
       latest = {
         version,
         htmlUrl: json.html_url ?? `https://github.com/${REPO}/releases`,
       };
-      broadcast({ state: 'available', version });
+      // 同一版本只广播一次,避免周期检测反复刷事件
+      if (isNewFinding) broadcast({ state: 'available', version });
     }
   } catch {
     // 离线/限流:静默,等下个周期
@@ -140,4 +145,10 @@ export function initUpdater(): void {
 
   setTimeout(() => void check(), FIRST_CHECK_DELAY_MS);
   setInterval(() => void check(), CHECK_INTERVAL_MS);
+  // 用户行为触发:窗口聚焦且距上次检查超过一个周期 → 立即检查
+  app.on('browser-window-focus', () => {
+    if (!installing && Date.now() - lastCheckTs > CHECK_INTERVAL_MS) {
+      void check();
+    }
+  });
 }
