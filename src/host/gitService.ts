@@ -192,7 +192,11 @@ export async function gitChangedFiles(
 ): Promise<{ entries: GitStatusEntry[]; mergeBase: string | null }> {
   if (!baseRef) {
     const { entries } = await gitStatus(toplevel);
-    return { entries, mergeBase: null };
+    // ignored 只服务文件树着色;diff 列表里无意义(也无内容可比)
+    return {
+      entries: entries.filter((e) => e.status !== 'ignored'),
+      mergeBase: null,
+    };
   }
   let mergeBase: string;
   try {
