@@ -92,14 +92,22 @@ function attachClient(port: PortLike): void {
       case 'rpc:req':
         void handleRpc(msg, send, client);
         break;
+      // PTY 控制消息只接受会话归属方(sessionId 不当 capability 用;
+      // M5 远程模式前的防御纵深)
       case 'pty:input':
-        pool.input(msg.sessionId, msg.data);
+        if (client.sessions.has(msg.sessionId)) {
+          pool.input(msg.sessionId, msg.data);
+        }
         break;
       case 'pty:resize':
-        pool.resize(msg.sessionId, msg.cols, msg.rows);
+        if (client.sessions.has(msg.sessionId)) {
+          pool.resize(msg.sessionId, msg.cols, msg.rows);
+        }
         break;
       case 'pty:ack':
-        pool.ack(msg.sessionId, msg.bytes);
+        if (client.sessions.has(msg.sessionId)) {
+          pool.ack(msg.sessionId, msg.bytes);
+        }
         break;
     }
   });
@@ -141,7 +149,9 @@ async function handleRpc(
         break;
       }
       case 'pty.spawn': {
-        const sessionId = pool.spawn(msg.params as SpawnOptions, send);
+        const sessionId = pool.spawn(msg.params as SpawnOptions, send, (sid) =>
+          client.sessions.delete(sid),
+        );
         client.sessions.add(sessionId);
         result = { sessionId };
         break;

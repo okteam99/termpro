@@ -16,11 +16,14 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
   const [dirty, setDirty] = useState(false);
   const saveRef = useRef<(() => void) | null>(null);
 
-  // Connect to host on mount
+  // Connect to host on mount;host 崩溃时给出恢复提示
   useEffect(() => {
     hostClient.connect().then(
       () => setReady(true),
       (e) => setError(String(e)),
+    );
+    return hostClient.onDown(() =>
+      setError('Host 进程已退出,⌘R 重载窗口可恢复'),
     );
   }, []);
 

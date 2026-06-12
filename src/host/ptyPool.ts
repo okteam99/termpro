@@ -27,7 +27,11 @@ export class PtyPool {
   private pollTimer: NodeJS.Timeout | null = null;
 
   /** 共享单例:会话归属由 spawn 时传入的 send 决定 */
-  spawn(opts: SpawnOptions, send: (msg: HostMessage) => void): string {
+  spawn(
+    opts: SpawnOptions,
+    send: (msg: HostMessage) => void,
+    onExit?: (sessionId: string) => void,
+  ): string {
     const shell =
       opts.shell ??
       process.env.SHELL ??
@@ -91,6 +95,7 @@ export class PtyPool {
     proc.onExit(({ exitCode }) => {
       this.sessions.delete(id);
       this.stopPollingIfIdle();
+      onExit?.(id); // 归属方清理(自然退出时 client.sessions 不留死条目)
       send({ t: 'pty:exit', sessionId: id, exitCode });
     });
 

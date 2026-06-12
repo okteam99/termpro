@@ -2,6 +2,8 @@
 // 有新版广播给渲染层(侧栏左下角胶囊);用户点击后走 Squirrel.Mac
 // (update.electronjs.org 免费 feed,要求:公开仓库 + Developer ID 签名)。
 // 任何失败兜底打开 Release 页让用户手动下载。
+// autoUpdater 是进程级单例:listener 与 feedURL 只在 init 时配置一次,
+// 避免重试后 once-listener 残留导致重复 quitAndInstall(评审 P0)。
 
 import { app, autoUpdater, BrowserWindow, ipcMain, shell } from 'electron';
 
@@ -39,7 +41,12 @@ async function check(): Promise<void> {
       { headers: { accept: 'application/vnd.github+json' } },
     );
     if (!res.ok) return;
-    const json = (await res.json()) as { tag_name?: string; html_url?: string };
+    const json = (await res.json()) as {
+      tag_name?: string;
+      html_url?: string;
+      prerelease?: boolean;
+    };
+    if (json.prerelease) return; // 预发布不推给用户
     const version = (json.tag_name ?? '').replace(/^v/, '');
     if (version && isNewer(version, app.getVersion())) {
       latest = {
@@ -65,18 +72,6 @@ export function initUpdater(): void {
     installing = true;
     broadcast({ state: 'downloading', version: latest.version });
     try {
-      autoUpdater.setFeedURL({
-        url: `https://update.electronjs.org/${REPO}/darwin-${process.arch}/${app.getVersion()}`,
-      });
-      autoUpdater.once('update-downloaded', () => {
-        broadcast({ state: 'restarting', version: latest?.version });
-        autoUpdater.quitAndInstall();
-      });
-      autoUpdater.once('update-not-available', fallbackToReleasePage);
-      autoUpdater.once('error', (err) => {
-        console.error('[updater] failed:', err);
-        fallbackToReleasePage();
-      });
       autoUpdater.checkForUpdates();
     } catch (err) {
       console.error('[updater] failed:', err);
@@ -94,7 +89,27 @@ export function initUpdater(): void {
     }
   });
 
-  if (!app.isPackaged) return; // dev 构建不查更新
+  if (!app.isPackaged) return; // dev 构建不查更新、不配 autoUpdater
+
+  // listener 与 feed 全局只配一次;installing 门控使其只在安装期生效
+  autoUpdater.setFeedURL({
+    url: `https://update.electronjs.org/${REPO}/darwin-${process.arch}/${app.getVersion()}`,
+  });
+  autoUpdater.on('update-downloaded', () => {
+    if (!installing) return;
+    broadcast({ state: 'restarting', version: latest?.version });
+    autoUpdater.quitAndInstall();
+  });
+  autoUpdater.on('update-not-available', () => {
+    if (!installing) return;
+    fallbackToReleasePage();
+  });
+  autoUpdater.on('error', (err) => {
+    if (!installing) return;
+    console.error('[updater] failed:', err);
+    fallbackToReleasePage();
+  });
+
   setTimeout(() => void check(), FIRST_CHECK_DELAY_MS);
   setInterval(() => void check(), CHECK_INTERVAL_MS);
 }
