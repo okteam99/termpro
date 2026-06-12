@@ -65,15 +65,8 @@ export async function gitInfo(cwd: string): Promise<GitInfo> {
   return { toplevel, mainWorktree: mainWorktree ?? toplevel, branch };
 }
 
-export async function gitWorktrees(
-  cwd: string,
-): Promise<{ worktrees: WorktreeInfo[] }> {
-  let out: string;
-  try {
-    out = await git(['worktree', 'list', '--porcelain'], cwd);
-  } catch {
-    return { worktrees: [] };
-  }
+/** 解析 `git worktree list --porcelain` 输出(纯函数,可测) */
+export function parseWorktreesPorcelain(out: string): WorktreeInfo[] {
   const worktrees: WorktreeInfo[] = [];
   // porcelain 块以空行分隔:worktree <path> / HEAD <sha> / branch refs/heads/<x> 或 detached
   for (const block of out.split('\n\n')) {
@@ -91,19 +84,23 @@ export async function gitWorktrees(
         : null,
     });
   }
-  return { worktrees };
+  return worktrees;
 }
 
-export async function gitStatus(
-  toplevel: string,
-): Promise<{ entries: GitStatusEntry[] }> {
+export async function gitWorktrees(
+  cwd: string,
+): Promise<{ worktrees: WorktreeInfo[] }> {
   let out: string;
   try {
-    out = await git(['status', '--porcelain', '-z'], toplevel);
+    out = await git(['worktree', 'list', '--porcelain'], cwd);
   } catch {
-    return { entries: [] };
+    return { worktrees: [] };
   }
+  return { worktrees: parseWorktreesPorcelain(out) };
+}
 
+/** 解析 `git status --porcelain -z` 输出(纯函数,可测) */
+export function parseStatusPorcelainZ(out: string): GitStatusEntry[] {
   const entries: GitStatusEntry[] = [];
   const parts = out.split('\0').filter((p) => p.length > 0);
   for (let i = 0; i < parts.length; i++) {
@@ -129,5 +126,17 @@ export async function gitStatus(
     else status = 'modified';
     entries.push({ path, status });
   }
-  return { entries };
+  return entries;
+}
+
+export async function gitStatus(
+  toplevel: string,
+): Promise<{ entries: GitStatusEntry[] }> {
+  let out: string;
+  try {
+    out = await git(['status', '--porcelain', '-z'], toplevel);
+  } catch {
+    return { entries: [] };
+  }
+  return { entries: parseStatusPorcelainZ(out) };
 }
