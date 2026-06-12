@@ -755,7 +755,6 @@ export function FilePanel() {
               {canDiff && (
                 <button
                   className="file-panel__row-action"
-                  title="查看该文件 diff"
                   onClick={(e) => {
                     e.stopPropagation();
                     const { toplevel, baseRef } = diffContext();
