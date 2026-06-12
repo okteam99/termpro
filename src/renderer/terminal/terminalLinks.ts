@@ -18,9 +18,9 @@ import {
 const STAT_CACHE_MS = 5_000;
 const CWD_CACHE_MS = 2_500;
 
-// 交给系统打开的扩展名(图片/媒体/压缩包等);其余进 TermPro 文件窗口
+// 交给系统打开的扩展名(媒体/压缩包等);图片与文本进 TermPro 文件窗口
 const SYSTEM_OPEN_EXT =
-  /\.(png|jpe?g|gif|webp|bmp|svg|icns|ico|pdf|zip|gz|tgz|tar|7z|dmg|app|mp4|mov|avi|mkv|mp3|wav|flac|woff2?|ttf|otf|eot)$/i;
+  /\.(icns|pdf|zip|gz|tgz|tar|7z|dmg|app|mp4|mov|avi|mkv|mp3|wav|flac|woff2?|ttf|otf|eot)$/i;
 
 function openTarget(absPath: string, kind: 'file' | 'dir'): void {
   if (kind === 'dir' || SYSTEM_OPEN_EXT.test(absPath)) {

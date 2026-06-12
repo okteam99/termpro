@@ -89,6 +89,11 @@ export interface RpcMethods {
     params: { path: string };
     result: { content: string | null; binary: boolean; truncated: boolean; size: number };
   };
+  /** 读二进制文件(图片预览用,20MB 上限);超限 → base64=null */
+  'fs.readFileBinary': {
+    params: { path: string };
+    result: { base64: string | null; size: number };
+  };
   'fs.writeFile': { params: { path: string; content: string }; result: undefined };
   /** 读 ref 下的文件内容(不存在/二进制 → null) */
   'git.show': {

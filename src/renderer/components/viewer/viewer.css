@@ -578,3 +578,42 @@
   min-width: 38px;
   text-align: center;
 }
+
+/* ---- 图片内嵌预览 ---- */
+.viewer-body--image {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.viewer-image-wrap {
+  flex: 1;
+  min-height: 0;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  /* 透明区域垫棋盘格 */
+  background: conic-gradient(
+      var(--bg-active) 0 25%,
+      transparent 0 50%,
+      var(--bg-active) 0 75%,
+      transparent 0
+    )
+    0 0 / 16px 16px;
+}
+
+.viewer-image-meta {
+  font-size: 11px;
+  color: var(--fg-dim);
+}

@@ -1,4 +1,5 @@
-// 文件查看 / 轻编辑(Monaco 懒加载)。重编辑请外跳专业编辑器。
+// 文件查看 / 轻编辑(Monaco 懒加载);图片直接内嵌预览。
+// 重编辑/重型素材请用「系统应用打开」。
 
 import { useEffect, useRef, useState } from 'react';
 import { hostClient } from '../../services/hostClient';
@@ -19,7 +20,107 @@ type LoadState =
   | { phase: 'error'; message: string }
   | { phase: 'ready' };
 
-export function FileView({
+/** 可内嵌 <img> 渲染的图片类型(icns 等浏览器不认的仍走系统应用) */
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+  ico: 'image/x-icon',
+  avif: 'image/avif',
+};
+
+function imageMime(p: string): string | null {
+  const m = /\.([a-z0-9]+)$/i.exec(p);
+  return m ? (IMAGE_MIME[m[1].toLowerCase()] ?? null) : null;
+}
+
+export function FileView(props: Props) {
+  const mime = imageMime(props.path);
+  // 组件类型不同,路径在图片/文本间切换时 React 自动卸载重建,hooks 安全
+  if (mime) return <ImageView path={props.path} mime={mime} />;
+  return <TextFileView {...props} />;
+}
+
+function ImageView({ path, mime }: { path: string; mime: string }) {
+  const [state, setState] = useState<
+    | { phase: 'loading' }
+    | { phase: 'error'; message: string }
+    | { phase: 'ready'; url: string; size: number }
+  >({ phase: 'loading' });
+  const [dims, setDims] = useState<string | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    setState({ phase: 'loading' });
+    setDims(null);
+    hostClient.rpc('fs.readFileBinary', { path }).then(
+      (r) => {
+        if (disposed) return;
+        if (r.base64 === null) {
+          setState({
+            phase: 'error',
+            message: `图片过大(${(r.size / 1024 / 1024).toFixed(1)}MB > 20MB),请用系统应用打开`,
+          });
+          return;
+        }
+        setState({
+          phase: 'ready',
+          url: `data:${mime};base64,${r.base64}`,
+          size: r.size,
+        });
+      },
+      (e) => {
+        if (!disposed) {
+          setState({
+            phase: 'error',
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [path, mime]);
+
+  if (state.phase !== 'ready') {
+    return (
+      <div className="viewer-body">
+        <div className="viewer-message">
+          {state.phase === 'loading' ? '加载中…' : state.message}
+        </div>
+      </div>
+    );
+  }
+  const kb = state.size / 1024;
+  const sizeText =
+    kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.ceil(kb)} KB`;
+  return (
+    <div className="viewer-body viewer-body--image">
+      <div className="viewer-image-wrap">
+        <img
+          className="viewer-image"
+          src={state.url}
+          alt={path}
+          onLoad={(e) => {
+            const img = e.currentTarget;
+            setDims(`${img.naturalWidth}×${img.naturalHeight}`);
+          }}
+        />
+      </div>
+      <div className="viewer-image-meta">
+        {dims ? `${dims} · ` : ''}
+        {sizeText}
+      </div>
+    </div>
+  );
+}
+
+function TextFileView({
   path,
   onDirtyChange,
   registerSave,

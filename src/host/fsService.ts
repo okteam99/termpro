@@ -69,6 +69,21 @@ export async function readTextFile(path: string): Promise<{
   };
 }
 
+/** 二进制预览上限(图片;base64 后约 ×1.37 经 RPC 传输) */
+const MAX_BINARY_BYTES = 20 * 1024 * 1024;
+
+export async function readBinaryFile(
+  path: string,
+): Promise<{ base64: string | null; size: number }> {
+  const stat = await fs.stat(path);
+  if (!stat.isFile()) throw new Error('not a regular file');
+  if (stat.size > MAX_BINARY_BYTES) {
+    return { base64: null, size: stat.size };
+  }
+  const buf = await fs.readFile(path);
+  return { base64: buf.toString('base64'), size: stat.size };
+}
+
 export async function writeTextFile(
   path: string,
   content: string,

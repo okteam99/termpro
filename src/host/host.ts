@@ -11,7 +11,14 @@ import {
   SpawnOptions,
 } from '../shared/protocol';
 import { PtyPool } from './ptyPool';
-import { homeDir, listDir, readTextFile, statPath, writeTextFile } from './fsService';
+import {
+  homeDir,
+  listDir,
+  readBinaryFile,
+  readTextFile,
+  statPath,
+  writeTextFile,
+} from './fsService';
 import {
   gitChangedFiles,
   gitInfo,
@@ -197,6 +204,9 @@ async function handleRpc(
         break;
       case 'fs.readFile':
         result = await readTextFile((msg.params as { path: string }).path);
+        break;
+      case 'fs.readFileBinary':
+        result = await readBinaryFile((msg.params as { path: string }).path);
         break;
       case 'fs.writeFile': {
         const p = msg.params as { path: string; content: string };
