@@ -44,7 +44,8 @@
 1. 里程碑拆 3-6 个阶段,**每阶段一个 commit**,绿了才进下一阶段
 2. 每阶段验证门禁:`tsc` + `vitest` + 冒烟,三绿才提交
 3. 里程碑收尾:opus 评审新增核心代码 → 修复 P1(P2 酌情)→ 勾 README 清单 → push
-4. 架构红线见 README §五:UI 永不直接碰 fs/PTY/git,只走 HostService 协议;
+4. 发版后**不要**替用户安装/升级 /Applications 里的应用——用户自己通过应用内升级胶囊更新(用户指令,2026-06)
+5. 架构红线见 README §五:UI 永不直接碰 fs/PTY/git,只走 HostService 协议;
    Host 进程零 Electron import(远程就绪)
 
 ## 目录速查
