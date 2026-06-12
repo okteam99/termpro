@@ -105,3 +105,14 @@ typings/
 
 # Electron-Forge
 out/
+# Teamwork worktree root (default)
+.worktree/
+# Teamwork local config + bootstrap state
+.teamwork_localconfig.json
+# Teamwork harness locks (session pid · 不该 commit · v8.31)
+.claude/scheduled_tasks.lock
+.claude/agents.lock
+# Teamwork external-review liveness marker (transient · v8.85)
+review_start.log
+# Teamwork local sensitive config dir (secrets · 绝不提交 · v8.89)
+.teamwork-local-env/
