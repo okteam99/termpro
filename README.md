@@ -1,6 +1,6 @@
 # TermPro
 
-> 个人 AI IDE:以终端为主体的多工程、多并行会话工作台。
+> AI IDE:以终端为主体的多工程、多并行会话工作台。
 > 终端不关心里面跑的是什么 agent——工具无关是第一设计原则。
 
 ## 一、为什么做这个
@@ -70,13 +70,51 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
 - [ ] worktree vs 基线分支的 diff 视图(Monaco diff editor)
 - [ ] "Open in VS Code / Zed" 一键外跳
 
+### M5 — 远程 Host(架构兑现)
+- [ ] Host 打包为独立可执行(纯 node,单文件);`ssh` 隧道 + WebSocket 接入,不自研认证
+- [ ] 协议版本握手与兼容性检查
+- [ ] 断线重连:scrollback 环形缓冲回放 + 状态徽标对账
+- [ ] 远程通知路径:v1 仅重连对账;推送通道(手机/菜单栏常驻薄连接)留到以后
+
 ### 非目标(明确不做)
 - ❌ 完整编辑器 / LSP——重度编辑外跳到专业编辑器
 - ❌ 内置或绑定任何 agent;不解析特定 agent 的输出格式
 - ❌ 通用终端的极致性能竞赛(够流畅跑 agent CLI 即可)
-- ❌ 暂不做 SSH 远程会话;暂不做 Windows / Linux(先 macOS)
+- ❌ 暂不做 Windows / Linux(先 macOS)
+- ⚠️ 远程会话:M1–M4 不交付,但**架构按远程就绪设计**(见「五、架构」),M5 兑现
 
-## 五、技术栈与已定决策
+## 五、架构:UI 与 Host 分离(远程就绪)
+
+> 设计约束:**UI 层永远不直接访问文件系统 / PTY / git,只通过 `HostService` 协议通信。**
+> 目的:终端核心逻辑未来可整体搬到远程机器,UI 不改一行。参照 VS Code Remote
+> (workbench ↔ vscode-server)的成熟形状。
+
+```
+┌── UI 壳(Electron renderer + main)───────────────┐
+│ xterm.js · Monaco · React · OS 通知 / Dock 角标    │
+│           只依赖一个接口:HostService              │
+└───────────────────┬───────────────────────────────┘
+    统一协议:RPC + 事件推送 + PTY 二进制流(含流控)
+    本地传输:MessagePort    远程传输:SSH 隧道 + WebSocket
+┌───────────────────┴───────────────────────────────┐
+│ Host 进程(纯 Node,零 Electron 依赖)             │
+│ PTY 池 · fs 读写/watch · git/gh · 会话状态机       │
+│ 输出环形缓冲(断线重连回放,tmux 式)              │
+└───────────────────────────────────────────────────┘
+```
+
+五条规则:
+1. **Host 进程零 Electron 依赖**——本地跑在 utilityProcess,远程跑在 ssh 拉起的独立 node 进程,同一份代码。OS 通知 / Dock 角标留在壳层,由 host 事件驱动;
+2. **一套协议三类消息**:RPC(请求/响应)、事件推送、PTY 二进制流;流控(credit / pause-resume)是协议的一部分,本地与远程共用同一机制;
+3. **UI 中一切路径都是 `(hostId, path)`**,不存在裸本地路径;文件树 / 读写 / watch 全走 host。API 设计粗粒度(readdir 一次返回带 git 状态的完整条目;watcher 事件 host 侧去抖合并),避免 WAN 上的 chatty 调用;
+4. **git / gh 在 host 侧执行**,UI 只收结构化结果;Monaco 的读写与 diff 内容同样经 fs 服务获取,远程自动可用;
+5. **会话状态机驻留 host**:host 对 PTY 字节流做轻量扫描(OSC 133 / BEL / 备用屏开关)+ `pty.process` 轮询——**UI 断开时会话与状态照常运行**,host 维护输出环形缓冲,重连回放屏幕。
+
+红利:这套分离顺手解锁「合盖离开,服务器上的 agent 继续跑,回来重连看徽标」的 tmux 式体验——与产品定位天然契合。
+代价:M1 约 +10–15%(独立 PTY 进程与流控本来就要做);不做的代价是日后每个功能重写数据访问层。
+已知限制:UI 完全关闭期间收不到系统通知,靠重连对账兜底;推送通道是后话。
+
+## 六、技术栈与已定决策
 
 | 决策点 | 结论 | 理由 |
 |---|---|---|
@@ -85,15 +123,16 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
 | PTY | **node-pty** | `process` 属性直接给出前台进程名 = 状态信号① |
 | 编辑 / diff | **monaco-editor**(懒加载) | diff 视图零成本 |
 | git | shell out **`git` / `gh`** | 不引 libgit2,降低维护面 |
+| 架构 | UI ↔ Host 进程分离,单一 RPC 协议 | 远程就绪(详见五);本地 MessagePort,远程 SSH 隧道 + WebSocket |
 | 放弃项 | Ghostty fork(原生 Swift 路线) | 评估结论见附录:终端不是本产品差异化点,UI 生态差距大 |
 
 ### 工程红线(写给未来的自己)
-1. **流控**:PTY → 渲染进程必须做 watermark + pause/resume,否则 agent 倾倒 build 日志时内存与帧率一起崩;
+1. **流控**:PTY → UI 必须做 watermark + pause/resume,否则 agent 倾倒 build 日志时内存与帧率一起崩;流控属于 Host 协议的一部分,本地 / 远程共用;
 2. **渲染器生命周期**:WebGL context 每页有上限,只给可见 tab 挂 WebGL renderer;后台 tab 照常 `write()` 进 buffer;
 3. **Monaco 懒加载**:首屏只有终端;
 4. **node-pty 原生模块**:Electron 升级即重编,走 forge/builder 标准流程。
 
-## 六、附录:选型调研结论(2026-06)
+## 七、附录:选型调研结论(2026-06)
 
 1. **Ghostty fork 可行但不划算**:其 macOS tab = 独立 NSWindow(原生 window tabbing),做"单窗口 + 侧栏 + 自绘 tab"需重写整个窗口层;文件树 / diff / 通知全要 Swift 手搓;且只覆盖 macOS。对"会话编排器"的定位,投入收益错配。终端品质本身(Metal 渲染、输入延迟)不是本产品的卖点。
 2. **xterm.js 跑 agentic CLI 已被海量验证**:VS Code / Cursor 集成终端即 xterm.js;6.0(2025-12)合入同步输出后,TUI 高频重绘的闪烁问题在协议层解决。
