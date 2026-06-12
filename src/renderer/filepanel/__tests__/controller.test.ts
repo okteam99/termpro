@@ -713,4 +713,78 @@ describe('FilePanelController', () => {
 
     ctrl.dispose();
   });
+
+  // 12. WorkTree 未绑定 + cd 漂移:轮询驱动 resolveDone 内 effectiveRoot 改变 → 整树重建
+  it('WorkTree 模式无绑定时 cd 漂移 → 停旧 watch、重置展开、重拉新根树与着色', async () => {
+    const fake = makeFakeDeps();
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    ctrl.start();
+    ctrl.setInputs(
+      makeInputs({ tabId: 't1', mode: 'worktree', rootPath: undefined, fallbackCwd: '/repoA' }),
+    );
+    await flush();
+
+    // resolve 链 #1:anchor===cwd 时复用 gitInfo,worktree 模式 effectiveRoot=autoWorktree=/repoA
+    fake.ptyCwd.resolveNext({ cwd: '/repoA' });
+    await flush();
+    fake.gitInfo.resolveNext(makeGitInfo('/repoA'));
+    await flush();
+    fake.gitWorktrees.resolveNext({ worktrees: [wt('/repoA')] });
+    await flush();
+    expect(ctrl.getSnapshot().effectiveRoot).toBe('/repoA');
+
+    // 树 + watch + 着色就位,再展开一个子目录
+    expect(fake.readdir.calls[0].args[0]).toBe('/repoA');
+    fake.readdir.resolveNext({ entries: ENTRIES });
+    await flush();
+    fake.watch.resolveNext({ watchId: 11 });
+    await flush();
+    fake.gitStatus.resolveNext({ entries: [{ path: 'a.ts', status: 'modified' }] });
+    await flush();
+    ctrl.toggleDir('/repoA/src');
+    await flush();
+    expect(fake.readdir.calls[1].args[0]).toBe('/repoA/src');
+    fake.readdir.resolveNext({ entries: [{ name: 'x.ts', kind: 'file' }] });
+    await flush();
+    expect(ctrl.getSnapshot().expanded.has('/repoA/src')).toBe(true);
+
+    // tick #1:同值只记录,不触发重解析
+    const gitInfoCalls = fake.gitInfo.callCount();
+    vi.advanceTimersByTime(2000);
+    await flush();
+    fake.ptyCwd.resolveNext({ cwd: '/repoA' });
+    await flush();
+    expect(fake.gitInfo.callCount()).toBe(gitInfoCalls);
+
+    // tick #2:漂移到 /repoB → resolve 链 #2
+    vi.advanceTimersByTime(2000);
+    await flush();
+    fake.ptyCwd.resolveNext({ cwd: '/repoB' });
+    await flush();
+    fake.ptyCwd.resolveNext({ cwd: '/repoB' }); // resolve 链自己的 ptyCwd
+    await flush();
+    fake.gitInfo.resolveNext(makeGitInfo('/repoB'));
+    await flush();
+    fake.gitWorktrees.resolveNext({ worktrees: [wt('/repoB')] });
+    await flush();
+
+    // resolveDone:effectiveRoot /repoA→/repoB,走 applyRootChange
+    expect(ctrl.getSnapshot().effectiveRoot).toBe('/repoB');
+    // 旧 watcher 被停
+    expect(fake.unwatch.lastArgs()?.[0]).toBe(11);
+    // 展开态被重置
+    expect(ctrl.getSnapshot().expanded.size).toBe(0);
+    // 新根树 + 着色重拉
+    expect(fake.readdir.calls[2].args[0]).toBe('/repoB');
+    fake.readdir.resolveNext({ entries: [{ name: 'b.ts', kind: 'file' }] });
+    await flush();
+    fake.watch.resolveNext({ watchId: 12 });
+    await flush();
+    fake.gitStatus.resolveNext({ entries: [{ path: 'b.ts', status: 'untracked' }] });
+    await flush();
+    expect(ctrl.getSnapshot().topEntries[0]?.name).toBe('b.ts');
+    expect(ctrl.getSnapshot().statusMap.get('b.ts')).toBe('untracked');
+
+    ctrl.dispose();
+  });
 });

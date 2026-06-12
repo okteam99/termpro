@@ -171,6 +171,7 @@ gh secret set APPLE_TEAM_ID                -R okteam99/termpro
 | shell integration 仅 zsh | spawn zsh 时经 ZDOTDIR 包装自动注入 OSC 133/7；`TERMPRO_NO_SHELL_INTEGRATION=1` 关闭；bash/fish 待后续 |
 | 查看器保存无 mtime 守卫 | 轻编辑场景:文件被外部修改后保存会直接覆盖（跟进项：读时记 mtime，写时校验） |
 | p10k instant prompt | 注入钩子在 .zshrc 末尾输出 OSC 序列，Powerlevel10k instant-prompt 可能提示"console output during init"（与 VS Code 同模式，无功能影响） |
+| FilePanel 编排已知 P2 | 编排收敛在 `src/renderer/filepanel/`（单 reducer 三道过期闸：resolveDone 按 generation、树/着色按 root、top/status 按单调 seq）。遗留 P2（opus 评审 2026-06，均与重构前等价或更优）：① refresh / lockRoot 回写后 resolveDone 会冗余二拉 git.status（seq 闸丢弃旧值，自纠正）；② childDone 无 seq，同目录懒拉与 partial 重拉并发时 last-writer-wins（旧实现同病）；③ dispose 与 watchReady 同 tick 边界无专测 |
 
 ---
 
