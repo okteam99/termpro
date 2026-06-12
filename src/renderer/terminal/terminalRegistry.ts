@@ -24,6 +24,7 @@ export interface TermInstance {
   spawning: boolean;
   opened: boolean;
   firstData: boolean;
+  disposed: boolean;
   callbacks: TermCallbacks;
 }
 
@@ -63,6 +64,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     spawning: false,
     opened: false,
     firstData: false,
+    disposed: false,
     callbacks: {},
   };
 
@@ -87,6 +89,11 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
       cols: inst.term.cols,
       rows: inst.term.rows,
     });
+    // spawn 期间 tab 可能已被关闭:立即回收会话,避免 PTY 进程泄漏
+    if (inst.disposed) {
+      void hostClient.rpc('pty.kill', { sessionId }).catch(() => {});
+      return;
+    }
     inst.sessionId = sessionId;
 
     hostClient.attachPty(sessionId, {
@@ -111,6 +118,9 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
     inst.term.onResize(({ cols, rows }) => {
       if (inst.sessionId) hostClient.resize(inst.sessionId, cols, rows);
     });
+    // spawn 进行期间 fit 可能已改变终端尺寸(onResize 当时未注册),
+    // 主动同步一次当前尺寸,避免 TUI 以 80x24 启动
+    hostClient.resize(sessionId, inst.term.cols, inst.term.rows);
   } finally {
     inst.spawning = false;
   }
@@ -119,6 +129,7 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
 export function disposeTerminal(tabId: string): void {
   const inst = registry.get(tabId);
   if (!inst) return;
+  inst.disposed = true;
   if (inst.sessionId) {
     void hostClient.rpc('pty.kill', { sessionId: inst.sessionId }).catch(() => {
       /* host 可能已回收 */

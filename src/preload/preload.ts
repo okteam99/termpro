@@ -36,3 +36,7 @@ contextBridge.exposeInMainWorld('termpro', {
 ipcRenderer.on('host:port', (event) => {
   window.postMessage({ t: 'host:port' }, '*', event.ports);
 });
+
+ipcRenderer.on('host:down', () => {
+  window.postMessage({ t: 'host:down' }, '*');
+});

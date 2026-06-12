@@ -35,6 +35,10 @@ function ensureHost(): Electron.UtilityProcess {
   hostProc.on('exit', (code) => {
     console.error(`[main] host exited with code ${code}`);
     hostProc = null;
+    // 通知所有窗口:挂起的 RPC 立即失败、UI 展示错误(⌘R 重载即重建 host)
+    BrowserWindow.getAllWindows().forEach((w) =>
+      w.webContents.send('host:down'),
+    );
   });
   return hostProc;
 }

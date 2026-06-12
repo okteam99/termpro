@@ -15,6 +15,8 @@ export interface PtyListener {
   onTitle?(processName: string): void;
 }
 
+const RPC_TIMEOUT_MS = 15_000;
+
 class HostClient {
   private port: MessagePort | null = null;
   private connectPromise: Promise<HostInfo> | null = null;
@@ -26,8 +28,35 @@ class HostClient {
   private ptyListeners = new Map<string, PtyListener>();
   // 监听者尚未挂上时缓存输出(不 ack,host 水位自然暂停,挂上后回放)
   private bufferedData = new Map<string, { data: string; bytes: number }[]>();
+  private down = false;
+  private downListeners = new Set<() => void>();
 
   info: HostInfo | null = null;
+
+  constructor() {
+    // main 广播 host 进程退出 → 拒绝所有挂起调用,通知 UI
+    window.addEventListener('message', (e: MessageEvent) => {
+      if (e.data?.t === 'host:down') this.markDown();
+    });
+  }
+
+  /** 订阅 host 进程退出事件,返回退订函数 */
+  onDown(cb: () => void): () => void {
+    this.downListeners.add(cb);
+    return () => {
+      this.downListeners.delete(cb);
+    };
+  }
+
+  private markDown(): void {
+    if (this.down) return;
+    this.down = true;
+    for (const p of this.pending.values()) {
+      p.reject(new Error('host process exited'));
+    }
+    this.pending.clear();
+    this.downListeners.forEach((cb) => cb());
+  }
 
   connect(): Promise<HostInfo> {
     if (this.connectPromise) return this.connectPromise;
@@ -50,6 +79,10 @@ class HostClient {
       window.addEventListener('message', onMsg);
       window.termpro.requestHostPort();
     });
+    // 失败不缓存,允许重试
+    this.connectPromise.catch(() => {
+      this.connectPromise = null;
+    });
     return this.connectPromise;
   }
 
@@ -59,11 +92,22 @@ class HostClient {
   ): Promise<RpcMethods[M]['result']> {
     const port = this.port;
     if (!port) return Promise.reject(new Error('host not connected'));
+    if (this.down) return Promise.reject(new Error('host process exited'));
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`rpc timeout: ${method}`));
+      }, RPC_TIMEOUT_MS);
       this.pending.set(id, {
-        resolve: resolve as (v: unknown) => void,
-        reject,
+        resolve: (v) => {
+          clearTimeout(timer);
+          (resolve as (v: unknown) => void)(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
       });
       const msg: ClientMessage = { t: 'rpc:req', id, method, params };
       port.postMessage(msg);

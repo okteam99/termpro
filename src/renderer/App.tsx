@@ -41,6 +41,9 @@ export default function App() {
 
   useEffect(() => {
     hostClient.connect().then(setHostInfo, (e) => setError(String(e)));
+    return hostClient.onDown(() =>
+      setError('Host 进程已退出,⌘R 重载窗口可恢复'),
+    );
   }, []);
 
   // Host 就绪后加载布局存档(先 hydrate 再启动持久化订阅)

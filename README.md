@@ -47,11 +47,13 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
 
 ## 四、功能范围与里程碑
 
-### M1 — 可用壳(目标:日常能开始用)
-- [ ] 三栏布局;workspace 增删 + 切换;tab 增删 + 切换
-- [ ] 每 tab 一个 node-pty 会话(指定 cwd / shell / env)
-- [ ] xterm.js ≥ 6 + WebGL + unicode11(中文宽字符对齐)+ 搜索
-- [ ] workspace / tab 结构与布局持久化,重启恢复(恢复到 cwd 级)
+### M1 — 可用壳(目标:日常能开始用)✅ 2026-06
+- [x] 三栏布局;workspace 增删 + 切换;tab 增删 + 切换(⌘T/⌘W/⌘1-9)
+- [x] 每 tab 一个 node-pty 会话(指定 cwd / shell / env)
+- [x] xterm.js ≥ 6 + WebGL + unicode11(中文宽字符对齐)+ 搜索 addon
+- [x] workspace / tab 结构与布局持久化,重启恢复(恢复到 cwd 级)
+
+开发与冒烟见 [docs/DEV.md](docs/DEV.md)。
 
 ### M2 — 工程与 git
 - [ ] 新建 tab 可选"顺手 `git worktree add`";关 tab 可选清理 worktree
