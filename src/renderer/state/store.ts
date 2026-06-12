@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { disposeTerminal } from '../terminal/terminalRegistry';
+import { basename } from './pathLabel';
+
+export { basename, tildify, tabPathLabel } from './pathLabel';
 
 /** 文件面板与 tab 的绑定状态(每个 tab 独立,持久化) */
 export interface TabFilePanelState {
@@ -16,7 +19,7 @@ export interface TabState {
   title: string;
   /** 初始 cwd;shell 经 OSC 7 上报后更新(持久化恢复用) */
   cwd: string;
-  /** 用户自定义名;显示为「自定义名-默认名」,持久化 */
+  /** 用户自定义名;设置后完全替代默认名(默认名=相对工作区的目录路径),持久化 */
   customName?: string;
   processName?: string;
   exited?: boolean;
@@ -112,16 +115,6 @@ export interface AppState {
   }): void;
 }
 
-export function basename(p: string): string {
-  const parts = p.replace(/\/+$/, '').split('/');
-  return parts[parts.length - 1] || p;
-}
-
-/** 把 home 前缀缩写为 ~(展示用) */
-export function tildify(p: string, homedir: string | undefined): string {
-  if (homedir && p.startsWith(homedir)) return `~${p.slice(homedir.length)}`;
-  return p;
-}
 
 function makeTab(cwd: string): TabState {
   return { id: crypto.randomUUID(), title: basename(cwd), cwd };

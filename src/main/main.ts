@@ -129,6 +129,29 @@ ipcMain.on('clipboard:write-text', (_event, text: string) => {
 });
 ipcMain.handle('clipboard:read-text', () => clipboard.readText());
 
+// Tab 右键菜单:重命名/关闭
+ipcMain.handle('tab:context-menu', (event) => {
+  return new Promise<string | null>((resolve) => {
+    let settled = false;
+    const done = (v: string | null) => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+    const menu = Menu.buildFromTemplate([
+      { label: '重命名…', click: () => done('rename') },
+      { type: 'separator' },
+      { label: '关闭 Tab', click: () => done('close') },
+    ]);
+    const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    menu.popup({
+      window: win,
+      callback: () => setTimeout(() => done(null), 60),
+    });
+  });
+});
+
 // 终端右键菜单:渲染层报选区状态,这里弹原生菜单并回传动作
 ipcMain.handle(
   'terminal:context-menu',

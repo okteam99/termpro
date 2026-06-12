@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld('termpro', {
   }): Promise<string | null> {
     return ipcRenderer.invoke('terminal:context-menu', opts);
   },
+  /** Tab 右键菜单:返回动作(rename/close/null) */
+  showTabContextMenu(): Promise<string | null> {
+    return ipcRenderer.invoke('tab:context-menu');
+  },
   clipboardWriteText(text: string): void {
     ipcRenderer.send('clipboard:write-text', text);
   },

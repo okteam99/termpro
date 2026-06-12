@@ -26,6 +26,7 @@ declare global {
       showTerminalContextMenu(opts: {
         hasSelection: boolean;
       }): Promise<string | null>;
+      showTabContextMenu(): Promise<string | null>;
       clipboardWriteText(text: string): void;
       clipboardReadText(): Promise<string>;
       openExternal(url: string): void;

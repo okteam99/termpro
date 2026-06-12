@@ -6,7 +6,7 @@
 
 import { hostClient } from './hostClient';
 import { findTabBySessionId } from '../terminal/terminalRegistry';
-import { useAppStore } from '../state/store';
+import { tabPathLabel, useAppStore } from '../state/store';
 
 let inited = false;
 /** tabId → 最近一次 cmd-done 的退出码(state:idle 到来时消费) */
@@ -45,7 +45,9 @@ export function initSessionEvents(): void {
       document.hasFocus() &&
       s.activeWorkspaceId === ws.id &&
       ws.activeTabId === tabId;
-    const label = tab.customName ?? tab.processName ?? tab.title;
+    // 与 TabBar 显示规则一致,通知里能对上是哪个 tab
+    const label =
+      tab.customName ?? tabPathLabel(ws.root, tab.cwd, hostClient.info?.homedir);
 
     switch (event.kind) {
       case 'state': {

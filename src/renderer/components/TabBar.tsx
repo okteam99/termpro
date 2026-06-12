@@ -1,7 +1,12 @@
 import './TabBar.css';
 import { useState, useEffect, useRef } from 'react';
-import { useAppStore, selectActiveWorkspace } from '../state/store';
+import {
+  useAppStore,
+  selectActiveWorkspace,
+  tabPathLabel,
+} from '../state/store';
 import type { TabState } from '../state/store';
+import { hostClient } from '../services/hostClient';
 import { RenameModal } from './RenameModal';
 
 /** Small terminal icon: rounded rect with > chevron and underscore line */
@@ -101,6 +106,14 @@ export function TabBar() {
     addTab(ws.id);
   }
 
+  // 右键菜单(原生):重命名 / 关闭
+  async function handleContextMenu(e: React.MouseEvent, tab: TabState) {
+    e.preventDefault();
+    const action = await window.termpro.showTabContextMenu();
+    if (action === 'rename') setRenamingTabId(tab.id);
+    else if (action === 'close' && ws) closeTab(ws.id, tab.id);
+  }
+
   async function handleAddWithDir() {
     if (!ws) return;
     setMenuOpen(false);
@@ -166,11 +179,11 @@ export function TabBar() {
           const isActive = tab.id === ws.activeTabId;
           const isDragging = tab.id === draggingId;
           const hasAttention = !!(tab.waiting || tab.unseenDone);
-          // 显示规则:自定义名-默认名(默认名=前台进程名/目录名)
-          const defaultTitle = tab.processName ?? tab.title;
-          const label = tab.customName
-            ? `${tab.customName}-${defaultTitle}`
-            : defaultTitle;
+          // 显示规则:用户改过名 → 只用自定义名;
+          // 否则默认 = cwd 相对工作区根的路径(随 cd 联动)
+          const label =
+            tab.customName ??
+            tabPathLabel(ws.root, tab.cwd, hostClient.info?.homedir);
           // Compute dot state class (priority order)
           const dotState = tab.waiting
             ? 'tab-dot--waiting'
@@ -186,6 +199,7 @@ export function TabBar() {
               className={`tabbar-tab${isActive ? ' tabbar-tab--active' : ''}${tab.exited ? ' tabbar-tab--exited' : ''}${isDragging ? ' tabbar-tab--dragging' : ''}${hasAttention ? ' tabbar-tab--attention' : ''}`}
               onClick={() => handleTabClick(tab)}
               onDoubleClick={() => setRenamingTabId(tab.id)}
+              onContextMenu={(e) => void handleContextMenu(e, tab)}
               onDragStart={(e) => handleDragStart(e, tab.id)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => handleDragOver(e, tab.id, idx)}
