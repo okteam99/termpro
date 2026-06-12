@@ -4,10 +4,37 @@ import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDMG } from '@electron-forge/maker-dmg';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
-import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// plugin-vite 打包时不携带 node_modules(默认一切被 vite 打进 bundle),
+// 但 node-pty 是原生模块、在 vite.host.config 里 external,
+// 必须在 packageAfterCopy 钩子里手动搬进产物(含其运行时依赖)。
+const EXTERNAL_MODULES = ['node-pty'];
+
+async function copyModuleWithDeps(
+  name: string,
+  buildPath: string,
+  seen: Set<string>,
+): Promise<void> {
+  if (seen.has(name)) return;
+  seen.add(name);
+  const src = path.join(__dirname, 'node_modules', name);
+  if (!fs.existsSync(src)) throw new Error(`external module not found: ${name}`);
+  await fs.promises.cp(src, path.join(buildPath, 'node_modules', name), {
+    recursive: true,
+    dereference: true,
+  });
+  const pkg = JSON.parse(
+    await fs.promises.readFile(path.join(src, 'package.json'), 'utf8'),
+  ) as { dependencies?: Record<string, string> };
+  for (const dep of Object.keys(pkg.dependencies ?? {})) {
+    await copyModuleWithDeps(dep, buildPath, seen);
+  }
+}
 
 // 签名/公证:与 cmux-pro 同一套 secrets 体系(APPLE_*)。
 // 环境变量缺省时回退 ad-hoc 签名,本地 npm run make 不受影响。
@@ -19,7 +46,9 @@ const canNotarize =
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    // node-pty 整目录解出 asar:prebuilds 里除了 .node 还有
+    // spawn-helper 可执行文件,留在 asar 内无法 exec
+    asar: { unpack: '**/node_modules/node-pty/**' },
     appBundleId: 'com.okteam99.termpro',
     ...(signingIdentity
       ? {
@@ -45,9 +74,25 @@ const config: ForgeConfig = {
     new MakerRpm({}),
     new MakerDeb({}),
   ],
+  hooks: {
+    packageAfterCopy: async (_config, buildPath) => {
+      const seen = new Set<string>();
+      for (const name of EXTERNAL_MODULES) {
+        await copyModuleWithDeps(name, buildPath, seen);
+      }
+      // 裁掉无关平台的 prebuilds,减小包体
+      const prebuilds = path.join(buildPath, 'node_modules/node-pty/prebuilds');
+      for (const entry of await fs.promises.readdir(prebuilds)) {
+        if (!entry.startsWith('darwin-')) {
+          await fs.promises.rm(path.join(prebuilds, entry), {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+    },
+  },
   plugins: [
-    // node-pty 等原生模块必须解出 asar,否则打包后运行时加载失败
-    new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       // `build` can specify multiple entry builds, which can be Main process, Preload scripts, Worker process, etc.
       // If you are familiar with Vite configuration, it will look really familiar.
