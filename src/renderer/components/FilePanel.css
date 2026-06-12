@@ -261,7 +261,8 @@
 }
 
 .file-panel__row--file {
-  color: var(--fg-dim);
+  /* 干净的跟踪文件 = 正文白;ignored 才是灰(见 git-ignored) */
+  color: var(--fg);
 }
 
 .file-panel__row--unreadable {
@@ -317,6 +318,11 @@
 
 .file-panel__row--git-renamed > .file-panel__name {
   color: #61afef;
+}
+
+.file-panel__row--git-ignored > .file-panel__name {
+  color: var(--fg-dim);
+  opacity: 0.55;
 }
 
 .file-panel__row--git-conflicted > .file-panel__name {

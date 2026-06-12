@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hostClient } from '../services/hostClient';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
 import { getSessionId } from '../terminal/terminalRegistry';
-import type { DirEntry, GitFileStatus, GitInfo, WorktreeInfo } from '../../shared/protocol';
+import type { DirEntry, GitFileStatus, GitInfo, GitStatusEntry, WorktreeInfo } from '../../shared/protocol';
 import './FilePanel.css';
 
 interface TreeNode {
@@ -26,9 +26,11 @@ function sortEntries(entries: DirEntry[]): DirEntry[] {
 }
 
 // Compute set of ancestor dir rel-paths that have any git status
-function computeDirtyDirs(entries: { path: string }[], displayedRoot: string): Set<string> {
+// (ignored 不参与上卷:被忽略的内容不该把祖先目录标脏)
+function computeDirtyDirs(entries: GitStatusEntry[], displayedRoot: string): Set<string> {
   const dirs = new Set<string>();
   for (const e of entries) {
+    if (e.status === 'ignored') continue;
     // e.path is relative to the git toplevel which equals displayedRoot in both modes
     const parts = e.path.split('/');
     // add all ancestor dirs (not the file itself)
@@ -47,6 +49,7 @@ function gitStatusClass(status: GitFileStatus): string {
     case 'untracked':  return 'git-untracked';
     case 'deleted':    return 'git-deleted';
     case 'renamed':    return 'git-renamed';
+    case 'ignored':    return 'git-ignored';
     case 'conflicted': return 'git-conflicted';
   }
 }
@@ -481,6 +484,10 @@ export function FilePanel() {
     if (!rel) return '';
 
     if (kind === 'dir') {
+      // 目录自身状态优先(整目录 ignored/untracked),否则看子孙上卷
+      const direct = statusMap.get(rel);
+      if (direct === 'ignored') return 'git-ignored';
+      if (direct === 'untracked') return 'git-untracked';
       return dirtyDirs.has(rel) ? 'git-modified-dim' : '';
     }
     const status = statusMap.get(rel);

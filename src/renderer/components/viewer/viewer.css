@@ -210,6 +210,7 @@
 .diff-status--untracked { color: #e5c07b; }
 .diff-status--deleted   { color: #e06c75; }
 .diff-status--renamed   { color: #61afef; }
+.diff-status--ignored   { color: var(--fg-dim); }
 .diff-status--conflicted { color: #e06c75; font-weight: 700; }
 
 /* ---- 文件内容窗口:多 tab ---- */

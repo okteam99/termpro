@@ -24,6 +24,7 @@ function statusLetter(status: GitFileStatus): string {
     case 'deleted':    return 'D';
     case 'renamed':    return 'R';
     case 'untracked':  return 'U';
+    case 'ignored':    return 'I';
     case 'conflicted': return 'C';
   }
 }
@@ -35,6 +36,7 @@ function statusColorClass(status: GitFileStatus): string {
     case 'deleted':    return 'diff-status--deleted';
     case 'renamed':    return 'diff-status--renamed';
     case 'untracked':  return 'diff-status--untracked';
+    case 'ignored':    return 'diff-status--ignored';
     case 'conflicted': return 'diff-status--conflicted';
   }
 }

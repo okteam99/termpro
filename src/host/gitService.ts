@@ -108,9 +108,11 @@ export function parseStatusPorcelainZ(out: string): GitStatusEntry[] {
     if (rec.length < 4 || rec[2] !== ' ') continue;
     const x = rec[0];
     const y = rec[1];
-    const path = rec.slice(3);
+    // 目录条目(untracked/ignored 整目录)带尾斜杠,归一掉便于树查表
+    const path = rec.slice(3).replace(/\/$/, '');
     let status: GitFileStatus;
     if (x === '?') status = 'untracked';
+    else if (x === '!') status = 'ignored';
     else if (
       x === 'U' ||
       y === 'U' ||
@@ -134,7 +136,7 @@ export async function gitStatus(
 ): Promise<{ entries: GitStatusEntry[] }> {
   let out: string;
   try {
-    out = await git(['status', '--porcelain', '-z'], toplevel);
+    out = await git(['status', '--porcelain', '-z', '--ignored=matching'], toplevel);
   } catch {
     return { entries: [] };
   }

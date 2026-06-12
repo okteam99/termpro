@@ -45,6 +45,7 @@ export type GitFileStatus =
   | 'deleted'
   | 'renamed'
   | 'untracked'
+  | 'ignored'
   | 'conflicted';
 
 export interface GitStatusEntry {

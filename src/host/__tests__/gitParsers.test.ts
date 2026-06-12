@@ -37,6 +37,18 @@ describe('parseStatusPorcelainZ', () => {
     ]);
   });
 
+  it('ignored(!!)与目录尾斜杠归一', () => {
+    const out =
+      ['!! node_modules/', '!! .env', '?? newdir/', ' M src/a.ts'].join(NUL) +
+      NUL;
+    expect(parseStatusPorcelainZ(out)).toEqual([
+      { path: 'node_modules', status: 'ignored' },
+      { path: '.env', status: 'ignored' },
+      { path: 'newdir', status: 'untracked' },
+      { path: 'src/a.ts', status: 'modified' },
+    ]);
+  });
+
   it('空输出与含空格路径', () => {
     expect(parseStatusPorcelainZ('')).toEqual([]);
     const out = ' M dir with space/file name.ts' + NUL;
