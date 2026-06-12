@@ -189,6 +189,18 @@ export function FilePanel() {
       setAutoWorktree(newAutoWorktree);
       setGitInfo(info);
       setWorktrees(wts);
+
+      // Root 锁定语义:tab 首次进入时把主目录写死到绑定里,
+      // 此后不随终端 cd 漂移,只有显式输入/Choose/Apply 才变更
+      if (tab && newAutoRoot) {
+        const live = useAppStore.getState();
+        const liveTab = live.workspaces
+          .flatMap((w) => w.tabs)
+          .find((t) => t.id === tab.id);
+        if (liveTab && liveTab.filePanel?.rootPath === undefined) {
+          live.updateTabFilePanel(tab.id, { rootPath: newAutoRoot });
+        }
+      }
     }
 
     void resolve();
