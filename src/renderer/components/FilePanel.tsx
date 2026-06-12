@@ -98,6 +98,9 @@ export function FilePanel() {
   const [errPaths, setErrPaths] = useState<Set<string>>(new Set());
   // Refresh counter for forced re-fetch
   const [refreshKey, setRefreshKey] = useState(0);
+  // 活动 tab 实时 cwd 变化计数:只触发 Phase 1 重解析(提示行/auto 值),不重拉树
+  const [cwdEpoch, setCwdEpoch] = useState(0);
+  const lastCwdRef = useRef<string | null>(null);
 
   // epoch counter to guard stale async results
   const epochRef = useRef(0);
@@ -133,6 +136,29 @@ export function FilePanel() {
       debounceRef.current = null;
     }
   }, []);
+
+  // 轮询活动 tab 的 shell 实时 cwd(2s):没有 OSC 7 的 shell 下,
+  // 提示行与 WorkTree 默认值也能跟随 cd。只盯一个会话,lsof 成本可忽略。
+  const pollTabId = activeTab?.id;
+  useEffect(() => {
+    if (!pollTabId) return;
+    lastCwdRef.current = null;
+    const timer = setInterval(() => {
+      const sid = getSessionId(pollTabId);
+      if (!sid) return;
+      hostClient
+        .rpc('pty.cwd', { sessionId: sid })
+        .then(({ cwd }) => {
+          if (!cwd) return;
+          if (lastCwdRef.current !== null && cwd !== lastCwdRef.current) {
+            setCwdEpoch((e) => e + 1);
+          }
+          lastCwdRef.current = cwd;
+        })
+        .catch(() => {});
+    }, 2_000);
+    return () => clearInterval(timer);
+  }, [pollTabId]);
 
   // ── Phase 1: resolve auto root/worktree + git info + worktrees whenever active tab / refreshKey changes ──
   useEffect(() => {
@@ -205,7 +231,7 @@ export function FilePanel() {
 
     void resolve();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, refreshKey]);
+  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, refreshKey, cwdEpoch]);
 
   // Reset rootInputDraft whenever the effective root or active tab changes
   const activeTabId = activeTab?.id;
