@@ -58,6 +58,27 @@ export default function App() {
     if (s.workspaces.length === 0) s.addWorkspace(hostInfo.homedir);
   }, [hostInfo, hydrated]);
 
+  // 主工作区分支名:启动、workspace 集合变化、窗口聚焦时刷新
+  const wsKey = useAppStore((s) => s.workspaces.map((w) => w.id).join(','));
+  useEffect(() => {
+    if (!hydrated) return;
+    const refresh = () => {
+      for (const w of useAppStore.getState().workspaces) {
+        hostClient
+          .rpc('git.info', { cwd: w.root })
+          .then((info) =>
+            useAppStore
+              .getState()
+              .updateWorkspace(w.id, { branch: info.branch ?? undefined }),
+          )
+          .catch(() => {});
+      }
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [hydrated, wsKey]);
+
   // 原生菜单事件(⌘T 新建 tab / ⌘W 关闭 tab)
   useEffect(() => {
     return window.termpro.onMenu((action) => {

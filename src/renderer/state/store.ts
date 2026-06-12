@@ -15,6 +15,8 @@ export interface WorkspaceState {
   id: string;
   name: string;
   root: string;
+  /** 主工作区(main worktree)当前分支名,运行时获取,不持久化 */
+  branch?: string;
   tabs: TabState[];
   activeTabId: string | null;
 }
@@ -49,6 +51,10 @@ export interface AppState {
   addWorkspace(root: string): void;
   removeWorkspace(id: string): void;
   setActiveWorkspace(id: string): void;
+  updateWorkspace(
+    id: string,
+    patch: Partial<Pick<WorkspaceState, 'name' | 'branch'>>,
+  ): void;
   addTab(workspaceId: string, cwd?: string): void;
   closeTab(workspaceId: string, tabId: string): void;
   setActiveTab(workspaceId: string, tabId: string): void;
@@ -137,6 +143,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setActiveWorkspace(id) {
     set({ activeWorkspaceId: id });
+  },
+
+  updateWorkspace(id, patch) {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.id === id ? { ...w, ...patch } : w,
+      ),
+    }));
   },
 
   addTab(workspaceId, cwd) {

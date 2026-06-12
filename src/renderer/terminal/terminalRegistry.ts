@@ -126,6 +126,11 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
   }
 }
 
+/** 当前 tab 的会话 id(未 spawn / 已退出为 null),供文件面板查询实时 cwd */
+export function getSessionId(tabId: string): string | null {
+  return registry.get(tabId)?.sessionId ?? null;
+}
+
 export function disposeTerminal(tabId: string): void {
   const inst = registry.get(tabId);
   if (!inst) return;

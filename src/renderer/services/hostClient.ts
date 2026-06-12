@@ -30,6 +30,7 @@ class HostClient {
   private bufferedData = new Map<string, { data: string; bytes: number }[]>();
   private down = false;
   private downListeners = new Set<() => void>();
+  private fsListeners = new Set<(watchId: number) => void>();
 
   info: HostInfo | null = null;
 
@@ -45,6 +46,14 @@ class HostClient {
     this.downListeners.add(cb);
     return () => {
       this.downListeners.delete(cb);
+    };
+  }
+
+  /** 订阅 fs.watch 变化事件(按 watchId 自行过滤),返回退订函数 */
+  onFsChanged(cb: (watchId: number) => void): () => void {
+    this.fsListeners.add(cb);
+    return () => {
+      this.fsListeners.delete(cb);
     };
   }
 
@@ -177,6 +186,9 @@ class HostClient {
         break;
       case 'pty:title':
         this.ptyListeners.get(msg.sessionId)?.onTitle?.(msg.processName);
+        break;
+      case 'fs:changed':
+        this.fsListeners.forEach((cb) => cb(msg.watchId));
         break;
     }
   }
