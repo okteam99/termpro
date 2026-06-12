@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  parseDiffNameStatusZ,
   parseStatusPorcelainZ,
   parseWorktreesPorcelain,
 } from '../gitService';
@@ -42,6 +43,26 @@ describe('parseStatusPorcelainZ', () => {
     expect(parseStatusPorcelainZ(out)).toEqual([
       { path: 'dir with space/file name.ts', status: 'modified' },
     ]);
+  });
+});
+
+describe('parseDiffNameStatusZ', () => {
+  it('解析 A/M/D/T/U 与 R/C 双路径', () => {
+    const out =
+      ['M', 'src/a.ts', 'A', 'new.ts', 'D', 'old.ts', 'T', 'mode.sh', 'U', 'conflict.ts', 'R086', 'before.ts', 'after.ts', 'C075', 'src.ts', 'copy.ts'].join(NUL) + NUL;
+    expect(parseDiffNameStatusZ(out)).toEqual([
+      { path: 'src/a.ts', status: 'modified' },
+      { path: 'new.ts', status: 'added' },
+      { path: 'old.ts', status: 'deleted' },
+      { path: 'mode.sh', status: 'modified' },
+      { path: 'conflict.ts', status: 'conflicted' },
+      { path: 'after.ts', status: 'renamed' },
+      { path: 'copy.ts', status: 'renamed' },
+    ]);
+  });
+
+  it('空输出', () => {
+    expect(parseDiffNameStatusZ('')).toEqual([]);
   });
 });
 

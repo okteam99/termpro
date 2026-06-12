@@ -11,8 +11,14 @@ import {
   SpawnOptions,
 } from '../shared/protocol';
 import { PtyPool } from './ptyPool';
-import { homeDir, listDir } from './fsService';
-import { gitInfo, gitStatus, gitWorktrees } from './gitService';
+import { homeDir, listDir, readTextFile, writeTextFile } from './fsService';
+import {
+  gitChangedFiles,
+  gitInfo,
+  gitShow,
+  gitStatus,
+  gitWorktrees,
+} from './gitService';
 import { WatchService } from './watchService';
 import { processCwd } from './proc';
 
@@ -151,6 +157,24 @@ async function handleRpc(
       case 'git.worktrees':
         result = await gitWorktrees((msg.params as { cwd: string }).cwd);
         break;
+      case 'fs.readFile':
+        result = await readTextFile((msg.params as { path: string }).path);
+        break;
+      case 'fs.writeFile': {
+        const p = msg.params as { path: string; content: string };
+        await writeTextFile(p.path, p.content);
+        break;
+      }
+      case 'git.show': {
+        const p = msg.params as { toplevel: string; ref: string; path: string };
+        result = await gitShow(p.toplevel, p.ref, p.path);
+        break;
+      }
+      case 'git.changedFiles': {
+        const p = msg.params as { toplevel: string; baseRef?: string };
+        result = await gitChangedFiles(p.toplevel, p.baseRef);
+        break;
+      }
       default:
         throw new Error(`unknown rpc method: ${String(msg.method)}`);
     }

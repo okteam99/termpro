@@ -140,3 +140,69 @@ export async function gitStatus(
   }
   return { entries: parseStatusPorcelainZ(out) };
 }
+
+/** 读 ref 下文件内容;不存在/二进制 → null */
+export async function gitShow(
+  toplevel: string,
+  ref: string,
+  path: string,
+): Promise<{ content: string | null }> {
+  try {
+    const out = await git(['show', `${ref}:${path}`], toplevel);
+    if (out.includes('\0')) return { content: null };
+    return { content: out };
+  } catch {
+    return { content: null };
+  }
+}
+
+/** 解析 `git diff --name-status -z` 输出(纯函数,可测)。
+ *  形如 STATUS\0path\0,R/C 带相似度且有两个路径(old\0new) */
+export function parseDiffNameStatusZ(out: string): GitStatusEntry[] {
+  const tokens = out.split('\0').filter((t) => t.length > 0);
+  const entries: GitStatusEntry[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const status = tokens[i];
+    const kind = status[0];
+    if (kind === 'R' || kind === 'C') {
+      const newPath = tokens[i + 2];
+      if (newPath) entries.push({ path: newPath, status: 'renamed' });
+      i += 2;
+    } else {
+      const path = tokens[i + 1];
+      if (!path) break;
+      let mapped: GitStatusEntry['status'];
+      if (kind === 'A') mapped = 'added';
+      else if (kind === 'D') mapped = 'deleted';
+      else if (kind === 'U') mapped = 'conflicted';
+      else mapped = 'modified'; // M / T 等
+      entries.push({ path, status: mapped });
+      i += 1;
+    }
+  }
+  return entries;
+}
+
+/** 变更文件列表:有 baseRef → merge-base 比对(含未提交);否则未提交变更 */
+export async function gitChangedFiles(
+  toplevel: string,
+  baseRef?: string,
+): Promise<{ entries: GitStatusEntry[]; mergeBase: string | null }> {
+  if (!baseRef) {
+    const { entries } = await gitStatus(toplevel);
+    return { entries, mergeBase: null };
+  }
+  let mergeBase: string;
+  try {
+    mergeBase = (await git(['merge-base', baseRef, 'HEAD'], toplevel)).trim();
+  } catch {
+    return { entries: [], mergeBase: null };
+  }
+  let out: string;
+  try {
+    out = await git(['diff', '--name-status', '-z', mergeBase], toplevel);
+  } catch {
+    return { entries: [], mergeBase };
+  }
+  return { entries: parseDiffNameStatusZ(out), mergeBase };
+}

@@ -81,6 +81,22 @@ export interface RpcMethods {
   };
   /** 列出 cwd 所属仓库的全部工作区(供 WorkTree 面板下拉绑定) */
   'git.worktrees': { params: { cwd: string }; result: { worktrees: WorktreeInfo[] } };
+  /** 读文本文件(2MB 上限;二进制/超限 content=null 并置标记) */
+  'fs.readFile': {
+    params: { path: string };
+    result: { content: string | null; binary: boolean; truncated: boolean; size: number };
+  };
+  'fs.writeFile': { params: { path: string; content: string }; result: undefined };
+  /** 读 ref 下的文件内容(不存在/二进制 → null) */
+  'git.show': {
+    params: { toplevel: string; ref: string; path: string };
+    result: { content: string | null };
+  };
+  /** 变更文件列表:有 baseRef 时 = merge-base(baseRef,HEAD) 与工作区的差异;否则 = 未提交变更 */
+  'git.changedFiles': {
+    params: { toplevel: string; baseRef?: string };
+    result: { entries: GitStatusEntry[]; mergeBase: string | null };
+  };
 }
 
 export type RpcMethodName = keyof RpcMethods;
