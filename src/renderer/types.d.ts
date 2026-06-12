@@ -21,6 +21,7 @@ declare global {
         }) => void,
       ): () => void;
       installUpdate(): void;
+      openViewerWindow(payload: unknown): void;
     };
   }
 }

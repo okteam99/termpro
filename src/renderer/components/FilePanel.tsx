@@ -62,7 +62,6 @@ export function FilePanel() {
   const workspace = useAppStore(selectActiveWorkspace);
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const updateTabFilePanel = useAppStore((s) => s.updateTabFilePanel);
-  const openViewer = useAppStore((s) => s.openViewer);
 
   // Active tab from the workspace
   const activeTab = workspace?.tabs.find((t) => t.id === workspace.activeTabId);
@@ -681,7 +680,7 @@ export function FilePanel() {
                 const diffBaseRef =
                   !isMainWorktree && mainBranch ? mainBranch : null;
 
-                openViewer({
+                window.termpro.openViewerWindow({
                   mode: 'diff',
                   toplevel: diffToplevel,
                   baseRef: diffBaseRef,
@@ -725,7 +724,7 @@ export function FilePanel() {
                   ? undefined
                   : isDir
                     ? () => toggleDir(node.absPath)
-                    : () => openViewer({ mode: 'file', path: node.absPath })
+                    : () => window.termpro.openViewerWindow({ mode: 'file', path: node.absPath })
               }
             >
               <span className="file-panel__arrow">

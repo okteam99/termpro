@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld('termpro', {
   installUpdate(): void {
     ipcRenderer.send('update:install');
   },
+  /** 在独立窗口打开查看器(file/diff),不占用主视图 */
+  openViewerWindow(payload: unknown): void {
+    ipcRenderer.send('viewer:open-window', payload);
+  },
   focusWindow(): void {
     ipcRenderer.send('window:focus-self');
   },

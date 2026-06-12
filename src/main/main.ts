@@ -110,6 +110,36 @@ if (process.env.TERMPRO_SMOKE) {
   });
 }
 
+// ---- 查看器独立窗口(文件预览 / diff,不占用主视图终端区)----------------
+
+function createViewerWindow(payload: unknown): void {
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 600,
+    minHeight: 400,
+    backgroundColor: '#1e2227',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  const json = JSON.stringify(payload);
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    win.loadURL(
+      `${MAIN_WINDOW_VITE_DEV_SERVER_URL}?viewer=${encodeURIComponent(json)}`,
+    );
+  } else {
+    win.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      { query: { viewer: json } },
+    );
+  }
+}
+
+ipcMain.on('viewer:open-window', (_event, payload: unknown) => {
+  createViewerWindow(payload);
+});
+
 // ---- 应用菜单:把 ⌘T/⌘W 从系统默认行为里解放出来交给渲染层 ----------------
 
 function buildMenu(): void {

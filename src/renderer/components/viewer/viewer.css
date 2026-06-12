@@ -8,6 +8,13 @@
   border-left: 1px solid var(--border);
 }
 
+.viewer-window {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
 .viewer-header {
   flex: none;
   height: 34px;
