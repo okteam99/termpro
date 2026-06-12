@@ -14,7 +14,6 @@ declare global {
       storeSet(state: unknown): void;
       setDockBadge(count: number): void;
       focusWindow(): void;
-      openInEditor(editor: 'vscode' | 'zed', path: string): void;
       onUpdateEvent(
         callback: (e: {
           state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';

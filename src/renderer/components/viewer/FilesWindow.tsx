@@ -213,20 +213,13 @@ export function FilesWindow({ initialPath }: { initialPath: string }) {
             </button>
           )}
           {active && (
-            <>
-              <button
-                className="viewer-btn"
-                onClick={() => window.termpro.openInEditor('vscode', active.path)}
-              >
-                VS Code
-              </button>
-              <button
-                className="viewer-btn"
-                onClick={() => window.termpro.openInEditor('zed', active.path)}
-              >
-                Zed
-              </button>
-            </>
+            <button
+              className="viewer-btn"
+              onClick={() => window.termpro.openPath(active.path)}
+              title="用系统默认应用打开"
+            >
+              系统应用打开
+            </button>
           )}
           <button
             className="viewer-btn viewer-btn--close"

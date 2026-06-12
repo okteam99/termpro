@@ -7,7 +7,6 @@ import {
   ipcMain,
   utilityProcess,
 } from 'electron';
-import { spawn } from 'node:child_process';
 import { clipboard, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -105,22 +104,6 @@ ipcMain.on('shell:open-path', (_event, p: string) => {
   if (typeof p === 'string' && path.isAbsolute(p)) {
     void shell.openPath(p);
   }
-});
-
-// 外跳本地编辑器(壳层职责,macOS 用 open -a 不依赖 PATH)
-const EDITOR_APPS: Record<string, string> = {
-  vscode: 'Visual Studio Code',
-  zed: 'Zed',
-};
-ipcMain.on('editor:open', (_event, editor: string, targetPath: string) => {
-  const appName = EDITOR_APPS[editor];
-  if (!appName || typeof targetPath !== 'string') return;
-  const child = spawn('open', ['-a', appName, targetPath], {
-    stdio: 'ignore',
-    detached: true,
-  });
-  child.on('error', (err) => console.error('[main] editor open failed:', err));
-  child.unref();
 });
 
 // 剪贴板:沙箱 preload 里 clipboard 模块不可用,必须经 main

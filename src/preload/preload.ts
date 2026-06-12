@@ -33,9 +33,6 @@ contextBridge.exposeInMainWorld('termpro', {
   setDockBadge(count: number): void {
     ipcRenderer.send('dock:badge', count);
   },
-  openInEditor(editor: 'vscode' | 'zed', path: string): void {
-    ipcRenderer.send('editor:open', editor, path);
-  },
   /** 订阅更新事件(available/downloading/restarting/error),返回退订函数 */
   onUpdateEvent(
     callback: (e: { state: string; version?: string }) => void,

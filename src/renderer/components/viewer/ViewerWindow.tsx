@@ -88,15 +88,10 @@ function DiffWindow({
         <div className="viewer-actions">
           <button
             className="viewer-btn"
-            onClick={() => window.termpro.openInEditor('vscode', payload.toplevel)}
+            onClick={() => window.termpro.openPath(payload.toplevel)}
+            title="用系统默认应用打开仓库目录"
           >
-            VS Code
-          </button>
-          <button
-            className="viewer-btn"
-            onClick={() => window.termpro.openInEditor('zed', payload.toplevel)}
-          >
-            Zed
+            系统应用打开
           </button>
           <button
             className="viewer-btn viewer-btn--close"
