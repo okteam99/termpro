@@ -196,14 +196,29 @@ export function FilePanel() {
 
       if (epochRef.current !== epoch) return;
 
-      // Derive auto-detected roots
+      // live cwd 只用于提示行与首次锁定
       const newAutoRoot = info.mainWorktree ?? cwd;
-      const newAutoWorktree = info.toplevel ?? cwd;
 
-      // Fetch worktrees
+      // WorkTree 锚点 = Root 绑定目录(未绑定则用本次解析的主目录):
+      // worktree 列表、默认选中、着色守卫都从锚点仓库推导,不随 cd 漂移
+      const anchor = tab?.filePanel?.rootPath ?? newAutoRoot;
+
+      let anchorInfo: GitInfo = {
+        toplevel: null,
+        mainWorktree: null,
+        branch: null,
+      };
+      try {
+        anchorInfo = await hostClient.rpc('git.info', { cwd: anchor });
+      } catch {
+        // 锚点不是 git 目录
+      }
+
+      if (epochRef.current !== epoch) return;
+
       let wts: WorktreeInfo[] = [];
       try {
-        const res = await hostClient.rpc('git.worktrees', { cwd });
+        const res = await hostClient.rpc('git.worktrees', { cwd: anchor });
         wts = res.worktrees;
       } catch {
         // non-git or unavailable
@@ -212,8 +227,8 @@ export function FilePanel() {
       if (epochRef.current !== epoch) return;
 
       setAutoRoot(newAutoRoot);
-      setAutoWorktree(newAutoWorktree);
-      setGitInfo(info);
+      setAutoWorktree(anchorInfo.toplevel ?? anchor);
+      setGitInfo(anchorInfo);
       setWorktrees(wts);
 
       // Root 锁定语义:tab 首次进入时把主目录写死到绑定里,
@@ -231,7 +246,7 @@ export function FilePanel() {
 
     void resolve();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, refreshKey, cwdEpoch]);
+  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, fp?.rootPath, refreshKey, cwdEpoch]);
 
   // Reset rootInputDraft whenever the effective root or active tab changes
   const activeTabId = activeTab?.id;

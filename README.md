@@ -76,7 +76,8 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
 - [x] Root / WorkTree 改为**与单个 tab 绑定**(持久化):
       Root 在 **tab 首次进入时锁定**为当时的主目录,不随终端 cd 漂移;
       仅显式修改(输入框 / Choose…)或 Apply(采用提示行的实时主目录)才变更;
-      WorkTree 从 `git worktree list` 下拉选择绑定(`相对路径 · 分支`,信息行 `分支 · 短SHA`)
+      WorkTree 从 `git worktree list` 下拉选择绑定(`相对路径 · 分支`,信息行 `分支 · 短SHA`);
+      WorkTree 的仓库锚点 = Root 绑定目录,列表与默认选中均不随终端 cd 漂移
 
 ### M3 — 状态感知与通知(差异化核心)
 - [ ] 信号①:轮询 `pty.process` 前台进程名(running / idle 的硬信号,零协议依赖)
