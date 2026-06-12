@@ -86,6 +86,10 @@ export class PtyPool {
     this.sessions.get(sessionId)?.pty.kill();
   }
 
+  pid(sessionId: string): number | null {
+    return this.sessions.get(sessionId)?.pty.pid ?? null;
+  }
+
   dispose(): void {
     for (const s of this.sessions.values()) s.pty.kill();
     this.sessions.clear();

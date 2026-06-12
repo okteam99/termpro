@@ -30,13 +30,46 @@ export interface HostInfo {
   shell: string;
 }
 
+export interface GitInfo {
+  /** 会话所在工作区(worktree)根;非 git 目录为 null */
+  toplevel: string | null;
+  /** 该仓库主工作区(main worktree)根 */
+  mainWorktree: string | null;
+  /** 当前分支名;detached 时为短 SHA */
+  branch: string | null;
+}
+
+export type GitFileStatus =
+  | 'modified'
+  | 'added'
+  | 'deleted'
+  | 'renamed'
+  | 'untracked'
+  | 'conflicted';
+
+export interface GitStatusEntry {
+  /** 相对 toplevel 的路径 */
+  path: string;
+  status: GitFileStatus;
+}
+
 // RPC 方法签名表:新增方法在这里登记,两端自动获得类型。
 export interface RpcMethods {
   'host.info': { params: undefined; result: HostInfo };
   'pty.spawn': { params: SpawnOptions; result: { sessionId: string } };
   'pty.kill': { params: { sessionId: string }; result: undefined };
+  /** 查询会话 shell 进程的实时 cwd(macOS lsof / Linux procfs) */
+  'pty.cwd': { params: { sessionId: string }; result: { cwd: string | null } };
   'fs.readdir': { params: { path: string }; result: { entries: DirEntry[] } };
   'fs.home': { params: undefined; result: { path: string } };
+  /** 递归监听目录变化,事件经 fs:changed 推送 */
+  'fs.watch': { params: { path: string }; result: { watchId: number } };
+  'fs.unwatch': { params: { watchId: number }; result: undefined };
+  'git.info': { params: { cwd: string }; result: GitInfo };
+  'git.status': {
+    params: { toplevel: string };
+    result: { entries: GitStatusEntry[] };
+  };
 }
 
 export type RpcMethodName = keyof RpcMethods;
@@ -54,4 +87,5 @@ export type HostMessage =
   | { t: 'rpc:res'; id: number; ok: false; error: string }
   | { t: 'pty:data'; sessionId: string; data: string; bytes: number }
   | { t: 'pty:exit'; sessionId: string; exitCode: number }
-  | { t: 'pty:title'; sessionId: string; processName: string };
+  | { t: 'pty:title'; sessionId: string; processName: string }
+  | { t: 'fs:changed'; watchId: number };
