@@ -52,18 +52,107 @@
   color: var(--fg);
 }
 
-/* 当前根路径行 */
-.file-panel__root-path {
-  padding: 0 10px 4px;
+/* ── Control rows (Root path input / WorkTree select) ── */
+.file-panel__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 8px 6px;
+  flex-shrink: 0;
+}
+
+.file-panel__ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.file-panel__ctrl-row--hint {
+  min-height: 16px;
+}
+
+/* Monospace path input (Root mode row 1) */
+.file-panel__path-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  font-family: Menlo, Monaco, "SF Mono", monospace;
+  font-size: 11px;
+  padding: 2px 5px;
+  outline: none;
+  height: 22px;
+  box-sizing: border-box;
+}
+
+.file-panel__path-input:focus {
+  border-color: var(--fg-dim);
+}
+
+/* WorkTree select (WorkTree mode row 1) */
+.file-panel__wt-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  font-size: 11px;
+  padding: 2px 4px;
+  outline: none;
+  height: 22px;
+  box-sizing: border-box;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.file-panel__wt-select:disabled {
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+/* Small flat button (Choose…, Apply, ⟳) */
+.file-panel__ctrl-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  padding: 2px 6px;
+  height: 22px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  box-sizing: border-box;
+}
+
+.file-panel__ctrl-btn:hover:not(:disabled) {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.file-panel__ctrl-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.file-panel__ctrl-btn--icon {
+  padding: 2px 5px;
+  font-size: 13px;
+}
+
+/* Hint / info line (row 2 in both modes) */
+.file-panel__hint {
   font-size: 11px;
   color: var(--fg-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* 从右向左显示：尾部(文件名)可见，头部被裁剪 */
-  direction: rtl;
-  text-align: left;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 /* 元信息行：条目数 + 刷新按钮 */

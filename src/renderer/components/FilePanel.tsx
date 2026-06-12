@@ -2,10 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hostClient } from '../services/hostClient';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
 import { getSessionId } from '../terminal/terminalRegistry';
-import type { DirEntry, GitFileStatus, GitInfo } from '../../shared/protocol';
+import type { DirEntry, GitFileStatus, GitInfo, WorktreeInfo } from '../../shared/protocol';
 import './FilePanel.css';
-
-type Mode = 'root' | 'worktree';
 
 interface TreeNode {
   entry: DirEntry;
@@ -53,32 +51,52 @@ function gitStatusClass(status: GitFileStatus): string {
   }
 }
 
+// Compute a display label for a worktree entry relative to the main worktree path
+function worktreeLabel(wt: WorktreeInfo, mainPath: string): string {
+  if (wt.path === mainPath) return '.';
+  if (wt.path.startsWith(mainPath + '/')) return wt.path.slice(mainPath.length + 1);
+  return wt.path;
+}
+
 export function FilePanel() {
   const workspace = useAppStore(selectActiveWorkspace);
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
-  const [mode, setMode] = useState<Mode>('root');
+  const updateTabFilePanel = useAppStore((s) => s.updateTabFilePanel);
 
   // Active tab from the workspace
   const activeTab = workspace?.tabs.find((t) => t.id === workspace.activeTabId);
 
-  // Resolved displayed root (computed async, stored here)
-  const [displayedRoot, setDisplayedRoot] = useState<string>('');
-  // gitInfo for the resolved cwd
+  // Per-tab persisted file panel state (read only — write via updateTabFilePanel)
+  const fp = activeTab?.filePanel;
+  const mode = fp?.mode ?? 'root';
+
+  // Auto-detected values (computed async)
+  const [autoRoot, setAutoRoot] = useState<string>('');
+  const [autoWorktree, setAutoWorktree] = useState<string>('');
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
+
+  // Root mode: draft path for the text input (mirrors effective root, reset on tab/root change)
+  const [rootInputDraft, setRootInputDraft] = useState<string>('');
+
+  // Effective displayed root
+  const effectiveRoot = mode === 'root'
+    ? (fp?.rootPath ?? autoRoot)
+    : (fp?.worktreePath ?? autoWorktree);
 
   // Git status: map relPath -> status, plus dirty-dir set
   const [statusMap, setStatusMap] = useState<Map<string, GitFileStatus>>(new Map());
   const [dirtyDirs, setDirtyDirs] = useState<Set<string>>(new Set());
 
-  // 顶层条目
+  // Top-level entries
   const [topEntries, setTopEntries] = useState<DirEntry[]>([]);
-  // 展开状态 Set<absPath>
+  // Expanded state Set<absPath>
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // 子目录缓存 Map<absPath, DirEntry[]>
+  // Child dir cache Map<absPath, DirEntry[]>
   const [cache, setCache] = useState<Map<string, DirEntry[]>>(new Map());
-  // 加载错误路径 Set<absPath>
+  // Error paths Set<absPath>
   const [errPaths, setErrPaths] = useState<Set<string>>(new Set());
-  // 刷新计数器，用于强制重取
+  // Refresh counter for forced re-fetch
   const [refreshKey, setRefreshKey] = useState(0);
 
   // epoch counter to guard stale async results
@@ -116,7 +134,7 @@ export function FilePanel() {
     }
   }, []);
 
-  // ── Phase 1: resolve displayedRoot whenever active tab / mode / refreshKey changes ──
+  // ── Phase 1: resolve auto root/worktree + git info + worktrees whenever active tab / refreshKey changes ──
   useEffect(() => {
     if (!workspace) return;
 
@@ -152,37 +170,52 @@ export function FilePanel() {
 
       if (epochRef.current !== epoch) return;
 
-      // Derive displayed root based on mode
-      let root: string;
-      if (mode === 'root') {
-        root = info.mainWorktree ?? workspace.root;
-      } else {
-        root = info.toplevel ?? cwd;
+      // Derive auto-detected roots
+      const newAutoRoot = info.mainWorktree ?? cwd;
+      const newAutoWorktree = info.toplevel ?? cwd;
+
+      // Fetch worktrees
+      let wts: WorktreeInfo[] = [];
+      try {
+        const res = await hostClient.rpc('git.worktrees', { cwd });
+        wts = res.worktrees;
+      } catch {
+        // non-git or unavailable
       }
 
-      setDisplayedRoot(root);
+      if (epochRef.current !== epoch) return;
+
+      setAutoRoot(newAutoRoot);
+      setAutoWorktree(newAutoWorktree);
       setGitInfo(info);
+      setWorktrees(wts);
     }
 
     void resolve();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, mode, refreshKey]);
+  }, [activeWorkspaceId, workspace?.activeTabId, activeTab?.cwd, refreshKey]);
 
-  // ── Phase 2: when displayedRoot changes, fetch tree + git status + setup watcher ──
+  // Reset rootInputDraft whenever the effective root or active tab changes
+  const activeTabId = activeTab?.id;
+  const fpRootPath = fp?.rootPath;
   useEffect(() => {
-    if (!displayedRoot) return;
+    setRootInputDraft(effectiveRoot);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveRoot, activeTabId, fpRootPath]);
+
+  // ── Phase 2: when effectiveRoot changes, fetch tree + git status + setup watcher ──
+  useEffect(() => {
+    if (!effectiveRoot) return;
 
     const epoch = ++epochRef.current;
-    // 卸载时 effect body 不再执行、epoch 不会推进,必须用本地 cancelled 旗标
-    // 兜住「unmount 与在途 fs.watch 竞态」,否则 host 侧 watcher 泄漏
+    // cancelled flag covers unmount race vs in-flight fs.watch
     let cancelled = false;
     const stale = () => cancelled || epochRef.current !== epoch;
 
     // Clean up old watcher before setting a new one
     cleanupWatcher();
 
-    // Reset tree state only when root actually changes (not on watch-driven refresh)
-    // We track previous root to decide whether to reset expansion
+    // Reset tree state when root changes
     setTopEntries([]);
     setStatusMap(new Map());
     setDirtyDirs(new Set());
@@ -190,7 +223,7 @@ export function FilePanel() {
     async function fetchAll() {
       // Fetch top-level entries
       try {
-        const { entries } = await hostClient.rpc('fs.readdir', { path: displayedRoot });
+        const { entries } = await hostClient.rpc('fs.readdir', { path: effectiveRoot });
         if (stale()) return;
         setTopEntries(sortEntries(entries));
       } catch {
@@ -198,24 +231,29 @@ export function FilePanel() {
         setTopEntries([]);
       }
 
-      // Fetch git status if this root is a git toplevel
-      if (gitInfo?.toplevel) {
+      // Fetch git status — only when effectiveRoot is a known git toplevel.
+      // Check: worktrees list contains effectiveRoot, or autoWorktree === effectiveRoot.
+      const isGitToplevel =
+        (worktrees.length > 0 && worktrees.some((wt) => wt.path === effectiveRoot)) ||
+        (autoWorktree !== '' && autoWorktree === effectiveRoot);
+
+      if (isGitToplevel) {
         try {
-          const { entries } = await hostClient.rpc('git.status', { toplevel: displayedRoot });
+          const { entries } = await hostClient.rpc('git.status', { toplevel: effectiveRoot });
           if (stale()) return;
           const map = new Map<string, GitFileStatus>();
           for (const e of entries) map.set(e.path, e.status);
           setStatusMap(map);
-          setDirtyDirs(computeDirtyDirs(entries, displayedRoot));
+          setDirtyDirs(computeDirtyDirs(entries, effectiveRoot));
         } catch {
           // ignore git status errors
         }
       }
 
-      // Setup fs.watch — stale(含 unmount)时立即归还 watchId
+      // Setup fs.watch — return watchId immediately if stale
       if (stale()) return;
       try {
-        const { watchId } = await hostClient.rpc('fs.watch', { path: displayedRoot });
+        const { watchId } = await hostClient.rpc('fs.watch', { path: effectiveRoot });
         if (stale()) {
           void hostClient.rpc('fs.unwatch', { watchId }).catch(() => {});
           return;
@@ -236,26 +274,26 @@ export function FilePanel() {
       cleanupWatcher();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayedRoot]);
+  }, [effectiveRoot]);
 
-  // ── Watch-triggered partial refresh: re-fetch top-level + expanded dirs + git status ──
-  // We use a separate effect that responds to refreshKey but NOT displayedRoot reset
-  const displayedRootRef = useRef(displayedRoot);
-  displayedRootRef.current = displayedRoot;
+  // ── Watch-triggered partial refresh ──
+  const effectiveRootRef = useRef(effectiveRoot);
+  effectiveRootRef.current = effectiveRoot;
   const gitInfoRef = useRef(gitInfo);
   gitInfoRef.current = gitInfo;
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
+  const worktreesRef = useRef(worktrees);
+  worktreesRef.current = worktrees;
+  const autoWorktreeRef = useRef(autoWorktree);
+  autoWorktreeRef.current = autoWorktree;
 
-  // When refreshKey increments due to watcher (not root-change), do a partial refresh
-  // 独立 epoch:不与 Phase 1/2 共用,否则会把同样由 refreshKey 触发的
-  // Phase 1 重解析(手动 ⟳ 需要重新拿 cwd)误判为过期
   const refreshEpochRef = useRef(0);
   const prevRootRef = useRef('');
   useEffect(() => {
-    const root = displayedRootRef.current;
+    const root = effectiveRootRef.current;
     if (!root) return;
-    // If root changed, Phase 2 effect handles it; skip here
+    // If root changed, Phase 2 handles it; skip partial refresh here
     if (prevRootRef.current !== root) {
       prevRootRef.current = root;
       return;
@@ -264,7 +302,7 @@ export function FilePanel() {
     const epoch = ++refreshEpochRef.current;
 
     async function partialRefresh() {
-      const root = displayedRootRef.current;
+      const root = effectiveRootRef.current;
       if (!root) return;
 
       // Re-fetch top-level
@@ -289,8 +327,13 @@ export function FilePanel() {
       }
 
       // Re-fetch git status
-      const info = gitInfoRef.current;
-      if (info?.toplevel) {
+      const wts = worktreesRef.current;
+      const awt = autoWorktreeRef.current;
+      const isGitToplevel =
+        (wts.length > 0 && wts.some((wt) => wt.path === root)) ||
+        (awt !== '' && awt === root);
+
+      if (isGitToplevel) {
         try {
           const { entries } = await hostClient.rpc('git.status', { toplevel: root });
           if (refreshEpochRef.current !== epoch) return;
@@ -308,12 +351,12 @@ export function FilePanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
-  // Reset tree expansion only when displayedRoot actually changes
+  // Reset tree expansion only when effectiveRoot actually changes
   useEffect(() => {
     setExpanded(new Set());
     setCache(new Map());
     setErrPaths(new Set());
-  }, [displayedRoot]);
+  }, [effectiveRoot]);
 
   // ── Manual refresh ──
   const handleRefresh = useCallback(() => {
@@ -373,12 +416,11 @@ export function FilePanel() {
 
   // ── Git class for a row ──
   function gitClassForPath(absPath: string, kind: DirEntry['kind']): string {
-    if (!gitInfo?.toplevel || !displayedRoot) return '';
-    // relPath relative to displayedRoot
-    const rel = absPath.startsWith(displayedRoot + '/')
-      ? absPath.slice(displayedRoot.length + 1)
-      : absPath.startsWith(displayedRoot)
-        ? absPath.slice(displayedRoot.length)
+    if (!gitInfo?.toplevel || !effectiveRoot) return '';
+    const rel = absPath.startsWith(effectiveRoot + '/')
+      ? absPath.slice(effectiveRoot.length + 1)
+      : absPath.startsWith(effectiveRoot)
+        ? absPath.slice(effectiveRoot.length)
         : '';
     if (!rel) return '';
 
@@ -390,44 +432,176 @@ export function FilePanel() {
   }
 
   const homedir = hostClient.info?.homedir;
-  const displayPath = displayedRoot ? tildify(displayedRoot, homedir) : '';
+
+  // ── Header control: Root mode ──
+  const handleRootChoose = useCallback(async () => {
+    if (!activeTab) return;
+    const dir = await window.termpro.pickDirectory();
+    if (dir) {
+      updateTabFilePanel(activeTab.id, { rootPath: dir });
+    }
+  }, [activeTab, updateTabFilePanel]);
+
+  const handleRootInputKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        const trimmed = rootInputDraft.trim();
+        if (trimmed && activeTab) {
+          updateTabFilePanel(activeTab.id, { rootPath: trimmed });
+        }
+      }
+    },
+    [rootInputDraft, activeTab, updateTabFilePanel],
+  );
+
+  const handleRootApply = useCallback(() => {
+    if (!activeTab || !autoRoot) return;
+    updateTabFilePanel(activeTab.id, { rootPath: autoRoot });
+  }, [activeTab, autoRoot, updateTabFilePanel]);
+
+  // ── Header control: WorkTree mode ──
+  const handleWorktreeChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      if (!activeTab) return;
+      updateTabFilePanel(activeTab.id, { worktreePath: e.target.value, mode: 'worktree' });
+    },
+    [activeTab, updateTabFilePanel],
+  );
+
+  const handleWorktreeReload = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  // ── Mode toggle ──
+  const handleModeRoot = useCallback(() => {
+    if (!activeTab) return;
+    updateTabFilePanel(activeTab.id, { mode: 'root' });
+  }, [activeTab, updateTabFilePanel]);
+
+  const handleModeWorktree = useCallback(() => {
+    if (!activeTab) return;
+    updateTabFilePanel(activeTab.id, { mode: 'worktree' });
+  }, [activeTab, updateTabFilePanel]);
 
   if (!workspace) {
     return (
       <div className="file-panel">
-        <div className="file-panel__empty">No workspace</div>
+        <div className="file-panel__empty">No session</div>
       </div>
     );
   }
 
-  const rows = flattenTree(topEntries, displayedRoot, 0);
+  const rows = flattenTree(topEntries, effectiveRoot, 0);
+
+  // Worktree: selected worktree info for the info line
+  const selectedWorktreePath = fp?.worktreePath ?? autoWorktree;
+  const selectedWt = worktrees.find((wt) => wt.path === selectedWorktreePath) ?? worktrees[0];
+  const isGitRepo = worktrees.length > 0;
+  const mainWorktreePath = worktrees[0]?.path ?? '';
+
+  // Root mode: autoRoot tildified for hint
+  const autoRootDisplay = autoRoot ? tildify(autoRoot, homedir) : '';
+  const effectiveRootForRoot = fp?.rootPath ?? autoRoot;
+  const applyDisabled = !autoRoot || effectiveRootForRoot === autoRoot;
 
   return (
     <div className="file-panel">
-      {/* 可拖拽顶栏 + 分段切换 */}
+      {/* Draggable top bar + segmented toggle */}
       <div className="file-panel__header">
         <div className="file-panel__seg">
           <button
             className={`file-panel__seg-btn${mode === 'root' ? ' file-panel__seg-btn--active' : ''}`}
-            onClick={() => setMode('root')}
+            onClick={handleModeRoot}
           >
             Root
           </button>
           <button
             className={`file-panel__seg-btn${mode === 'worktree' ? ' file-panel__seg-btn--active' : ''}`}
-            onClick={() => setMode('worktree')}
+            onClick={handleModeWorktree}
           >
             WorkTree
           </button>
         </div>
       </div>
 
-      {/* 当前根路径（rtl截断头部） */}
-      <div className="file-panel__root-path" title={displayedRoot}>
-        {displayPath}
+      {/* Control rows */}
+      <div className="file-panel__controls">
+        {mode === 'root' ? (
+          <>
+            {/* Row 1: path input + Choose button */}
+            <div className="file-panel__ctrl-row">
+              <input
+                className="file-panel__path-input"
+                type="text"
+                value={rootInputDraft}
+                onChange={(e) => setRootInputDraft(e.target.value)}
+                onKeyDown={handleRootInputKeyDown}
+                spellCheck={false}
+                title={rootInputDraft}
+              />
+              <button className="file-panel__ctrl-btn" onClick={() => void handleRootChoose()}>
+                Choose…
+              </button>
+            </div>
+            {/* Row 2: autoRoot hint + Apply button */}
+            <div className="file-panel__ctrl-row file-panel__ctrl-row--hint">
+              <span className="file-panel__hint" title={autoRoot}>
+                {autoRootDisplay || '—'}
+              </span>
+              <button
+                className="file-panel__ctrl-btn"
+                onClick={handleRootApply}
+                disabled={applyDisabled}
+              >
+                Apply
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Row 1: worktree select + reload button */}
+            <div className="file-panel__ctrl-row">
+              <select
+                className="file-panel__wt-select"
+                value={selectedWorktreePath}
+                onChange={handleWorktreeChange}
+                disabled={!isGitRepo}
+              >
+                {isGitRepo ? (
+                  worktrees.map((wt) => {
+                    const label = worktreeLabel(wt, mainWorktreePath);
+                    const optLabel = `${label} · ${wt.branch ?? wt.head}`;
+                    return (
+                      <option key={wt.path} value={wt.path}>
+                        {optLabel}
+                      </option>
+                    );
+                  })
+                ) : (
+                  <option value="">—</option>
+                )}
+              </select>
+              <button
+                className="file-panel__ctrl-btn file-panel__ctrl-btn--icon"
+                onClick={handleWorktreeReload}
+                title="Reload worktrees"
+              >
+                ⟳
+              </button>
+            </div>
+            {/* Row 2: branch · head info */}
+            <div className="file-panel__ctrl-row file-panel__ctrl-row--hint">
+              <span className="file-panel__hint">
+                {isGitRepo && selectedWt
+                  ? `${selectedWt.branch ?? 'detached'} · ${selectedWt.head}`
+                  : 'not a git repo'}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* 元行：条目数 + 刷新 */}
+      {/* Meta row: entry count + refresh */}
       <div className="file-panel__meta">
         <span className="file-panel__count">{topEntries.length} entries</span>
         <button className="file-panel__refresh" onClick={handleRefresh} title="Refresh">
@@ -437,7 +611,7 @@ export function FilePanel() {
 
       <div className="file-panel__divider" />
 
-      {/* 文件树 */}
+      {/* File tree */}
       <div className="file-panel__tree">
         {rows.map((node) => {
           const isDir = node.entry.kind === 'dir';

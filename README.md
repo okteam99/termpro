@@ -71,6 +71,12 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**——工程与
 - [x] 右侧文件树:watch 自动刷新(保留展开态)、git 状态着色(含目录上卷)
 - [x] Host git 服务:`git.info(cwd)` / `git.status(toplevel)` / `pty.cwd` / `fs.watch`
 
+反馈打磨(2026-06):
+- [x] 三栏宽度可拖拽调节(持久化)
+- [x] Root / WorkTree 改为**与单个 tab 绑定**(持久化):
+      Root 可手动指定(输入框 / Choose…),下方提示该 tab 所在仓库主目录,Apply 一键采用,默认即主目录;
+      WorkTree 从 `git worktree list` 下拉选择绑定(`相对路径 · 分支`,信息行 `分支 · 短SHA`)
+
 ### M3 — 状态感知与通知(差异化核心)
 - [ ] 信号①:轮询 `pty.process` 前台进程名(running / idle 的硬信号,零协议依赖)
 - [ ] 信号②:OSC 133 shell integration 注入(命令开始 / 结束的精确事件)
