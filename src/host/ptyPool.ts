@@ -3,6 +3,7 @@ import os from 'node:os';
 import { FLOW, HostMessage, SpawnOptions } from '../shared/protocol';
 import { OutputScanner } from './outputScanner';
 import { SessionTracker } from './sessionTracker';
+import { integrationEnv } from './shellIntegration';
 
 interface Session {
   id: string;
@@ -30,12 +31,15 @@ export class PtyPool {
       process.env.SHELL ??
       (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh');
     const id = `s${++this.seq}-${Date.now().toString(36)}`;
+    const baseEnv = { ...process.env, ...opts.env } as Record<string, string>;
+    // zsh 自动注入 shell integration(OSC 133/7);失败或非 zsh 静默跳过
+    const integration = integrationEnv(shell, baseEnv);
     const proc = pty.spawn(shell, ['-l'], {
       name: 'xterm-256color',
       cols: Math.max(2, opts.cols),
       rows: Math.max(1, opts.rows),
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env } as Record<string, string>,
+      env: { ...baseEnv, ...integration },
     });
     const tracker = new SessionTracker({
       shellName: shell.split('/').pop() ?? shell,
