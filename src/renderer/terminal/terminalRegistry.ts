@@ -5,8 +5,10 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import { hostClient } from '../services/hostClient';
+import { FsLinkProvider } from './terminalLinks';
 
 export interface TermCallbacks {
   onTitle?(processName: string): void;
@@ -25,6 +27,8 @@ export interface TermInstance {
   opened: boolean;
   firstData: boolean;
   disposed: boolean;
+  /** spawn 时的 cwd:链接相对路径解析的兜底 */
+  spawnCwd: string;
   callbacks: TermCallbacks;
 }
 
@@ -65,8 +69,25 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     opened: false,
     firstData: false,
     disposed: false,
+    spawnCwd: '',
     callbacks: {},
   };
+
+  // 网页链接 → 默认浏览器
+  term.loadAddon(
+    new WebLinksAddon((event, uri) => {
+      event.preventDefault();
+      window.termpro.openExternal(uri);
+    }),
+  );
+  // 文件/路径链接(file://、绝对、~、相对)→ 校验存在后可点击
+  term.registerLinkProvider(
+    new FsLinkProvider(
+      term,
+      () => inst.sessionId,
+      () => inst.spawnCwd || (hostClient.info?.homedir ?? '/'),
+    ),
+  );
 
   // OSC 7:shell 上报当前目录(file://host/path),用于持久化 tab cwd
   term.parser.registerOscHandler(7, (data) => {
@@ -83,6 +104,7 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
   const inst = getOrCreateTerminal(tabId);
   if (inst.sessionId || inst.spawning) return;
   inst.spawning = true;
+  inst.spawnCwd = cwd;
   try {
     const { sessionId } = await hostClient.rpc('pty.spawn', {
       cwd,

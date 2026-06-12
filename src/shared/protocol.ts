@@ -75,6 +75,8 @@ export interface RpcMethods {
   /** 递归监听目录变化,事件经 fs:changed 推送 */
   'fs.watch': { params: { path: string }; result: { watchId: number } };
   'fs.unwatch': { params: { watchId: number }; result: undefined };
+  /** 轻量存在性检查(终端链接 hover 校验用) */
+  'fs.stat': { params: { path: string }; result: { kind: 'file' | 'dir' | null } };
   'git.info': { params: { cwd: string }; result: GitInfo };
   'git.status': {
     params: { toplevel: string };

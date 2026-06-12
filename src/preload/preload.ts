@@ -65,6 +65,12 @@ contextBridge.exposeInMainWorld('termpro', {
   clipboardReadText(): string {
     return clipboard.readText();
   },
+  openExternal(url: string): void {
+    ipcRenderer.send('shell:open-external', url);
+  },
+  openPath(path: string): void {
+    ipcRenderer.send('shell:open-path', path);
+  },
   /** 在独立窗口打开查看器(file/diff),不占用主视图 */
   openViewerWindow(payload: unknown): void {
     ipcRenderer.send('viewer:open-window', payload);

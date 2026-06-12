@@ -27,6 +27,17 @@ export function homeDir(): { path: string } {
   return { path: os.homedir() };
 }
 
+export async function statPath(
+  p: string,
+): Promise<{ kind: 'file' | 'dir' | null }> {
+  try {
+    const st = await fs.stat(p);
+    return { kind: st.isDirectory() ? 'dir' : st.isFile() ? 'file' : null };
+  } catch {
+    return { kind: null };
+  }
+}
+
 /** 文本文件上限:超过不读(查看器场景,防大文件拖垮 IPC) */
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 

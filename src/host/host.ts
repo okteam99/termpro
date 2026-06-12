@@ -11,7 +11,7 @@ import {
   SpawnOptions,
 } from '../shared/protocol';
 import { PtyPool } from './ptyPool';
-import { homeDir, listDir, readTextFile, writeTextFile } from './fsService';
+import { homeDir, listDir, readTextFile, statPath, writeTextFile } from './fsService';
 import {
   gitChangedFiles,
   gitInfo,
@@ -172,6 +172,9 @@ async function handleRpc(
         break;
       case 'fs.home':
         result = homeDir();
+        break;
+      case 'fs.stat':
+        result = await statPath((msg.params as { path: string }).path);
         break;
       case 'fs.watch':
         result = {

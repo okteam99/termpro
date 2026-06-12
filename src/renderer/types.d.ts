@@ -28,6 +28,8 @@ declare global {
       }): Promise<string | null>;
       clipboardWriteText(text: string): void;
       clipboardReadText(): string;
+      openExternal(url: string): void;
+      openPath(path: string): void;
       onViewerAddTab(callback: (path: string) => void): () => void;
     };
   }

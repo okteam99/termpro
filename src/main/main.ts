@@ -8,6 +8,7 @@ import {
   utilityProcess,
 } from 'electron';
 import { spawn } from 'node:child_process';
+import { shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -77,6 +78,18 @@ ipcMain.on('window:focus-self', (event) => {
   win.show();
   win.focus();
   app.focus({ steal: true });
+});
+
+// 终端链接:网页走默认浏览器(仅 http/https),路径走系统打开
+ipcMain.on('shell:open-external', (_event, url: string) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+    void shell.openExternal(url);
+  }
+});
+ipcMain.on('shell:open-path', (_event, p: string) => {
+  if (typeof p === 'string' && path.isAbsolute(p)) {
+    void shell.openPath(p);
+  }
 });
 
 // 外跳本地编辑器(壳层职责,macOS 用 open -a 不依赖 PATH)
