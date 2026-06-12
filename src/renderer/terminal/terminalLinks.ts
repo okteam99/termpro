@@ -47,6 +47,77 @@ function lineToString(line: IBufferLine): { text: string; cols: number[] } {
   return { text, cols };
 }
 
+interface CellPos {
+  row: number;
+  col: number;
+}
+
+interface LogicalLine {
+  startRow: number;
+  endRow: number;
+  text: string;
+  /** 每个 code unit 的 (row, col) */
+  pos: CellPos[];
+}
+
+/** 逻辑行最多拼接的物理行数(超长输出防御) */
+const MAX_LOGICAL_ROWS = 60;
+
+interface BufferLike {
+  length: number;
+  getLine(y: number): IBufferLine | undefined;
+}
+
+/** 以任一物理行为起点,沿 isWrapped 拼出完整逻辑行(长 URL 折行场景) */
+function buildLogicalLine(buf: BufferLike, row: number): LogicalLine | null {
+  let start = row;
+  while (start > 0 && start > row - MAX_LOGICAL_ROWS) {
+    const l = buf.getLine(start);
+    if (!l?.isWrapped) break;
+    start--;
+  }
+  let end = row;
+  while (end + 1 < buf.length && end - start < MAX_LOGICAL_ROWS) {
+    const next = buf.getLine(end + 1);
+    if (!next?.isWrapped) break;
+    end++;
+  }
+  let text = '';
+  const pos: CellPos[] = [];
+  for (let y = start; y <= end; y++) {
+    const line = buf.getLine(y);
+    if (!line) break;
+    const { text: t, cols } = lineToString(line);
+    for (let i = 0; i < t.length; i++) {
+      text += t[i];
+      pos.push({ row: y, col: cols[i] });
+    }
+  }
+  if (!text) return null;
+  return { startRow: start, endRow: end, text, pos };
+}
+
+/** 候选区间 [start, endExcl) 按物理行切段(跨行高亮用) */
+function rowSegments(
+  pos: CellPos[],
+  start: number,
+  endExcl: number,
+): { row: number; startCol: number; width: number }[] {
+  const segs: { row: number; startCol: number; width: number }[] = [];
+  let i = start;
+  while (i < endExcl) {
+    const row = pos[i].row;
+    const startCol = pos[i].col;
+    let endCol = startCol;
+    while (i < endExcl && pos[i].row === row) {
+      endCol = pos[i].col;
+      i++;
+    }
+    segs.push({ row, startCol, width: endCol - startCol + 1 });
+  }
+  return segs;
+}
+
 export class FsLinkProvider implements ILinkProvider {
   private statCache = new Map<
     string,
@@ -64,18 +135,17 @@ export class FsLinkProvider implements ILinkProvider {
     y: number,
     callback: (links: ILink[] | undefined) => void,
   ): void {
-    const line = this.term.buffer.active.getLine(y - 1);
-    if (!line) {
+    const ll = buildLogicalLine(this.term.buffer.active, y - 1);
+    if (!ll) {
       callback(undefined);
       return;
     }
-    const { text, cols } = lineToString(line);
-    const cands = extractCandidates(text).filter((c) => c.kind === 'fs');
+    const cands = extractCandidates(ll.text).filter((c) => c.kind === 'fs');
     if (cands.length === 0) {
       callback(undefined);
       return;
     }
-    void this.resolve(cands, cols, y).then(callback, () => callback(undefined));
+    void this.resolve(cands, ll).then(callback, () => callback(undefined));
   }
 
   private async cwd(): Promise<string> {
@@ -134,18 +204,20 @@ export class FsLinkProvider implements ILinkProvider {
 
   private async resolve(
     cands: ReturnType<typeof extractCandidates>,
-    cols: number[],
-    y: number,
+    ll: LogicalLine,
   ): Promise<ILink[] | undefined> {
     const links: ILink[] = [];
     await Promise.all(
       cands.map(async (c) => {
         const hit = await this.resolveCandidateText(c.text);
         if (!hit) return;
+        const s = ll.pos[c.start];
+        const e = ll.pos[c.end - 1];
         links.push({
+          // 折行链接:范围跨物理行(x/y 均 1 基)
           range: {
-            start: { x: cols[c.start] + 1, y },
-            end: { x: cols[c.end - 1] + 1, y },
+            start: { x: s.col + 1, y: s.row + 1 },
+            end: { x: e.col + 1, y: e.row + 1 },
           },
           text: c.text,
           decorations: { underline: true, pointerCursor: true },
@@ -199,31 +271,28 @@ export class LinkHighlighter {
     const bottom = Math.min(top + this.term.rows, buf.length);
 
     interface Hit {
-      absLine: number;
+      row: number;
       startCol: number;
       widthCells: number;
     }
     const hits: Hit[] = [];
+    const seenStarts = new Set<number>();
 
     for (let y = top; y < bottom; y++) {
-      const line = buf.getLine(y);
-      if (!line) continue;
-      const { text, cols } = lineToString(line);
-      for (const c of extractCandidates(text)) {
-        if (c.kind === 'web') {
-          hits.push({
-            absLine: y,
-            startCol: cols[c.start],
-            widthCells: cols[c.end - 1] - cols[c.start] + 1,
-          });
-        } else {
+      const ll = buildLogicalLine(buf, y);
+      if (!ll || seenStarts.has(ll.startRow)) continue;
+      seenStarts.add(ll.startRow);
+      for (const c of extractCandidates(ll.text)) {
+        if (c.kind === 'fs') {
           const hit = await this.provider.resolveCandidateText(c.text);
           if (this.epoch !== myEpoch) return; // 已有新一轮扫描
           if (!hit) continue;
+        }
+        for (const seg of rowSegments(ll.pos, c.start, c.end)) {
           hits.push({
-            absLine: y,
-            startCol: cols[c.start],
-            widthCells: cols[c.end - 1] - cols[c.start] + 1,
+            row: seg.row,
+            startCol: seg.startCol,
+            widthCells: seg.width,
           });
         }
       }
@@ -234,7 +303,7 @@ export class LinkHighlighter {
     const cursorAbs = buf.baseY + buf.cursorY;
     for (const h of hits) {
       // marker 以光标行为锚点
-      const marker = this.term.registerMarker(h.absLine - cursorAbs);
+      const marker = this.term.registerMarker(h.row - cursorAbs);
       if (!marker) continue;
       const deco = this.term.registerDecoration({
         marker,
