@@ -121,6 +121,12 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
     // spawn 进行期间 fit 可能已改变终端尺寸(onResize 当时未注册),
     // 主动同步一次当前尺寸,避免 TUI 以 80x24 启动
     hostClient.resize(sessionId, inst.term.cols, inst.term.rows);
+  } catch (err) {
+    // 失败必须在终端里说话,不许无声死 tab
+    const message = err instanceof Error ? err.message : String(err);
+    inst.term.writeln(`\x1b[31m[TermPro] 终端启动失败:${message}\x1b[0m`);
+    inst.term.writeln('\x1b[2m关闭该 tab 后重新打开即可重试\x1b[0m');
+    inst.callbacks.onExit?.(-1);
   } finally {
     inst.spawning = false;
   }

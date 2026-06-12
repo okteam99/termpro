@@ -180,6 +180,8 @@ async function handleRpc(
     }
     send({ t: 'rpc:res', id: msg.id, ok: true, result });
   } catch (err) {
+    // 失败必须可观测:CLI 启动应用即可在 stderr 看到完整错误
+    console.error('[host] rpc %s failed:', msg.method, err);
     send({
       t: 'rpc:res',
       id: msg.id,

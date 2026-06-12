@@ -166,8 +166,9 @@ const createWindow = () => {
     },
   });
 
-  if (process.env.TERMPRO_SMOKE) {
-    // 冒烟模式下把渲染层 console 转发到 stdout,便于无头排查
+  if (process.env.TERMPRO_SMOKE || process.env.TERMPRO_DEBUG) {
+    // 冒烟/调试模式把渲染层 console 转发到 stdout;
+    // TERMPRO_DEBUG=1 用真实 userData,从 CLI 启动即可排查线上问题
     mainWindow.webContents.on('console-message', (details) => {
       console.log(`[renderer:${details.level}] ${details.message}`);
     });

@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import fs from 'node:fs';
 import os from 'node:os';
 import { FLOW, HostMessage, SpawnOptions } from '../shared/protocol';
 import { OutputScanner } from './outputScanner';
@@ -31,6 +32,12 @@ export class PtyPool {
       process.env.SHELL ??
       (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh');
     const id = `s${++this.seq}-${Date.now().toString(36)}`;
+    // 持久化恢复的 cwd 可能已被删除(如清理掉的 worktree),回退家目录
+    let cwd = opts.cwd;
+    if (!fs.existsSync(cwd)) {
+      console.warn('[host] spawn cwd missing, fallback to home:', cwd);
+      cwd = os.homedir();
+    }
     const baseEnv = { ...process.env, ...opts.env } as Record<string, string>;
     // zsh 自动注入 shell integration(OSC 133/7);失败或非 zsh 静默跳过
     const integration = integrationEnv(shell, baseEnv);
@@ -38,7 +45,7 @@ export class PtyPool {
       name: 'xterm-256color',
       cols: Math.max(2, opts.cols),
       rows: Math.max(1, opts.rows),
-      cwd: opts.cwd,
+      cwd,
       env: { ...baseEnv, ...integration },
     });
     const tracker = new SessionTracker({
