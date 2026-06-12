@@ -70,6 +70,8 @@ export interface AppState {
   addTab(workspaceId: string, cwd?: string): void;
   closeTab(workspaceId: string, tabId: string): void;
   setActiveTab(workspaceId: string, tabId: string): void;
+  /** 拖拽排序:把 tab 移到目标下标(越界自动夹紧) */
+  moveTab(workspaceId: string, tabId: string, toIndex: number): void;
   updateTab(tabId: string, patch: Partial<Omit<TabState, 'id'>>): void;
   /** 合并更新 tab 的文件面板绑定(mode 默认 root) */
   updateTabFilePanel(tabId: string, patch: Partial<TabFilePanelState>): void;
@@ -213,6 +215,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       workspaces: s.workspaces.map((w) =>
         w.id === workspaceId ? { ...w, activeTabId: tabId } : w,
       ),
+    }));
+  },
+
+  moveTab(workspaceId, tabId, toIndex) {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => {
+        if (w.id !== workspaceId) return w;
+        const from = w.tabs.findIndex((t) => t.id === tabId);
+        if (from < 0) return w;
+        const to = Math.max(0, Math.min(toIndex, w.tabs.length - 1));
+        if (to === from) return w;
+        const tabs = [...w.tabs];
+        const [moved] = tabs.splice(from, 1);
+        tabs.splice(to, 0, moved);
+        return { ...w, tabs };
+      }),
     }));
   },
 

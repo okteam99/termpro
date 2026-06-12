@@ -3,6 +3,95 @@ import { useState, useRef } from 'react';
 import { useAppStore, tildify } from '../state/store';
 import { hostClient } from '../services/hostClient';
 
+/** Small pencil icon 12×12 */
+function PencilIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M8.5 1.5 L10.5 3.5 L4 10 L1.5 10.5 L2 8 Z" />
+      <line x1="7" y1="3" x2="9" y2="5" />
+    </svg>
+  );
+}
+
+interface RenameModalProps {
+  workspaceId: string;
+  initialName: string;
+  onSave: (id: string, name: string) => void;
+  onClose: () => void;
+}
+
+function RenameModal({ workspaceId, initialName, onSave, onClose }: RenameModalProps) {
+  const [value, setValue] = useState(initialName);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleSave() {
+    const trimmed = value.trim();
+    if (trimmed) {
+      onSave(workspaceId, trimmed);
+    }
+    onClose();
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    }
+  }
+
+  function handleBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
+    // Only close if the click was directly on the backdrop (not the card)
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  }
+
+  return (
+    <div
+      className="rename-modal-backdrop"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      onMouseDown={handleBackdropClick}
+    >
+      <div
+        className="rename-modal-card"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="rename-modal-title">重命名 Workspace</div>
+        <input
+          ref={inputRef}
+          className="rename-modal-input"
+          value={value}
+          autoFocus
+          onChange={(e) => setValue(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onKeyDown={handleKeyDown}
+        />
+        <div className="rename-modal-actions">
+          <button className="rename-modal-cancel" onClick={onClose}>
+            取消
+          </button>
+          <button className="rename-modal-save" onClick={handleSave}>
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Sidebar() {
   const workspaces = useAppStore((s) => s.workspaces);
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
@@ -13,10 +102,8 @@ export function Sidebar() {
 
   const homedir = hostClient.info?.homedir ?? undefined;
 
-  // Track which workspace is being renamed and the draft value
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Modal state: null = closed, string = workspace id being renamed
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   async function handleAdd() {
     const path = await window.termpro.pickDirectory();
@@ -30,34 +117,23 @@ export function Sidebar() {
     }
   }
 
-  function startRename(e: React.MouseEvent, id: string, currentName: string) {
+  function openRenameModal(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    setRenamingId(id);
-    setRenameValue(currentName);
-    // autofocus + select-all happens via autoFocus + onFocus on the input
+    setEditingId(id);
   }
 
-  function commitRename(id: string) {
-    const trimmed = renameValue.trim();
-    if (trimmed) {
-      updateWorkspace(id, { name: trimmed });
-    }
-    setRenamingId(null);
+  function handleModalSave(id: string, name: string) {
+    updateWorkspace(id, { name });
   }
 
-  function cancelRename() {
-    setRenamingId(null);
+  function handleModalClose() {
+    setEditingId(null);
   }
 
-  function handleRenameKeyDown(e: React.KeyboardEvent, id: string) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      commitRename(id);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancelRename();
-    }
-  }
+  // Find the workspace being renamed (for the modal's initial name)
+  const editingWorkspace = editingId
+    ? workspaces.find((w) => w.id === editingId) ?? null
+    : null;
 
   return (
     <aside className="sidebar">
@@ -86,7 +162,6 @@ export function Sidebar() {
         ) : (
           workspaces.map((ws) => {
             const isActive = ws.id === activeWorkspaceId;
-            const isRenaming = renamingId === ws.id;
             const tildifiedPath = tildify(ws.root, homedir);
             const metaLine = ws.branch
               ? `⎇ ${ws.branch} · ${tildifiedPath}`
@@ -96,31 +171,19 @@ export function Sidebar() {
               <div
                 key={ws.id}
                 className={`sidebar-item${isActive ? ' sidebar-item--active' : ''}`}
-                onClick={() => {
-                  if (!isRenaming) setActiveWorkspace(ws.id);
-                }}
+                onClick={() => setActiveWorkspace(ws.id)}
               >
-                {isRenaming ? (
-                  <input
-                    ref={inputRef}
-                    className="sidebar-item-rename-input"
-                    value={renameValue}
-                    autoFocus
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onFocus={(e) => e.target.select()}
-                    onBlur={() => commitRename(ws.id)}
-                    onKeyDown={(e) => handleRenameKeyDown(e, ws.id)}
-                    onClick={(e) => e.stopPropagation()}
+                <div className="sidebar-item-name-row">
+                  <span className="sidebar-item-name">{ws.name}</span>
+                  <button
+                    className="sidebar-edit-btn no-drag"
                     style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                  />
-                ) : (
-                  <span
-                    className="sidebar-item-name"
-                    onDoubleClick={(e) => startRename(e, ws.id, ws.name)}
+                    onClick={(e) => openRenameModal(e, ws.id)}
+                    title="Rename workspace"
                   >
-                    {ws.name}
-                  </span>
-                )}
+                    <PencilIcon />
+                  </button>
+                </div>
                 <span className="sidebar-item-meta">{metaLine}</span>
                 <button
                   className="sidebar-remove-btn"
@@ -135,6 +198,16 @@ export function Sidebar() {
           })
         )}
       </div>
+
+      {/* Rename modal — rendered at sidebar root level */}
+      {editingWorkspace && (
+        <RenameModal
+          workspaceId={editingWorkspace.id}
+          initialName={editingWorkspace.name}
+          onSave={handleModalSave}
+          onClose={handleModalClose}
+        />
+      )}
     </aside>
   );
 }
