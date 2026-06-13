@@ -1,0 +1,10 @@
+# 流程价值台账
+
+> 一行一 feature 的 teamwork **流程仪式价值**数据 · 给「该不该砍某环节」提供查表依据。
+> 消费方:流程审视 + 年检 kill criteria(详 `~/.claude/skills/teamwork/stages/ship-stage.md §16`)。
+> 🔴 区别 `docs/retros/`(业务/工程复盘);本表只度量 teamwork 流程本身。单元格 ≤1 行 · 机器字段照实抄不美化。
+> 查询示例:external confirmed 率 = Σ采/Σ总;暂停点 all-default 率 = Σ默/Σ(改+默)。
+
+| Feature | flow | 实走 stages | 时长 | review/test 轮 | external 总/采/驳 | 角色真 finding | 暂停点 改:默 | bypass/WARN | 反思摘要(≤1 行) |
+|---|---|---|---|---|---|---|---|---|---|
+| TERMPRO-F260613041948-quiet-notify | 敏捷 | goal→blueprint_lite→dev→review→test→pm_acceptance→ship | ~0.8h | 1/1 | 0/0/0(运行1次·0 finding) | PRD评审 arch7+qa8(驱动 v0.2);code arch-adv+qa2(P2) ext0 | 1:2 | 0/0 | 评审证伪初稿时间差判据(ARCH-1)→ 同源时间戳比较;external 此类小改 0 finding |
