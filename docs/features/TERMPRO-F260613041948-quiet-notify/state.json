@@ -1,0 +1,72 @@
+{
+  "feature_id": "TERMPRO-F260613041948-quiet-notify",
+  "sub_project": "",
+  "flow_type": "敏捷需求",
+  "artifact_root": "docs/features/TERMPRO-F260613041948-quiet-notify",
+  "host": "claude-code",
+  "host_history": [
+    {
+      "host": "claude-code",
+      "at": "2026-06-13T04:22:46Z",
+      "source": "init-feature"
+    }
+  ],
+  "current_stage": "goal",
+  "merge_target": "main",
+  "worktree": {
+    "strategy": "auto",
+    "branch": "agile/TERMPRO-F260613041948-quiet-notify",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/TERMPRO-F260613041948-quiet-notify",
+    "base_branch": "origin/main",
+    "created_at": "2026-06-13T04:22:46Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "agile/TERMPRO-F260613041948-quiet-notify",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-06-13T04:22:46Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [],
+  "review_round": 0,
+  "stage_contracts": {
+    "goal": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-06-13T04:22:55Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-06-13T04:22:46Z",
+  "stage_review_roles": {
+    "goal": [
+      "pm",
+      "qa",
+      "architect"
+    ],
+    "blueprint_lite": [
+      "qa"
+    ],
+    "review": [
+      "architect",
+      "qa",
+      "external"
+    ],
+    "test": [
+      "qa"
+    ],
+    "pm_acceptance": [
+      "pm"
+    ]
+  },
+  "stage_review_roles_adjustments": [],
+  "updated_at": "2026-06-13T04:22:55Z",
+  "updated_by": "pmo",
+  "_state_checksum": "sha256:9297fb4f2640bd7fd8bfbc4385b6e1a858819eb2eee5384dec2cb63b4b41ad08",
+  "legal_next_stages": [
+    "blueprint_lite"
+  ]
+}
