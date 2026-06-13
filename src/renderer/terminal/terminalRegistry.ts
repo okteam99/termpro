@@ -85,6 +85,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   );
   // 文件/路径链接(file://、绝对、~、相对)→ 校验存在后可点击
   const linkProvider = new FsLinkProvider(
+    tabId,
     term,
     () => inst.sessionId,
     () => inst.spawnCwd || (hostClient.info?.homedir ?? '/'),
@@ -117,7 +118,7 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
     });
     // spawn 期间 tab 可能已被关闭:立即回收会话,避免 PTY 进程泄漏
     if (inst.disposed) {
-      void hostClient.rpc('pty.kill', { sessionId }).catch(() => {});
+      void hostClient.rpc('pty.kill', { sessionId }).catch(() => undefined);
       return;
     }
     inst.sessionId = sessionId;

@@ -3,6 +3,7 @@
 // 仅注册 editor.worker:语法高亮走 monarch 不需要语言 worker。
 
 import * as monaco from 'monaco-editor';
+// eslint-disable-next-line import/no-unresolved
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 
 self.MonacoEnvironment = {

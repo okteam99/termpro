@@ -366,7 +366,6 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
       cancelled = true;
     };
     // getEditorValue 引用变化无影响,只随 path 重渲染
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
 
   // 点击 mermaid 图 → 灯箱(传原始源码,灯箱内重新渲染)

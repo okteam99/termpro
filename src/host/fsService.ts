@@ -1,19 +1,43 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
+import { join } from 'node:path';
 import { DirEntry } from '../shared/protocol';
 
-export async function listDir(path: string): Promise<{ entries: DirEntry[] }> {
-  const dirents = await fs.readdir(path, { withFileTypes: true });
-  const entries: DirEntry[] = dirents.map((d) => ({
-    name: d.name,
-    kind: d.isDirectory()
-      ? 'dir'
-      : d.isSymbolicLink()
-        ? 'symlink'
-        : d.isFile()
-          ? 'file'
-          : 'other',
-  }));
+const SYMLINK_STAT_TIMEOUT_MS = 100;
+
+async function statSymlinkKind(path: string): Promise<DirEntry['kind']> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      fs.stat(path).then((st) => {
+        if (st.isDirectory()) return 'dir';
+        if (st.isFile()) return 'file';
+        return 'symlink';
+      }).catch(() => 'symlink' as const),
+      new Promise<DirEntry['kind']>((resolve) => {
+        timer = setTimeout(() => resolve('symlink'), SYMLINK_STAT_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
+
+async function classifyDirent(dirPath: string, d: import('node:fs').Dirent): Promise<DirEntry> {
+  let kind: DirEntry['kind'] = d.isDirectory()
+    ? 'dir'
+    : d.isSymbolicLink()
+      ? 'symlink'
+      : d.isFile()
+        ? 'file'
+        : 'other';
+  if (kind === 'symlink') kind = await statSymlinkKind(join(dirPath, d.name));
+  return { name: d.name, kind };
+}
+
+export async function listDir(dirPath: string): Promise<{ entries: DirEntry[] }> {
+  const dirents = await fs.readdir(dirPath, { withFileTypes: true });
+  const entries: DirEntry[] = await Promise.all(dirents.map((d) => classifyDirent(dirPath, d)));
   // 目录优先,各自按名称排序
   entries.sort((a, b) => {
     const ad = a.kind === 'dir' ? 0 : 1;
@@ -22,7 +46,6 @@ export async function listDir(path: string): Promise<{ entries: DirEntry[] }> {
   });
   return { entries };
 }
-
 export function homeDir(): { path: string } {
   return { path: os.homedir() };
 }
@@ -35,6 +58,14 @@ export async function statPath(
     return { kind: st.isDirectory() ? 'dir' : st.isFile() ? 'file' : null };
   } catch {
     return { kind: null };
+  }
+}
+
+export async function realPath(p: string): Promise<{ path: string | null }> {
+  try {
+    return { path: await fs.realpath(p) };
+  } catch {
+    return { path: null };
   }
 }
 

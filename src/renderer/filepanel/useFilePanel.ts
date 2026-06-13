@@ -6,11 +6,15 @@ import { useAppStore } from '../state/store';
 import { FilePanelController } from './controller';
 import { makeHostDeps } from './deps';
 import type { FilePanelInputs, FilePanelView } from './types';
+import type { FilePanelLocateTarget } from './locateRegistry';
 
 export interface UseFilePanelResult {
   view: FilePanelView;
   toggleDir(absPath: string): void;
   refresh(): void;
+  locateTarget(target: FilePanelLocateTarget): Promise<boolean>;
+  clearLocateHighlight(): void;
+  clearLocateScrollPath(): void;
 }
 
 export function useFilePanel(inputs: FilePanelInputs): UseFilePanelResult {
@@ -33,6 +37,9 @@ export function useFilePanel(inputs: FilePanelInputs): UseFilePanelResult {
         persistExpanded: (tabId, expanded) => {
           useAppStore.getState().updateTabFilePanel(tabId, { expanded });
         },
+        persistMode: (tabId, mode) => {
+          useAppStore.getState().updateTabFilePanel(tabId, { mode });
+        },
       });
     }
     return ctrlRef.current;
@@ -44,13 +51,11 @@ export function useFilePanel(inputs: FilePanelInputs): UseFilePanelResult {
     c.start();
     c.setInputs(inputsRef.current);
     return () => c.dispose();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // inputs effect:依赖各字段而非对象引用,避免无意义重推
   useEffect(() => {
     ensure().setInputs(inputs);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputs.tabId, inputs.mode, inputs.rootPath, inputs.worktreePath, inputs.fallbackCwd]);
 
   // useSyncExternalStore:subscribe/getSnapshot 包装函数引用稳定,内部经 ref 取活实例
@@ -63,5 +68,8 @@ export function useFilePanel(inputs: FilePanelInputs): UseFilePanelResult {
     view,
     toggleDir: useCallback((p) => ensure().toggleDir(p), []),
     refresh: useCallback(() => ensure().refresh(), []),
+    locateTarget: useCallback((target) => ensure().locateTarget(target), []),
+    clearLocateHighlight: useCallback(() => ensure().clearLocateHighlight(), []),
+    clearLocateScrollPath: useCallback(() => ensure().clearLocateScrollPath(), []),
   };
 }

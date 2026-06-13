@@ -229,7 +229,6 @@ function TextFileView({
       model?.dispose();
       editorRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
 
   return (

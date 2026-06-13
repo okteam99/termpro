@@ -77,7 +77,7 @@ export default function App() {
               .getState()
               .updateWorkspace(w.id, { branch: info.branch ?? undefined }),
           )
-          .catch(() => {});
+          .catch(() => undefined);
       }
     };
     refresh();

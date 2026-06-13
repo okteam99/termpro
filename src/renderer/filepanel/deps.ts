@@ -7,6 +7,8 @@ import type { FilePanelDeps } from './types';
 
 export function makeHostDeps(): FilePanelDeps {
   return {
+    platform: hostClient.info?.platform ?? null,
+
     getSessionId(tabId) {
       return getSessionId(tabId);
     },
@@ -29,6 +31,10 @@ export function makeHostDeps(): FilePanelDeps {
 
     readdir(path) {
       return hostClient.rpc('fs.readdir', { path });
+    },
+
+    realpath(path) {
+      return hostClient.rpc('fs.realpath', { path });
     },
 
     watch(path) {

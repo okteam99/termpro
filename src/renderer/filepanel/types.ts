@@ -4,12 +4,14 @@ export type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
 
 /** Controller 的全部副作用入口。生产实现包 hostClient;测试注入 fake。 */
 export interface FilePanelDeps {
+  platform: string | null;
   getSessionId(tabId: string): string | null;          // registry 实时读(spawn 不触发 React 渲染,必须每次现查)
   ptyCwd(sessionId: string): Promise<{ cwd: string | null }>;
   gitInfo(cwd: string): Promise<GitInfo>;
   gitWorktrees(cwd: string): Promise<{ worktrees: WorktreeInfo[] }>;
   gitStatus(toplevel: string): Promise<{ entries: GitStatusEntry[] }>;
   readdir(path: string): Promise<{ entries: DirEntry[] }>;
+  realpath(path: string): Promise<{ path: string | null }>;
   watch(path: string): Promise<{ watchId: number }>;
   unwatch(watchId: number): Promise<void>;
   onFsChanged(cb: (watchId: number) => void): () => void;
@@ -58,10 +60,31 @@ export interface FilePanelState {
   watchId: number | null;
   /** 派生缓存:mode==='root' ? (rootPath ?? autoRoot) : (worktreePath ?? autoWorktree);reduce 末尾维护 */
   effectiveRoot: string | null;
+  activeLocateRequestId: number | null;
+  activeLocateGeneration: number | null;
+  activeLocateRoot: string | null;
+  locateHighlightPath: string | null;
+  locateScrollPath: string | null;
+}
+
+export interface LocateCommitPayload {
+  targetId: number;
+  generation: number;
+  mode: 'root' | 'worktree';
+  effectiveRoot: string;
+  topEntries: DirEntry[];
+  cacheDelta: Map<string, DirEntry[]>;
+  requiredExpanded: Set<string>;
+  highlightPath: string | null;
+  scrollPath: string | null;
 }
 
 export type FilePanelEvent =
   | { t: 'inputs'; inputs: FilePanelInputs }
+  | { t: 'locateStart'; targetId: number; generation: number; root: string | null }
+  | { t: 'locateCommit'; payload: LocateCommitPayload }
+  | { t: 'clearLocateHighlight' }
+  | { t: 'clearLocateScrollPath' }
   | { t: 'resolveDone'; gen: number; autoRoot: string; autoWorktree: string | null; gitInfo: GitInfo; worktrees: WorktreeInfo[]; liveCwd: string }
   | { t: 'pollTick'; cwd: string | null }
   | { t: 'topDone'; root: string; seq: number; entries: DirEntry[] }
@@ -81,6 +104,7 @@ export type FilePanelEffect =
   | { k: 'fetchStatus'; root: string; seq: number }
   | { k: 'fetchChild'; root: string; absPath: string }
   | { k: 'lockRoot'; tabId: string; rootPath: string }
+  | { k: 'persistMode'; tabId: string; mode: 'root' | 'worktree' }
   | { k: 'persistExpanded'; tabId: string; expanded: string[] }
   | { k: 'partialRefreshTree'; root: string; topSeq: number; expanded: string[] };
 
@@ -99,4 +123,6 @@ export interface FilePanelView {
   errPaths: Set<string>;
   statusMap: Map<string, GitFileStatus>;
   dirtyDirs: Set<string>;
+  locateHighlightPath: string | null;
+  locateScrollPath: string | null;
 }
