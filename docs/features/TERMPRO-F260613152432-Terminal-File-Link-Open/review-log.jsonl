@@ -1,5 +1,0 @@
-{"at": "2026-06-13T15:49:51Z", "event": "stage_completed", "stage": "goal", "auto_commit": "f7c1c42", "duration_minutes": 14, "artifacts": ["PRD.md", "PRD-REVIEW.md"]}
-{"at": "2026-06-13T15:51:16Z", "event": "stage_completed", "stage": "blueprint_lite", "auto_commit": "2a563f3", "duration_minutes": 1, "artifacts": ["TC.md"]}
-{"at": "2026-06-13T15:57:13Z", "event": "stage_completed", "stage": "dev", "auto_commit": "56cff61", "duration_minutes": 5, "artifacts": ["src/renderer/terminal/terminalLinks.ts", "src/renderer/terminal/__tests__/terminalLinkFilePanelRouting.test.ts"]}
-{"at": "2026-06-13T16:03:40Z", "event": "stage_completed", "stage": "review", "auto_commit": "792b28d", "duration_minutes": 6, "artifacts": ["REVIEW.md", "REVIEW-arch.md", "REVIEW-qa.md"]}
-{"at": "2026-06-13T16:04:55Z", "event": "stage_completed", "stage": "test", "auto_commit": "f6f64bf", "duration_minutes": 1, "artifacts": ["TEST-REPORT.md", "e2e/"]}
