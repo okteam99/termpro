@@ -20,7 +20,7 @@
 
 ```
 Electron main(app.getVersion())
-   └─ createWindow webPreferences.additionalArguments 注入 '--termpro-version=<v>'
+   └─ createWindow: buildAdditionalArguments({version: app.getVersion(), smoke, dev}) → webPreferences.additionalArguments 含 '--termpro-version=<v>'
         └─ preload 读 process.argv → parseVersionArg() → contextBridge 暴露 window.termpro.version: string
              └─ renderer Sidebar footer → AboutModal 显示 `版本 ${version}`(空 → 「版本未知」)
 ```
@@ -53,7 +53,10 @@ Electron main(app.getVersion())
 ```
 src/
 ├── main/
-│   └── main.ts                              # createWindow additionalArguments 追加 `--termpro-version=${app.getVersion()}`
+│   ├── buildAdditionalArguments.ts          # 新增:纯函数 buildAdditionalArguments({version,smoke,dev}): string[](无 electron import · 可单测 · 冷审 CR-1)
+│   ├── main.ts                              # createWindow 用 buildAdditionalArguments({version: app.getVersion(), smoke, dev})
+│   └── __tests__/
+│       └── buildAdditionalArguments.test.ts # 新增:单测(node)· 断言 version 非空时含 `--termpro-version=<v>`(覆盖 AC-5 注入侧)
 ├── preload/
 │   ├── parseVersionArg.ts                   # 新增:纯函数 parseVersionArg(argv: string[]): string(无 electron import · 可单测)
 │   ├── preload.ts                           # import parseVersionArg · 暴露 version: parseVersionArg(process.argv)
@@ -95,22 +98,28 @@ renderer 侧 `version ? \`版本 ${version}\` : '版本未知'`(AC-8)。
   - 菜单:点击 toggle;外点(document mousedown)/ Esc 关闭(复用 NotificationCenter 模式)。
   - About:点 About 时先 `setMenuOpen(false)` 后 `setAboutOpen(true)`(两态不共存);遮罩 / × / Esc 关闭。
   - **焦点返还(AC-6)**:打开弹窗前记 `document.activeElement`,关闭时 `.focus()` 还原(防终端输入焦点丢失)。
-  - **fallback(AC-8)**:`version ? \`版本 ${version}\` : '版本未知'`。
+  - **fallback(AC-8)**:renderer **安全读** `window.termpro?.version ?? ''`(bridge 缺失或 version 空都归 `""`)→ `version ? \`版本 ${version}\` : '版本未知'`(冷审 CR-3:空值与 bridge-absent 同回退,不抛错)。
 
 ## TDD 开发计划
 
-### 测试清单(对应 TC 用例)
-| TC 用例 | 测试方法名 | 状态 |
-|---------|-----------|------|
-| T-001 | parseVersionArg_extracts_version_from_arg | ☐ |
-| T-002 | parseVersionArg_returns_empty_when_missing | ☐ |
-| T-003 | settingsEntry_renders_avatar_and_label | ☐ |
-| T-004 | settingsEntry_toggles_menu_with_single_about_item | ☐ |
-| T-005 | settingsEntry_menu_closes_on_outside_click_and_esc | ☐ |
-| T-006 | settingsEntry_about_click_opens_modal_and_closes_menu | ☐ |
-| T-007 | aboutModal_shows_version_and_fallback | ☐ |
-| T-008 | aboutModal_closes_and_restores_focus | ☐ |
-| T-009 | footer_renders_entry_devbadge_updatepill_siblings | ☐ |
+### 测试清单(🔴 与 TC.md frontmatter 逐项对齐 · 冷审 CR-2)
+| TC 用例 | 测试方法名 | 文件 | covers | 状态 |
+|---------|-----------|------|--------|------|
+| T-001 | parseVersionArg_extracts_version_from_arg | preload/__tests__/parseVersionArg.test.ts | AC-5 | ☐ |
+| T-002 | parseVersionArg_returns_empty_on_all_failure_modes | 同上 | AC-8 | ☐ |
+| T-011 | buildAdditionalArguments_includes_version_flag | main/__tests__/buildAdditionalArguments.test.ts | AC-5(注入侧) | ☐ |
+| T-003 | settingsEntry_renders_avatar_placeholder_and_settings_label | renderer/components/__tests__/SettingsEntry.test.tsx | AC-1 | ☐ |
+| T-004 | settingsEntry_toggles_menu_with_exactly_one_about_item | 同上 | AC-2 | ☐ |
+| T-005 | settingsEntry_menu_closes_on_outside_click_and_esc | 同上 | AC-3 | ☐ |
+| T-006 | settingsEntry_about_click_opens_modal_and_closes_menu | 同上 | AC-4 | ☐ |
+| T-006b | settingsEntry_no_menu_behind_open_about_modal | 同上 | AC-4(互斥) | ☐ |
+| T-007a | aboutModal_shows_version_from_bridge | 同上 | AC-5 | ☐ |
+| T-007b | aboutModal_shows_unknown_fallback_when_version_empty | 同上 | AC-8 | ☐ |
+| T-008 | aboutModal_closes_via_esc_backdrop_button_and_restores_focus | 同上 | AC-6 | ☐ |
+| T-009 | footer_renders_entry_devbadge_updatepill_as_siblings | 同上 | AC-7 | ☐ |
+| T-010 | designer_visual_signoff_and_pm_acceptance(manual) | — | AC-9 | ☐ |
+
+> T-009 harness(冷审 CR-4):mock `window.termpro.devChannel=true` + `onUpdateEvent` 立即回调 `{state:'available', version:'x.y.z'}` + 最小 workspace/store fixture,断言三元素为 `.sidebar-footer` 同级兄弟。
 
 ### 实现步骤(TDD 红绿)
 | # | 步骤 | 类型 | 验证方式 | 状态 |
@@ -145,3 +154,4 @@ renderer 侧 `version ? \`版本 ${version}\` : '版本未知'`(AC-8)。
 |------|------|
 | 2026-06-13 | v0.1 初稿(同步版本暴露 + SettingsEntry 组件 + jsdom 组件测试) |
 | 2026-06-14 | v0.2 整合 blueprint 冷审:Sidebar.css 重复 footer 规则改法(ARCH-2)· 去 #e06c75 红色(ARCH-3)· parseVersionArg 契约表+slice/trim(QA-2/ARCH-5)· devDep 前置门+@testing-library/dom(QA-1/ARCH-4) |
+| 2026-06-14 | v0.3 整合 external(codex)冷审:抽 buildAdditionalArguments 纯函数使 main 注入侧可测+T-011(CR-1 high)· TDD 清单对齐 TC(CR-2)· 安全读 window.termpro?.version(CR-3)· T-009 harness 细化(CR-4) |

@@ -44,6 +44,12 @@ tests:
     covers_ac: ["AC-4"]
     level: unit
     priority: P1
+  - id: T-011
+    file: src/main/__tests__/buildAdditionalArguments.test.ts
+    function: buildAdditionalArguments_includes_version_flag
+    covers_ac: ["AC-5"]
+    level: unit
+    priority: P0
   - id: T-007a
     file: src/renderer/components/__tests__/SettingsEntry.test.tsx
     function: aboutModal_shows_version_from_bridge
@@ -92,7 +98,7 @@ tests:
 | AC-2 | 点击展开菜单(仅 About)+ toggle | P0 | T-004 | ✅ |
 | AC-3 | 外点 / Esc 关闭菜单 | P0 | T-005 | ✅ |
 | AC-4 | 点 About 弹版本 + 关菜单 + 互斥 | P0 | T-006, T-006b | ✅ |
-| AC-5 | 版本取自真实版本(同步暴露,非硬编码) | P0 | T-001, T-007a(+ main.ts 静态核对) | ✅ |
+| AC-5 | 版本取自真实版本(同步暴露,非硬编码) | P0 | T-001(解析), T-011(main 注入侧), T-007a(组件读 bridge) | ✅ |
 | AC-6 | 弹窗可关 + 焦点返还 | P1 | T-008 | ✅ |
 | AC-7 | 入口+DEV徽标+升级胶囊共存(不重叠) | P1 | T-009(共存结构)+ 冒烟/Designer(不重叠视觉) | ✅ |
 | AC-8 | 版本读取失败 → 「版本未知」 | P1 | T-002, T-007b | ✅ |
@@ -102,7 +108,8 @@ tests:
 
 > 📎 **测试层级与边界说明**(冷审整合):
 > - AC-1~AC-8 由 vitest 自动化(parseVersionArg = node env;SettingsEntry/AboutModal = jsdom + @testing-library/react)。
-> - **AC-5 "非硬编码"** 的完整证明 = T-001(arg 解析)+ T-007a(组件读 `window.termpro.version` 而非字面量)+ main.ts 注入静态核对;T-007a 单独不能证明管道源(mock 了 bridge 值)。
+> - **AC-5 "非硬编码"** 的完整证明 = T-001(arg 解析)+ **T-011(main 侧 buildAdditionalArguments 含 `--termpro-version`,冷审 CR-1 闭合注入侧 gap)**+ T-007a(组件读 `window.termpro.version` 而非字面量);三者合证管道两端,不再靠口头静态核对。
+> - **AC-8 安全读**:renderer 用 `window.termpro?.version ?? ''`,version 为空**或** bridge 缺失都回退「版本未知」(冷审 CR-3:两态等价,T-007b 覆盖空值,可选链覆盖 absent)。
 > - **AC-7 "不重叠遮挡"**:jsdom 无布局引擎,T-009 仅断言三者为 footer 同级兄弟(共存);**视觉不重叠**由冒烟渲染 + Designer/pm_acceptance 核对(同 AC-9,项目无像素回归工具)。
 > - **AC-9**:视觉一致非机器可断言 → Designer 签核 + pm_acceptance(T-010 level=manual)。
 
@@ -223,3 +230,4 @@ Then 升级胶囊、DEV 徽标、Settings 入口均存在于 sidebar-footer 内�
 |------|------|
 | 2026-06-13 | v0.1 初稿(9 AC 全覆盖) |
 | 2026-06-14 | v0.2 整合 blueprint 冷审:T-002 穷举失败态(QA-2)· 补 TC-003 场景(QA-3)· 拆 T-007a/007b(QA-4)· AC-7 overlap 归 smoke+designer(QA-5)· 加 T-006b 互斥守卫(QA-6)· T-010 level→manual(QA-7) |
+| 2026-06-14 | v0.3 整合 external(codex)冷审:加 T-011 main 注入侧测试(CR-1)· AC-8 安全读覆盖 bridge-absent(CR-3)· T-009 harness 细化(CR-4) |
