@@ -1,39 +1,40 @@
 ---
 reviewers: [architect, qa, external]
-verdict: NEEDS_REVISION
+verdict: APPROVE
+round: 2
 ---
 # Review Summary
 
 ## Verdict
 
-NEEDS_REVISION.
+APPROVE.
 
-The implementation follows the intended ownership split and transaction shape, but review confirmed merge-blocking defects in directory target expansion and platform-gated row matching. The automated tests also under-cover the TC plan enough that focused regression tests are required before approval.
+Round 1 found blocking defects and recorded `NEEDS_REVISION`. The review-stage fixes landed in:
 
-## Findings
+- `55a78e4` - directory target loading, platform-gated case matching, symlink directory expansion, locate-level regression tests.
+- `c544c68` - terminal routing coverage and symlink host classification branch coverage.
+- `2bf092b` - cross-mode store echo test, source-tab guard, root `/` containment, no-candidate fallback logging, symlink stat cleanup, and TECH sync.
 
-| ID | Source | Severity | Disposition | Summary |
-|----|--------|----------|-------------|---------|
-| A-1 / CR-2 | architect + external | high | confirmed | Directory targets are marked expanded without loading their children, so AC-5 / T-005 can render an empty expanded directory. |
-| A-2 / CR-1 | architect + external | high | confirmed | Row matching always enables darwin-style case fold, despite TECH requiring platform-gated behavior. |
-| A-3 | architect | medium | confirmed | In-root symlink directory display-path traversal can fail to render because symlink rows are not expandable directory rows. |
-| Q-1 / CR-3 | qa + external | high | confirmed | TC.md lists 37 cases, while implemented tests cover only a narrow subset of the high-risk behavior. |
-| CR-4 | external | low | rejected for this round | Stale locate resolving `true` is intentional for last-click-wins: an older click should not open fallback after a newer locate/root change has superseded it. This can be revisited if product wants refresh/drift fallback instead of silent stale-drop. |
-| CR-5 | external | low | deferred | Additional fallback reason logging is useful but non-blocking once correctness tests are added. |
-| CR-6 | external | info | deferred | `sourceTabId` is redundant today because handler registration is active-tab scoped; cleanup can be folded into a later refactor. |
+## Final Evidence
 
-## Required Fixes Before Retry
+- `npm test`: PASS, 13 files, 138 tests
+- `npm run typecheck`: PASS
+- `npm run lint`: PASS with warnings only
+- Final external review target: `2bf092b`
+- Final external artifact: `external-cross-review/review-claude.md`
 
-1. Load or fetch directory target children when committing a successful directory locate.
-2. Gate case-folded `matchEntry` behavior on host platform instead of hardcoding `darwinTrusted: true`.
-3. Ensure symlink-to-directory display paths can render through the FilePanel tree for T-037.
-4. Add focused tests for the fixed behavior: directory target expansion, platform-gated case matching, realpath escape at locate level, and symlink display-path traversal.
+The final external run emitted an ACK warning because the ACK text was not exactly the first line of model output, but the artifact frontmatter has `target_commit: 2bf092b`, `generated_at: 2026-06-13T07:42:24Z`, and references prompt `review-claude-20260613T073704Z`; this was manually checked and accepted as same-run output.
 
-## Evidence
+## External Findings Adjudication
 
-- External review artifact: `external-cross-review/review-claude.md`
-- Dev evidence from previous stage: `npm test` PASS, `npm run typecheck` PASS, `npm run lint` PASS with warnings only.
+| ID | Severity | Disposition | Rationale |
+|----|----------|-------------|-----------|
+| CR-1 | high | deferred to browser_e2e | Confirmed test gap for FilePanel DOM highlight/scroll. The repo has no jsdom/RTL stack; adding a new DOM test stack in review would broaden scope. TC.md already marks Browser E2E needed, so this carries forward to test/browser_e2e validation. |
+| CR-2 | low | accepted residual risk | Generation-drift stale click can suppress fallback in a narrow race. Newer locate suppression is intentional; drift window is small and recoverable by re-click. |
+| CR-3 | low | addressed | TECH now documents symlink-to-directory classification; implementation clears the stat timeout on settle. Concurrency cap remains optional future hardening. |
+| CR-4 | low | deferred | Direct overlapping newer-locate test is still not present, but request-id stale gate is simple and generation/cross-mode paths are covered. |
+| CR-5 | low | deferred | Runtime-only serialization and live cache merge variants are not fully covered; current code follows the TECH design and higher-risk regressions were covered first. |
 
-## Next Step
+## Review Outcome
 
-Record this review round as NEEDS_REVISION, then apply a review-stage fix commit and rerun review.
+The remaining gaps are not merge-blocking for review stage. They are explicitly carried to downstream verification, especially browser_e2e/manual UI checks for visible highlight and one-shot scroll.

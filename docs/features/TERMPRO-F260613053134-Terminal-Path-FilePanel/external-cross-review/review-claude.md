@@ -2,99 +2,92 @@
 review_model: 2.1.177 (Claude Code)
 review_role: external
 review_stage: review
-target_commit: 1d932fca40400d5c960a3eef8215731f70c4e43b
+target_commit: 2bf092b
 target_base: main
 title: "TERMPRO-F260613053134-Terminal-Path-FilePanel · review stage external review"
-generated_at: "2026-06-13T07:12:49Z"
+generated_at: "2026-06-13T07:42:24Z"
 invoked_by: state.py external-review (v8.20)
 host: codex-cli
 ---
-REVIEW-ACK review-claude-20260613T070618Z
+REVIEW-ACK was emitted. Findings below.
 
 ```yaml
 ---
 perspective: external-claude
 target: code
-generated_at: "2026-06-13T07:11:00Z"
+generated_at: "2026-06-13T07:37:04Z"
 files_read:
-  - docs/features/TERMPRO-F260613053134-Terminal-Path-FilePanel/TECH.md
-  - src/renderer/filepanel/controller.ts
-  - src/renderer/filepanel/core.ts
+  - src/host/fsService.ts
+  - src/host/host.ts
+  - src/host/__tests__/fsService.test.ts
+  - src/shared/protocol.ts
   - src/renderer/filepanel/pathContainment.ts
   - src/renderer/filepanel/locateRegistry.ts
+  - src/renderer/filepanel/controller.ts
+  - src/renderer/filepanel/core.ts
   - src/renderer/filepanel/types.ts
   - src/renderer/filepanel/deps.ts
   - src/renderer/filepanel/useFilePanel.ts
-  - src/renderer/filepanel/__tests__/locateTarget.test.ts
   - src/renderer/components/FilePanel.tsx
   - src/renderer/components/FilePanel.css
   - src/renderer/terminal/terminalLinks.ts
-  - src/renderer/terminal/terminalRegistry.ts
   - src/renderer/terminal/terminalLinkParse.ts
-  - src/host/fsService.ts
-  - src/host/host.ts
-  - src/shared/protocol.ts
+  - src/renderer/terminal/terminalRegistry.ts
+  - src/renderer/filepanel/__tests__/locateTarget.test.ts
+  - src/renderer/filepanel/__tests__/pathContainment.test.ts
+  - src/renderer/filepanel/__tests__/locateRegistry.test.ts
+  - src/renderer/terminal/__tests__/terminalLinkFilePanelRouting.test.ts
+  - docs/features/TERMPRO-F260613053134-Terminal-Path-FilePanel/TECH.md
 model: "claude-opus-4-8"
 findings:
   - id: CR-1
-    checklist: C2
-    severity: high
-    location: "src/renderer/filepanel/controller.ts:336 (loadLocateChain → matchEntry)"
-    issue: "matchEntry is always invoked with { darwinTrusted: true }; there is no platform/volume gate anywhere in the renderer (grep for process.platform/navigator/darwin returns only this literal)."
-    rationale: "TECH §Path segment matching pt 4 & 6 restricts case-fold to darwin on a proven case-insensitive volume ('非 darwin...不做任意 lower-case 猜测'). Host is explicitly remote-ready (Linux) and APFS can be case-sensitive; on such volumes exact+NFC fail then case-fold matches a *different* file, so the panel locates/highlights the wrong row."
-    suggestion: "Gate darwinTrusted on actual host platform (e.g. hostClient.info platform === 'darwin') rather than hardcoding true; on case-sensitive hosts return false on a missing exact/NFC row and fall back."
-  - id: CR-2
-    checklist: C1
-    severity: high
-    location: "src/renderer/filepanel/controller.ts (loadLocateChain dir branch) + core.ts applyLocateCommit"
-    issue: "For a directory target the target dir is added to requiredExpanded but its children are never read into cacheDelta and applyLocateCommit emits no fetchChild for it. flattenTree (FilePanel.tsx:140) only renders children when cache.get(absPath) exists, otherwise nothing."
-    rationale: "loadLocateChain reads each segment's PARENT entries; the leaf dir's own children are never loaded, and commit only emits stopWatch/startWatch/fetchStatus/persist. Result: the located directory shows as an empty expanded folder until an unrelated watcher/refresh — TECH §Ancestor loading pt 7 / AC T-005 ('expands_directory_target_itself') is visibly broken and untested."
-    suggestion: "In applyLocateCommit emit { k:'fetchChild', root, absPath:targetDir } for a dir target whose children are absent from cache/cacheDelta (mirror seedExpanded/toggleDir), or have loadLocateChain read the target dir's entries into cacheDelta."
-  - id: CR-3
     checklist: C5
     severity: high
-    location: "src/renderer/filepanel/__tests__/ (only locateTarget.test.ts has 4 cases) + missing terminal/RTL/integration tests"
-    issue: "37 TCs are listed in TECH but only ~6 are exercised. No terminal-routing test (T-001/006/016/021/028/030-034), no cross-mode store-inputs re-feed integration (T-017/018), no FilePanel render/scroll/highlight RTL (T-019/024/036), no realpath-escape (T-020), no live-cache-merge (T-025), no directory-target (T-005), no macOS case/unicode locate (T-023)."
-    rationale: "The riskiest behaviors — terminal await-before-fallback routing, cross-mode locateCommit not re-triggering applyRootChange, symlink trust rejection, one-shot scroll — are entirely unverified, so regressions in exactly the concurrency/trust paths this feature is built around would pass CI."
-    suggestion: "Add the missing TC files (terminalLinkFilePanelRouting, locateTarget.integration with a real reduce + inputs re-feed fake store, FilePanel RTL highlight/scroll, realpath-escape, dir-target). At minimum cover T-005, T-017/018, T-020 before merge."
-  - id: CR-4
-    checklist: C3
+    location: "src/renderer/components/FilePanel.tsx:108-124 (scrollIntoView/highlight effects); TECH.md T-019/T-024/T-036"
+    issue: "The user-visible core of the feature — row highlight class, one-shot scrollIntoView, clear-on-interaction, and 'no repeat scroll while highlight remains' — lives entirely in FilePanel.tsx and has no component/RTL test. No FilePanel.test.tsx exists in the diff; T-019, T-024, T-036 are listed in TECH but unimplemented."
+    rationale: "Controller tests assert state (locateHighlightPath/locateScrollPath) but never exercise the DOM effects. The one-shot scroll has subtle re-render semantics (clearLocateScrollPath must fire exactly once; watcher/status re-renders must not re-scroll while highlight survives) that are exactly the kind of bug a state-only test cannot catch."
+    suggestion: "Add a React Testing Library test for FilePanel that: (a) renders a located row with the locate-target class, (b) asserts scrollIntoView is called once then locateScrollPath cleared, (c) re-renders (simulated watcher tick) and asserts scrollIntoView is NOT called again while highlight persists, (d) asserts toggle/refresh/mode/tab-switch clears the highlight."
+  - id: CR-2
+    checklist: C2
     severity: low
-    location: "src/renderer/filepanel/controller.ts:138-145 (locateTarget stale → return true)"
-    issue: "When the request is staled by a non-locate event (refresh, tab change, pollTick cwd drift) rather than a newer locate, locateTarget still resolves true, which suppresses the terminal fallback."
-    rationale: "A background refresh/watcher firing during the brief readdir window clears activeLocateRequestId; the in-flight click then neither locates nor falls back, so the user's click is silently dropped (next click works). Last-click-wins assumes a newer click will handle it, but refresh/drift is not a newer click."
-    suggestion: "Distinguish 'superseded by newer locate' (return true) from 'staled by refresh/tab/drift' (return false so terminal fallback still opens the target), e.g. track whether a newer activeLocateRequestId was issued vs. cleared to null."
-  - id: CR-5
-    checklist: C6
-    severity: low
-    location: "src/renderer/filepanel/controller.ts (loadLocateChain only logs 'missing-row')"
-    issue: "Only the missing-row fallback logs console.warn('[filepanel] locate fallback', ...). Containment-fail, realpath-null/escape, and a mid-chain readdir throw (uncaught → caught by tryLocateInFilePanel) fall back silently."
-    rationale: "TECH risk table promises console.warn('[filepanel] locate fallback', reason) for failures; without it, diagnosing why a click silently opened the old fallback (especially symlink-escape or realpath-null) is hard in the field."
-    suggestion: "Log the trustedContainment reason and a 'readdir-failed' reason (wrap readdir in try/catch) before returning false, keeping paths desensitized as TECH specifies."
-  - id: CR-6
+    location: "src/renderer/filepanel/controller.ts:135-150 (locateTarget returns isLocateStale(...) ? true : false)"
+    issue: "When a locate goes stale due to generation drift (e.g. a 2s pollTick cwd change lands mid-locate, not a newer click), locateTarget resolves true, so openTargetInFilePanelFirst skips the fallback. The highlight was already cleared by clearLocateState in the pollTick reducer, so the click produces no locate AND no viewer/Finder fallback — it is silently dropped."
+    rationale: "Returning true is correct when a NEWER locate request supersedes this one (avoid double-open), but generation drift from a benign cwd poll is conflated with that case. The test 'stales an in-flight locate when generation changes' confirms the no-op outcome (resolves true, highlight null). Old behavior always opened the target; this is a (rare, recoverable) regression."
+    suggestion: "Distinguish supersession (activeLocateRequestId changed → true, no fallback) from generation-only drift (→ false, let terminalLinks fall back), or document the dropped-click as accepted and note the recover-by-reclick UX. Window is tiny (locate normally <100ms vs 2s poll), hence low."
+  - id: CR-3
     checklist: C1
-    severity: info
-    location: "src/renderer/terminal/terminalLinks.ts:36-46 + controller.ts chooseLocateCandidate"
-    issue: "FilePanelLocateTarget.sourceTabId is populated but never validated; the active-tab guard relies solely on registry keying (handler only registered for activeTabId)."
-    rationale: "TECH data structure states 'sourceTabId 必须等于 active tab id'. The structural guard is correct in practice, but the documented explicit check is absent, so the field is dead weight and a future refactor that decouples registry keying loses the guard."
-    suggestion: "Either drop sourceTabId from the type, or assert sourceTabId === current active tab inside the handler to make the invariant explicit."
+    severity: low
+    location: "src/host/fsService.ts:9-39 (statSymlinkKind / classifyDirent / Promise.all)"
+    issue: "listDir now resolves EVERY symlink dirent via a followed fs.stat on EVERY directory listing (global behavior change), and fans them out with an uncapped Promise.all. TECH's fsService change description only specifies 'implement safe realpath'; the listDir symlink reclassification is not documented there."
+    rationale: "The reclassification is justified (a symlinked dir must report kind 'dir' so flattenTree renders the expanded locate chain), but it changes file-panel rendering for all symlinked entries beyond the feature's ACs, and a directory with many symlinks (e.g. a *.bin dir) issues that many concurrent fs.stat + setTimeout timers per listing. Each is bounded by the 100ms timeout, but concurrency is unbounded."
+    suggestion: "Note the listDir symlink-kind change in TECH's fsService entry (it is a real semantic change), and consider a small concurrency cap (or only stat symlinks lazily) if any listed directory can hold hundreds+ of symlinks."
+  - id: CR-4
+    checklist: C5
+    severity: low
+    location: "src/renderer/filepanel/controller.ts:280-283 / core.ts applyLocateCommit targetId gate; TECH.md T-009"
+    issue: "Last-click-wins via a NEWER request id (activeLocateRequestId !== targetId) is not directly tested. locateTarget tests cover the generation-stale path (T-035) and missing-row/tab-guard paths, but no test fires two overlapping locateTarget calls with different ids to confirm the earlier one becomes stale and its highlight is suppressed."
+    rationale: "The id-based stale gate is a distinct code path from the generation gate; both guard applyLocateCommit and isLocateStale. T-009 ('newer_locate_request_wins_and_clears_stale_highlight') is enumerated in TECH but absent from the suite."
+    suggestion: "Add a test that starts locateTarget(id=A) with a slow readdir, starts locateTarget(id=B) before A resolves, and asserts only B commits (A's commit is dropped, B's highlight wins)."
+  - id: CR-5
+    checklist: C5
+    severity: low
+    location: "src/renderer/filepanel/core.ts:312-320 (sameRoot cache-merge: 'if (!cache.has(path))'); TECH.md T-012/T-025"
+    issue: "Two enumerated TCs are unimplemented: T-025 (same-root commit must keep live cache values updated by the watcher during locate, not overwrite with the locate snapshot) and T-012 (locate view fields are runtime-only / not serialized into persisted tab state)."
+    rationale: "The merge guard 'insert only missing keys' exists specifically to preserve concurrent watcher updates, but no test drives a watcher cache update mid-locate to lock the behavior. T-012's negative-persistence assertion guards against replaying a stale highlight after hydration — also unverified."
+    suggestion: "Add (a) a same-root locate where a watcher childDone updates an already-cached ancestor mid-flight, asserting commit keeps the live entries; (b) a serialization test asserting the persisted tab payload (updateTabFilePanel) never contains locateHighlightPath/locateScrollPath/activeLocate* fields."
 findings_summary:
   blocker: 0
-  high: 3
-  low: 2
-  info: 1
-  total: 6
+  high: 1
+  low: 4
+  info: 0
+  total: 5
 ---
+
+# 详情（人读补充）
+
+整体实现质量高，与一份异常详尽的 TECH 高度吻合：terminal→registry→handler→controller 解耦清晰；fallback 归属保留在 `terminalLinks.ts`（reject/throw 安全兜底，T-028 有测试）；stale 双闸（request id + generation）+ `locateCommit` 单事务跨 mode 切换（不走 `applyRootChange` 重置）设计正确；realpath 信任门 + display-segment 行走（不跳到 realpath sibling）兼顾 symlink 逃逸防护与显示一致性，且都有针对性单测（escape→reject、in-root symlink→display path）。可观测性达标：失败路径统一 `console.warn('[filepanel] locate fallback', reason)`，reason 为固定枚举字符串、不含路径，无敏感信息泄漏。
+
+未发现 blocker。最值得补的是 **CR-1**：feature 的可见价值（高亮 + 一次性滚动 + 交互清除 + 重渲染不重复滚动）完全在 `FilePanel.tsx`，却没有任何组件级测试覆盖，而 one-shot scroll 的重渲染语义恰是状态级测试照不到的盲区。其余为 low：CR-2 是 generation 漂移期间点击被静默吞掉（与"新点击覆盖"语义混用）；CR-3 是 listDir 的 symlink 重分类未在 TECH 落档且并发无上限；CR-4/CR-5 是 TECH 已列但未落地的 TC（T-009 / T-012 / T-025）。
+
+C4（KNOWLEDGE/约定）方面：renderer 不直接碰 fs，新增的 realpath 经 HostService RPC，符合 README §五架构红线；Host 侧 `fs.realpath` catch→null，无 Electron import 引入。未见违反。
 ```
-
-# 详情
-
-实现整体与 TECH 一致度较高:`locateCommit` 单事务跨 mode 切换、stale gate(requestId+generation)、display-segment 优先(T-037)、realpath symlink-escape 信任门(`trustedContainment` reason='realpath-outside-root')都按设计落地,跨 mode commit 后 runtime `inputs.mode` 先更新使后续 `inputs` 事件命中全等短路(core.ts:398-406)也验证通过。
-
-最该在合并前处理的三条:
-
-- **CR-2(目录定位空展开)**:文件 target 正确,但目录 target 被展开却不拉子项,是一个核心 AC(T-005)的可见破窗,且无测试兜底。建议优先修。
-- **CR-1(case-fold 未门控)**:在"远程就绪"红线下,Linux remote / case-sensitive APFS 上会定位到错文件,且与 TECH 显式约束相悖。
-- **CR-3(测试缺口)**:37 条 TC 仅约 6 条落地,terminal 路由 / 跨 mode 集成 / realpath-escape / RTL 滚动高亮均未覆盖——这些恰是本 feature 风险最高的并发与信任路径。
-
-CR-4/CR-5 为健壮性与可观测性边角,CR-6 为契约清理,可按需处理。

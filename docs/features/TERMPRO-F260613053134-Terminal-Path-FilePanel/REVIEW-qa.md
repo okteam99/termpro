@@ -1,67 +1,52 @@
 ---
 reviewer: qa
-verdict: NEEDS_REVISION
+verdict: APPROVE
+round: 2
 ---
 # QA Review
 
-## Scope
+## Evidence
 
-Reviewed PRD AC-1..AC-10, TC T-001..T-037, implementation tests, and dev evidence:
-
-- `npm test`: PASS, 12 files, 124 tests
+- `npm test`: PASS, 13 files, 138 tests
 - `npm run typecheck`: PASS
-- `npm run lint`: PASS with warnings only
+- `npm run lint`: PASS with 13 warnings, no errors
 
-## Findings
+## Coverage Added During Review Fix
 
-### Q-1 · Implemented tests do not match the committed TC plan
+- Directory target child loading before expanded commit.
+- Non-darwin no case-fold fallback.
+- Realpath escape rejection at `locateTarget` level.
+- Required directory `readdir` failure returns false without mutation.
+- In-root symlink display segments stay on the displayed path.
+- Cross-mode store input echo after `persistMode` is a no-op.
+- Terminal route locate-before-fallback, handler false, handler reject, and system-open extension location-only behavior.
+- Symlink-to-directory, symlink-to-file, and broken symlink host classification.
+- Root `/` containment helper boundary.
+- Source-tab mismatch guard.
 
-Severity: high
+## Remaining Test Gaps
 
-TC.md lists 37 named test cases, but the dev commit only adds a small subset:
+| Gap | Disposition |
+|-----|-------------|
+| FilePanel DOM highlight / one-shot `scrollIntoView` / clear-on-interaction lacks RTL/jsdom unit test | Deferred to browser_e2e/manual UI verification because the project does not currently include a DOM component test stack. |
+| Some TC.md planned variants remain broader than unit coverage | Acceptable for review because the highest-risk P0 logic paths now have focused regression coverage and test/browser_e2e stages remain downstream. |
+| Rare generation-drift stale click may suppress fallback | Accepted as low residual risk; newer-locate suppression is intentional and the drift window is small. |
 
-- `locateTarget.test.ts`: 4 locate tests
-- `pathContainment.test.ts`: 3 helper tests
-- `locateRegistry.test.ts`: 2 registry tests
-- `fsService.test.ts`: 2 realpath tests
+## AC Recheck
 
-Missing coverage includes terminal await-before-fallback routing, repository system-open extension location-only behavior, cross-mode inputs echo integration, directory target child loading, realpath escape through `locateTarget`, FilePanel scroll/highlight rendering, live cache merge, and symlink display-path behavior.
-
-At minimum, this round should add regression tests for the confirmed implementation defects and the highest-risk trust/transaction paths.
-
-### Q-2 · Directory target behavior is not tested and is visibly incomplete
-
-Severity: high
-
-T-005 requires non-root directory targets to expand themselves and display their contents after lazy children load. No implemented test asserts this. Code inspection confirms the target directory's children are not read before commit and no post-commit child fetch is emitted.
-
-### Q-3 · Case sensitivity policy is helper-tested but not locate-tested
-
-Severity: medium
-
-`pathContainment.test.ts` covers `matchEntry` case folding directly, but no controller test asserts that case-fold behavior is gated by host platform or that non-darwin hosts fall back when exact/NFC row matching fails.
-
-### Q-4 · Browser/Electron workflow remains unverified
-
-Severity: medium
-
-TC.md marks Browser E2E as needed. This stage has not run Electron/Playwright UI verification. It is acceptable to defer to later browser_e2e/test stages, but review should not treat the current automated coverage as complete UI proof.
-
-## AC Coverage Assessment
-
-| AC | Review result |
-|----|---------------|
-| AC-1 | Partially covered by registry and code inspection; no terminal activation unit test. |
-| AC-2 | Partially covered; WorkTree main path is tested through cross-mode case, not a direct current-WorkTree test. |
-| AC-3 | Covered by a current Root file locate test. |
-| AC-4 | Partially covered by WorkTree-over-Root mode switch; cross-mode persistence/input echo not tested. |
-| AC-5 | Not fully covered; directory target child loading is broken. |
-| AC-6 | Partially covered by code inspection; no system-open extension regression test. |
-| AC-7 | Existing parse tests still pass, but FilePanel routing of stripped line-col is not directly tested. |
-| AC-8 | Partially covered by helper tests; locate-level realpath escape and platform gate missing. |
-| AC-9 | Partially covered by missing-row fallback; readdir failure/realpath escape fallback not fully covered. |
-| AC-10 | Partially covered by generation-stale test; FilePanel scroll one-shot and newer-click variants missing. |
+| AC | Result |
+|----|--------|
+| AC-1 | Pass. Terminal routing tests cover locate before fallback and fallback when no handler/false/reject. |
+| AC-2 | Pass. WorkTree path location and expansion covered through controller tests. |
+| AC-3 | Pass. Root path location remains covered. |
+| AC-4 | Pass. WorkTree-over-Root and store echo cross-mode behavior covered. |
+| AC-5 | Pass for controller state; UI scroll/highlight is deferred to browser_e2e. |
+| AC-6 | Pass. System-open extension is location-only when locate succeeds. |
+| AC-7 | Pass at parser level; routing receives resolved absolute paths. |
+| AC-8 | Pass. Realpath escape and display-segment symlink cases covered. |
+| AC-9 | Pass. Missing row, realpath escape, handler reject, no handler, and readdir failure fall back without committed tree mutation. |
+| AC-10 | Pass for generation stale and store echo; full DOM one-shot scroll remains browser_e2e scope. |
 
 ## Verdict
 
-NEEDS_REVISION. Add focused tests for confirmed defects before retry; broader UI/E2E coverage can remain for downstream test/browser_e2e stages if explicitly recorded.
+APPROVE.

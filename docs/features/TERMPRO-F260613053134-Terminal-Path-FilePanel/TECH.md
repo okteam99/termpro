@@ -129,7 +129,7 @@ Mode switch 由 `locateCommit` reducer event 先同步更新 runtime `inputs.mod
 src/shared/protocol.ts
   # 新增 fs.realpath RPC 类型
 src/host/fsService.ts
-  # 实现 safe realpath，失败返回 null
+  # 实现 safe realpath，失败返回 null；listDir 将 symlink-to-directory 分类为 dir 以允许显示路径链展开
 src/host/host.ts
   # 注册 fs.realpath handler
 src/renderer/terminal/terminalRegistry.ts
@@ -340,6 +340,7 @@ flowchart TD
 | pollTick/resolveDone cwd drift 期间旧 locate 覆盖新根 | locate stale gate 同时校验 request id 与 generation，T-035 锁定 |
 | highlight 存活期间 watcher re-render 反复滚动 | scroll path one-shot，首次 scroll 后清除，T-036 锁定 |
 | root 内 symlink 被 realpath 改到 sibling 显示路径 | realpath 只作 trust/case 辅助，row matching 使用 display segments，T-037 锁定 |
+| symlink-to-directory 被树渲染当成不可展开文件 | host `listDir` 对 symlink 做有界 follow-stat；指向目录时返回 `kind: "dir"`，broken link 仍返回 `symlink` |
 | 深层路径串行 readdir 体感慢 | 复用 cache；仅缺失层级发 RPC；失败时 `console.warn('[filepanel] locate fallback', reason)` 记录脱敏原因 |
 
 ## 待决策
