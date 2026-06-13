@@ -47,6 +47,21 @@ export async function openTargetInFilePanelFirst(
   if (!located) openTargetFallback(absPath, kind);
 }
 
+// 链接激活路由:目录回 File Panel 定位优先(留在工作面看上下文/git);
+// 单个文件直接打开——文本/图片进 TermPro 窗口,媒体/系统扩展名走系统打开,
+// 不再因落在 root/worktree 内就降级成「只定位」。
+export function openTarget(
+  tabId: string,
+  absPath: string,
+  kind: 'file' | 'dir',
+): void {
+  if (kind === 'dir') {
+    void openTargetInFilePanelFirst(tabId, absPath, kind);
+  } else {
+    openTargetFallback(absPath, kind);
+  }
+}
+
 /** buffer 行 → 文本 + 每个 code unit 对应的列号(0 基) */
 function lineToString(line: IBufferLine): { text: string; cols: number[] } {
   let text = '';
@@ -277,7 +292,7 @@ export class FsLinkProvider implements ILinkProvider {
           text: c.text,
           decorations: { underline: true, pointerCursor: true },
           activate: () => {
-            void openTargetInFilePanelFirst(this.tabId, hit.abs, hit.kind);
+            openTarget(this.tabId, hit.abs, hit.kind);
           },
         });
       }),
