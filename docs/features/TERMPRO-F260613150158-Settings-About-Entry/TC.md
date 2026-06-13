@@ -100,7 +100,7 @@ tests:
 | AC-4 | 点 About 弹版本 + 关菜单 + 互斥 | P0 | T-006, T-006b | ✅ |
 | AC-5 | 版本取自真实版本(同步暴露,非硬编码) | P0 | T-001(解析), T-011(main 注入侧), T-007a(组件读 bridge) | ✅ |
 | AC-6 | 弹窗可关 + 焦点返还 | P1 | T-008 | ✅ |
-| AC-7 | 入口+DEV徽标+升级胶囊共存(不重叠) | P1 | T-009(共存结构)+ 冒烟/Designer(不重叠视觉) | ✅ |
+| AC-7 | 升级胶囊与入口同级(竖向栈)+DEV徽标在入口内,共存不重叠 | P1 | T-009(共存结构)+ 冒烟/Designer(不重叠视觉) | ✅ |
 | AC-8 | 版本读取失败 → 「版本未知」 | P1 | T-002, T-007b | ✅ |
 | AC-9 | 复用 token + 风格一致 | P1 | T-010(Designer/pm 视觉签核) | ✅ |
 
@@ -231,3 +231,4 @@ Then 升级胶囊、DEV 徽标、Settings 入口均存在于 sidebar-footer 内�
 | 2026-06-13 | v0.1 初稿(9 AC 全覆盖) |
 | 2026-06-14 | v0.2 整合 blueprint 冷审:T-002 穷举失败态(QA-2)· 补 TC-003 场景(QA-3)· 拆 T-007a/007b(QA-4)· AC-7 overlap 归 smoke+designer(QA-5)· 加 T-006b 互斥守卫(QA-6)· T-010 level→manual(QA-7) |
 | 2026-06-14 | v0.3 整合 external(codex)冷审:加 T-011 main 注入侧测试(CR-1)· AC-8 安全读覆盖 bridge-absent(CR-3)· T-009 harness 细化(CR-4) |
+| 2026-06-14 | v0.4 review 阶段:T-008 补 Esc/遮罩路径焦点返还断言(QA-1)· T-009 去同义反复改真实 Sidebar 共存断言(QA-2/CR-2)· AC-7 措辞调和(DEV 徽标在入口内) |

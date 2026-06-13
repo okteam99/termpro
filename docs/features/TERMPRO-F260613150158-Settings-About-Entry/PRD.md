@@ -41,7 +41,7 @@ acceptance_criteria:
     test_refs: []
     ui_refs: []
   - id: AC-7
-    description: "入口行、DEV 徽标、升级胶囊三者为 sidebar-footer 内同级兄弟元素,devChannel=true 且有更新事件时三者可同时渲染且互不重叠遮挡(结构可断言)"
+    description: "升级胶囊与用户信息入口行为 sidebar-footer 内同级(竖向栈);DEV 徽标位于入口行内;devChannel=true 且有更新事件时三者可同时渲染且互不重叠遮挡"
     category: ux
     priority: P1
     test_refs: []
@@ -68,6 +68,9 @@ revision_history:
   - version: v0.3
     date: "2026-06-13"
     changes: "Round 2 收敛(QA/Architect/PL 全 APPROVE)后并入 advisory:AC-6 补焦点返还(QA-R2-11)、AC-7 表项收紧 devChannel 前置(ARCH-R2-7)、补冒烟门禁 + test_refs 回填说明(QA-R2-7/R2-10)"
+  - version: v0.4
+    date: "2026-06-14"
+    changes: "review 阶段调和 AC-7 措辞与已确认设计:DEV 徽标位于入口行内(非 footer 三同级),升级胶囊与入口行为 footer 同级竖向栈;语义(共存不重叠)不变(code review ARCH-1/CR-2)"
 ---
 
 # 左下角用户信息入口(Settings · About)
@@ -108,7 +111,7 @@ revision_history:
 | AC-4 | 点击「About」后弹出当前版本信息(应用名 TermPro + 当前版本号),同时菜单关闭 | P0 | |
 | AC-5 | About 弹窗显示的版本号取自应用真实版本(app.getVersion),经壳层桥同步暴露给 renderer,非硬编码 | P0 | |
 | AC-6 | 版本信息弹窗可关闭(关闭按钮 / 遮罩 / Esc),关闭后键盘焦点回到先前聚焦元素(终端/侧栏) | P1 | |
-| AC-7 | 入口行、DEV 徽标、升级胶囊为 sidebar-footer 内同级兄弟元素,devChannel=true 且有更新事件时三者可同时渲染且互不重叠(结构可断言) | P1 | |
+| AC-7 | 升级胶囊与入口行为 sidebar-footer 同级(竖向栈)· DEV 徽标在入口行内 · 三者可同时渲染且互不重叠遮挡 | P1 | |
 | AC-8 | 版本号读取失败时 About 弹窗显示「版本未知」,不抛错不崩溃 | P1 | |
 | AC-9 | 入口/菜单视觉复用现有 design token,整体风格与参考截图一致(Designer 签核) | P1 | |
 

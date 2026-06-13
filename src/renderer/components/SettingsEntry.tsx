@@ -99,6 +99,8 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
+  // 持有打开弹窗前的聚焦元素,关闭时还原(AC-6)
+  const prevFocusRef = useRef<HTMLElement | null>(null);
 
   // 安全读 version:bridge 缺失或 version 空都回退 ""
   const version = window.termpro?.version ?? '';
@@ -124,21 +126,15 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
 
   function openAbout() {
     // 焦点返还(AC-6):打开弹窗前捕获当前聚焦元素
-    const prevFocus = document.activeElement as HTMLElement | null;
+    prevFocusRef.current = document.activeElement as HTMLElement | null;
     setMenuOpen(false);   // 菜单先关
     setAboutOpen(true);   // 弹窗后开(两态不共存)
-    // 关闭时还原焦点
-    // 存储 prevFocus 供关闭回调使用
-    _prevFocusRef.current = prevFocus;
   }
-
-  // Ref to hold focus target for AboutModal close
-  const _prevFocusRef = useRef<HTMLElement | null>(null);
 
   function handleCloseAbout() {
     setAboutOpen(false);
-    _prevFocusRef.current?.focus();
-    _prevFocusRef.current = null;
+    prevFocusRef.current?.focus();
+    prevFocusRef.current = null;
   }
 
   return (
@@ -171,7 +167,14 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
           <PersonIcon />
         </span>
         <span className="settings-entry-label">Settings</span>
-        {devChannel && <span className="sidebar-dev-badge">DEV</span>}
+        {devChannel && (
+          <span
+            className="sidebar-dev-badge"
+            title="开发渠道构建,独立数据目录,不检查更新"
+          >
+            DEV
+          </span>
+        )}
         <span className="settings-entry-chevron">⌄</span>
       </button>
 
