@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -80,16 +80,44 @@
       "duration_minutes": 5
     },
     "review": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T15:57:13Z",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "completed_at": "2026-06-13T16:03:40Z",
+      "auto_commit": "792b28d",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md"
+      ],
+      "cited_specs": [],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-06-13T15:57:13Z",
+          "completed_at": "2026-06-13T16:03:40Z",
+          "review_commit": "792b28d",
+          "verdict": "APPROVE"
+        }
+      ],
+      "duration_minutes": 6
+    },
+    "test": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T15:57:13Z"
+      "started_at": "2026-06-13T16:03:40Z"
     }
   },
   "completed_stages": [
     "goal",
     "blueprint_lite",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-06-13T15:35:18Z",
   "stage_review_roles": {
@@ -113,12 +141,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T15:57:22Z",
+  "updated_at": "2026-06-13T16:03:49Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:e2efa249e3d9199adaf999a6347f2f781a52ade07b0b551e2bf12bd9309fb3e1",
+  "_state_checksum": "sha256:d885a88e16124225930662127bbda7c7125053ea827dc4a8f6f5466e28f4b8dd",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": false
