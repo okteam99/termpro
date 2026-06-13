@@ -33,6 +33,7 @@ export function normalizeDisplayPath(path: string): string {
 export function isInsideOrEqual(target: string, root: string): boolean {
   const t = trimTrailingSlash(normalizeDisplayPath(target));
   const r = trimTrailingSlash(normalizeDisplayPath(root));
+  if (r === '/') return t.startsWith('/');
   return t === r || t.startsWith(`${r}/`);
 }
 
@@ -40,6 +41,7 @@ export function relativeParts(target: string, root: string): string[] {
   const t = trimTrailingSlash(normalizeDisplayPath(target));
   const r = trimTrailingSlash(normalizeDisplayPath(root));
   if (t === r) return [];
+  if (r === '/') return t.slice(1).split('/').filter(Boolean);
   return t.slice(r.length + 1).split('/').filter(Boolean);
 }
 

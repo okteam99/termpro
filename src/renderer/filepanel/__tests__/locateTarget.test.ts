@@ -145,6 +145,26 @@ describe('FilePanelController locateTarget', () => {
     expect(ctrl.getSnapshot().locateHighlightPath).toBeNull();
   });
 
+  it('rejects a locate request from a different tab before mutating state', async () => {
+    const fake = makeDeps({
+      '/repo': entries(['src', 'dir']),
+      '/repo/src': entries(['App.tsx', 'file']),
+    });
+    const ctrl = makeController(fake);
+    ctrl.setInputs(makeInputs({ tabId: 'active-tab' }));
+    await flush();
+
+    await expect(ctrl.locateTarget({
+      id: 5,
+      path: '/repo/src/App.tsx',
+      kind: 'file',
+      sourceTabId: 'background-tab',
+    })).resolves.toBe(false);
+
+    expect(ctrl.getSnapshot().locateHighlightPath).toBeNull();
+    expect(fake.readdir).not.toHaveBeenCalledWith('/repo/src');
+  });
+
   it('loads a directory target before marking it expanded', async () => {
     const fake = makeDeps({
       '/repo': entries(['src', 'dir']),
@@ -154,7 +174,7 @@ describe('FilePanelController locateTarget', () => {
     ctrl.setInputs(makeInputs());
     await flush();
 
-    await expect(ctrl.locateTarget({ id: 5, path: '/repo/src', kind: 'dir', sourceTabId: 't1' })).resolves.toBe(true);
+    await expect(ctrl.locateTarget({ id: 6, path: '/repo/src', kind: 'dir', sourceTabId: 't1' })).resolves.toBe(true);
 
     const view = ctrl.getSnapshot();
     expect(view.expanded.has('/repo/src')).toBe(true);
@@ -174,7 +194,7 @@ describe('FilePanelController locateTarget', () => {
     ctrl.setInputs(makeInputs());
     await flush();
 
-    await expect(ctrl.locateTarget({ id: 6, path: '/repo/SRC/App.tsx', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
+    await expect(ctrl.locateTarget({ id: 7, path: '/repo/SRC/App.tsx', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
 
     const view = ctrl.getSnapshot();
     expect(view.expanded.has('/repo/src')).toBe(false);
@@ -193,7 +213,7 @@ describe('FilePanelController locateTarget', () => {
     ctrl.setInputs(makeInputs());
     await flush();
 
-    await expect(ctrl.locateTarget({ id: 7, path: '/repo/link/file.ts', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
+    await expect(ctrl.locateTarget({ id: 8, path: '/repo/link/file.ts', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
 
     const view = ctrl.getSnapshot();
     expect(view.expanded.has('/repo/link')).toBe(false);
@@ -213,7 +233,7 @@ describe('FilePanelController locateTarget', () => {
     ctrl.setInputs(makeInputs());
     await flush();
 
-    await expect(ctrl.locateTarget({ id: 8, path: '/repo/src/App.tsx', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
+    await expect(ctrl.locateTarget({ id: 9, path: '/repo/src/App.tsx', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
 
     const view = ctrl.getSnapshot();
     expect(view.expanded.has('/repo/src')).toBe(false);
@@ -233,11 +253,50 @@ describe('FilePanelController locateTarget', () => {
     ctrl.setInputs(makeInputs());
     await flush();
 
-    await expect(ctrl.locateTarget({ id: 9, path: '/repo/link/file.ts', kind: 'file', sourceTabId: 't1' })).resolves.toBe(true);
+    await expect(ctrl.locateTarget({ id: 10, path: '/repo/link/file.ts', kind: 'file', sourceTabId: 't1' })).resolves.toBe(true);
 
     const view = ctrl.getSnapshot();
     expect(view.expanded.has('/repo/link')).toBe(true);
     expect(view.locateHighlightPath).toBe('/repo/link/file.ts');
     expect(view.locateHighlightPath).not.toBe('/repo/real/file.ts');
+  });
+
+  it('keeps cross-mode store input echo as a no-op after locateCommit', async () => {
+    const fake = makeDeps({
+      '/repo': entries(['.worktree', 'dir']),
+      '/repo/.worktree/feature-a': entries(['src', 'dir']),
+      '/repo/.worktree/feature-a/src': entries(['index.ts', 'file']),
+    });
+    const holder: { ctrl?: FilePanelController } = {};
+    fake.persistMode.mockImplementation((_tabId: string, mode: 'root' | 'worktree') => {
+      holder.ctrl?.setInputs(makeInputs({
+        mode,
+        rootPath: '/repo',
+        worktreePath: '/repo/.worktree/feature-a',
+      }));
+    });
+    const ctrl = makeController(fake);
+    holder.ctrl = ctrl;
+    ctrl.setInputs(makeInputs({
+      mode: 'root',
+      rootPath: '/repo',
+      worktreePath: '/repo/.worktree/feature-a',
+    }));
+    await flush();
+    fake.readdir.mockClear();
+
+    await expect(ctrl.locateTarget({
+      id: 11,
+      path: '/repo/.worktree/feature-a/src/index.ts',
+      kind: 'file',
+      sourceTabId: 't1',
+    })).resolves.toBe(true);
+    await flush();
+
+    const worktreeRootReads = fake.readdir.mock.calls.filter(([path]) => path === '/repo/.worktree/feature-a');
+    expect(worktreeRootReads).toHaveLength(1);
+    expect(fake.persistMode).toHaveBeenCalledWith('t1', 'worktree');
+    expect(ctrl.getSnapshot().effectiveRoot).toBe('/repo/.worktree/feature-a');
+    expect(ctrl.getSnapshot().locateHighlightPath).toBe('/repo/.worktree/feature-a/src/index.ts');
   });
 });

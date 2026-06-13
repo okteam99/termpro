@@ -131,6 +131,8 @@ export class FilePanelController {
   }
 
   async locateTarget(target: FilePanelLocateTarget): Promise<boolean> {
+    if (target.sourceTabId !== this.state.inputs.tabId) return false;
+
     const generation = this.state.generation;
     const startRoot = this.state.effectiveRoot;
     this.dispatch({ t: 'locateStart', targetId: target.id, generation, root: startRoot });
@@ -140,7 +142,7 @@ export class FilePanelController {
 
     let loaded: Awaited<ReturnType<typeof this.loadLocateChain>>;
     try {
-      loaded = await this.loadLocateChain(target, candidate);
+      loaded = await this.loadLocateChain(target, candidate, generation);
     } catch {
       console.warn('[filepanel] locate fallback', 'readdir-failed');
       return this.isLocateStale(target.id, generation) ? true : false;
@@ -270,6 +272,7 @@ export class FilePanelController {
     if (rootPath) roots.push({ mode: 'root', root: rootPath });
 
     const targetReal = await this.safeRealpath(target.path);
+    let fallbackReason = roots.length === 0 ? 'no-effective-root' : 'outside-roots';
     const candidates: Array<{ mode: 'root' | 'worktree'; root: string; parts: string[] }> = [];
     for (const candidate of roots) {
       const rootReal = await this.safeRealpath(candidate.root);
@@ -279,6 +282,8 @@ export class FilePanelController {
       });
       if (containment.ok) {
         candidates.push({ ...candidate, parts: containment.relativeParts });
+      } else {
+        fallbackReason = containment.reason ?? fallbackReason;
       }
     }
     candidates.sort((a, b) => {
@@ -292,12 +297,15 @@ export class FilePanelController {
       if (a.mode === b.mode) return 0;
       return a.mode === 'worktree' ? -1 : 1;
     });
-    return candidates[0] ?? null;
+    if (candidates[0]) return candidates[0];
+    console.warn('[filepanel] locate fallback', fallbackReason);
+    return null;
   }
 
   private async loadLocateChain(
     target: FilePanelLocateTarget,
     candidate: { mode: 'root' | 'worktree'; root: string; parts: string[] },
+    generation: number,
   ): Promise<{
     topEntries: DirEntry[];
     cacheDelta: Map<string, DirEntry[]>;
@@ -337,7 +345,7 @@ export class FilePanelController {
     let parent = candidate.root;
     let current = candidate.root;
     for (let i = 0; i < candidate.parts.length; i++) {
-      if (this.isLocateStale(target.id, this.state.activeLocateGeneration ?? -1)) return null;
+      if (this.isLocateStale(target.id, generation)) return null;
       const entries = await entriesFor(parent);
       const entry = matchEntry(entries, candidate.parts[i], {
         darwinTrusted: this.deps.platform === 'darwin',

@@ -3,6 +3,7 @@ import {
   isInsideOrEqual,
   matchEntry,
   normalizeDisplayPath,
+  relativeParts,
   trustedContainment,
 } from '../pathContainment';
 
@@ -10,7 +11,9 @@ describe('pathContainment', () => {
   it('uses separator-aware containment', () => {
     expect(isInsideOrEqual('/repo/src/App.tsx', '/repo')).toBe(true);
     expect(isInsideOrEqual('/repo2/src/App.tsx', '/repo')).toBe(false);
+    expect(isInsideOrEqual('/repo/src/App.tsx', '/')).toBe(true);
     expect(normalizeDisplayPath('/repo/./src/../src/App.tsx')).toBe('/repo/src/App.tsx');
+    expect(relativeParts('/repo/src/App.tsx', '/')).toEqual(['repo', 'src', 'App.tsx']);
   });
 
   it('rejects null and escaping realpaths', () => {
