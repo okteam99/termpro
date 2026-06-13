@@ -1,8 +1,10 @@
 // 会话事件 → UI 状态/通知 的策略层。
 // Host 只产出语义事件;在不在看、要不要打扰,是 UI 的决策(本文件)。
-// 策略:聚焦中的 tab 不打扰;窗口失焦才发系统通知;软信号(静默)只进
-// 应用内徽标与通知中心,不发系统通知;同一等待期每 tab 只提醒一次
-// (闩锁,用户回看该 tab 或命令周期翻转才复位)。
+// 策略:聚焦中的 tab 不打扰;当前 tab(激活工作区的激活 tab,即用户
+// 正看着或回到窗口第一眼就能看到的)无论窗口聚焦与否都不生成通知,
+// 只亮状态点;窗口失焦才发系统通知;软信号(静默)只进应用内徽标与
+// 通知中心,不发系统通知;同一等待期每 tab 只提醒一次(闩锁,用户
+// 回看该 tab 或命令周期翻转才复位)。
 
 import { hostClient } from './hostClient';
 import { findTabBySessionId } from '../terminal/terminalRegistry';
@@ -41,10 +43,11 @@ export function initSessionEvents(): void {
     const tab = ws?.tabs.find((t) => t.id === tabId);
     if (!ws || !tab) return;
 
-    const focusedTab =
-      document.hasFocus() &&
-      s.activeWorkspaceId === ws.id &&
-      ws.activeTabId === tabId;
+    // 当前 tab:激活工作区的激活 tab(窗口失焦时即"最后打开的")。
+    // 它的动静用户自己看得到,不为它生成任何通知
+    const isCurrentTab =
+      s.activeWorkspaceId === ws.id && ws.activeTabId === tabId;
+    const focusedTab = document.hasFocus() && isCurrentTab;
     // 与 TabBar 显示规则一致,通知里能对上是哪个 tab
     const label =
       tab.customName ?? tabPathLabel(ws.root, tab.cwd, hostClient.info?.homedir);
@@ -59,8 +62,11 @@ export function initSessionEvents(): void {
           s.updateTab(tabId, { activity: 'running' });
           break;
         }
-        // idle:单次 set 合并全部变更,避免徽标订阅看到撕裂中间态
-        const finishedInBackground = prev === 'running' && !focusedTab;
+        // idle:单次 set 合并全部变更,避免徽标订阅看到撕裂中间态。
+        // 当前 tab 不算"后台完成":回到窗口直接看得到结果,不标
+        // unseenDone(否则角标挂死——它不会被再次激活来清标记)
+        const finishedInBackground =
+          prev === 'running' && !focusedTab && !isCurrentTab;
         const ec = lastExit.get(tabId);
         lastExit.delete(tabId);
         s.updateTab(tabId, {
@@ -87,6 +93,7 @@ export function initSessionEvents(): void {
       case 'bell': {
         if (focusedTab) break;
         s.updateTab(tabId, { waiting: true });
+        if (isCurrentTab) break; // 当前 tab:亮状态点即可,不进通知
         // 同一等待期只提醒一次(也覆盖 cat 二进制等 bell 风暴)
         if (waitingNotified.has(tabId)) break;
         waitingNotified.add(tabId);
@@ -102,6 +109,7 @@ export function initSessionEvents(): void {
         if ((tab.activity ?? 'idle') === 'running') {
           s.updateTab(tabId, { waiting: true });
         }
+        if (isCurrentTab) break; // 当前 tab:亮状态点即可,不进通知
         // 闩锁期内相同内容不重复进通知(Agent 重复 ping);新内容放行
         if (waitingNotified.has(tabId) && lastNotifyText.get(tabId) === text) {
           break;
@@ -117,8 +125,8 @@ export function initSessionEvents(): void {
         if (event.quiet) {
           if (!focusedTab && (tab.activity ?? 'idle') === 'running') {
             s.updateTab(tabId, { waiting: true });
-            // 输出断续 → quiet 反复翻转:同一等待期只进一条通知
-            if (!waitingNotified.has(tabId)) {
+            // 当前 tab 只亮状态点;其余 tab 同一等待期只进一条通知
+            if (!isCurrentTab && !waitingNotified.has(tabId)) {
               waitingNotified.add(tabId);
               s.pushNotification({
                 workspaceId: ws.id,
