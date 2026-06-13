@@ -135,6 +135,43 @@ function rowSegments(
   return segs;
 }
 
+export class SystemWebLinkProvider implements ILinkProvider {
+  constructor(private term: Terminal) {}
+
+  provideLinks(
+    y: number,
+    callback: (links: ILink[] | undefined) => void,
+  ): void {
+    const ll = buildLogicalLine(this.term.buffer.active, y - 1);
+    if (!ll) {
+      callback(undefined);
+      return;
+    }
+    const links = extractCandidates(ll.text)
+      .filter((c) => c.kind === 'web')
+      .map((c): ILink | null => {
+        const s = ll.pos[c.start];
+        const e = ll.pos[c.end - 1];
+        if (!s || !e) return null;
+        return {
+          range: {
+            start: { x: s.col + 1, y: s.row + 1 },
+            end: { x: e.col + 1, y: e.row + 1 },
+          },
+          text: c.text,
+          decorations: { underline: true, pointerCursor: true },
+          activate: (event, text) => {
+            event.preventDefault();
+            event.stopPropagation();
+            window.termpro.openExternal(text);
+          },
+        };
+      })
+      .filter((link): link is ILink => link !== null);
+    callback(links.length > 0 ? links : undefined);
+  }
+}
+
 export class FsLinkProvider implements ILinkProvider {
   private statCache = new Map<
     string,

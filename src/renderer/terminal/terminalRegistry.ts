@@ -5,11 +5,14 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import { hostClient } from '../services/hostClient';
 import { recordOutput } from '../services/quietGate';
-import { FsLinkProvider, LinkHighlighter } from './terminalLinks';
+import {
+  FsLinkProvider,
+  LinkHighlighter,
+  SystemWebLinkProvider,
+} from './terminalLinks';
 
 export interface TermCallbacks {
   onTitle?(processName: string): void;
@@ -76,13 +79,9 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     callbacks: {},
   };
 
-  // 网页链接 → 默认浏览器
-  term.loadAddon(
-    new WebLinksAddon((event, uri) => {
-      event.preventDefault();
-      window.termpro.openExternal(uri);
-    }),
-  );
+  // 网页链接 → 系统默认浏览器。不要使用 xterm WebLinksAddon 的默认
+  // window.open 路径,否则 Electron/宿主可能弹确认框或开内置窗口。
+  term.registerLinkProvider(new SystemWebLinkProvider(term));
   // 文件/路径链接(file://、绝对、~、相对)→ 校验存在后可点击
   const linkProvider = new FsLinkProvider(
     tabId,
