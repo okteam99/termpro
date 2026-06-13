@@ -37,19 +37,29 @@ TERMPRO_SMOKE=1 npx electron-forge start
 src/
 ├── main/          Electron 主进程
 │   ├── main.ts       窗口创建、菜单、utilityProcess 拉起 Host、布局存档 IPC、冒烟逻辑
-│   └── appStore.ts   布局持久化 IPC 实现（store:get / store:set）
+│   ├── appStore.ts   布局持久化 IPC 实现（store:get / store:set）
+│   └── updater.ts    更新检查 + Squirrel.Mac 一键升级
 ├── preload/       沙箱 preload（contextBridge）
 │   └── preload.ts    暴露 window.termpro API；Host MessagePort 经 window.postMessage 转移
 ├── host/          纯 Node Host 进程（零 Electron import，远程就绪）
-│   ├── host.ts       utilityProcess 入口；单客户端路由；RPC dispatch
-│   ├── ptyPool.ts    PTY 会话池；流控（highWatermark/lowWatermark）；进程名轮询
-│   └── fsService.ts  readdir / home 工具函数
+│   ├── host.ts             utilityProcess 入口；多客户端路由；RPC dispatch
+│   ├── ptyPool.ts          PTY 会话池；流控（highWatermark/lowWatermark）；进程名轮询
+│   ├── fsService.ts        readdir / home 工具函数
+│   ├── gitService.ts       git.info / git.status / worktree list（shell out git/gh）
+│   ├── outputScanner.ts    VT 字节流轻量扫描器（OSC 133 / BEL / 备用屏开关）
+│   ├── proc.ts             前台进程名查询（pty.process / lsof）
+│   ├── sessionTracker.ts   Tab 会话状态机（running/waiting/done/idle）
+│   ├── shellIntegration.ts OSC 133/7 自动注入（zsh ZDOTDIR 包装）
+│   ├── watchService.ts     fs watch 服务（chokidar；去抖合并；推送 watch 事件）
+│   └── __tests__/          host 层单元测试
 ├── shared/        UI ↔ Host 协议契约
 │   └── protocol.ts   消息类型、RpcMethods 注册表、FLOW 水位常量、PROTOCOL_VERSION
 └── renderer/      React UI
     ├── App.tsx            根组件；连接 Host、初始化持久化、订阅菜单事件
     ├── index.tsx          React 入口
-    ├── components/        Sidebar / TabBar / FilePanel
+    ├── components/        Sidebar / TabBar / FilePanel 顶层编排
+    ├── filepanel/         文件面板编排（单 reducer · 三道过期闸；Root/WorkTree 切换）
+    ├── monaco/            Monaco 懒加载封装（文件查看/轻编辑/diff 视图）
     ├── services/
     │   └── hostClient.ts  HostClient 单例：RPC、PTY 流分发、流控回执
     ├── state/
@@ -163,7 +173,7 @@ gh secret set APPLE_TEAM_ID                -R okteam99/termpro
 
 | 约束 | 说明 |
 |---|---|
-| 单窗口单客户端 | Host 维护 `active` 单客户端；窗口重载时新客户端接入会回收旧客户端全部 PTY 会话（M3 会话保活前不改变） |
+| ~~单窗口单客户端~~（v0.2 已解） | Host 现支持多客户端：共享 PTY 池、会话按归属路由、窗口关闭只回收自己的资源（v0.2 2026-06 交付） |
 | Electron 升级需重编 node-pty | forge 的 `rebuild` 配置自动处理，直接 `npm start` / `make` 即可 |
 | 沙箱 preload 无 process.env | 冒烟开关 `TERMPRO_SMOKE` 不能在 preload 读取；main 通过 `additionalArguments: ['--termpro-smoke']` 传入，preload 读 `process.argv` |
 | 协议版本 | `PROTOCOL_VERSION = 1`；M5 远程接入时需做版本握手校验 |
@@ -175,13 +185,18 @@ gh secret set APPLE_TEAM_ID                -R okteam99/termpro
 
 ---
 
-## 6. 下一步里程碑
+## 6. 里程碑状态
+
+M1–M4 及 v0.2/v0.3 增量均已 ✅ 2026-06 交付，详见 [README.md §四](../README.md)。
+
+已交付增量摘要：
+- **v0.2**：更新检查与一键升级；文件预览/diff 独立窗口；Host 多客户端支持
+- **v0.3**：三窗口模型（主窗口/文件内容窗口/git diff 窗口）；Markdown 预览/编辑双模式；脏 tab 关窗确认
+
+剩余待做：
 
 | 里程碑 | 方向 |
 |---|---|
-| **M2** | worktree / git：新建 tab 可选 `git worktree add`；左侧栏显示分支/dirty/ahead-behind；右侧文件树 chokidar watch + git 状态着色 |
-| **M3** | 状态感知通知：`pty.process` 轮询 + OSC 133 shell integration + BEL/OSC 9/777 → tab 状态机 `running/waiting/done/idle` → Dock 角标 / 通知中心 |
-| **M4** | Monaco diff：文件只读/轻编辑；worktree vs 基线 diff 视图；"Open in VS Code/Zed" 一键外跳 |
-| **M5** | 远程 Host：Host 打包独立可执行；SSH 隧道 + WebSocket 接入；断线重连回放 |
+| **M5** | 远程 Host：Host 打包独立可执行（纯 node 单文件）；SSH 隧道 + WebSocket 接入；协议版本握手；断线重连回放；远程通知路由（v1 重连对账） |
 
 详细范围见 [README.md §四](../README.md)。

@@ -1,84 +1,89 @@
-# KNOWLEDGE 模板
-
-> 位置:`project-specs/KNOWLEDGE.md`(workspace 级 · 与 product-overview/ 同级)+ `{子项目}/docs/KNOWLEDGE.md`(子项目级)· 详 [docs/conventions.md §13](../docs/conventions.md)
->
-> 受众:**未来的开发者(包括未来的 AI)** — 让后续 Feature 启动时快速感知"本项目有哪些特殊事实/踩坑"。
->
-> 🔴 **本文件 = AI 沉淀**(开发中被动发现的客观事实):**Gotchas(踩坑)/ Flagged Ambiguities(已澄清歧义)/ Preferences(用户偏好)/ Out-of-Scope(已否方向)**。teamwork triage 扫描 + bug/review/dev 流程中追加。
->
-> 🔴 **边界声明**(别混):
->
-> | 信息类型 | 去处 | 理由 |
-> |---------|------|------|
-> | **本项目强制开发规矩**(分层/命名/错误处理/测试/风格 · 团队约定)| 🔗 `DEV-RULES.md` | 人事前定的规矩 · 人维护;不是 AI 沉淀 |
-> | 架构决策(为什么选 A 不选 B · 有备选 + 后果)| 🔗 [ADR](./adr.md) | 决策有备选 + 后果结构 |
-> | 业务术语 / 实体关系 / 命名词典 | 🔗 `GLOSSARY.md` | 术语主权威 |
-> | 通用代码规范 / 通用设计词汇 | 🔗 standards/ 或 rules/ | 跨项目通用 · 不属项目本地知识 |
-> | 单个 Feature 复盘(时间线 + 指标)| `docs/retros/` | 复盘是时间线 · 不是事实索引 |
-> | **项目特有的事实 / 踩坑 / 偏好** | **本文件** | 不是决策 · 是"发现"——没有备选项的客观事实 |
->
-> 🔴 **体量上限 300 行**,超出:(a) Gotcha 升 ADR(若本质是决策)/ (b) 分拆到子项目级 KNOWLEDGE.md / (c) 过期归档(加 archived 标记 · 放末尾)。
-
-```markdown
 # 项目本地知识库
 
-> 本文件记录开发中积累的**项目特有事实 / 踩坑 / 用户偏好**(AI 沉淀)。
+> 本文件记录开发中积累的 **TermPro 项目特有事实 / 踩坑 / 用户偏好**（AI 沉淀）。
 > 不记录:开发规矩/约定(走 DEV-RULES.md)、决策(走 ADR)、通用规范(走 standards/rules)、术语(走 GLOSSARY.md)、复盘(走 retros/)。
-> Teamwork 在 triage(用户输入承接阶段)会扫描本文件,注入「📚 相关项目事实」段。详见 [SKILL.md § Triage 入口规范](../SKILL.md)。
+> Teamwork 在 triage(用户输入承接阶段)会扫描本文件,注入「📚 相关项目事实」段。
 
 > 📌 **术语 → `GLOSSARY.md`**;**开发规矩/约定 → `DEV-RULES.md`**。本文件不再收录这两类。
 
+---
+
 ## 🔀 Flagged Ambiguities(已澄清的歧义)
 
-> 评审循环中暴露"用户用 X 词同时指 A 和 B"时,澄清完后**实时**记录到此(不批处理)。
+> 评审循环中暴露"用户用 X 词同时指 A 和 B"时,澄清完后**实时**记录到此。
 > 防止下个 Feature 来同样的词又得 PMO 重新询问澄清一次。
 
 | ID | 模糊词 | 澄清结论 | 触发 Feature | 时间 |
 |----|--------|---------|-------------|------|
-| FA-001 | "账号" | 三义:Customer(客户实体)/ User(操作主体)/ Tenant(多租户隔离单元);上下文未明确时一律走 PMO 澄清 | F035 评审 | 2026-04-12 |
+| FA-001 | "Root / WorkTree" | Root = tab 首次进入时锁定的主目录(不随 cd 漂移);WorkTree = 用户显式选绑的 worktree 根(从 `git worktree list` 选)。两者均与**单个 tab** 绑定持久化,不是全局 | M2 | 2026-06 |
+
+---
 
 ## ⚠️ Gotchas(陷阱 / 约束 / 历史坑)
 
 > 项目特有的陷阱、历史踩坑、外部系统的怪癖。**不是决策**——是被动发现的客观约束。
-> 触发写入时机:Bug 修复完成 / Review Stage 发现陷阱 / Dev Stage 踩坑。
 
 | ID | 主题 | 描述 | 规避方法 | 发现时间 | 触发 Feature |
 |----|------|------|---------|---------|-------------|
-| GO-001 | db | Postgres JSONB GIN 索引在高并发写入时会锁表 | 高频写字段避免 JSONB,拆到独立列 | 2026-01-15 | F023-xxx |
-| GO-002 | api | 支付网关冷启动延迟 2s | 请求前必须先调 `/warmup` | 2026-02-03 | F031-支付重构 |
+| GO-001 | pty | node-pty 是原生模块,**Electron 升级即需重编** | 走 forge 标准流程(`npm start` / `make`),`rebuild` 配置自动处理 | README | M1 |
+| GO-002 | render | **WebGL context 每页有上限**;后台 tab 持有 context 会超限 | 仅挂载可见 tab 的 `WebglAddon`;切走时卸载 context,保留 Terminal 实例与 buffer | README §六 | M1 |
+| GO-003 | ipc | **沙箱 preload 无 `process.env`**;冒烟开关无法直接读 | main 通过 `additionalArguments: ['--termpro-smoke']` 传入,preload 读 `process.argv` | DEV.md §5 | M1 |
+| GO-004 | ipc | **MessagePort 必须经 `window.postMessage` 转移**;contextBridge 不能直接传 port | 见 `preload.ts`:`event.sender.postMessage → window.postMessage(ports)` (Electron 官方模式) | DEV.md §4.6 | M1 |
+| GO-005 | pty | **PTY → UI 必须做流控**(watermark + pause/resume);否则 agent 倾倒 build 日志时内存与帧率一起崩 | highWatermark=512 KB / lowWatermark=128 KB;FLOW 常量在 `src/shared/protocol.ts`;本地/远程共用同一机制 | README §六 | M1 |
+| GO-006 | render | **terminalRegistry 跨 React 挂载存活**;组件卸载不销毁 Terminal 实例 | 切 tab/workspace 复用同一 xterm.js 实例;仅 `disposeTerminal(tabId)` 才真销毁,否则 scrollback/连接中断 | DEV.md §4.4 | M1 |
+| GO-007 | persist | **持久化必须先 hydrate 后订阅**;否则初始空状态覆盖存档 | `initPersistence()` 按序:storeGet → hydrate → 设 `hydrated=true` → 再启动 Zustand 订阅;UI 以 `hydrated` flag 门控渲染 | DEV.md §4.5 | M1 |
+| GO-008 | ipc | `PROTOCOL_VERSION = 1`;M5 远程接入时需做**版本握手校验** | 版本号定义在 `src/shared/protocol.ts`;接入时需在握手阶段校验双端版本 | DEV.md §5 | M5 |
+| GO-009 | shell | **shell integration 仅 zsh**;bash/fish 待后续 | spawn zsh 时经 ZDOTDIR 包装自动注入 OSC 133/7;`TERMPRO_NO_SHELL_INTEGRATION=1` 可关闭 | DEV.md §5 | M3 |
+| GO-010 | shell | **p10k instant prompt 兼容**:.zshrc 末尾注入 OSC 序列可能触发"console output during init"提示 | 与 VS Code 同模式,无功能影响;用户知情即可,无需修复 | DEV.md §5 | M3 |
+| GO-011 | filepanel | **查看器保存无 mtime 守卫**;文件被外部修改后保存会直接覆盖 | 跟进项:读时记 mtime,写时校验;当前轻编辑场景已接受此风险 | DEV.md §5 | M4 |
+| GO-012 | notify | **UI 完全关闭期间收不到系统通知** | M1-M4 靠重连对账兜底;推送通道留 M5 后 | DEV.md §5 | M3 |
+| GO-013 | filepanel | **FilePanel 编排遗留 P2**(opus 评审 2026-06,均与重构前等价或更优):① refresh/lockRoot 后 resolveDone 冗余二拉 git.status(seq 闸自纠正);② childDone 无 seq,懒拉与 partial 重拉并发时 last-writer-wins;③ dispose/watchReady 同 tick 边界无专测 | 暂接受;单 reducer 三道过期闸(resolveDone 按 generation、树/着色按 root、top/status 按单调 seq)已覆盖主路径 | DEV.md §5 | v0.3 |
+
+---
 
 ## 🎨 Preferences(用户偏好)
 
-> 用户在产品层面强调的偏好——风格、交互、沟通方式。**不是规范**——是用户的口味。
-> 触发写入时机:PM 验收时用户明确强调 / UI Design Stage 用户选 A 不选 B 时陈述的理由。
+> 用户在产品层面强调的偏好。**不是规范**——是用户的口味。
 
 | ID | 类别 | 偏好 | 来源 | 记录时间 |
 |----|------|------|------|---------|
-| PR-001 | UI | 所有卡片圆角统一 8px | F015 验收时用户明确要求 | 2026-01-10 |
-| PR-002 | 沟通 | PM 验收时用户偏好简洁汇报(3 行内),不要长篇分析 | 多个 Feature 累计反馈 | 2026-03-15 |
+| PR-001 | 发版 | 发版后**不替用户安装/升级** `/Applications` 里的应用;用户自己通过应用内升级胶囊(Squirrel.Mac)更新 | CLAUDE.md 用户指令 | 2026-06 |
+
+---
 
 ## ❌ Out of Scope(已拒绝过的方案/方向)
 
 > 拒绝过的方案 / 方向——防止 AI 反复提同一个被否的方案。
-> 触发写入时机:评审循环中明确 REJECT / PM 验收拒绝某方向 / Goal Stage 确认"这个方向不做"。
-> PMO 在 Goal Stage 起草前必扫描本段,避免 PM 重新提已被否的方向。
+> PMO 在 Goal Stage 起草前必扫描本段。
 
 | ID | 拒绝的方向 | 拒绝理由 | 拒绝时间 | 触发 Feature / 决策点 |
 |----|-----------|---------|---------|----------------------|
-| OS-001 | 接入 GraphQL 替代 REST API | 团队 REST 经验深 / 工具链成熟 / 当前瓶颈不在协议层 | 2026-02-10 | F029 评审 |
+| OS-001 | 完整编辑器 / LSP | 重度编辑外跳专业编辑器;本产品卖点是会话编排而非编辑器 | README | 产品定位 |
+| OS-002 | 内置或绑定特定 agent / 解析特定 agent 输出格式 | 终端保持哑且工具无关是第一设计原则;可选 adapter 插件但核心永不依赖 | README | 产品定位 |
+| OS-003 | 通用终端的极致性能竞赛 | 够流畅跑 agent CLI 即可;性能不是本产品差异化点 | README §四 | 产品定位 |
+| OS-004 | Windows / Linux 支持 | 先 macOS;M1 阶段仅 macOS | README §四 | M1 |
+| OS-005 | Ghostty fork(原生 Swift 路线) | 单窗口+侧栏+自绘 tab 需重写整个窗口层;文件树/diff/通知全要 Swift 手搓;终端品质本身不是本产品卖点;投入收益错配 | README §七 | 选型调研 2026-06 |
 
 🔴 **PMO 起草 Goal / 评审循环时必须先扫 OS-NNN 列表**:发现 PRD 草案重新提了被否方向 → 直接打回让 PM 改写或显式说明"为什么本次重新审视"(必须有新触发原因,否则违规)。
+
+---
 
 ## 按主题索引
 
 > PMO preflight 时可按主题快速 grep。
 
-- **db**: GO-001
-- **api**: GO-002
-- **UI**: PR-001
-- **沟通**: PR-002
-- **拒绝**: OS-001
+- **pty**: GO-001, GO-005
+- **render**: GO-002, GO-006
+- **ipc**: GO-003, GO-004, GO-008
+- **persist**: GO-007
+- **shell**: GO-009, GO-010
+- **filepanel**: GO-011, GO-013
+- **notify**: GO-012
+- **发版**: PR-001
 - **歧义**: FA-001
+- **拒绝**: OS-001, OS-002, OS-003, OS-004, OS-005
+
+---
 
 ## 归档(archived)
 
@@ -86,48 +91,4 @@
 
 | ID | 原内容 | 归档原因 | 归档时间 |
 |----|--------|---------|---------|
-| GO-000 | ~~示例:旧约束~~ | 升级后问题消失(ADR-0008)| 2026-04-01 |
-```
-
-## 使用约定
-
-### 写入硬时机
-
-🔴 以下时机 PMO 必须提示对应角色写入 KNOWLEDGE.md(不写 = 流程偏离):
-
-- **Gotcha 写入时机**:
-  - Bug 修复流程完成时 → PMO 在完成报告里提示 RD 补一条 Gotcha(除非确认一次性 bug 无复发风险)
-  - Dev Stage 遇未知陷阱(调试 ≥30 分钟 / 改动方案多次返工)→ 修复后必写一条 Gotcha
-  - Review Stage 架构师发现 RD 绕过陷阱写了特殊处理 → 必写一条 Gotcha(把"为什么这么写"显式化)
-- **Preference 写入时机**:
-  - PM 验收时用户明确表达偏好 → PM 必记 PR-NNN
-  - UI Design Stage 用户在多方案中选 A 并陈述理由 → Designer 必记 PR-NNN
-- 🔴 **开发规矩/约定 不写这里 → 见 `DEV-RULES.md`**(人维护):AI 在 review/dev 发现值得固化的新约定 → **提示用户**加进 DEV-RULES.md · **不代写**(那是人定的规矩)。
-
-### PMO preflight 扫描
-
-🔴 PMO 初步分析任何 Feature / 敏捷需求 / Feature Planning 时,必须扫描 KNOWLEDGE.md:
-- 读 `{目标子项目}/docs/KNOWLEDGE.md`(不存在 → 「本项目暂无 KNOWLEDGE 记录」)
-- 按当前 Feature 主题 + 涉及模块扫描索引,列出可能相关的条目 ID
-- 注入 PMO 初步分析输出的「📚 相关项目事实」行
-- 只读 KNOWLEDGE.md 前 300 行(体量上限 = 扫描上限)
-
-### 体量与归档
-
-- 🔴 单个 KNOWLEDGE.md ≤ 300 行。超出时必选一种处理:
-  - (a) 判定条目本质是决策 → 升格为 ADR,本文件删除
-  - (b) 多子项目模式下条目只适用某子项目 → 迁到 `{子项目}/docs/KNOWLEDGE.md`
-  - (c) 条目已过期 → 移到「归档」段加 archived 标记
-- 🟢 每个条目 ≤ 2 行,超出说明不够"事实",可能是决策伪装
-
-### ID 编号规则
-
-- Gotcha:GO-NNN(三位数字,从 001 起)· Preference:PR-NNN · Out of Scope:OS-NNN · Flagged Ambiguities:FA-NNN
-- 🔴 编号连续不复用,归档条目保留原 ID
-
-## 与其他文档的协作
-
-- 🔗 `DEV-RULES.md` — 本项目强制开发规矩(人维护 · blueprint/dev 必读);本文件只记"被动发现的事实/踩坑"
-- 🔗 `GLOSSARY.md` — 业务术语 / 命名词典
-- 🔗 [ADR 模板](./adr.md) — 决策归 ADR,本文件不重复
-- 🔗 [standards/common.md](../standards/common.md) — 通用规范归 standards,本文件只记项目特有
+| — | — | — | — |
