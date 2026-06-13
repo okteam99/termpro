@@ -1,9 +1,7 @@
 # TermPro 开发规范(DEV-RULES)
 
 > 本项目团队约定的开发规矩 · blueprint/dev 必须遵守 · 与之冲突要么改方案、要么在 TECH 显式记原因。
-> 维护:人工 · 新规矩讨论后由人加入。
->
-> ⚠️ 本次内容由 AI 依据 README.md / CLAUDE.md / docs/DEV.md 草拟，待团队定稿确认。
+> 维护:人工 · 新规矩讨论后由人加入(AI 在 review/dev 发现值得固化的新约定 → 提示用户加,不代写)。
 
 ---
 
