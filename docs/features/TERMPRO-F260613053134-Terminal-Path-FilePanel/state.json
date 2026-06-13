@@ -21,9 +21,15 @@
       "at": "2026-06-13T06:01:40Z",
       "source": "ui_design-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-06-13T06:03:54Z",
+      "source": "panorama_sync-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "ui_design",
+  "current_stage": "panorama_sync",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -60,14 +66,31 @@
       "duration_minutes": 21
     },
     "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T05:56:01Z",
+      "completed_at": "2026-06-13T06:03:39Z",
+      "auto_commit": "d8451abd213a3c95be5add8cb2e58296211cbc2a",
+      "artifacts": [
+        "UI.md"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "panorama_changed": "true"
+      },
+      "duration_minutes": 7
+    },
+    "panorama_sync": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T05:56:01Z"
+      "started_at": "2026-06-13T06:03:39Z"
     }
   },
   "completed_stages": [
-    "goal"
+    "goal",
+    "ui_design"
   ],
   "created_at": "2026-06-13T05:34:23Z",
   "stage_review_roles": {
@@ -108,14 +131,14 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T06:01:40Z",
+  "updated_at": "2026-06-13T06:03:54Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:8684a76bb981a75bea9af6f7e71be72d5d7296db3c376fdc9465da32c93a443e",
+  "_state_checksum": "sha256:67c2ba89321694fe2c3b0844c912edbc5385314ead3b98b7d16ba8261287d2e3",
   "legal_next_stages": [
-    "panorama_sync",
     "blueprint"
   ],
   "execution_hints": {
-    "ui_design_needed": true
+    "ui_design_needed": true,
+    "panorama_changed": true
   }
 }
