@@ -8,6 +8,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import { hostClient } from '../services/hostClient';
+import { recordOutput } from '../services/quietGate';
 import { FsLinkProvider, LinkHighlighter } from './terminalLinks';
 
 export interface TermCallbacks {
@@ -127,6 +128,8 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
           inst.firstData = true;
           inst.callbacks.onFirstData?.();
         }
+        // 记本 tab 最近输出时刻(前后台 tab 均触发)→ quiet 提示门控判「离开后是否有新增」
+        recordOutput(tabId);
         // write 回调 = 数据已被解析消费 → 回执流控
         inst.term.write(data, () => hostClient.ack(sessionId, bytes));
       },
