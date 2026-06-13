@@ -17,6 +17,7 @@ const openViewerWindow = vi.fn();
 const unregisters: Array<() => void> = [];
 let openTarget: Mod['openTarget'];
 let FsLinkProvider: Mod['FsLinkProvider'];
+let SYSTEM_OPEN_EXT: Mod['SYSTEM_OPEN_EXT'];
 let registerFilePanelLocateHandler: RegisterFilePanelLocateHandler;
 
 // 让 dir 分支的 async 定位链(openTargetInFilePanelFirst → tryLocateInFilePanel → handler)跑完
@@ -54,7 +55,7 @@ beforeEach(async () => {
     removeEventListener: vi.fn(),
     termpro: { openPath, openViewerWindow, requestHostPort: vi.fn() },
   });
-  ({ openTarget, FsLinkProvider } = await import('../terminalLinks'));
+  ({ openTarget, FsLinkProvider, SYSTEM_OPEN_EXT } = await import('../terminalLinks'));
   ({ registerFilePanelLocateHandler } = await import('../../filepanel/locateRegistry'));
 });
 
@@ -68,6 +69,7 @@ describe('terminal link activation routes by kind', () => {
   it('opens a non-system-ext file directly in the viewer, without locating', async () => {
     const handler = vi.fn().mockResolvedValue(true);
     unregisters.push(registerFilePanelLocateHandler('t1', handler));
+    expect(SYSTEM_OPEN_EXT.test('/repo/src/App.tsx')).toBe(false); // 锚定边界:非系统扩展名
 
     openTarget('t1', '/repo/src/App.tsx', 'file');
     await flush();
@@ -81,6 +83,7 @@ describe('terminal link activation routes by kind', () => {
   it('opens a SYSTEM_OPEN_EXT file via the system opener, without locating', async () => {
     const handler = vi.fn().mockResolvedValue(true);
     unregisters.push(registerFilePanelLocateHandler('t1', handler));
+    expect(SYSTEM_OPEN_EXT.test('/repo/assets/clip.mp4')).toBe(true); // 锚定边界:命中系统扩展名
 
     openTarget('t1', '/repo/assets/clip.mp4', 'file');
     await flush();

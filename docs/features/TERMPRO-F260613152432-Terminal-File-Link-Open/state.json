@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "blueprint_lite",
+  "current_stage": "review",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -48,14 +48,48 @@
       "duration_minutes": 14
     },
     "blueprint_lite": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T15:49:51Z",
+      "completed_at": "2026-06-13T15:51:16Z",
+      "auto_commit": "2a563f3",
+      "artifacts": [
+        "TC.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 1
+    },
+    "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T15:51:16Z",
+      "completed_at": "2026-06-13T15:57:13Z",
+      "auto_commit": "56cff61",
+      "artifacts": [
+        "src/renderer/terminal/terminalLinks.ts",
+        "src/renderer/terminal/__tests__/terminalLinkFilePanelRouting.test.ts"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "\n RUN  v3.2.6 /Users/liam/apps/okok/TermPro/.worktree/TERMPRO-F260613152432-Terminal-File-Link-Open\n\n ✓ src/renderer/terminal/__tests__/terminalWebLinks.test.ts (1 test) 19ms\n ✓ src/renderer/terminal/__tests__/terminalLinkFilePanelRouting.test.ts (6 tests) 31ms\n\n Test Files  2 passed (2)\n      Tests  7 passed (7)\n   Start at  23:57:03\n   Duration  280ms (transform 80ms, setup 0ms, collect 65ms, tests 50ms, environment 0ms, prepare 141ms)"
+      },
+      "duration_minutes": 5
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T15:49:51Z"
+      "started_at": "2026-06-13T15:57:13Z"
     }
   },
   "completed_stages": [
-    "goal"
+    "goal",
+    "blueprint_lite",
+    "dev"
   ],
   "created_at": "2026-06-13T15:35:18Z",
   "stage_review_roles": {
@@ -79,10 +113,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T15:50:02Z",
+  "updated_at": "2026-06-13T15:57:22Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:8a1909995296a3f25965c95402f9e494204429f8e5d77f401bde7522ff40354f",
+  "_state_checksum": "sha256:e2efa249e3d9199adaf999a6347f2f781a52ade07b0b551e2bf12bd9309fb3e1",
   "legal_next_stages": [
+    "test",
     "dev"
   ],
   "execution_hints": {

@@ -20,7 +20,8 @@ const STAT_CACHE_MS = 5_000;
 const CWD_CACHE_MS = 2_500;
 
 // 交给系统打开的扩展名(媒体/压缩包等);图片与文本进 TermPro 文件窗口
-const SYSTEM_OPEN_EXT =
+// export:权威集合单源,测试 import 校验文件分流边界(不硬编码列表)
+export const SYSTEM_OPEN_EXT =
   /\.(icns|pdf|zip|gz|tgz|tar|7z|dmg|app|mp4|mov|avi|mkv|mp3|wav|flac|woff2?|ttf|otf|eot)$/i;
 
 let locateRequestSeq = 0;
