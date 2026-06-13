@@ -10,6 +10,13 @@
 import { hostClient } from './hostClient';
 import { findTabBySessionId } from '../terminal/terminalRegistry';
 import { tabPathLabel, useAppStore } from '../state/store';
+import {
+  decideQuietAction,
+  hadOutputSinceLeave,
+  pruneClosedTabs,
+  recordDeactivated,
+  resetTabActivity,
+} from './quietGate';
 
 let inited = false;
 /** tabId → 最近一次 cmd-done 的退出码(state:idle 到来时消费) */
@@ -122,18 +129,24 @@ export function initSessionEvents(): void {
 
       case 'quiet':
         if (event.quiet) {
-          if (!focusedTab && (tab.activity ?? 'idle') === 'running') {
-            s.updateTab(tabId, { waiting: true });
-            // 当前 tab 只亮状态点;其余 tab 同一等待期只进一条通知
-            if (!isCurrentTab && !waitingNotified.has(tabId)) {
-              waitingNotified.add(tabId);
-              s.pushNotification({
-                workspaceId: ws.id,
-                tabId,
-                kind: 'waiting',
-                text: `${label} · 静默 1 分钟+,可能在等输入`,
-              });
-            }
+          // 后台 tab 仅在「离开后有新输出再停住」才提示;离开后无新增不打扰
+          // (AC-1/AC-2)。当前 tab / 聚焦 tab 行为不变(AC-3)。
+          const action = decideQuietAction({
+            focusedTab,
+            isCurrentTab,
+            running: (tab.activity ?? 'idle') === 'running',
+            hadOutputSinceLeave: hadOutputSinceLeave(tabId),
+            alreadyNotified: waitingNotified.has(tabId),
+          });
+          if (action.setWaiting) s.updateTab(tabId, { waiting: true });
+          if (action.pushNotification) {
+            waitingNotified.add(tabId);
+            s.pushNotification({
+              workspaceId: ws.id,
+              tabId,
+              kind: 'waiting',
+              text: `${label} · 静默 1 分钟+,可能在等输入`,
+            });
           }
         } else {
           s.updateTab(tabId, { waiting: false });
@@ -153,8 +166,18 @@ export function initSessionEvents(): void {
   // Dock 角标 = 需要注意的 tab 数(waiting / unseenDone);顺带清理
   // 已关闭 tab 的辅助 Map,避免缓慢泄漏
   let lastBadge = -1;
+  // 追踪激活 tab 变化:旧的→后台(记 deactivatedAt,供「离开后是否有新输出」判定);
+  // 新的→重置基线(用户在看,要求下一轮重新「去激活后有新增」才提示,AC-4/AC-5)
+  let prevActiveTabId: string | null = null;
   useAppStore.subscribe((s) => {
     clearAttention();
+    const aw = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+    const curActiveTabId = aw?.activeTabId ?? null;
+    if (curActiveTabId !== prevActiveTabId) {
+      if (prevActiveTabId) recordDeactivated(prevActiveTabId);
+      if (curActiveTabId) resetTabActivity(curActiveTabId);
+      prevActiveTabId = curActiveTabId;
+    }
     let count = 0;
     const liveTabs = new Set<string>();
     for (const w of s.workspaces) {
@@ -169,6 +192,7 @@ export function initSessionEvents(): void {
     for (const id of [...waitingNotified]) {
       if (!liveTabs.has(id)) waitingNotified.delete(id);
     }
+    pruneClosedTabs(liveTabs);
     if (count !== lastBadge) {
       lastBadge = count;
       window.termpro.setDockBadge(count);
