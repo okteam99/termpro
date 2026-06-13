@@ -30,7 +30,7 @@ export interface UpdateEvent {
   percent?: number;
 }
 
-let latest: { version: string; htmlUrl: string } | null = null;
+let latest: { version: string; htmlUrl: string; zipUrl?: string } | null = null;
 let installing = false;
 let lastCheckTs = 0;
 /** 看门狗兜底下载/安装真卡死的情况 */
@@ -72,6 +72,23 @@ function isNewer(remote: string, local: string): boolean {
   return false;
 }
 
+/** 从 release assets 挑出本平台/架构的 Squirrel zip 直链
+ *  (maker-zip 命名:<App>-darwin-<arch>-<version>.zip)。拿到就不必再
+ *  依赖 update.electronjs.org——那个第三方 feed 有索引延迟,新版发布后
+ *  会短暂返回 204,正是「胶囊已显示却升级失败」的根因。 */
+function pickDarwinZip(
+  assets?: Array<{ name?: string; browser_download_url?: string }>,
+): string | undefined {
+  return (assets ?? []).find(
+    (a) =>
+      !!a.browser_download_url &&
+      !!a.name &&
+      a.name.endsWith('.zip') &&
+      a.name.includes('darwin') &&
+      a.name.includes(process.arch),
+  )?.browser_download_url;
+}
+
 async function check(): Promise<void> {
   lastCheckTs = Date.now();
   try {
@@ -84,6 +101,7 @@ async function check(): Promise<void> {
       tag_name?: string;
       html_url?: string;
       prerelease?: boolean;
+      assets?: Array<{ name?: string; browser_download_url?: string }>;
     };
     if (json.prerelease) return; // 预发布不推给用户
     const version = (json.tag_name ?? '').replace(/^v/, '');
@@ -92,6 +110,7 @@ async function check(): Promise<void> {
       latest = {
         version,
         htmlUrl: json.html_url ?? `https://github.com/${REPO}/releases`,
+        zipUrl: pickDarwinZip(json.assets),
       };
       // 同一版本只广播一次,避免周期检测反复刷事件
       if (isNewFinding) broadcast({ state: 'available', version });
@@ -116,8 +135,11 @@ const STALL_TIMEOUT_MS = 60_000;
 /** 本次下载是否拿到了 Content-Length(决定后续广播是否带 percent) */
 let downloadHadLength = false;
 
-/** 从 update.electronjs.org feed 解析 zip 直链,流式下载并广播百分比 */
-async function downloadUpdate(version: string): Promise<string> {
+/** 解析本版 zip 直链:首选 check() 从 GitHub release 拿到的 asset 直链
+ *  (与胶囊同源,即时一致,无第三方索引延迟);缺失才回退
+ *  update.electronjs.org feed。 */
+async function resolveZipUrl(): Promise<string> {
+  if (latest?.zipUrl) return latest.zipUrl;
   const feedRes = await fetch(
     `https://update.electronjs.org/${REPO}/darwin-${process.arch}/${app.getVersion()}`,
     {
@@ -129,6 +151,12 @@ async function downloadUpdate(version: string): Promise<string> {
   if (!feedRes.ok) throw new Error(`feed: HTTP ${feedRes.status}`);
   const feed = (await feedRes.json()) as { url?: string };
   if (!feed.url) throw new Error('feed: missing url');
+  return feed.url;
+}
+
+/** 解析 zip 直链,流式下载并广播百分比 */
+async function downloadUpdate(version: string): Promise<string> {
+  const zipUrl = await resolveZipUrl();
 
   // 弱网断流兜底:STALL_TIMEOUT_MS 内无新字节即中止,立刻走 fallback,
   // 不让用户干等 15 分钟看门狗
@@ -138,7 +166,7 @@ async function downloadUpdate(version: string): Promise<string> {
     STALL_TIMEOUT_MS,
   );
   try {
-    const res = await fetch(feed.url, { signal: ctrl.signal });
+    const res = await fetch(zipUrl, { signal: ctrl.signal });
     if (!res.ok || !res.body) throw new Error(`download: HTTP ${res.status}`);
     const total = Number(res.headers.get('content-length') ?? 0);
     downloadHadLength = total > 0;
