@@ -282,8 +282,10 @@
   cursor: default;
 }
 
+/* 有真实百分比时背景就是进度条(inline gradient),不再脉冲;
+   仅 checking 与无进度的 downloading 用脉冲表示"在动" */
 .sidebar-update-pill--checking,
-.sidebar-update-pill--downloading {
+.sidebar-update-pill--downloading.sidebar-update-pill--indeterminate {
   animation: update-pulse 1.6s ease-in-out infinite;
 }
 

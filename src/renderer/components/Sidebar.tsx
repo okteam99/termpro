@@ -52,26 +52,48 @@ function UpdatePill() {
   const [ev, setEv] = useState<{
     state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
     version?: string;
+    percent?: number;
   } | null>(null);
 
   useEffect(() => window.termpro.onUpdateEvent(setEv), []);
 
   if (!ev) return null;
+  // 真实下载进度(主进程流式下载广播);无 Content-Length 时退回脉冲动画
+  const percent = ev.state === 'downloading' ? ev.percent : undefined;
   const label =
     ev.state === 'available'
       ? `⬆ 新版本 v${ev.version} — 点击升级`
       : ev.state === 'checking'
         ? '正在连接更新源…'
         : ev.state === 'downloading'
-          ? '下载中(约 120MB,完成后自动重启)…'
+          ? percent != null
+            ? `下载中 ${percent}%(完成后自动重启)`
+            : '下载中(完成后自动重启)…'
           : ev.state === 'restarting'
             ? '即将重启完成升级…'
             : '自动升级失败,已打开发布页';
 
+  const progressStyle: React.CSSProperties =
+    percent != null
+      ? {
+          background: `linear-gradient(90deg, var(--accent) ${percent}%, var(--bg-active) ${percent}%)`,
+          color: '#fff',
+        }
+      : {};
+
   return (
     <button
-      className={`sidebar-update-pill sidebar-update-pill--${ev.state}`}
-      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      className={`sidebar-update-pill sidebar-update-pill--${ev.state}${
+        ev.state === 'downloading' && percent == null
+          ? ' sidebar-update-pill--indeterminate'
+          : ''
+      }`}
+      style={
+        {
+          WebkitAppRegion: 'no-drag',
+          ...progressStyle,
+        } as React.CSSProperties
+      }
       disabled={
         ev.state === 'checking' ||
         ev.state === 'downloading' ||

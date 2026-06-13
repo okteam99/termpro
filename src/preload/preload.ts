@@ -35,11 +35,11 @@ contextBridge.exposeInMainWorld('termpro', {
   },
   /** 订阅更新事件(available/downloading/restarting/error),返回退订函数 */
   onUpdateEvent(
-    callback: (e: { state: string; version?: string }) => void,
+    callback: (e: { state: string; version?: string; percent?: number }) => void,
   ): () => void {
     const listener = (
       _e: unknown,
-      payload: { state: string; version?: string },
+      payload: { state: string; version?: string; percent?: number },
     ) => callback(payload);
     ipcRenderer.on('update:event', listener);
     ipcRenderer.send('update:query');

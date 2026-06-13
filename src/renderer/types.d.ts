@@ -18,6 +18,7 @@ declare global {
         callback: (e: {
           state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
           version?: string;
+          percent?: number;
         }) => void,
       ): () => void;
       installUpdate(): void;
