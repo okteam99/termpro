@@ -40,4 +40,28 @@ describe('fsService.realPath', () => {
       ],
     });
   });
+
+  it('classifies symlinks to files as files', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    const realFile = join(tempDir, 'real.txt');
+    const linkFile = join(tempDir, 'link.txt');
+    await writeFile(realFile, 'ok');
+    await symlink(realFile, linkFile);
+
+    await expect(listDir(tempDir)).resolves.toEqual({
+      entries: [
+        { name: 'link.txt', kind: 'file' },
+        { name: 'real.txt', kind: 'file' },
+      ],
+    });
+  });
+
+  it('keeps broken symlinks as symlinks', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    await symlink(join(tempDir, 'missing'), join(tempDir, 'broken'));
+
+    await expect(listDir(tempDir)).resolves.toEqual({
+      entries: [{ name: 'broken', kind: 'symlink' }],
+    });
+  });
 });

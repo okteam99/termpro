@@ -3,6 +3,21 @@ import os from 'node:os';
 import { join } from 'node:path';
 import { DirEntry } from '../shared/protocol';
 
+const SYMLINK_STAT_TIMEOUT_MS = 100;
+
+async function statSymlinkKind(path: string): Promise<DirEntry['kind']> {
+  return Promise.race([
+    fs.stat(path).then((st) => {
+      if (st.isDirectory()) return 'dir';
+      if (st.isFile()) return 'file';
+      return 'symlink';
+    }).catch(() => 'symlink' as const),
+    new Promise<DirEntry['kind']>((resolve) => {
+      setTimeout(() => resolve('symlink'), SYMLINK_STAT_TIMEOUT_MS);
+    }),
+  ]);
+}
+
 export async function listDir(dirPath: string): Promise<{ entries: DirEntry[] }> {
   const dirents = await fs.readdir(dirPath, { withFileTypes: true });
   const entries: DirEntry[] = await Promise.all(dirents.map(async (d) => {
@@ -13,15 +28,7 @@ export async function listDir(dirPath: string): Promise<{ entries: DirEntry[] }>
         : d.isFile()
           ? 'file'
           : 'other';
-    if (kind === 'symlink') {
-      try {
-        const st = await fs.stat(join(dirPath, d.name));
-        if (st.isDirectory()) kind = 'dir';
-        else if (st.isFile()) kind = 'file';
-      } catch {
-        kind = 'symlink';
-      }
-    }
+    if (kind === 'symlink') kind = await statSymlinkKind(join(dirPath, d.name));
     return { name: d.name, kind };
   }));
   // 目录优先,各自按名称排序

@@ -33,7 +33,7 @@ function openTargetFallback(absPath: string, kind: 'file' | 'dir'): void {
   }
 }
 
-async function openTargetInFilePanelFirst(
+export async function openTargetInFilePanelFirst(
   tabId: string,
   absPath: string,
   kind: 'file' | 'dir',
