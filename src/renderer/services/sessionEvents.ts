@@ -3,8 +3,9 @@
 // 策略:聚焦中的 tab 不打扰;当前 tab(激活工作区的激活 tab,即用户
 // 正看着或回到窗口第一眼就能看到的)无论窗口聚焦与否都不生成通知,
 // 只亮状态点;窗口失焦才发系统通知;软信号(静默)只进应用内徽标与
-// 通知中心,不发系统通知;同一等待期每 tab 只提醒一次(闩锁,用户
-// 回看该 tab 或命令周期翻转才复位)。
+// 通知中心,不发系统通知;每 tab 通知一次后,直到用户回看该 tab
+// (clearAttention)才复位——命令周期翻转(running/idle)不复位,因为
+// Agent 会自驱地反复翻转状态,那不是用户输入,不应解锁重复通知。
 
 import { hostClient } from './hostClient';
 import { findTabBySessionId } from '../terminal/terminalRegistry';
@@ -13,12 +14,11 @@ import { tabPathLabel, useAppStore } from '../state/store';
 let inited = false;
 /** tabId → 最近一次 cmd-done 的退出码(state:idle 到来时消费) */
 const lastExit = new Map<string, number | null>();
-/** 已就「可能在等输入」提醒过的 tab(bell/quiet/notify 共用闩锁)。
- *  codex 等 Agent 输出断续,quiet/bell 信号会反复翻转——闩锁保证
- *  同一等待期只刷一条,直到用户回看或命令周期结束 */
+/** 已通知过的 tab(done/bell/quiet/notify 共用一把闩锁)。一旦为某 tab
+ *  出过通知,在用户回看该 tab(clearAttention)之前不再出第二条——
+ *  Agent 自驱的 running/idle 翻转、断续输出、内容变体的重复 ping 都不
+ *  解锁(均非用户输入)。状态点/角标照常亮,只是不再"通知"。 */
 const waitingNotified = new Set<string>();
-/** tabId → 最近一条 notify 文本(闩锁期内相同内容不重复进通知) */
-const lastNotifyText = new Map<string, string>();
 
 /** 用户正看着的 tab 视为已读:解除其等待提醒闩锁 */
 function clearAttention(): void {
@@ -28,7 +28,6 @@ function clearAttention(): void {
   const tabId = ws?.activeTabId;
   if (!tabId) return;
   waitingNotified.delete(tabId);
-  lastNotifyText.delete(tabId);
 }
 
 export function initSessionEvents(): void {
@@ -55,9 +54,9 @@ export function initSessionEvents(): void {
     switch (event.kind) {
       case 'state': {
         const prev = tab.activity ?? 'idle';
-        // 状态翻转 = 新的命令周期,等待提醒闩锁随之复位
-        waitingNotified.delete(tabId);
-        lastNotifyText.delete(tabId);
+        // 注意:状态翻转不复位闩锁。Agent 的 shell 集成会刷出多轮
+        // running→idle,若每轮都复位就会反复弹通知(本次 review 根因)。
+        // 只有用户回看 tab(clearAttention)才复位。
         if (event.state === 'running') {
           s.updateTab(tabId, { activity: 'running' });
           break;
@@ -74,7 +73,9 @@ export function initSessionEvents(): void {
           waiting: false,
           ...(finishedInBackground ? { unseenDone: true } : {}),
         });
-        if (finishedInBackground) {
+        // 角标(unseenDone)照常亮;但通知每 tab 只出一次,回看才复位
+        if (finishedInBackground && !waitingNotified.has(tabId)) {
+          waitingNotified.add(tabId);
           const text =
             ec === undefined || ec === null
               ? `${label} · 命令完成`
@@ -110,12 +111,10 @@ export function initSessionEvents(): void {
           s.updateTab(tabId, { waiting: true });
         }
         if (isCurrentTab) break; // 当前 tab:亮状态点即可,不进通知
-        // 闩锁期内相同内容不重复进通知(Agent 重复 ping);新内容放行
-        if (waitingNotified.has(tabId) && lastNotifyText.get(tabId) === text) {
-          break;
-        }
+        // 每 tab 只通知一次(Agent 会重复 ping,内容变体也不放行),
+        // 回看该 tab 才复位
+        if (waitingNotified.has(tabId)) break;
         waitingNotified.add(tabId);
-        lastNotifyText.set(tabId, text);
         s.pushNotification({ workspaceId: ws.id, tabId, kind: 'notify', text });
         osNotify(event.title || 'TermPro', event.body, ws.id, tabId);
         break;
@@ -169,9 +168,6 @@ export function initSessionEvents(): void {
     }
     for (const id of [...waitingNotified]) {
       if (!liveTabs.has(id)) waitingNotified.delete(id);
-    }
-    for (const id of [...lastNotifyText.keys()]) {
-      if (!liveTabs.has(id)) lastNotifyText.delete(id);
     }
     if (count !== lastBadge) {
       lastBadge = count;
