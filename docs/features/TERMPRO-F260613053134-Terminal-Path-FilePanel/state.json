@@ -35,7 +35,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -118,17 +118,62 @@
       "duration_minutes": 48
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T06:53:53Z",
+      "completed_at": "2026-06-13T07:03:07Z",
+      "auto_commit": "1d932fca40400d5c960a3eef8215731f70c4e43b",
+      "artifacts": [
+        "docs/features/TERMPRO-F260613053134-Terminal-Path-FilePanel/state.json",
+        "docs/features/TERMPRO-F260613053134-Terminal-Path-FilePanel/review-log.jsonl",
+        "src/shared/protocol.ts",
+        "src/host/fsService.ts",
+        "src/host/host.ts",
+        "src/host/__tests__/fsService.test.ts",
+        "src/renderer/filepanel/pathContainment.ts",
+        "src/renderer/filepanel/locateRegistry.ts",
+        "src/renderer/filepanel/types.ts",
+        "src/renderer/filepanel/core.ts",
+        "src/renderer/filepanel/controller.ts",
+        "src/renderer/filepanel/deps.ts",
+        "src/renderer/filepanel/useFilePanel.ts",
+        "src/renderer/filepanel/__tests__/pathContainment.test.ts",
+        "src/renderer/filepanel/__tests__/locateRegistry.test.ts",
+        "src/renderer/filepanel/__tests__/locateTarget.test.ts",
+        "src/renderer/filepanel/__tests__/controller.test.ts",
+        "src/renderer/components/FilePanel.tsx",
+        "src/renderer/components/FilePanel.css",
+        "src/renderer/terminal/terminalLinks.ts",
+        "src/renderer/terminal/terminalRegistry.ts",
+        "src/renderer/terminal/terminalLinkParse.ts",
+        "src/main/updater.ts",
+        "src/renderer/App.tsx",
+        "src/renderer/components/viewer/DiffPanel.tsx",
+        "src/renderer/components/viewer/FileView.tsx",
+        "src/renderer/components/viewer/MarkdownPreview.tsx",
+        "src/renderer/monaco/setup.ts"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "npm test: PASS (12 files, 124 tests); npm run typecheck: PASS; npm run lint: PASS (warnings only)"
+      },
+      "duration_minutes": 9
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T06:53:53Z"
+      "started_at": "2026-06-13T07:03:07Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
     "panorama_sync",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-06-13T05:34:23Z",
   "stage_review_roles": {
@@ -169,11 +214,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T06:53:53Z",
+  "updated_at": "2026-06-13T07:03:07Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:7367154020903286770dc0fde2a5561f525ebb87a6d2ac94f97e669e7110dcfe",
+  "_state_checksum": "sha256:0c2f835d770f54409f3928768820bb9fb36f1bdbf28ef8f5f9ad9e46caead86e",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
