@@ -2,3 +2,4 @@
 {"at": "2026-06-13T04:47:15Z", "event": "stage_completed", "stage": "blueprint_lite", "auto_commit": "49908a51dcfed769ec05e32ee816d8d9dba1a232", "duration_minutes": 1, "artifacts": ["TC.md"]}
 {"at": "2026-06-13T04:56:20Z", "event": "stage_completed", "stage": "dev", "auto_commit": "21f6119e193ed17cc636f6708f7b66f35632401f", "duration_minutes": 9, "artifacts": ["src/renderer/services/quietGate.ts", "src/renderer/services/__tests__/quietNotify.test.ts", "src/renderer/services/sessionEvents.ts", "src/renderer/terminal/terminalRegistry.ts"]}
 {"at": "2026-06-13T05:01:50Z", "event": "stage_completed", "stage": "review", "auto_commit": "9bcb00bbc544cea2c4956b2b75f458e787cc1e8f", "duration_minutes": 5, "artifacts": ["REVIEW.md", "REVIEW-arch.md", "REVIEW-qa.md"]}
+{"at": "2026-06-13T05:05:55Z", "event": "stage_completed", "stage": "test", "auto_commit": "394ec4916ce05dce94d35b5f60f9288c056814bf", "duration_minutes": 4, "artifacts": ["TEST-REPORT.md", "e2e/"]}
