@@ -370,6 +370,17 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
 
   // 点击 mermaid 图 → 灯箱(传原始源码,灯箱内重新渲染)
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const link = (e.target as Element).closest<HTMLAnchorElement>('a[href]');
+    if (link) {
+      const href = link.href || link.getAttribute('href') || '';
+      if (/^https?:\/\//i.test(href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.termpro.openExternal(href);
+        return;
+      }
+    }
+
     const el = (e.target as Element).closest<HTMLElement>('.md-mermaid');
     if (!el) return;
     const key = el.getAttribute('data-mmd');

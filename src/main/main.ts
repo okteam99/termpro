@@ -14,6 +14,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { registerAppStore } from './appStore';
+import { installExternalUrlPolicy } from './externalUrlPolicy';
 import { initUpdater } from './updater';
 
 if (started) {
@@ -256,6 +257,9 @@ function openFileWindow(filePath: string): void {
       sandbox: true,
     },
   });
+  installExternalUrlPolicy(fileWin, {
+    devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
+  });
   fileWin.on('closed', () => {
     fileWin = null;
   });
@@ -276,6 +280,9 @@ function openDiffWindow(payload: unknown): void {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  installExternalUrlPolicy(diffWin, {
+    devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   });
   diffWin.on('closed', () => {
     diffWin = null;
@@ -357,6 +364,9 @@ const createWindow = () => {
         ...(isDevChannel ? ['--termpro-dev'] : []),
       ],
     },
+  });
+  installExternalUrlPolicy(mainWindow, {
+    devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   });
 
   if (process.env.TERMPRO_SMOKE || process.env.TERMPRO_DEBUG) {
