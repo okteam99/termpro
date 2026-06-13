@@ -107,6 +107,7 @@ function makeFakeDeps(): FakeDepsControl {
   const persistExpanded = vi.fn();
 
   const deps: FilePanelDeps = {
+    platform: 'darwin',
     getSessionId: (tabId) => getSessionId(tabId),
     ptyCwd: (...args) => ptyCwd.mock(...args),
     gitInfo: (...args) => gitInfo.mock(...args),

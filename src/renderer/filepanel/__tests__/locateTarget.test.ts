@@ -35,6 +35,7 @@ function makeDeps(tree: Record<string, DirEntry[]>): FakeDeps {
   const persistMode = vi.fn();
   const readdir = vi.fn(async (path: string) => ({ entries: tree[path] ?? [] }));
   const deps: FilePanelDeps = {
+    platform: 'darwin',
     getSessionId: () => null,
     ptyCwd: async () => ({ cwd: '/repo' }),
     gitInfo: async () => gitInfo('/repo'),
@@ -142,5 +143,101 @@ describe('FilePanelController locateTarget', () => {
     await expect(locating).resolves.toBe(true);
     expect(ctrl.getSnapshot().effectiveRoot).toBe('/other');
     expect(ctrl.getSnapshot().locateHighlightPath).toBeNull();
+  });
+
+  it('loads a directory target before marking it expanded', async () => {
+    const fake = makeDeps({
+      '/repo': entries(['src', 'dir']),
+      '/repo/src': entries(['App.tsx', 'file']),
+    });
+    const ctrl = makeController(fake);
+    ctrl.setInputs(makeInputs());
+    await flush();
+
+    await expect(ctrl.locateTarget({ id: 5, path: '/repo/src', kind: 'dir', sourceTabId: 't1' })).resolves.toBe(true);
+
+    const view = ctrl.getSnapshot();
+    expect(view.expanded.has('/repo/src')).toBe(true);
+    expect(view.cache.get('/repo/src')).toEqual(entries(['App.tsx', 'file']));
+    expect(view.locateHighlightPath).toBe('/repo/src');
+    expect(view.locateScrollPath).toBe('/repo/src');
+    expect(fake.readdir).toHaveBeenCalledWith('/repo/src');
+  });
+
+  it('does not case-fold missing rows on non-darwin hosts', async () => {
+    const fake = makeDeps({
+      '/repo': entries(['src', 'dir']),
+      '/repo/src': entries(['App.tsx', 'file']),
+    });
+    fake.deps.platform = 'linux';
+    const ctrl = makeController(fake);
+    ctrl.setInputs(makeInputs());
+    await flush();
+
+    await expect(ctrl.locateTarget({ id: 6, path: '/repo/SRC/App.tsx', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
+
+    const view = ctrl.getSnapshot();
+    expect(view.expanded.has('/repo/src')).toBe(false);
+    expect(view.locateHighlightPath).toBeNull();
+  });
+
+  it('rejects display containment when realpath escapes the root', async () => {
+    const fake = makeDeps({
+      '/repo': entries(['link', 'dir']),
+      '/repo/link': entries(['file.ts', 'file']),
+    });
+    fake.deps.realpath = async (path: string) => ({
+      path: path === '/repo/link/file.ts' ? '/private/tmp/file.ts' : path,
+    });
+    const ctrl = makeController(fake);
+    ctrl.setInputs(makeInputs());
+    await flush();
+
+    await expect(ctrl.locateTarget({ id: 7, path: '/repo/link/file.ts', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
+
+    const view = ctrl.getSnapshot();
+    expect(view.expanded.has('/repo/link')).toBe(false);
+    expect(view.locateHighlightPath).toBeNull();
+  });
+
+  it('returns false without mutation when a required directory cannot be read', async () => {
+    const rootEntries = entries(['src', 'dir']);
+    const fake = makeDeps({
+      '/repo': rootEntries,
+    });
+    fake.deps.readdir = vi.fn(async (path: string) => {
+      if (path === '/repo/src') throw new Error('unreadable');
+      return { entries: path === '/repo' ? rootEntries : [] };
+    });
+    const ctrl = makeController(fake);
+    ctrl.setInputs(makeInputs());
+    await flush();
+
+    await expect(ctrl.locateTarget({ id: 8, path: '/repo/src/App.tsx', kind: 'file', sourceTabId: 't1' })).resolves.toBe(false);
+
+    const view = ctrl.getSnapshot();
+    expect(view.expanded.has('/repo/src')).toBe(false);
+    expect(view.cache.has('/repo/src')).toBe(false);
+    expect(view.locateHighlightPath).toBeNull();
+  });
+
+  it('uses display segments for in-root symlink paths', async () => {
+    const fake = makeDeps({
+      '/repo': entries(['link', 'dir']),
+      '/repo/link': entries(['file.ts', 'file']),
+    });
+    fake.deps.realpath = async (path: string) => ({
+      path: path === '/repo/link/file.ts' ? '/repo/real/file.ts' : path,
+    });
+    const ctrl = makeController(fake);
+    ctrl.setInputs(makeInputs());
+    await flush();
+
+    await expect(ctrl.locateTarget({ id: 9, path: '/repo/link/file.ts', kind: 'file', sourceTabId: 't1' })).resolves.toBe(true);
+
+    const view = ctrl.getSnapshot();
+    expect(view.expanded.has('/repo/link')).toBe(true);
+    expect(view.locateHighlightPath).toBe('/repo/link/file.ts');
+    expect(view.locateHighlightPath).not.toBe('/repo/real/file.ts');
   });
 });

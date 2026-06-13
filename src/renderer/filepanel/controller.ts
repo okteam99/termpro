@@ -138,7 +138,13 @@ export class FilePanelController {
     const candidate = await this.chooseLocateCandidate(target);
     if (!candidate) return this.isLocateStale(target.id, generation) ? true : false;
 
-    const loaded = await this.loadLocateChain(target, candidate);
+    let loaded: Awaited<ReturnType<typeof this.loadLocateChain>>;
+    try {
+      loaded = await this.loadLocateChain(target, candidate);
+    } catch {
+      console.warn('[filepanel] locate fallback', 'readdir-failed');
+      return this.isLocateStale(target.id, generation) ? true : false;
+    }
     if (!loaded) return this.isLocateStale(target.id, generation) ? true : false;
     if (this.isLocateStale(target.id, generation)) return true;
 
@@ -333,7 +339,9 @@ export class FilePanelController {
     for (let i = 0; i < candidate.parts.length; i++) {
       if (this.isLocateStale(target.id, this.state.activeLocateGeneration ?? -1)) return null;
       const entries = await entriesFor(parent);
-      const entry = matchEntry(entries, candidate.parts[i], { darwinTrusted: true });
+      const entry = matchEntry(entries, candidate.parts[i], {
+        darwinTrusted: this.deps.platform === 'darwin',
+      });
       if (!entry) {
         console.warn('[filepanel] locate fallback', 'missing-row');
         return null;
@@ -346,7 +354,10 @@ export class FilePanelController {
       }
     }
 
-    if (target.kind === 'dir') requiredExpanded.add(current);
+    if (target.kind === 'dir') {
+      requiredExpanded.add(current);
+      await entriesFor(current);
+    }
 
     return {
       topEntries,

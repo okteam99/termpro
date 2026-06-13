@@ -1,18 +1,28 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
+import { join } from 'node:path';
 import { DirEntry } from '../shared/protocol';
 
-export async function listDir(path: string): Promise<{ entries: DirEntry[] }> {
-  const dirents = await fs.readdir(path, { withFileTypes: true });
-  const entries: DirEntry[] = dirents.map((d) => ({
-    name: d.name,
-    kind: d.isDirectory()
+export async function listDir(dirPath: string): Promise<{ entries: DirEntry[] }> {
+  const dirents = await fs.readdir(dirPath, { withFileTypes: true });
+  const entries: DirEntry[] = await Promise.all(dirents.map(async (d) => {
+    let kind: DirEntry['kind'] = d.isDirectory()
       ? 'dir'
       : d.isSymbolicLink()
         ? 'symlink'
         : d.isFile()
           ? 'file'
-          : 'other',
+          : 'other';
+    if (kind === 'symlink') {
+      try {
+        const st = await fs.stat(join(dirPath, d.name));
+        if (st.isDirectory()) kind = 'dir';
+        else if (st.isFile()) kind = 'file';
+      } catch {
+        kind = 'symlink';
+      }
+    }
+    return { name: d.name, kind };
   }));
   // 目录优先,各自按名称排序
   entries.sort((a, b) => {

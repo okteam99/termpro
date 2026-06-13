@@ -4,6 +4,7 @@ export type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
 
 /** Controller 的全部副作用入口。生产实现包 hostClient;测试注入 fake。 */
 export interface FilePanelDeps {
+  platform: string | null;
   getSessionId(tabId: string): string | null;          // registry 实时读(spawn 不触发 React 渲染,必须每次现查)
   ptyCwd(sessionId: string): Promise<{ cwd: string | null }>;
   gitInfo(cwd: string): Promise<GitInfo>;

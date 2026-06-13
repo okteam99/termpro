@@ -1,8 +1,8 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { realPath } from '../fsService';
+import { listDir, realPath } from '../fsService';
 
 let tempDir: string | null = null;
 
@@ -24,5 +24,20 @@ describe('fsService.realPath', () => {
   it('returns null for missing paths', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
     await expect(realPath(join(tempDir, 'missing.txt'))).resolves.toEqual({ path: null });
+  });
+
+  it('classifies symlinks to directories as expandable directories', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    const realDir = join(tempDir, 'real');
+    const linkDir = join(tempDir, 'link');
+    await mkdir(realDir);
+    await symlink(realDir, linkDir);
+
+    await expect(listDir(tempDir)).resolves.toEqual({
+      entries: [
+        { name: 'link', kind: 'dir' },
+        { name: 'real', kind: 'dir' },
+      ],
+    });
   });
 });

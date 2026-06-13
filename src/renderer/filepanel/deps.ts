@@ -7,6 +7,8 @@ import type { FilePanelDeps } from './types';
 
 export function makeHostDeps(): FilePanelDeps {
   return {
+    platform: hostClient.info?.platform ?? null,
+
     getSessionId(tabId) {
       return getSessionId(tabId);
     },
