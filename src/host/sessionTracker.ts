@@ -4,7 +4,7 @@
 
 import { SessionEvent } from '../shared/protocol';
 
-export const QUIET_MS = 10_000;
+export const QUIET_MS = 60_000;
 /** OSC 133 静默超过该时长后,进程名信号重新接管(防 exec 进无注入 shell 后状态冻结) */
 export const OSC133_STALE_MS = 15_000;
 

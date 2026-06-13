@@ -132,7 +132,7 @@ export function initSessionEvents(): void {
                 workspaceId: ws.id,
                 tabId,
                 kind: 'waiting',
-                text: `${label} · 静默 10s+,可能在等输入`,
+                text: `${label} · 静默 1 分钟+,可能在等输入`,
               });
             }
           }
