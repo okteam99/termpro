@@ -35,7 +35,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "pm_acceptance",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -208,10 +208,38 @@
       "duration_minutes": 40
     },
     "test": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T07:43:45Z",
+      "completed_at": "2026-06-13T07:45:25Z",
+      "auto_commit": "b48981c",
+      "artifacts": [
+        "TEST-REPORT.md",
+        "e2e/"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "integration_test_exit_code": 0,
+        "e2e_test_exit_code": 0
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-06-13T07:43:45Z",
+          "completed_at": "2026-06-13T07:45:25Z",
+          "test_commit": "b48981c",
+          "integration_test_exit_code": 0,
+          "e2e_test_exit_code": 0
+        }
+      ],
+      "duration_minutes": 1
+    },
+    "pm_acceptance": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T07:43:45Z"
+      "started_at": "2026-06-13T07:45:25Z"
     }
   },
   "completed_stages": [
@@ -220,7 +248,8 @@
     "panorama_sync",
     "blueprint",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-06-13T05:34:23Z",
   "stage_review_roles": {
@@ -261,12 +290,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T07:43:45Z",
+  "updated_at": "2026-06-13T07:45:25Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:ef64887929f58b61f71606a1926269ebfcec9c8b8a16ec50e55a12639a2235cc",
+  "_state_checksum": "sha256:20dfe575a23be66117c530a43a440376fef57f033fb25119ac0fdf74cfa13b12",
   "legal_next_stages": [
-    "browser_e2e",
-    "pm_acceptance"
+    "ship",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
