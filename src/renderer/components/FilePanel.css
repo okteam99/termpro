@@ -308,7 +308,7 @@
 }
 
 .file-panel__row--git-untracked > .file-panel__name {
-  color: #98c379;
+  color: #e06c75;
 }
 
 .file-panel__row--git-deleted > .file-panel__name {
