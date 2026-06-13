@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "blueprint_lite",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -33,13 +33,30 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T04:22:55Z",
+      "completed_at": "2026-06-13T04:45:46Z",
+      "auto_commit": "d5bcb5b84f5746d6a6e7d1caf84d2012556a05ef",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 22
+    },
+    "blueprint_lite": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T04:22:55Z"
+      "started_at": "2026-06-13T04:45:46Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal"
+  ],
   "created_at": "2026-06-13T04:22:46Z",
   "stage_review_roles": {
     "goal": [
@@ -63,10 +80,13 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T04:22:55Z",
+  "updated_at": "2026-06-13T04:45:46Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:9297fb4f2640bd7fd8bfbc4385b6e1a858819eb2eee5384dec2cb63b4b41ad08",
+  "_state_checksum": "sha256:03ecbaab1b97632a26d4da0a6bcd9aaad334ee3a33abd2dcbd5bc7be0abccccd",
   "legal_next_stages": [
-    "blueprint_lite"
-  ]
+    "dev"
+  ],
+  "execution_hints": {
+    "ui_design_needed": false
+  }
 }
