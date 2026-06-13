@@ -33,9 +33,15 @@
       "at": "2026-06-13T06:06:04Z",
       "source": "blueprint-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-06-13T11:02:42Z",
+      "source": "ship-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "pm_acceptance",
+  "current_stage": "ship",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -236,10 +242,25 @@
       "duration_minutes": 1
     },
     "pm_acceptance": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T07:45:25Z",
+      "evidence": {
+        "decision": "approved_and_ship",
+        "note": ""
+      },
+      "completed_at": "2026-06-13T11:02:28Z",
+      "auto_commit": "7663e17",
+      "artifacts": [],
+      "cited_specs": [],
+      "duration_minutes": 197
+    },
+    "ship": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T07:45:25Z"
+      "started_at": "2026-06-13T11:02:28Z"
     }
   },
   "completed_stages": [
@@ -249,7 +270,8 @@
     "blueprint",
     "dev",
     "review",
-    "test"
+    "test",
+    "pm_acceptance"
   ],
   "created_at": "2026-06-13T05:34:23Z",
   "stage_review_roles": {
@@ -290,12 +312,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T07:45:25Z",
+  "updated_at": "2026-06-13T11:02:42Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:20dfe575a23be66117c530a43a440376fef57f033fb25119ac0fdf74cfa13b12",
+  "_state_checksum": "sha256:fe00fdbe4b7d1c9370ffd18298b611638dc8d9fb76961df1855ae8097e08dc63",
   "legal_next_stages": [
-    "ship",
-    "dev"
+    "completed"
   ],
   "execution_hints": {
     "ui_design_needed": true,
