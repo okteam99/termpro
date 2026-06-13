@@ -26,6 +26,9 @@ export interface FilePanelInputs {
   rootPath: string | undefined;         // tab 持久化绑定
   worktreePath: string | undefined;
   fallbackCwd: string;                  // tab.cwd ?? workspace.root ?? ''
+  /** 该 tab 持久化的已展开目录(绝对路径)。仅在切到本 tab 时用于恢复展开态;
+   *  不参与 inputs 全等短路与重解析判定(避免回写自激)。 */
+  initialExpanded: string[];
 }
 
 export interface FilePanelState {
@@ -78,6 +81,7 @@ export type FilePanelEffect =
   | { k: 'fetchStatus'; root: string; seq: number }
   | { k: 'fetchChild'; root: string; absPath: string }
   | { k: 'lockRoot'; tabId: string; rootPath: string }
+  | { k: 'persistExpanded'; tabId: string; expanded: string[] }
   | { k: 'partialRefreshTree'; root: string; topSeq: number; expanded: string[] };
 
 export interface ReduceOutput { state: FilePanelState; effects: FilePanelEffect[]; }

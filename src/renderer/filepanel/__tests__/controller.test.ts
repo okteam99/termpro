@@ -85,6 +85,7 @@ interface FakeDepsControl {
   emitFs(watchId: number): void;
   getSessionId: ReturnType<typeof vi.fn>;
   lockRoot: ReturnType<typeof vi.fn>;
+  persistExpanded: ReturnType<typeof vi.fn>;
   deps: FilePanelDeps;
 }
 
@@ -101,6 +102,7 @@ function makeFakeDeps(): FakeDepsControl {
 
   const getSessionId = vi.fn((_tabId: string) => 'sid-default');
   const lockRoot = vi.fn();
+  const persistExpanded = vi.fn();
 
   const deps: FilePanelDeps = {
     getSessionId: (tabId) => getSessionId(tabId),
@@ -126,12 +128,13 @@ function makeFakeDeps(): FakeDepsControl {
     emitFs: (watchId) => { fsListeners.forEach((cb) => cb(watchId)); },
     getSessionId,
     lockRoot,
+    persistExpanded,
     deps,
   };
 }
 
 function makeInputs(patch: Partial<FilePanelInputs> = {}): FilePanelInputs {
-  return { tabId: 't1', mode: 'root', rootPath: undefined, worktreePath: undefined, fallbackCwd: '/repo', ...patch };
+  return { tabId: 't1', mode: 'root', rootPath: undefined, worktreePath: undefined, fallbackCwd: '/repo', initialExpanded: [], ...patch };
 }
 
 async function flush() {
@@ -152,7 +155,7 @@ describe('FilePanelController', () => {
   // 1. 首启持久化 rootPath,着色不缺席(防回归 0907491)
   it('首启:readdir 先到,着色等 worktrees 到位后补拉', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -191,7 +194,7 @@ describe('FilePanelController', () => {
 
   it('首启:resolve 链先到,readdir 后到,着色结论相同', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -222,7 +225,7 @@ describe('FilePanelController', () => {
   // 2. tab 快速切换飞行丢弃
   it('tab 快速切换:t1 的飞行结果不污染 t2', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: undefined, fallbackCwd: '/repo1' }));
     await flush();
@@ -271,7 +274,7 @@ describe('FilePanelController', () => {
   // 3. 手动 ⟳ 重解析 cwd(防回归场景③)
   it('手动 refresh:ptyCwd/gitInfo/gitWorktrees 再次被调,readdir 再次被调,watch 不重建', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -333,7 +336,7 @@ describe('FilePanelController', () => {
   // 4. watch 刷新保展开
   it('watch 触发 refresh:expanded 保留,topEntries 更新,watchId 不变', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -398,7 +401,7 @@ describe('FilePanelController', () => {
   // 5. debounce 合并
   it('debounce:emitFs ×3 快速触发,refresh 流程只跑一次', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -437,7 +440,7 @@ describe('FilePanelController', () => {
   // 6. stale watch 补 unwatch
   it('stale watch:setInputs 切换 root 后,旧 watch promise 成功时补 unwatch', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/a', fallbackCwd: '/a' }));
     await flush();
@@ -476,7 +479,7 @@ describe('FilePanelController', () => {
   // 7. StrictMode 双实例不泄漏
   it('StrictMode 双实例:ctrl1 dispose 后飞行结果不影响后续调用,ctrl2 正常出全量 snapshot', async () => {
     const fake1 = makeFakeDeps();
-    const ctrl1 = new FilePanelController({ deps: fake1.deps, lockRoot: fake1.lockRoot });
+    const ctrl1 = new FilePanelController({ deps: fake1.deps, lockRoot: fake1.lockRoot, persistExpanded: fake1.persistExpanded });
     ctrl1.start();
     ctrl1.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -496,7 +499,7 @@ describe('FilePanelController', () => {
 
     // ctrl2(新实例,独立 fake)
     const fake2 = makeFakeDeps();
-    const ctrl2 = new FilePanelController({ deps: fake2.deps, lockRoot: fake2.lockRoot });
+    const ctrl2 = new FilePanelController({ deps: fake2.deps, lockRoot: fake2.lockRoot, persistExpanded: fake2.persistExpanded });
     ctrl2.start();
     ctrl2.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -524,7 +527,7 @@ describe('FilePanelController', () => {
   // 8. Root 锁定恰好一次 + 同值不重拉树
   it('Root 锁定恰好一次,同值 rootPath 回写不重拉树', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: undefined, fallbackCwd: '/repo' }));
     await flush();
@@ -580,7 +583,7 @@ describe('FilePanelController', () => {
   // gitStatus 返回空 entries → statusMap/dirtyDirs 空;gitInfo.toplevel===null
   it('非 git:gitInfo 全 null、gitWorktrees 失败,statusMap/dirtyDirs 为空,topEntries 正常', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/plain', fallbackCwd: '/plain' }));
     await flush();
@@ -619,7 +622,7 @@ describe('FilePanelController', () => {
   // 验证语义:rootPath 锁定情况下,cd 漂移触发 resolve 重跑,但 effectiveRoot 不变所以树不重拉
   it('cd 轮询:同值不触发 resolve;漂移触发 resolve 不重拉树', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
     await flush();
@@ -693,7 +696,7 @@ describe('FilePanelController', () => {
     const fake = makeFakeDeps();
     fake.getSessionId.mockReturnValue(null); // 初始 null
 
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: undefined, fallbackCwd: '/repo' }));
     await flush();
@@ -717,7 +720,7 @@ describe('FilePanelController', () => {
   // 12. WorkTree 未绑定 + cd 漂移:轮询驱动 resolveDone 内 effectiveRoot 改变 → 整树重建
   it('WorkTree 模式无绑定时 cd 漂移 → 停旧 watch、重置展开、重拉新根树与着色', async () => {
     const fake = makeFakeDeps();
-    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot });
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
     ctrl.start();
     ctrl.setInputs(
       makeInputs({ tabId: 't1', mode: 'worktree', rootPath: undefined, fallbackCwd: '/repoA' }),
@@ -784,6 +787,58 @@ describe('FilePanelController', () => {
     await flush();
     expect(ctrl.getSnapshot().topEntries[0]?.name).toBe('b.ts');
     expect(ctrl.getSnapshot().statusMap.get('b.ts')).toBe('untracked');
+
+    ctrl.dispose();
+  });
+
+  // 13. 展开态持久化 + 切 tab 恢复(端到端,经真实 effect)
+  it('toggleDir 持久化展开;切到带 initialExpanded 的 tab 恢复展开并补拉子目录', async () => {
+    const fake = makeFakeDeps();
+    const ctrl = new FilePanelController({ deps: fake.deps, lockRoot: fake.lockRoot, persistExpanded: fake.persistExpanded });
+    ctrl.start();
+    ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo' }));
+    await flush();
+
+    // 稳态
+    fake.ptyCwd.resolveNext({ cwd: '/repo' });
+    await flush();
+    fake.gitInfo.resolveNext(makeGitInfo('/repo'));
+    await flush();
+    fake.gitWorktrees.resolveNext({ worktrees: [wt('/repo')] });
+    await flush();
+    fake.readdir.resolveNext({ entries: ENTRIES });
+    await flush();
+    fake.watch.resolveNext({ watchId: 20 });
+    await flush();
+    fake.gitStatus.resolveNext({ entries: [] });
+    await flush();
+
+    // 展开一个目录 → persistExpanded 写回该 tab
+    ctrl.toggleDir('/repo/src');
+    await flush();
+    expect(fake.persistExpanded).toHaveBeenCalledWith('t1', ['/repo/src']);
+    fake.readdir.resolveNext({ entries: [{ name: 'index.ts', kind: 'file' }] });
+    await flush();
+    expect(ctrl.getSnapshot().cache.has('/repo/src')).toBe(true);
+
+    // 切到 t2(不同根),再切回 t1 并带回持久化展开集
+    ctrl.setInputs(makeInputs({ tabId: 't2', rootPath: '/repo2', fallbackCwd: '/repo2' }));
+    await flush();
+    expect(ctrl.getSnapshot().expanded.size).toBe(0); // t2 无展开
+
+    const readdirBeforeReturn = fake.readdir.callCount();
+    ctrl.setInputs(makeInputs({ tabId: 't1', rootPath: '/repo', fallbackCwd: '/repo', initialExpanded: ['/repo/src'] }));
+    await flush();
+
+    // 回到 t1:展开态恢复
+    expect(ctrl.getSnapshot().expanded.has('/repo/src')).toBe(true);
+    // 顶层 + 展开子目录都补拉(缓存随根切换已清)
+    fake.readdir.resolveNext({ entries: ENTRIES }); // 顶层
+    await flush();
+    expect(fake.readdir.callCount()).toBeGreaterThan(readdirBeforeReturn);
+    // 子目录补拉请求中应含 /repo/src
+    const childCalls = fake.readdir.calls.slice(readdirBeforeReturn).map((c) => c.args[0]);
+    expect(childCalls).toContain('/repo/src');
 
     ctrl.dispose();
   });

@@ -11,6 +11,8 @@ export interface TabFilePanelState {
   rootPath?: string;
   /** WorkTree 视图绑定的工作区根;未设置时默认 = 会话所在工作区根 */
   worktreePath?: string;
+  /** 文件树已展开目录(绝对路径);每个 tab 独立,切 tab/工作区/重启后恢复展开态 */
+  expanded?: string[];
 }
 
 export interface TabState {

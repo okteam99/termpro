@@ -16,6 +16,7 @@ import type {
 export interface ControllerOpts {
   deps: FilePanelDeps;
   lockRoot(tabId: string, rootPath: string): void;
+  persistExpanded(tabId: string, expanded: string[]): void;
 }
 
 export class FilePanelController {
@@ -181,6 +182,9 @@ export class FilePanelController {
         break;
       case 'lockRoot':
         this.opts.lockRoot(eff.tabId, eff.rootPath);
+        break;
+      case 'persistExpanded':
+        this.opts.persistExpanded(eff.tabId, eff.expanded);
         break;
       case 'partialRefreshTree':
         void this.runPartialRefresh(eff);

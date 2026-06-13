@@ -69,6 +69,7 @@ export function FilePanel() {
     rootPath: fp?.rootPath,
     worktreePath: fp?.worktreePath,
     fallbackCwd: activeTab?.cwd ?? workspace?.root ?? '',
+    initialExpanded: fp?.expanded ?? [],
   });
   const {
     effectiveRoot,

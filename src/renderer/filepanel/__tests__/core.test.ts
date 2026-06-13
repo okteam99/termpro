@@ -20,6 +20,7 @@ function makeInputs(patch: Partial<FilePanelInputs> = {}): FilePanelInputs {
     rootPath: undefined,
     worktreePath: undefined,
     fallbackCwd: '/home',
+    initialExpanded: [],
     ...patch,
   };
 }
@@ -354,23 +355,28 @@ describe('refresh', () => {
 // ── 7. toggleDir ─────────────────────────────────────────────────────────────
 
 describe('toggleDir', () => {
-  it('展开未缓存 → fetchChild', () => {
+  it('展开未缓存 → fetchChild + persistExpanded', () => {
     const s = stateWithRoot('/repo');
     const out = reduce(s, { t: 'toggleDir', absPath: '/repo/src' });
     expect(out.state.expanded.has('/repo/src')).toBe(true);
     expect(out.effects.some((e) => e.k === 'fetchChild')).toBe(true);
+    const persist = out.effects.find((e) => e.k === 'persistExpanded') as Extract<(typeof out.effects)[number], { k: 'persistExpanded' }>;
+    expect(persist).toBeDefined();
+    expect(persist.tabId).toBe('t1');
+    expect(persist.expanded).toContain('/repo/src');
   });
 
-  it('展开已缓存 → 无 effect', () => {
+  it('展开已缓存 → 仅 persistExpanded(不重拉)', () => {
     const s = stateWithRoot('/repo', {
       cache: new Map([['/repo/src', [{ name: 'a.ts', kind: 'file' }]]]),
     });
     const out = reduce(s, { t: 'toggleDir', absPath: '/repo/src' });
     expect(out.state.expanded.has('/repo/src')).toBe(true);
     expect(out.effects.some((e) => e.k === 'fetchChild')).toBe(false);
+    expect(out.effects.some((e) => e.k === 'persistExpanded')).toBe(true);
   });
 
-  it('收起 → 无 effect 且 cache 保留', () => {
+  it('收起 → 持久化新展开集 且 cache 保留', () => {
     const s = stateWithRoot('/repo', {
       expanded: new Set(['/repo/src']),
       cache: new Map([['/repo/src', [{ name: 'a.ts', kind: 'file' }]]]),
@@ -378,7 +384,93 @@ describe('toggleDir', () => {
     const out = reduce(s, { t: 'toggleDir', absPath: '/repo/src' });
     expect(out.state.expanded.has('/repo/src')).toBe(false);
     expect(out.state.cache.has('/repo/src')).toBe(true);
-    expect(out.effects).toHaveLength(0);
+    expect(out.effects.some((e) => e.k === 'fetchChild')).toBe(false);
+    const persist = out.effects.find((e) => e.k === 'persistExpanded') as Extract<(typeof out.effects)[number], { k: 'persistExpanded' }>;
+    expect(persist).toBeDefined();
+    expect(persist.expanded).not.toContain('/repo/src');
+  });
+
+  it('tabId 为 null → 不发 persistExpanded', () => {
+    const s = stateWithRoot('/repo', { inputs: makeInputs({ tabId: null, rootPath: '/repo' }) });
+    const out = reduce(s, { t: 'toggleDir', absPath: '/repo/src' });
+    expect(out.effects.some((e) => e.k === 'persistExpanded')).toBe(false);
+  });
+});
+
+// ── 8b. 切 tab 恢复展开态(隔离 + 持久化恢复)──────────────────────────────────
+
+describe('切 tab 恢复展开态', () => {
+  it('换 tab 且 root 变:用新 tab 的 initialExpanded 恢复展开,并补拉子目录', () => {
+    const s: FilePanelState = {
+      ...stateWithRoot('/repoA'),
+      inputs: makeInputs({ tabId: 't1', rootPath: '/repoA' }),
+      expanded: new Set(['/repoA/old']),
+      watchId: 1,
+    };
+    const out = reduce(s, {
+      t: 'inputs',
+      inputs: makeInputs({ tabId: 't2', rootPath: '/repoB', initialExpanded: ['/repoB/src', '/repoB/lib'] }),
+    });
+    // 根切换:停旧 watch + 重拉新树
+    expect(out.effects.some((e) => e.k === 'stopWatch')).toBe(true);
+    expect(out.effects.some((e) => e.k === 'fetchTop')).toBe(true);
+    expect(out.effects.some((e) => e.k === 'startWatch')).toBe(true);
+    // 展开态来自新 tab(旧 tab 的 /repoA/old 不再保留)
+    expect(out.state.expanded.has('/repoB/src')).toBe(true);
+    expect(out.state.expanded.has('/repoB/lib')).toBe(true);
+    expect(out.state.expanded.has('/repoA/old')).toBe(false);
+    // 缓存已清,两个展开目录都补拉
+    const childPaths = out.effects
+      .filter((e) => e.k === 'fetchChild')
+      .map((e) => (e as Extract<typeof e, { k: 'fetchChild' }>).absPath);
+    expect(childPaths).toEqual(expect.arrayContaining(['/repoB/src', '/repoB/lib']));
+  });
+
+  it('换 tab 且 root 变:异根残留路径被过滤掉', () => {
+    const s: FilePanelState = {
+      ...stateWithRoot('/repoA'),
+      inputs: makeInputs({ tabId: 't1', rootPath: '/repoA' }),
+      watchId: 1,
+    };
+    const out = reduce(s, {
+      t: 'inputs',
+      inputs: makeInputs({ tabId: 't2', rootPath: '/repoB', initialExpanded: ['/other/x', '/repoB/ok'] }),
+    });
+    expect(out.state.expanded.has('/other/x')).toBe(false);
+    expect(out.state.expanded.has('/repoB/ok')).toBe(true);
+  });
+
+  it('换 tab 但同根:换上新 tab 的展开集(不串味),保留缓存,缺失才补拉', () => {
+    const s: FilePanelState = {
+      ...stateWithRoot('/repo'),
+      inputs: makeInputs({ tabId: 't1', rootPath: '/repo' }),
+      expanded: new Set(['/repo/foo']),
+      cache: new Map([
+        ['/repo/foo', [{ name: 'a.ts', kind: 'file' }]],
+        ['/repo/bar', [{ name: 'b.ts', kind: 'file' }]],
+      ]),
+      topEntries: [{ name: 'foo', kind: 'dir' }],
+      watchId: 5,
+    };
+    const out = reduce(s, {
+      t: 'inputs',
+      inputs: makeInputs({ tabId: 't2', rootPath: '/repo', initialExpanded: ['/repo/bar', '/repo/baz'] }),
+    });
+    // 同根:不重拉树、不动 watch
+    expect(out.effects.some((e) => e.k === 'fetchTop')).toBe(false);
+    expect(out.effects.some((e) => e.k === 'startWatch')).toBe(false);
+    expect(out.effects.some((e) => e.k === 'stopWatch')).toBe(false);
+    expect(out.state.effectiveRoot).toBe('/repo');
+    expect(out.state.topEntries).toEqual(s.topEntries); // 树原样保留
+    // 展开集换成 t2 的;t1 的 /repo/foo 不再展开(消除串味)
+    expect(out.state.expanded.has('/repo/foo')).toBe(false);
+    expect(out.state.expanded.has('/repo/bar')).toBe(true);
+    expect(out.state.expanded.has('/repo/baz')).toBe(true);
+    // /repo/bar 已缓存 → 不补拉;/repo/baz 未缓存 → 补拉
+    const childPaths = out.effects
+      .filter((e) => e.k === 'fetchChild')
+      .map((e) => (e as Extract<typeof e, { k: 'fetchChild' }>).absPath);
+    expect(childPaths).toEqual(['/repo/baz']);
   });
 });
 

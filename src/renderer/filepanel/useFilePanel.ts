@@ -29,6 +29,10 @@ export function useFilePanel(inputs: FilePanelInputs): UseFilePanelResult {
         lockRoot: (tabId, rootPath) => {
           useAppStore.getState().updateTabFilePanel(tabId, { rootPath });
         },
+        // 展开态持久化:写回本 tab 的 filePanel.expanded
+        persistExpanded: (tabId, expanded) => {
+          useAppStore.getState().updateTabFilePanel(tabId, { expanded });
+        },
       });
     }
     return ctrlRef.current;

@@ -82,6 +82,7 @@ export function initialState(): FilePanelState {
       rootPath: undefined,
       worktreePath: undefined,
       fallbackCwd: '',
+      initialExpanded: [],
     },
     autoRoot: null,
     autoWorktree: null,
@@ -167,11 +168,35 @@ function resetTreeForRoot(s: FilePanelState): FilePanelState {
   };
 }
 
-/** root 变化时的「停旧 watch + 重置树 + 拉新树 + 建新 watch + 着色」组合 */
+/** 用持久化展开集恢复展开态:过滤到 root 之内(异根残留丢弃),按需补拉子目录。
+ *  cacheCleared=true(刚 resetTreeForRoot 清空缓存)→ 全部补拉;
+ *  否则(同根换 tab,缓存仍在)→ 仅补拉未缓存且非 errPaths 的。 */
+function seedExpanded(
+  s: FilePanelState,
+  seed: string[],
+  root: string,
+  cacheCleared: boolean,
+): { expanded: Set<string>; effects: FilePanelEffect[] } {
+  const prefix = root + '/';
+  const expanded = new Set<string>();
+  const effects: FilePanelEffect[] = [];
+  for (const p of seed) {
+    if (!p.startsWith(prefix)) continue; // 越界(异根残留)丢弃
+    expanded.add(p);
+    if (cacheCleared || (!s.cache.has(p) && !s.errPaths.has(p))) {
+      effects.push({ k: 'fetchChild', root, absPath: p });
+    }
+  }
+  return { expanded, effects };
+}
+
+/** root 变化时的「停旧 watch + 重置树 + 拉新树 + 建新 watch + 恢复展开 + 着色」组合。
+ *  seed 非空(切到某 tab 时传入该 tab 持久化展开集)→ 重置后立即恢复展开并补拉。 */
 function applyRootChange(
   s: FilePanelState,
   newEff: string | null,
   prevWatchId: number | null,
+  seed: string[] | null,
 ): { state: FilePanelState; effects: FilePanelEffect[] } {
   const effects: FilePanelEffect[] = [];
 
@@ -189,6 +214,13 @@ function applyRootChange(
     s2 = { ...s2, topSeq };
     effects.push({ k: 'fetchTop', root: newEff, seq: topSeq });
     effects.push({ k: 'startWatch', root: newEff });
+
+    // 恢复展开态(缓存已清,全部补拉)
+    if (seed && seed.length > 0) {
+      const seeded = seedExpanded(s2, seed, newEff, true);
+      s2 = { ...s2, expanded: seeded.expanded };
+      effects.push(...seeded.effects);
+    }
   }
 
   // 更新 effectiveRoot
@@ -278,15 +310,25 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
       // root 变化判定(依赖新 inputs,不依赖飞行中 resolve 结果)
       const newEff = computeEffectiveRoot(s2);
       if (newEff !== state.effectiveRoot) {
+        // 切到本 tab 时用其持久化展开集恢复(树将重置,故全部补拉)
         const { state: s3, effects: rootEffects } = applyRootChange(
           s2,
           newEff,
           state.watchId,
+          tabChanged ? next.initialExpanded : null,
         );
         return { state: s3, effects: [...effects, ...rootEffects] };
       }
 
-      // root 没变:不碰树/着色
+      // root 没变但换了 tab(两 tab 同根):树/缓存保留,展开集换成新 tab 的(隔离),
+      // 缺失子目录按需补拉——否则上一 tab 的展开态会串到本 tab。
+      if (tabChanged && newEff !== null) {
+        const seeded = seedExpanded(s2, next.initialExpanded, newEff, false);
+        s2 = { ...s2, expanded: seeded.expanded, effectiveRoot: newEff };
+        return { state: s2, effects: [...effects, ...seeded.effects] };
+      }
+
+      // root 没变且非换 tab:不碰树/着色
       s2 = { ...s2, effectiveRoot: newEff };
       return { state: s2, effects };
     }
@@ -311,10 +353,13 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
 
       const newEff = computeEffectiveRoot(s2);
       if (newEff !== state.effectiveRoot) {
+        // 展开恢复由 inputs 路径负责(切 tab 时 rootPath 已锁定即走该路径);
+        // 此处仅 cwd 漂移/首解析建根,无 seed。
         const { state: s3, effects: rootEffects } = applyRootChange(
           s2,
           newEff,
           state.watchId,
+          null,
         );
         return { state: s3, effects: [...effects, ...rootEffects] };
       }
@@ -387,21 +432,24 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
     case 'toggleDir': {
       const { absPath } = ev;
       const effects: FilePanelEffect[] = [];
+      const expanded = new Set(state.expanded);
 
-      if (state.expanded.has(absPath)) {
+      if (expanded.has(absPath)) {
         // 收起:cache/errPaths 保留,re-expand 不重拉
-        const expanded = new Set(state.expanded);
         expanded.delete(absPath);
-        return { state: { ...state, expanded }, effects: [] };
       } else {
         // 展开
-        const expanded = new Set(state.expanded);
         expanded.add(absPath);
         if (!state.cache.has(absPath) && state.effectiveRoot !== null) {
           effects.push({ k: 'fetchChild', root: state.effectiveRoot, absPath });
         }
-        return { state: { ...state, expanded }, effects };
       }
+
+      // 持久化展开态到本 tab(切 tab/工作区/重启后恢复)
+      if (state.inputs.tabId !== null) {
+        effects.push({ k: 'persistExpanded', tabId: state.inputs.tabId, expanded: [...expanded] });
+      }
+      return { state: { ...state, expanded }, effects };
     }
 
     case 'childDone': {
