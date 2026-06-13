@@ -12,6 +12,41 @@ interface TreeNode {
   depth: number;
 }
 
+/** 行级动作:文件夹图标 11×11 */
+function FolderIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+    >
+      <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
+    </svg>
+  );
+}
+
+/** 行级动作:浏览器(地球)图标 11×11 */
+function GlobeIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    >
+      <circle cx="8" cy="8" r="6.2" />
+      <ellipse cx="8" cy="8" rx="2.8" ry="6.2" />
+      <line x1="2" y1="8" x2="14" y2="8" />
+    </svg>
+  );
+}
+
 // 异步编排(Phase 1 解析/树+watch/着色/刷新/cwd 轮询)全部收敛在
 // src/renderer/filepanel/(单 reducer + Controller);本组件只剩
 // 渲染派生与交互回调,不再持有任何 epoch ref / 异步 effect。
@@ -351,6 +386,8 @@ export function FilePanel() {
           const fileStatus =
             isDir || isErr ? null : fileStatusForPath(node.absPath);
           const canDiff = !!fileStatus && fileStatus !== 'ignored';
+          const isFile = !isDir && !isErr;
+          const isHtml = isFile && /\.html?$/i.test(node.entry.name);
 
           return (
             <div
@@ -387,6 +424,30 @@ export function FilePanel() {
                   diff
                 </button>
               )}
+              {isHtml && (
+                <button
+                  className="file-panel__row-action"
+                  title="用系统默认浏览器打开"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.termpro.openInBrowser(node.absPath);
+                  }}
+                >
+                  <GlobeIcon />
+                </button>
+              )}
+              {isFile && (
+                <button
+                  className="file-panel__row-action"
+                  title="在 Finder 中显示(跳转所在目录)"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.termpro.showItemInFolder(node.absPath);
+                  }}
+                >
+                  <FolderIcon />
+                </button>
+              )}
               {isDir && !isErr && (
                 <button
                   className="file-panel__row-action"
@@ -396,17 +457,7 @@ export function FilePanel() {
                     window.termpro.openPath(node.absPath);
                   }}
                 >
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
-                  </svg>
+                  <FolderIcon />
                 </button>
               )}
             </div>

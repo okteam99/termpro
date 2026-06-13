@@ -30,6 +30,8 @@ declare global {
       clipboardReadText(): Promise<string>;
       openExternal(url: string): void;
       openPath(path: string): void;
+      showItemInFolder(path: string): void;
+      openInBrowser(path: string): void;
       onViewerAddTab(callback: (path: string) => void): () => void;
     };
   }

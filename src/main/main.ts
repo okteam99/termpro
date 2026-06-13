@@ -11,6 +11,7 @@ import { clipboard, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { registerAppStore } from './appStore';
 import { initUpdater } from './updater';
@@ -103,6 +104,18 @@ ipcMain.on('shell:open-external', (_event, url: string) => {
 ipcMain.on('shell:open-path', (_event, p: string) => {
   if (typeof p === 'string' && path.isAbsolute(p)) {
     void shell.openPath(p);
+  }
+});
+// 在 Finder 中显示文件(打开所在目录并高亮)
+ipcMain.on('shell:show-item-in-folder', (_event, p: string) => {
+  if (typeof p === 'string' && path.isAbsolute(p)) {
+    shell.showItemInFolder(p);
+  }
+});
+// 本地 HTML 用系统默认浏览器打开(仅 .html/.htm,经 file:// URL)
+ipcMain.on('shell:open-in-browser', (_event, p: string) => {
+  if (typeof p === 'string' && path.isAbsolute(p) && /\.html?$/i.test(p)) {
+    void shell.openExternal(pathToFileURL(p).href);
   }
 });
 

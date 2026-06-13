@@ -72,6 +72,14 @@ contextBridge.exposeInMainWorld('termpro', {
   openPath(path: string): void {
     ipcRenderer.send('shell:open-path', path);
   },
+  /** 在 Finder 中显示文件(打开所在目录并高亮) */
+  showItemInFolder(path: string): void {
+    ipcRenderer.send('shell:show-item-in-folder', path);
+  },
+  /** 本地 HTML 用系统默认浏览器打开 */
+  openInBrowser(path: string): void {
+    ipcRenderer.send('shell:open-in-browser', path);
+  },
   /** 在独立窗口打开查看器(file/diff),不占用主视图 */
   openViewerWindow(payload: unknown): void {
     ipcRenderer.send('viewer:open-window', payload);

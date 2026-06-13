@@ -335,11 +335,11 @@
   color: rgba(209, 154, 102, 0.80);
 }
 
-/* 行级动作按钮(文件 diff / 目录 Finder):仅 hover 时浮现,贴行右侧 */
+/* 行级动作按钮(文件 diff/Finder/浏览器 · 目录 Finder):仅 hover 时浮现,贴行右侧 */
 .file-panel__row-action {
   display: none;
-  margin-left: auto;
-  margin-right: 6px;
+  margin-left: 4px;
+  margin-right: 0;
   padding: 0 6px;
   height: 16px;
   font-size: 10px;
@@ -355,6 +355,15 @@
 
 .file-panel__row:hover .file-panel__row-action {
   display: inline-flex;
+}
+
+/* 多按钮共存:仅第一个把按钮组推到行右侧,最后一个留右边距 */
+.file-panel__row-action:first-of-type {
+  margin-left: auto;
+}
+
+.file-panel__row-action:last-of-type {
+  margin-right: 6px;
 }
 
 .file-panel__row-action:hover {
