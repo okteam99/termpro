@@ -6,6 +6,7 @@ declare global {
       platform: string;
       smoke: boolean;
       devChannel: boolean;
+      version: string;
       requestHostPort(): void;
       pickDirectory(): Promise<string | null>;
       onMenu(callback: (action: string) => void): () => void;

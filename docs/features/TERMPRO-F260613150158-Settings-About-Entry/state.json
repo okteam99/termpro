@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "blueprint",
+  "current_stage": "dev",
   "merge_target": "main",
   "worktree": {
     "strategy": "auto",
@@ -78,16 +78,33 @@
       "duration_minutes": 3
     },
     "blueprint": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-13T15:54:01Z",
+      "completed_at": "2026-06-13T16:13:45Z",
+      "auto_commit": "16d3b61e907542effe5395268702df8749157a5c",
+      "artifacts": [
+        "TC.md",
+        "TECH.md",
+        "TECH-REVIEW.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 19
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-13T15:54:01Z"
+      "started_at": "2026-06-13T16:13:45Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
-    "panorama_sync"
+    "panorama_sync",
+    "blueprint"
   ],
   "created_at": "2026-06-13T15:09:24Z",
   "stage_review_roles": {
@@ -126,11 +143,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-13T15:54:01Z",
+  "updated_at": "2026-06-13T16:13:45Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:8f31e8ca965625db4a57fc3a2ddd3c3b64d982b6e94851816d30e93456729c08",
+  "_state_checksum": "sha256:26c5acc0c368279d4ccde5f937d53eb989126e5e6dc4967f9ad7c7cf5d3a122a",
   "legal_next_stages": [
-    "dev"
+    "review"
   ],
   "execution_hints": {
     "ui_design_needed": true,

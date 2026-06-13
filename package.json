@@ -32,6 +32,9 @@
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.11.2",
     "@electron/fuses": "^1.8.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/electron-squirrel-startup": "^1.0.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -41,6 +44,7 @@
     "electron": "42.4.0",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vitest": "^3.2.6"

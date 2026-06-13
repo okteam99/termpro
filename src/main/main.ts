@@ -14,6 +14,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { registerAppStore } from './appStore';
+import { buildAdditionalArguments } from './buildAdditionalArguments';
 import { installExternalUrlPolicy } from './externalUrlPolicy';
 import { initUpdater } from './updater';
 
@@ -359,10 +360,11 @@ const createWindow = () => {
       nodeIntegration: false,
       sandbox: true,
       // 沙箱 preload 没有 process.env,冒烟开关经 argv 传递
-      additionalArguments: [
-        ...(process.env.TERMPRO_SMOKE ? ['--termpro-smoke'] : []),
-        ...(isDevChannel ? ['--termpro-dev'] : []),
-      ],
+      additionalArguments: buildAdditionalArguments({
+        version: app.getVersion(),
+        smoke: !!process.env.TERMPRO_SMOKE,
+        dev: isDevChannel,
+      }),
     },
   });
   installExternalUrlPolicy(mainWindow, {
