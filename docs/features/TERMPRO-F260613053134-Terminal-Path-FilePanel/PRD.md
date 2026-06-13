@@ -17,19 +17,19 @@ acceptance_criteria:
     test_refs: []
     ui_refs: []
   - id: AC-3
-    description: "Given the owning tab File Panel is in Root mode and the target path is inside that tab's effective Root path, when the link is activated, then the File Panel remains in Root mode, expands the ancestor chain by loading each lazy directory level in order, and scrolls/selects the target row after it renders."
+    description: "Given the owning tab File Panel is in Root mode and the target path is inside that tab's effective Root path but not inside a more specific effective WorkTree root, when the link is activated, then the File Panel remains in Root mode, expands the ancestor chain by loading each lazy directory level in order, and scrolls/selects the target row after it renders."
     category: functional
     priority: P0
     test_refs: []
     ui_refs: []
   - id: AC-4
-    description: "Given the current File Panel mode cannot contain the target but the target is inside the owning tab's effective WorkTree root or Root path, when the link is activated, then TermPro switches to the first matching mode in priority order WorkTree then Root, preserves existing root/worktree bindings without persisting auto-derived roots, and applies expansion state for paths under the new effective root."
+    description: "Given a target can be contained by more than one effective root or by a root other than the current mode, when the link is activated, then TermPro chooses the most specific matching root with WorkTree preferred over Root for nested worktrees, switches mode only when the chosen root differs from the current mode, preserves existing root/worktree bindings without persisting auto-derived roots, and applies expansion state under the chosen effective root."
     category: functional
     priority: P0
     test_refs: []
     ui_refs: []
   - id: AC-5
-    description: "Given an internal File Panel handling target is a directory, when it is activated, then its ancestor chain and the directory itself are expanded after lazy children load; given the target is a file, then its parent chain is expanded and the file row is scrolled into view and transiently highlighted after it renders; given the target equals the effective root, then the root is treated as already located with no row highlight."
+    description: "Given an internal File Panel handling target is a directory, when it is activated, then its ancestor chain and the directory itself are expanded after lazy children load, and the directory row is scrolled into view and transiently highlighted when the directory is not the effective root; given the target is a file, then its parent chain is expanded and the file row is scrolled into view and transiently highlighted after it renders; given the target equals the effective root, then the root is treated as already located with no row highlight."
     category: functional
     priority: P0
     test_refs: []
@@ -47,7 +47,7 @@ acceptance_criteria:
     test_refs: []
     ui_refs: []
   - id: AC-8
-    description: "Given a target path is compared to Root or WorkTree containment, when TermPro decides whether it is inside a root, then containment and tree expansion use a consistent path representation: decoded/line-col stripped, normalized, separator-aware, case sensitivity matched to the target volume when detectable, exact-case comparison when not detectable, and realpath used only when it can be mapped back to the File Panel's displayed tree path; if that mapping cannot be trusted, internal handling fails into AC-9 fallback."
+    description: "Given a target path is compared to Root or WorkTree containment, when TermPro decides whether it is inside a root, then containment and tree expansion use a consistent path representation: decoded/line-col stripped, normalized, separator-aware, case sensitivity matched to the target volume when detectable, exact-case comparison when not detectable, and realpath used only when it can be mapped back to the File Panel's displayed tree path; if that mapping cannot be trusted, or display-path containment succeeds but realpath proves the target escapes the root through a symlink, internal handling fails into AC-9 fallback."
     category: functional
     priority: P0
     test_refs: []
@@ -83,6 +83,18 @@ revision_history:
   - version: v0.6
     date: 2026-06-13
     changes: "Adopted fourth external review findings: removed undefined visibility model, constrained activation to current active workspace/tab, made auto roots non-persistent, clarified shared expanded state, target-root behavior, activation-time revalidation, and transient highlight lifecycle."
+  - version: v0.7
+    date: 2026-06-13
+    changes: "Adopted blueprint external review CR-1: clarified nested WorkTree vs Root priority as most-specific root with WorkTree preferred over enclosing Root."
+  - version: v0.8
+    date: 2026-06-13
+    changes: "Adopted blueprint external review symlink-escape clarification for containment trust."
+  - version: v0.9
+    date: 2026-06-13
+    changes: "Clarified persistence semantics: successful locate may persist File Panel mode/expanded state, while locate highlight/scroll/request remains runtime-only."
+  - version: v0.10
+    date: 2026-06-13
+    changes: "Clarified directory targets: non-root directory rows are scrolled and transiently highlighted; effective root target has no row highlight."
 ---
 
 # Terminal Path Links Open In File Panel
@@ -98,11 +110,13 @@ TermPro 的 File Panel 已经是当前 Tab 的文件工作面，且每个 Tab �
 
 本 Feature 把“终端路径点击”接入 File Panel 定位语义：当路径属于当前 Tab 的 Root 或 WorkTree 时，优先在内置 File Panel 中定位并展开，而不是跳到系统文件浏览器。
 
-优先级解释：可点击的 Terminal link 来自当前 active workspace 的 active tab，因此目标面板就是当前 active tab 的 File Panel；本 Feature 不定义后台 workspace/tab 的点击行为。TermPro 先判定是否能内部定位；若最终走外部/viewer fallback，不改变 File Panel 模式或绑定。若该 File Panel 当前选中的上下文可以容纳目标路径，则尊重当前上下文；例如 Root 模式下的 root 内路径在 Root 中定位，WorkTree 模式下的当前 worktree 内路径在 WorkTree 中定位。若当前上下文不能容纳目标路径，再按 WorkTree → Root → 外部/viewer 处理兜底。
+优先级解释：可点击的 Terminal link 来自当前 active workspace 的 active tab，因此目标面板就是当前 active tab 的 File Panel；本 Feature 不定义后台 workspace/tab 的点击行为。TermPro 先判定是否能内部定位；若最终走外部/viewer fallback，不改变 File Panel 模式或绑定。Root 与 WorkTree 可能出现嵌套，尤其 worktree 路径位于 repository root 下时，单纯“当前 Root 包含目标”不能让 Root 吞掉更具体的 WorkTree。内部候选 root 的选择规则是：先选择最具体的匹配 root；嵌套命中时 WorkTree 优先于 enclosing Root；只有不存在更具体匹配时才尊重当前 mode。若没有内部候选，再走外部/viewer fallback。
 
 术语解释：effective WorkTree root 指该 Tab File Panel 已绑定的 `worktreePath`；若未绑定，则指 File Panel 当前可推导的 `autoWorktree`。effective Root path 指该 Tab File Panel 已绑定的 `rootPath`；若未绑定，则指 File Panel 当前可推导的 `autoRoot`。auto 推导值可用于本次定位与模式切换，但点击定位不写入 `rootPath/worktreePath` 持久绑定；用户显式输入、Choose、Apply 或 WorkTree 下拉选择才改变绑定。若没有可推导的 effective root，直接走外部/viewer fallback。
 
 定位语义：内部处理是 location-only，不自动打开文件内容。目录目标逐级加载并展开祖先链，随后展开目录本身；文件目标逐级加载并展开父目录链，待文件行实际渲染后滚动到文件行并 transient highlight。若目标等于 effective root，自身没有树行，视为已定位。containment 判定使用的路径表示必须能映射回 File Panel 实际渲染的树路径；若只能证明 realpath 在根内、但无法映射到显示路径链，则不猜测定位，转外部/viewer fallback。若用户要打开内容，沿用 File Panel 中点击文件行的既有行为。
+
+持久化语义：定位成功后产生的 mode 切换和目录展开与用户手动切换 mode、手动展开目录属于同一类 File Panel 导航状态，按现有 `mode/expanded` 机制持久化。仅定位请求本身、scroll target 和 transient highlight 是 runtime-only，不在重启/恢复后重放。定位不会持久化 auto 推导的 `rootPath/worktreePath` 绑定。
 
 既有行为取舍：root/worktree 内的媒体文件、压缩包等系统扩展名也执行 location-only。这是有意改变：本 Feature 的目标是让本项目路径先回到 File Panel，上下文与 git 状态优先于一键系统打开。root/worktree 外的路径继续走既有外部/viewer fallback。
 
@@ -125,12 +139,12 @@ TermPro 的 File Panel 已经是当前 Tab 的文件工作面，且每个 Tab �
 |----|------|--------|----------|
 | AC-1 | Given a terminal fs link is activated from the currently active workspace and active tab, when it resolves to an existing file or directory, then TermPro first decides whether internal File Panel handling is possible for that tab before any external/viewer fallback. | P0 | |
 | AC-2 | Given the owning tab File Panel is in WorkTree mode and the target path is inside that tab's effective WorkTree root, when the link is activated, then the File Panel remains in WorkTree mode, expands the ancestor chain by loading each lazy directory level in order, and scrolls/selects the target row after it renders. | P0 | |
-| AC-3 | Given the owning tab File Panel is in Root mode and the target path is inside that tab's effective Root path, when the link is activated, then the File Panel remains in Root mode, expands the ancestor chain by loading each lazy directory level in order, and scrolls/selects the target row after it renders. | P0 | |
-| AC-4 | Given the current File Panel mode cannot contain the target but the target is inside the owning tab's effective WorkTree root or Root path, when the link is activated, then TermPro switches to the first matching mode in priority order WorkTree then Root, preserves existing root/worktree bindings without persisting auto-derived roots, and applies expansion state for paths under the new effective root. | P0 | |
-| AC-5 | Given an internal File Panel handling target is a directory, when it is activated, then its ancestor chain and the directory itself are expanded after lazy children load; given the target is a file, then its parent chain is expanded and the file row is scrolled into view and transiently highlighted after it renders; given the target equals the effective root, then the root is treated as already located with no row highlight. | P0 | |
+| AC-3 | Given the owning tab File Panel is in Root mode and the target path is inside that tab's effective Root path but not inside a more specific effective WorkTree root, when the link is activated, then the File Panel remains in Root mode, expands the ancestor chain by loading each lazy directory level in order, and scrolls/selects the target row after it renders. | P0 | |
+| AC-4 | Given a target can be contained by more than one effective root or by a root other than the current mode, when the link is activated, then TermPro chooses the most specific matching root with WorkTree preferred over Root for nested worktrees, switches mode only when the chosen root differs from the current mode, preserves existing root/worktree bindings without persisting auto-derived roots, and applies expansion state under the chosen effective root. | P0 | |
+| AC-5 | Given an internal File Panel handling target is a directory, when it is activated, then its ancestor chain and the directory itself are expanded after lazy children load, and the directory row is scrolled into view and transiently highlighted when the directory is not the effective root; given the target is a file, then its parent chain is expanded and the file row is scrolled into view and transiently highlighted after it renders; given the target equals the effective root, then the root is treated as already located with no row highlight. | P0 | |
 | AC-6 | Given a file path is handled internally, when the link is activated, then TermPro performs location-only behavior and does not automatically open the file viewer or system opener, including for media/system-open extensions. | P0 | |
 | AC-7 | Given existing terminal link parsing supports file://, absolute, home, relative, and :line:col forms, when this feature is delivered, then those supported forms keep resolving correctly; internally handled :line:col links use the stripped file path for File Panel location and do not claim line navigation. | P1 | |
-| AC-8 | Given a target path is compared to Root or WorkTree containment, when TermPro decides whether it is inside a root, then containment and tree expansion use a consistent path representation: decoded/line-col stripped, normalized, separator-aware, case sensitivity matched to the target volume when detectable, exact-case comparison when not detectable, and realpath used only when it can be mapped back to the File Panel's displayed tree path; if that mapping cannot be trusted, internal handling fails into AC-9 fallback. | P0 | |
+| AC-8 | Given a target path is compared to Root or WorkTree containment, when TermPro decides whether it is inside a root, then containment and tree expansion use a consistent path representation: decoded/line-col stripped, normalized, separator-aware, case sensitivity matched to the target volume when detectable, exact-case comparison when not detectable, and realpath used only when it can be mapped back to the File Panel's displayed tree path; if that mapping cannot be trusted, or display-path containment succeeds but realpath proves the target escapes the root through a symlink, internal handling fails into AC-9 fallback. | P0 | |
 | AC-9 | Given internal File Panel handling cannot complete because the path is outside both roots, no effective root can be derived, activation-time stat/realpath fails, containment cannot be trusted, a required directory level cannot be read, or the target row is absent after its parent directory loads, when the link is activated, then TermPro uses the existing external/viewer fallback without changing File Panel mode or bindings. | P0 | |
 | AC-10 | Given another terminal path link is activated while an internal File Panel location operation is still loading, when the newer activation starts, then the newer activation wins and stale expansion/highlight effects from the older activation are ignored; transient row highlight clears on the next File Panel interaction, refresh, tab switch, or newer location; http/https web-link behavior remains unchanged. | P1 | |
 
@@ -140,16 +154,17 @@ TermPro 的 File Panel 已经是当前 Tab 的文件工作面，且每个 Tab �
 flowchart TD
   A[User clicks terminal fs link] --> B{Path still exists?}
   B -->|No / disappeared| H[Existing external/viewer fallback]
-  B -->|Yes| C{Owning tab current mode contains target?}
-  C -->|WorkTree mode + inside effective WorkTree| D[Locate in WorkTree view]
-  C -->|Root mode + inside effective Root| E[Locate in Root view]
-  C -->|No| F{Inside effective WorkTree?}
-  F -->|Yes| SW[Switch to WorkTree] --> D
-  F -->|No| G{Inside effective Root?}
-  G -->|Yes| SR[Switch to Root] --> E
-  G -->|No| H[Existing external/viewer fallback]
-  D --> V[Show owning tab File Panel]
-  E --> V
+  B -->|Yes| C{Inside effective WorkTree?}
+  C -->|Yes| D{WorkTree is chosen root}
+  C -->|No| F{Inside effective Root?}
+  F -->|Yes| E{Root is chosen root}
+  F -->|No| H[Existing external/viewer fallback]
+  D -->|current mode WorkTree| DW[Locate in WorkTree view]
+  D -->|current mode not WorkTree| SW[Switch to WorkTree] --> DW
+  E -->|current mode Root| ER[Locate in Root view]
+  E -->|current mode not Root| SR[Switch to Root] --> ER
+  DW --> V[Show owning tab File Panel]
+  ER --> V
   V --> I[Load and expand ancestor chain]
   I -->|load fails| H
   I --> J{Directory target?}
@@ -194,3 +209,7 @@ flowchart TD
 | 2026-06-13 | v0.4：采纳第二轮 external review，补齐 File Panel 可见性、逐级懒加载、auto 绑定和 containment 失败兜底 |
 | 2026-06-13 | v0.5：采纳第三轮 external review，补齐 fallback 不改 UI、路径表示同源、并发 last-click-wins 和 auto 绑定产品取舍说明 |
 | 2026-06-13 | v0.6：采纳第四轮 external review，删除未定义可见性模型，约束 active workspace/tab，改为不持久化 auto 根并定义 transient highlight 生命周期 |
+| 2026-06-13 | v0.7：采纳 blueprint external review CR-1，修正嵌套 WorkTree 与 enclosing Root 的优先级为最具体 root / WorkTree 优先 |
+| 2026-06-13 | v0.8：采纳 blueprint external review symlink escape 澄清，display path 命中但 realpath 逃逸时拒绝内部定位 |
+| 2026-06-13 | v0.9：澄清定位成功后的 mode/expanded 与普通 FilePanel 导航一样持久化，highlight/scroll/request 不持久化 |
+| 2026-06-13 | v0.10：澄清非 root 目录 target 也会滚动并短暂高亮，effective root target 不高亮 |
