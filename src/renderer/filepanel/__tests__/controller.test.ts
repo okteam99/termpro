@@ -80,6 +80,7 @@ interface FakeDepsControl {
   gitWorktrees: ReturnType<typeof makeQueue<{ worktrees: WorktreeInfo[] }>>;
   gitStatus: ReturnType<typeof makeQueue<{ entries: GitStatusEntry[] }>>;
   readdir: ReturnType<typeof makeQueue<{ entries: DirEntry[] }>>;
+  realpath: ReturnType<typeof makeQueue<{ path: string | null }>>;
   watch: ReturnType<typeof makeQueue<{ watchId: number }>>;
   unwatch: ReturnType<typeof makeQueue<void>>;
   emitFs(watchId: number): void;
@@ -95,10 +96,11 @@ function makeFakeDeps(): FakeDepsControl {
   const gitWorktrees = makeQueue<{ worktrees: WorktreeInfo[] }>();
   const gitStatus = makeQueue<{ entries: GitStatusEntry[] }>();
   const readdir = makeQueue<{ entries: DirEntry[] }>();
+  const realpath = makeQueue<{ path: string | null }>();
   const watch = makeQueue<{ watchId: number }>();
   const unwatch = makeQueue<void>();
 
-  let fsListeners = new Set<(watchId: number) => void>();
+  const fsListeners = new Set<(watchId: number) => void>();
 
   const getSessionId = vi.fn((_tabId: string) => 'sid-default');
   const lockRoot = vi.fn();
@@ -111,6 +113,7 @@ function makeFakeDeps(): FakeDepsControl {
     gitWorktrees: (...args) => gitWorktrees.mock(...args),
     gitStatus: (...args) => gitStatus.mock(...args),
     readdir: (...args) => readdir.mock(...args),
+    realpath: (...args) => realpath.mock(...args),
     watch: (...args) => watch.mock(...args),
     unwatch: (...args) => unwatch.mock(...args),
     onFsChanged: (cb) => {
@@ -124,7 +127,7 @@ function makeFakeDeps(): FakeDepsControl {
   };
 
   return {
-    ptyCwd, gitInfo, gitWorktrees, gitStatus, readdir, watch, unwatch,
+    ptyCwd, gitInfo, gitWorktrees, gitStatus, readdir, realpath, watch, unwatch,
     emitFs: (watchId) => { fsListeners.forEach((cb) => cb(watchId)); },
     getSessionId,
     lockRoot,

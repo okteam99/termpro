@@ -45,7 +45,7 @@ function cleanupInstallArtifacts(): void {
   localServer?.close();
   localServer = null;
   if (downloadedZip) {
-    void rm(downloadedZip, { force: true }).catch(() => {});
+    void rm(downloadedZip, { force: true }).catch(() => undefined);
     downloadedZip = null;
   }
 }

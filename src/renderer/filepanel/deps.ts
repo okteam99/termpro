@@ -31,6 +31,10 @@ export function makeHostDeps(): FilePanelDeps {
       return hostClient.rpc('fs.readdir', { path });
     },
 
+    realpath(path) {
+      return hostClient.rpc('fs.realpath', { path });
+    },
+
     watch(path) {
       return hostClient.rpc('fs.watch', { path });
     },

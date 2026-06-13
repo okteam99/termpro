@@ -9,6 +9,7 @@ import type {
   Terminal,
 } from '@xterm/xterm';
 import { hostClient } from '../services/hostClient';
+import { tryLocateInFilePanel } from '../filepanel/locateRegistry';
 import {
   extractCandidates,
   fileUrlToPath,
@@ -22,12 +23,28 @@ const CWD_CACHE_MS = 2_500;
 const SYSTEM_OPEN_EXT =
   /\.(icns|pdf|zip|gz|tgz|tar|7z|dmg|app|mp4|mov|avi|mkv|mp3|wav|flac|woff2?|ttf|otf|eot)$/i;
 
-function openTarget(absPath: string, kind: 'file' | 'dir'): void {
+let locateRequestSeq = 0;
+
+function openTargetFallback(absPath: string, kind: 'file' | 'dir'): void {
   if (kind === 'dir' || SYSTEM_OPEN_EXT.test(absPath)) {
     window.termpro.openPath(absPath);
   } else {
     window.termpro.openViewerWindow({ mode: 'file', path: absPath });
   }
+}
+
+async function openTargetInFilePanelFirst(
+  tabId: string,
+  absPath: string,
+  kind: 'file' | 'dir',
+): Promise<void> {
+  const located = await tryLocateInFilePanel(tabId, {
+    id: ++locateRequestSeq,
+    path: absPath,
+    kind,
+    sourceTabId: tabId,
+  });
+  if (!located) openTargetFallback(absPath, kind);
 }
 
 /** buffer 行 → 文本 + 每个 code unit 对应的列号(0 基) */
@@ -126,6 +143,7 @@ export class FsLinkProvider implements ILinkProvider {
   private cwdCache: { cwd: string; ts: number } | null = null;
 
   constructor(
+    private tabId: string,
     private term: Terminal,
     private getSessionId: () => string | null,
     private getFallbackCwd: () => string,
@@ -221,7 +239,9 @@ export class FsLinkProvider implements ILinkProvider {
           },
           text: c.text,
           decorations: { underline: true, pointerCursor: true },
-          activate: () => openTarget(hit.abs, hit.kind),
+          activate: () => {
+            void openTargetInFilePanelFirst(this.tabId, hit.abs, hit.kind);
+          },
         });
       }),
     );

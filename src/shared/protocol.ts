@@ -77,6 +77,8 @@ export interface RpcMethods {
   'fs.unwatch': { params: { watchId: number }; result: undefined };
   /** 轻量存在性检查(终端链接 hover 校验用) */
   'fs.stat': { params: { path: string }; result: { kind: 'file' | 'dir' | null } };
+  /** 解析真实路径;不存在/不可读时返回 null */
+  'fs.realpath': { params: { path: string }; result: { path: string | null } };
   'git.info': { params: { cwd: string }; result: GitInfo };
   'git.status': {
     params: { toplevel: string };

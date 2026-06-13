@@ -262,7 +262,6 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
     }
 
     void loadSides();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, mergeBase, toplevel]);
 
   const handleReload = useCallback(() => {

@@ -2,7 +2,10 @@
 // 构造函数纯(无订阅/无 timer):StrictMode 渲染期可安全创建丢弃。
 // start()/dispose() 幂等;disposed 后所有飞行 promise 回调被 disposed 闸挡住。
 
-import { initialState, reduce, toView } from './core';
+import { initialState, joinPath, reduce, toView } from './core';
+import { matchEntry, trustedContainment } from './pathContainment';
+import type { FilePanelLocateTarget } from './locateRegistry';
+import type { DirEntry } from '../../shared/protocol';
 import type {
   FilePanelDeps,
   FilePanelEffect,
@@ -17,6 +20,7 @@ export interface ControllerOpts {
   deps: FilePanelDeps;
   lockRoot(tabId: string, rootPath: string): void;
   persistExpanded(tabId: string, expanded: string[]): void;
+  persistMode?(tabId: string, mode: 'root' | 'worktree'): void;
 }
 
 export class FilePanelController {
@@ -81,7 +85,7 @@ export class FilePanelController {
 
     // unwatch 当前已知 watchId(飞行中的 startWatch 在 runStartWatch 里补 unwatch)
     if (this.state.watchId !== null) {
-      void this.deps.unwatch(this.state.watchId).catch(() => {});
+      void this.deps.unwatch(this.state.watchId).catch(() => undefined);
     }
   }
 
@@ -116,6 +120,43 @@ export class FilePanelController {
   /** 手动 ⟳:立即 dispatch,无 debounce */
   refresh(): void {
     this.dispatch({ t: 'refresh' });
+  }
+
+  clearLocateHighlight(): void {
+    this.dispatch({ t: 'clearLocateHighlight' });
+  }
+
+  clearLocateScrollPath(): void {
+    this.dispatch({ t: 'clearLocateScrollPath' });
+  }
+
+  async locateTarget(target: FilePanelLocateTarget): Promise<boolean> {
+    const generation = this.state.generation;
+    const startRoot = this.state.effectiveRoot;
+    this.dispatch({ t: 'locateStart', targetId: target.id, generation, root: startRoot });
+
+    const candidate = await this.chooseLocateCandidate(target);
+    if (!candidate) return this.isLocateStale(target.id, generation) ? true : false;
+
+    const loaded = await this.loadLocateChain(target, candidate);
+    if (!loaded) return this.isLocateStale(target.id, generation) ? true : false;
+    if (this.isLocateStale(target.id, generation)) return true;
+
+    this.dispatch({
+      t: 'locateCommit',
+      payload: {
+        targetId: target.id,
+        generation,
+        mode: candidate.mode,
+        effectiveRoot: candidate.root,
+        topEntries: loaded.topEntries,
+        cacheDelta: loaded.cacheDelta,
+        requiredExpanded: loaded.requiredExpanded,
+        highlightPath: loaded.highlightPath,
+        scrollPath: loaded.scrollPath,
+      },
+    });
+    return true;
   }
 
   // ── 内部 ───────────────────────────────────────────────────────────────────
@@ -158,7 +199,7 @@ export class FilePanelController {
         void this.runStartWatch(eff);
         break;
       case 'stopWatch':
-        void this.deps.unwatch(eff.watchId).catch(() => {});
+        void this.deps.unwatch(eff.watchId).catch(() => undefined);
         break;
       case 'fetchStatus':
         this.deps
@@ -183,6 +224,9 @@ export class FilePanelController {
       case 'lockRoot':
         this.opts.lockRoot(eff.tabId, eff.rootPath);
         break;
+      case 'persistMode':
+        this.opts.persistMode?.(eff.tabId, eff.mode);
+        break;
       case 'persistExpanded':
         this.opts.persistExpanded(eff.tabId, eff.expanded);
         break;
@@ -190,6 +234,127 @@ export class FilePanelController {
         void this.runPartialRefresh(eff);
         break;
     }
+  }
+
+  private isLocateStale(targetId: number, generation: number): boolean {
+    return (
+      this.disposed ||
+      this.state.activeLocateRequestId !== targetId ||
+      this.state.activeLocateGeneration !== generation ||
+      this.state.generation !== generation
+    );
+  }
+
+  private async safeRealpath(path: string): Promise<string | null> {
+    try {
+      return (await this.deps.realpath(path)).path;
+    } catch {
+      return null;
+    }
+  }
+
+  private async chooseLocateCandidate(
+    target: FilePanelLocateTarget,
+  ): Promise<{ mode: 'root' | 'worktree'; root: string; parts: string[] } | null> {
+    const state = this.state;
+    const roots: Array<{ mode: 'root' | 'worktree'; root: string }> = [];
+    const worktreeRoot = state.inputs.worktreePath ?? state.autoWorktree;
+    const rootPath = state.inputs.rootPath ?? state.autoRoot;
+    if (worktreeRoot) roots.push({ mode: 'worktree', root: worktreeRoot });
+    if (rootPath) roots.push({ mode: 'root', root: rootPath });
+
+    const targetReal = await this.safeRealpath(target.path);
+    const candidates: Array<{ mode: 'root' | 'worktree'; root: string; parts: string[] }> = [];
+    for (const candidate of roots) {
+      const rootReal = await this.safeRealpath(candidate.root);
+      const containment = trustedContainment(target.path, candidate.root, {
+        root: rootReal,
+        target: targetReal,
+      });
+      if (containment.ok) {
+        candidates.push({ ...candidate, parts: containment.relativeParts });
+      }
+    }
+    candidates.sort((a, b) => {
+      if (a.root === b.root) {
+        if (a.mode === state.inputs.mode) return -1;
+        if (b.mode === state.inputs.mode) return 1;
+        return a.mode === 'root' ? -1 : 1;
+      }
+      const depth = b.root.length - a.root.length;
+      if (depth !== 0) return depth;
+      if (a.mode === b.mode) return 0;
+      return a.mode === 'worktree' ? -1 : 1;
+    });
+    return candidates[0] ?? null;
+  }
+
+  private async loadLocateChain(
+    target: FilePanelLocateTarget,
+    candidate: { mode: 'root' | 'worktree'; root: string; parts: string[] },
+  ): Promise<{
+    topEntries: DirEntry[];
+    cacheDelta: Map<string, DirEntry[]>;
+    requiredExpanded: Set<string>;
+    highlightPath: string | null;
+    scrollPath: string | null;
+  } | null> {
+    const sameRoot = this.state.effectiveRoot === candidate.root;
+    const cacheDelta = new Map<string, DirEntry[]>();
+    const requiredExpanded = new Set<string>();
+    const topEntries = sameRoot && this.state.topEntries.length > 0
+      ? this.state.topEntries
+      : (await this.deps.readdir(candidate.root)).entries;
+    const entriesFor = async (parent: string): Promise<DirEntry[]> => {
+      if (parent === candidate.root) return topEntries;
+      if (sameRoot) {
+        const cached = this.state.cache.get(parent);
+        if (cached) return cached;
+      }
+      const pending = cacheDelta.get(parent);
+      if (pending) return pending;
+      const entries = (await this.deps.readdir(parent)).entries;
+      cacheDelta.set(parent, entries);
+      return entries;
+    };
+
+    if (candidate.parts.length === 0) {
+      return {
+        topEntries,
+        cacheDelta,
+        requiredExpanded,
+        highlightPath: null,
+        scrollPath: null,
+      };
+    }
+
+    let parent = candidate.root;
+    let current = candidate.root;
+    for (let i = 0; i < candidate.parts.length; i++) {
+      if (this.isLocateStale(target.id, this.state.activeLocateGeneration ?? -1)) return null;
+      const entries = await entriesFor(parent);
+      const entry = matchEntry(entries, candidate.parts[i], { darwinTrusted: true });
+      if (!entry) {
+        console.warn('[filepanel] locate fallback', 'missing-row');
+        return null;
+      }
+      current = joinPath(parent, entry.name);
+      const isLast = i === candidate.parts.length - 1;
+      if (!isLast) {
+        requiredExpanded.add(current);
+        parent = current;
+      }
+    }
+
+    if (target.kind === 'dir') requiredExpanded.add(current);
+
+    return {
+      topEntries,
+      cacheDelta,
+      requiredExpanded,
+      highlightPath: current,
+      scrollPath: current,
+    };
   }
 
   /** Phase 1 解析链:语义对照现码 FilePanel.tsx 170-253 行 */
@@ -269,7 +434,7 @@ export class FilePanelController {
 
     // stale watch:root 已变或已 dispose → 补 unwatch,不泄漏
     if (this.disposed || this.state.effectiveRoot !== eff.root) {
-      void this.deps.unwatch(watchId).catch(() => {});
+      void this.deps.unwatch(watchId).catch(() => undefined);
       return;
     }
 
@@ -325,7 +490,7 @@ export class FilePanelController {
           .then(({ cwd }) => {
             this.dispatch({ t: 'pollTick', cwd });
           })
-          .catch(() => {});
+          .catch(() => undefined);
       }, 2000);
     }
   }

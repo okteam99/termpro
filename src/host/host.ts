@@ -16,6 +16,7 @@ import {
   listDir,
   readBinaryFile,
   readTextFile,
+  realPath,
   statPath,
   writeTextFile,
 } from './fsService';
@@ -182,6 +183,9 @@ async function handleRpc(
         break;
       case 'fs.stat':
         result = await statPath((msg.params as { path: string }).path);
+        break;
+      case 'fs.realpath':
+        result = await realPath((msg.params as { path: string }).path);
         break;
       case 'fs.watch':
         result = {

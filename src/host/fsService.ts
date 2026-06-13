@@ -38,6 +38,14 @@ export async function statPath(
   }
 }
 
+export async function realPath(p: string): Promise<{ path: string | null }> {
+  try {
+    return { path: await fs.realpath(p) };
+  } catch {
+    return { path: null };
+  }
+}
+
 /** 文本文件上限:超过不读(查看器场景,防大文件拖垮 IPC) */
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 

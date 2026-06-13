@@ -255,6 +255,15 @@
   background: var(--bg-active);
 }
 
+.file-panel__row--locate-target {
+  background: color-mix(in srgb, var(--accent, #4a8df8) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent, #4a8df8);
+}
+
+.file-panel__row--locate-target:hover {
+  background: color-mix(in srgb, var(--accent, #4a8df8) 24%, transparent);
+}
+
 .file-panel__row--dir {
   cursor: pointer;
   color: var(--fg);

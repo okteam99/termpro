@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { hostClient } from '../services/hostClient';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
 import type { DirEntry, GitFileStatus } from '../../shared/protocol';
 import { gitStatusClass, joinPath, worktreeLabel } from '../filepanel/core';
+import { registerFilePanelLocateHandler } from '../filepanel/locateRegistry';
 import { useFilePanel } from '../filepanel/useFilePanel';
 import './FilePanel.css';
 
@@ -63,7 +64,14 @@ export function FilePanel() {
 
   // 编排输入:tab 标识 + 持久化绑定 + 兜底 cwd。
   // sessionId 不在其中——spawn 不触发 React 渲染,由 deps.getSessionId 实时读。
-  const { view, toggleDir, refresh } = useFilePanel({
+  const {
+    view,
+    toggleDir,
+    refresh,
+    locateTarget,
+    clearLocateHighlight,
+    clearLocateScrollPath,
+  } = useFilePanel({
     tabId: activeTab?.id ?? null,
     mode,
     rootPath: fp?.rootPath,
@@ -83,7 +91,10 @@ export function FilePanel() {
     errPaths,
     statusMap,
     dirtyDirs,
+    locateHighlightPath,
+    locateScrollPath,
   } = view;
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
 
   // Root mode: draft path for the text input (mirrors effective root, reset on tab/root change)
   const [rootInputDraft, setRootInputDraft] = useState<string>('');
@@ -93,8 +104,24 @@ export function FilePanel() {
   const fpRootPath = fp?.rootPath;
   useEffect(() => {
     setRootInputDraft(effectiveRoot);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveRoot, activeTabId, fpRootPath]);
+
+  useEffect(() => {
+    if (!activeTabId) return;
+    return registerFilePanelLocateHandler(activeTabId, locateTarget);
+  }, [activeTabId, locateTarget]);
+
+  useEffect(() => {
+    clearLocateHighlight();
+  }, [activeTabId, clearLocateHighlight]);
+
+  useEffect(() => {
+    if (!locateScrollPath) return;
+    const row = rowRefs.current.get(locateScrollPath);
+    if (!row) return;
+    row.scrollIntoView({ block: 'center' });
+    clearLocateScrollPath();
+  }, [locateScrollPath, clearLocateScrollPath]);
 
   // ── Flatten tree ──
   function flattenTree(entries: DirEntry[], parentPath: string, depth: number): TreeNode[] {
@@ -213,13 +240,25 @@ export function FilePanel() {
   // ── Mode toggle ──
   const handleModeRoot = useCallback(() => {
     if (!activeTab) return;
+    clearLocateHighlight();
     updateTabFilePanel(activeTab.id, { mode: 'root' });
-  }, [activeTab, updateTabFilePanel]);
+  }, [activeTab, clearLocateHighlight, updateTabFilePanel]);
 
   const handleModeWorktree = useCallback(() => {
     if (!activeTab) return;
+    clearLocateHighlight();
     updateTabFilePanel(activeTab.id, { mode: 'worktree' });
-  }, [activeTab, updateTabFilePanel]);
+  }, [activeTab, clearLocateHighlight, updateTabFilePanel]);
+
+  const handleRefresh = useCallback(() => {
+    clearLocateHighlight();
+    refresh();
+  }, [clearLocateHighlight, refresh]);
+
+  const handleToggleDir = useCallback((path: string) => {
+    clearLocateHighlight();
+    toggleDir(path);
+  }, [clearLocateHighlight, toggleDir]);
 
   if (!workspace) {
     return (
@@ -321,7 +360,7 @@ export function FilePanel() {
               </select>
               <button
                 className="file-panel__ctrl-btn file-panel__ctrl-btn--icon"
-                onClick={refresh}
+                onClick={handleRefresh}
                 title="Reload worktrees"
               >
                 ⟳
@@ -359,7 +398,7 @@ export function FilePanel() {
               Diff
             </button>
           )}
-          <button className="file-panel__refresh" onClick={refresh} title="Refresh">
+          <button className="file-panel__refresh" onClick={handleRefresh} title="Refresh">
             ⟳
           </button>
         </div>
@@ -382,6 +421,9 @@ export function FilePanel() {
           else if (isDir) rowClass += ' file-panel__row--dir';
           else rowClass += ' file-panel__row--file';
           if (gitCls) rowClass += ` file-panel__row--${gitCls}`;
+          if (node.absPath === locateHighlightPath) {
+            rowClass += ' file-panel__row--locate-target';
+          }
 
           // 有变动的文件(着色非 ignored)hover 时给行级 diff 直达按钮
           const fileStatus =
@@ -393,13 +435,17 @@ export function FilePanel() {
           return (
             <div
               key={node.absPath}
+              ref={(el) => {
+                if (el) rowRefs.current.set(node.absPath, el);
+                else rowRefs.current.delete(node.absPath);
+              }}
               className={rowClass}
               style={{ paddingLeft }}
               onClick={
                 isErr
                   ? undefined
                   : isDir
-                    ? () => toggleDir(node.absPath)
+                    ? () => handleToggleDir(node.absPath)
                     : () => window.termpro.openViewerWindow({ mode: 'file', path: node.absPath })
               }
             >

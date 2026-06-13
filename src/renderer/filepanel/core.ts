@@ -11,7 +11,6 @@ import type {
 import type {
   FilePanelEffect,
   FilePanelEvent,
-  FilePanelInputs,
   FilePanelState,
   FilePanelView,
   ReduceOutput,
@@ -35,7 +34,7 @@ export function sortEntries(entries: DirEntry[]): DirEntry[] {
 
 // Compute set of ancestor dir rel-paths that have any git status
 // (ignored 不参与上卷:被忽略的内容不该把祖先目录标脏)
-export function computeDirtyDirs(entries: GitStatusEntry[], displayedRoot: string): Set<string> {
+export function computeDirtyDirs(entries: GitStatusEntry[], _displayedRoot: string): Set<string> {
   const dirs = new Set<string>();
   for (const e of entries) {
     if (e.status === 'ignored') continue;
@@ -97,6 +96,11 @@ export function initialState(): FilePanelState {
     dirtyDirs: new Set(),
     watchId: null,
     effectiveRoot: null,
+    activeLocateRequestId: null,
+    activeLocateGeneration: null,
+    activeLocateRoot: null,
+    locateHighlightPath: null,
+    locateScrollPath: null,
   };
 }
 
@@ -122,6 +126,8 @@ export function toView(s: FilePanelState): FilePanelView {
     errPaths: s.errPaths,
     statusMap: s.statusMap,
     dirtyDirs: s.dirtyDirs,
+    locateHighlightPath: s.locateHighlightPath,
+    locateScrollPath: s.locateScrollPath,
   };
 }
 
@@ -231,12 +237,108 @@ function applyRootChange(
   return { state: s3, effects: [...effects, ...statusEffects] };
 }
 
+function clearLocateState(s: FilePanelState): FilePanelState {
+  if (
+    s.activeLocateRequestId === null &&
+    s.activeLocateGeneration === null &&
+    s.activeLocateRoot === null &&
+    s.locateHighlightPath === null &&
+    s.locateScrollPath === null
+  ) {
+    return s;
+  }
+  return {
+    ...s,
+    activeLocateRequestId: null,
+    activeLocateGeneration: null,
+    activeLocateRoot: null,
+    locateHighlightPath: null,
+    locateScrollPath: null,
+  };
+}
+
+function applyLocateCommit(
+  state: FilePanelState,
+  ev: Extract<FilePanelEvent, { t: 'locateCommit' }>,
+): ReduceOutput {
+  const p = ev.payload;
+  if (
+    state.activeLocateRequestId !== p.targetId ||
+    state.activeLocateGeneration !== p.generation ||
+    state.generation !== p.generation
+  ) {
+    return { state, effects: [] };
+  }
+
+  const effects: FilePanelEffect[] = [];
+  const rootChanged = state.effectiveRoot !== p.effectiveRoot;
+  let cache: Map<string, DirEntry[]>;
+  let topEntries = state.topEntries;
+  let expanded: Set<string>;
+  let s2: FilePanelState = {
+    ...state,
+    inputs: { ...state.inputs, mode: p.mode },
+    effectiveRoot: p.effectiveRoot,
+    locateHighlightPath: p.highlightPath,
+    locateScrollPath: p.scrollPath,
+    activeLocateRequestId: null,
+    activeLocateGeneration: null,
+    activeLocateRoot: null,
+  };
+
+  if (rootChanged) {
+    if (state.watchId !== null) effects.push({ k: 'stopWatch', watchId: state.watchId });
+    cache = new Map(p.cacheDelta);
+    expanded = new Set(p.requiredExpanded);
+    topEntries = sortEntries(p.topEntries);
+    s2 = {
+      ...s2,
+      topSeq: state.topSeq + 1,
+      topEntries,
+      expanded,
+      cache,
+      errPaths: new Set(),
+      statusMap: new Map(),
+      dirtyDirs: new Set(),
+      watchId: null,
+    };
+    effects.push({ k: 'startWatch', root: p.effectiveRoot });
+    const issued = issueStatusOrClear(s2, p.effectiveRoot);
+    s2 = issued.state;
+    effects.push(...issued.effects);
+  } else {
+    cache = new Map(state.cache);
+    for (const [path, entries] of p.cacheDelta) {
+      if (!cache.has(path)) cache.set(path, sortEntries(entries));
+    }
+    expanded = new Set(state.expanded);
+    for (const path of p.requiredExpanded) expanded.add(path);
+    if (p.topEntries.length > 0 && state.topEntries.length === 0) {
+      topEntries = sortEntries(p.topEntries);
+    }
+    s2 = { ...s2, topEntries, expanded, cache };
+  }
+
+  if (s2.inputs.tabId !== null) {
+    if (state.inputs.mode !== p.mode) {
+      effects.push({ k: 'persistMode', tabId: s2.inputs.tabId, mode: p.mode });
+    }
+    effects.push({ k: 'persistExpanded', tabId: s2.inputs.tabId, expanded: [...expanded] });
+  }
+
+  return { state: s2, effects };
+}
+
 // ── 全文件唯一过期闸(按序) ──────────────────────────────────────────────────
 // 1. resolveDone gen 不符 → 丢弃
 // 2. 含 root 字段的事件 root !== effectiveRoot → 丢弃
 // 3. topDone/topFail seq 不符、statusDone seq 不符 → 丢弃
 
 export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput {
+  if (ev.t === 'locateCommit') {
+    return applyLocateCommit(state, ev);
+  }
+
   // ── 过期闸 1:resolveDone gen ──
   if (ev.t === 'resolveDone' && ev.gen !== state.generation) {
     return { state, effects: [] };
@@ -267,6 +369,27 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
   // ── 各事件分支 ────────────────────────────────────────────────────────────
 
   switch (ev.t) {
+    case 'locateStart':
+      return {
+        state: {
+          ...state,
+          activeLocateRequestId: ev.targetId,
+          activeLocateGeneration: ev.generation,
+          activeLocateRoot: ev.root,
+          locateHighlightPath: null,
+          locateScrollPath: null,
+        },
+        effects: [],
+      };
+
+    case 'clearLocateHighlight':
+      return { state: clearLocateState(state), effects: [] };
+
+    case 'clearLocateScrollPath':
+      return state.locateScrollPath === null
+        ? { state, effects: [] }
+        : { state: { ...state, locateScrollPath: null }, effects: [] };
+
     case 'inputs': {
       const prev = state.inputs;
       const next = ev.inputs;
@@ -288,7 +411,7 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
         tabChanged || prev.rootPath !== next.rootPath || prev.fallbackCwd !== next.fallbackCwd;
 
       let s2: FilePanelState = { ...state, inputs: next };
-      if (tabChanged) s2 = { ...s2, lastPolledCwd: null };
+      if (tabChanged) s2 = clearLocateState({ ...s2, lastPolledCwd: null });
 
       const effects: FilePanelEffect[] = [];
 
@@ -317,7 +440,7 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
           state.watchId,
           tabChanged ? next.initialExpanded : null,
         );
-        return { state: s3, effects: [...effects, ...rootEffects] };
+        return { state: clearLocateState(s3), effects: [...effects, ...rootEffects] };
       }
 
       // root 没变但换了 tab(两 tab 同根):树/缓存保留,展开集换成新 tab 的(隔离),
@@ -325,7 +448,7 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
       if (tabChanged && newEff !== null) {
         const seeded = seedExpanded(s2, next.initialExpanded, newEff, false);
         s2 = { ...s2, expanded: seeded.expanded, effectiveRoot: newEff };
-        return { state: s2, effects: [...effects, ...seeded.effects] };
+        return { state: clearLocateState(s2), effects: [...effects, ...seeded.effects] };
       }
 
       // root 没变且非换 tab:不碰树/着色
@@ -361,7 +484,7 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
           state.watchId,
           null,
         );
-        return { state: s3, effects: [...effects, ...rootEffects] };
+        return { state: clearLocateState(s3), effects: [...effects, ...rootEffects] };
       }
 
       // root 没变:effectiveRoot 同值,但着色必须补拉(历史 bug 0907491 修复)
@@ -384,7 +507,7 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
 
       // cd 漂移:gen+1,重解析,不碰树/watch/着色
       const gen = s2.generation + 1;
-      const s3 = { ...s2, generation: gen };
+      const s3 = clearLocateState({ ...s2, generation: gen });
       const effects: FilePanelEffect[] = [];
       if (s3.inputs.tabId !== null) {
         effects.push({
@@ -449,7 +572,7 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
       if (state.inputs.tabId !== null) {
         effects.push({ k: 'persistExpanded', tabId: state.inputs.tabId, expanded: [...expanded] });
       }
-      return { state: { ...state, expanded }, effects };
+      return { state: clearLocateState({ ...state, expanded }), effects };
     }
 
     case 'childDone': {
@@ -468,7 +591,7 @@ export function reduce(state: FilePanelState, ev: FilePanelEvent): ReduceOutput 
     case 'refresh': {
       // gen+1,重解析;effectiveRoot 非 null 时 partialRefreshTree + 着色
       const gen = state.generation + 1;
-      let s2 = { ...state, generation: gen };
+      let s2 = clearLocateState({ ...state, generation: gen });
       const effects: FilePanelEffect[] = [];
 
       // 无条件重发 resolve(即使 effectiveRoot 为 null,现码语义:refreshKey 无条件重跑 Phase 1)
