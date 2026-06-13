@@ -127,6 +127,10 @@
   padding-left: 8px; /* compensate for the 3px border so content stays aligned */
 }
 
+.sidebar-item--dragging {
+  opacity: 0.5;
+}
+
 /* Name row: name + pencil inline */
 .sidebar-item-name-row {
   display: flex;

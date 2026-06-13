@@ -92,6 +92,7 @@ export function Sidebar() {
   const removeWorkspace = useAppStore((s) => s.removeWorkspace);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const updateWorkspace = useAppStore((s) => s.updateWorkspace);
+  const moveWorkspace = useAppStore((s) => s.moveWorkspace);
   const notifications = useAppStore((s) => s.notifications);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -103,6 +104,10 @@ export function Sidebar() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [ncOpen, setNcOpen] = useState(false);
   const bellRef = useRef<HTMLButtonElement>(null);
+
+  // Track the id of the workspace currently being dragged
+  const draggingWsId = useRef<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   async function handleAdd() {
     const path = await window.termpro.pickDirectory();
@@ -127,6 +132,47 @@ export function Sidebar() {
 
   function handleModalClose() {
     setEditingId(null);
+  }
+
+  // --- Drag handlers ---
+
+  function handleDragStart(e: React.DragEvent<HTMLDivElement>, wsId: string) {
+    draggingWsId.current = wsId;
+    setDraggingId(wsId);
+    e.dataTransfer.effectAllowed = 'move';
+    // Required for Firefox compat
+    e.dataTransfer.setData('text/plain', wsId);
+  }
+
+  function handleDragEnd() {
+    draggingWsId.current = null;
+    setDraggingId(null);
+  }
+
+  function handleDragOver(
+    e: React.DragEvent<HTMLDivElement>,
+    targetWsId: string,
+    targetIndex: number,
+  ) {
+    e.preventDefault();
+    const srcId = draggingWsId.current;
+    if (!srcId || srcId === targetWsId) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    // If pointer is above midpoint → insert at targetIndex; otherwise at targetIndex + 1
+    const insertIndex = e.clientY < midY ? targetIndex : targetIndex + 1;
+
+    const srcIndex = workspaces.findIndex((w) => w.id === srcId);
+    if (srcIndex < 0) return;
+
+    // Compute effective destination after removing src from array
+    // Only call if the position actually changes
+    let dest = insertIndex;
+    if (srcIndex < insertIndex) dest = insertIndex - 1;
+    if (dest === srcIndex) return;
+
+    moveWorkspace(srcId, dest < 0 ? 0 : dest);
   }
 
   // Find the workspace being renamed (for the modal's initial name)
@@ -174,8 +220,9 @@ export function Sidebar() {
             </button>
           </div>
         ) : (
-          workspaces.map((ws) => {
+          workspaces.map((ws, idx) => {
             const isActive = ws.id === activeWorkspaceId;
+            const isDragging = ws.id === draggingId;
             const tildifiedPath = tildify(ws.root, homedir);
             const metaLine = ws.branch
               ? `⎇ ${ws.branch} · ${tildifiedPath}`
@@ -186,8 +233,12 @@ export function Sidebar() {
             return (
               <div
                 key={ws.id}
-                className={`sidebar-item${isActive ? ' sidebar-item--active' : ''}`}
+                draggable
+                className={`sidebar-item${isActive ? ' sidebar-item--active' : ''}${isDragging ? ' sidebar-item--dragging' : ''}`}
                 onClick={() => setActiveWorkspace(ws.id)}
+                onDragStart={(e) => handleDragStart(e, ws.id)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, ws.id, idx)}
               >
                 <div className="sidebar-item-name-row">
                   <span className="sidebar-item-name">{ws.name}</span>

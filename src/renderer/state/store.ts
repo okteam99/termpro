@@ -89,6 +89,8 @@ export interface AppState {
     id: string,
     patch: Partial<Pick<WorkspaceState, 'name' | 'branch'>>,
   ): void;
+  /** 拖拽排序:把工作区移到目标下标(越界自动夹紧) */
+  moveWorkspace(id: string, toIndex: number): void;
   addTab(workspaceId: string, cwd?: string): void;
   closeTab(workspaceId: string, tabId: string): void;
   setActiveTab(workspaceId: string, tabId: string): void;
@@ -205,6 +207,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         w.id === id ? { ...w, ...patch } : w,
       ),
     }));
+  },
+
+  moveWorkspace(id, toIndex) {
+    set((s) => {
+      const from = s.workspaces.findIndex((w) => w.id === id);
+      if (from < 0) return s;
+      const to = Math.max(0, Math.min(toIndex, s.workspaces.length - 1));
+      if (to === from) return s;
+      const workspaces = [...s.workspaces];
+      const [moved] = workspaces.splice(from, 1);
+      workspaces.splice(to, 0, moved);
+      return { workspaces };
+    });
   },
 
   addTab(workspaceId, cwd) {
