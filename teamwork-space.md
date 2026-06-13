@@ -2,7 +2,7 @@
 
 > **本项目知识地图根 · 索引之索引** · 任何 session 先读本文件 → 指向每个知识节点(产品愿景 / 工程文档 / 系统架构 / 代码)· **代码是细节唯一真相**。
 > 🔴 变更需用户确认(R5)· 任一单元格 ≤ 1 行 · 维护规范 → `docs/teamwork-space-guide.md`(随 skill · 不复制进项目)。
-> 🔴 本项目为**单子项目**(N=1)· 暂无 `product-overview/`(产品愿景以 `README.md` 为权威源)· 后续若纳入多线规划再补。
+> 🔴 本项目为**单子项目**(N=1)· `product-overview/` 已建立为上游产品规划权威，`README.md` 继续作为公开产品说明与里程碑叙述。
 
 ## 知识入口（索引之索引 · 零死角）
 
@@ -10,7 +10,9 @@
 
 | 知识域 | 入口 | 内含 |
 |--------|------|------|
-| 产品愿景 / 里程碑 | [`README.md`](README.md) | 定位 · 概念模型 · UI 蓝图 · M1–M5 里程碑 · 架构(远程就绪)· 选型决策 |
+| 产品规划上游 | [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md) | 产品定位 · 业务架构 · 执行线列表 · MVP 范围 · 分阶段路线图 |
+| 产品说明 / 里程碑 | [`README.md`](README.md) | 定位 · 概念模型 · UI 蓝图 · M1–M5 里程碑 · 架构(远程就绪)· 选型决策 |
+| 待规划需求池 | [`product-overview/PENDING.md`](product-overview/PENDING.md) | 跨 Feature/session 的 active 待规划项 |
 | 工程速查(开发者手册) | [`docs/DEV.md`](docs/DEV.md) | 环境 · 命令 · 目录结构 · 架构要点 · CI/发版 · 已知约束 |
 | 工程规范(workspace) | [`project-specs/`](project-specs/) | DEV-RULES · KNOWLEDGE · GLOSSARY · TROUBLESHOOTING |
 | 系统架构(workspace) | [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md) | UI壳↔Host 拓扑 + 依赖契约 + `src/` 目录布局 |
@@ -22,7 +24,7 @@
 
 | 缩写 | 名称 | 类型 | 职责范围 | docs_root | 承接执行线 | 技术栈 | 需要 UI | 消费方 | 完成度 |
 |------|------|------|----------|-----------|-----------|--------|---------|--------|--------|
-| TERMPRO | TermPro | business | 负责:终端为主体的多工程/多会话工作台(UI壳 + Host + 状态感知)。不负责:绑定特定 agent · 完整编辑器/LSP · Windows/Linux | `docs/features` | -（无 product-overview） | Electron · React(Vite) · xterm.js · node-pty · monaco | 是 | - | 0/0 · 里程碑见 README §四(M1–M4 ✅ · M5 远程 Host 待做) |
+| TERMPRO | TermPro | business | 负责:终端为主体的多工程/多会话工作台(UI壳 + Host + 状态感知)。不负责:绑定特定 agent · 完整编辑器/LSP · Windows/Linux | `docs/features` | Line 0-5 | Electron · React(Vite) · xterm.js · node-pty · monaco | 是 | - | 0/0 · 里程碑见 README §四(M1–M4 ✅ · M5 远程 Host 待做) |
 
 ---
 
