@@ -67,7 +67,17 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
       if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    // DPR 变化(窗口跨 retina/非-retina 屏拖拽、改显示缩放)会让 WebGL 字形
+    // 图集按旧像素比烘焙、取字坐标却按新比算 → 错位乱码。变化时清空图集
+    // (按需重建,开销很小)并重新 fit。
+    const stopDpr = watchDevicePixelRatio(() => {
+      inst.webgl?.clearTextureAtlas();
+      if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
+    });
+    return () => {
+      ro.disconnect();
+      stopDpr();
+    };
   }, [active, tabId]);
 
   // 右键菜单:复制/粘贴/全选/清屏(原生菜单,粘贴走 term.paste
@@ -106,4 +116,28 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
       onContextMenu={(e) => void handleContextMenu(e)}
     />
   );
+}
+
+/**
+ * 监听 devicePixelRatio 变化并回调。matchMedia 的分辨率查询在 DPR 改变后即
+ * 失效(查询条件不再匹配),故每次触发后须按新 DPR 重新注册一条 once 监听。
+ * 返回停止函数,供 effect 清理。
+ */
+function watchDevicePixelRatio(onChange: () => void): () => void {
+  let mql: MediaQueryList | null = null;
+  let stopped = false;
+  const register = () => {
+    mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    mql.addEventListener('change', handle, { once: true });
+  };
+  const handle = () => {
+    if (stopped) return;
+    onChange();
+    register();
+  };
+  register();
+  return () => {
+    stopped = true;
+    mql?.removeEventListener('change', handle);
+  };
 }
