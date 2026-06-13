@@ -1,0 +1,95 @@
+{
+  "feature_id": "TERMPRO-F260613053134-Terminal-Path-FilePanel",
+  "sub_project": "TERMPRO",
+  "flow_type": "Feature",
+  "artifact_root": "/Users/liam/apps/okok/TermPro/.worktree/TERMPRO-F260613053134-Terminal-Path-FilePanel/docs/features/TERMPRO-F260613053134-Terminal-Path-FilePanel",
+  "host": "codex-cli",
+  "host_history": [
+    {
+      "host": "codex-cli",
+      "at": "2026-06-13T05:34:23Z",
+      "source": "init-feature"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-06-13T05:34:28Z",
+      "source": "goal-start",
+      "previous": "codex-cli"
+    }
+  ],
+  "current_stage": "goal",
+  "merge_target": "main",
+  "worktree": {
+    "strategy": "auto",
+    "branch": "feature/TERMPRO-F260613053134-terminal-path-file-panel",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/TERMPRO-F260613053134-Terminal-Path-FilePanel",
+    "base_branch": "origin/main",
+    "created_at": "2026-06-13T05:34:23Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "feature/TERMPRO-F260613053134-terminal-path-file-panel",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-06-13T05:34:23Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [],
+  "review_round": 0,
+  "stage_contracts": {
+    "goal": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-06-13T05:34:28Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-06-13T05:34:23Z",
+  "stage_review_roles": {
+    "goal": [
+      "pm",
+      "qa",
+      "architect",
+      "pl",
+      "external"
+    ],
+    "ui_design": [
+      "designer",
+      "pm"
+    ],
+    "panorama_sync": [
+      "pm",
+      "architect"
+    ],
+    "blueprint": [
+      "qa",
+      "architect",
+      "external"
+    ],
+    "review": [
+      "architect",
+      "qa",
+      "external"
+    ],
+    "test": [
+      "qa"
+    ],
+    "browser_e2e": [
+      "qa",
+      "designer"
+    ],
+    "pm_acceptance": [
+      "pm"
+    ]
+  },
+  "stage_review_roles_adjustments": [],
+  "updated_at": "2026-06-13T05:34:28Z",
+  "updated_by": "pmo",
+  "_state_checksum": "sha256:829e0fa328e1bf1303657bdecb7925d20c131602faf9f34f12e036f551b92f70",
+  "legal_next_stages": [
+    "ui_design",
+    "blueprint"
+  ]
+}
