@@ -39,6 +39,7 @@
 | GO-012 | notify | **UI 完全关闭期间收不到系统通知** | M1-M4 靠重连对账兜底;推送通道留 M5 后 | DEV.md §5 | M3 |
 | GO-013 | filepanel | **FilePanel 编排遗留 P2**(opus 评审 2026-06,均与重构前等价或更优):① refresh/lockRoot 后 resolveDone 冗余二拉 git.status(seq 闸自纠正);② childDone 无 seq,懒拉与 partial 重拉并发时 last-writer-wins;③ dispose/watchReady 同 tick 边界无专测 | 暂接受;单 reducer 三道过期闸(resolveDone 按 generation、树/着色按 root、top/status 按单调 seq)已覆盖主路径 | DEV.md §5 | v0.3 |
 | GO-014 | notify | **「可能在等输入」静默判据勿用「quiet 到达时刻 − 去激活时刻」时间差推断**:host `tick`(~1.5s)抖动 + 传输延迟 + host/renderer 时钟不同源 → 同时产生漏报/误报(评审 ARCH-1 证伪) | 用渲染层**同源时间戳** `lastOutputAt > deactivatedAt` 直接比较(`src/renderer/services/quietGate.ts`)· 两值均取 renderer `Date.now()` | 2026-06 | TERMPRO-F260613041948-quiet-notify |
+| GO-015 | build | **teamwork worktree 跑无头冒烟报 `Cannot find the package "electron"`**:worktree 默认无 `node_modules`,electron-forge 在 worktree 根找 `node_modules/electron` 失败(找到 lock 文件即停,不向上回退主仓)· tsc/vitest 不受影响(Node 向上解析能命中主仓 node_modules) | 在 worktree 内软链:`ln -sfn <主仓>/node_modules/electron node_modules/electron`(node_modules 已 gitignored · ship 删 worktree 时随之清除) | 2026-06 | TERMPRO-F260613152432-Terminal-File-Link-Open |
 
 ---
 
@@ -78,6 +79,7 @@
 - **ipc**: GO-003, GO-004, GO-008
 - **persist**: GO-007
 - **shell**: GO-009, GO-010
+- **build**: GO-015
 - **filepanel**: GO-011, GO-013
 - **notify**: GO-012, GO-014
 - **发版**: PR-001
