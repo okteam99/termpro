@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { parseVersionArg } from './parseVersionArg';
 
 // 壳层 API:仅暴露与「本地 OS / 窗口」相关的能力。
 // 一切工程数据(fs/pty/git)走 HostService 协议,不经过这里。
@@ -6,6 +7,7 @@ contextBridge.exposeInMainWorld('termpro', {
   platform: process.platform,
   smoke: process.argv.includes('--termpro-smoke'),
   devChannel: process.argv.includes('--termpro-dev'),
+  version: parseVersionArg(process.argv),
   /** 请求 main 建一条直连 Host 的 MessageChannel,port 经 window message 送达 */
   requestHostPort(): void {
     ipcRenderer.send('host:request-port');

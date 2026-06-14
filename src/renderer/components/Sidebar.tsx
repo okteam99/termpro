@@ -4,6 +4,7 @@ import { useAppStore, tildify } from '../state/store';
 import { hostClient } from '../services/hostClient';
 import { RenameModal } from './RenameModal';
 import { NotificationCenter } from './NotificationCenter';
+import { SettingsEntry } from './SettingsEntry';
 
 /** Small pencil icon 12×12 */
 function PencilIcon() {
@@ -291,14 +292,10 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* 左下角:DEV 渠道标识 + 升级提示 */}
+      {/* 左下角:升级提示 + 用户信息入口(含 DEV 徽标) */}
       <div className="sidebar-footer">
-        {window.termpro.devChannel && (
-          <span className="sidebar-dev-badge" title="开发渠道构建,独立数据目录,不检查更新">
-            DEV
-          </span>
-        )}
         <UpdatePill />
+        <SettingsEntry devChannel={window.termpro.devChannel} />
       </div>
 
       {/* Rename modal — rendered at sidebar root level */}
