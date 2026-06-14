@@ -1,29 +1,26 @@
 ---
 feature_id: "TERMPRO-F260614081920-Close-Install-Confirmation"
 reviewer: qa
-round: 2
+round: 3
 verdict: NEEDS_REVISION
 reviewed_at: "2026-06-14"
 ---
 
-# QA Review - Round 2
+# QA Review - Round 3
 
 ## Regression Status
 
-- Round 1 test gap for close cancel/confirm was fixed in `17d588c`.
-- Busy retry loop test was added in `7545b99`.
-- Verification after `7545b99`:
-  - `npm run typecheck`: PASS
-  - `npm test`: PASS, 22 files / 188 tests
-  - `npm run lint`: PASS with existing warnings
-  - `TERMPRO_SMOKE=1 npx electron-forge start`: PASS, `SMOKE_OK`
+- Round 2 validation passed before Round 3 review.
+- Round 3 external review found lifecycle cases that were not covered by the previous unit matrix.
 
 ## Findings
 
 | ID | Severity | Finding | Evidence | Verdict |
 |----|----------|---------|----------|---------|
-| QA-R2-1 | High | No automated or documented boundary for OS shutdown / logout bypassing quit confirmation. | PRD AC-2 covers user quit; main currently confirms all `before-quit` unless already marked. | Confirmed, add testable shutdown bypass hook/wiring note. |
-| QA-R2-2 | Low | Pending install confirmation needs guard if app is already quitting or updater fallback already happened. | External CR-2/CR-3; current tests do not cover these races. | Confirmed, add unit tests. |
+| QA-R3-1 | High | OS logout/shutdown must have an explicit non-blocking test/documented boundary. | Previous tests covered confirmed user quit bypass, not `before-quit` as system/programmatic exit. | Confirmed, add unit coverage for mark-only `before-quit` and PM acceptance native check. |
+| QA-R3-2 | High | Update cancel/retry after `update-downloaded` needs a defined staged retry behavior. | AC-3/AC-4 require retryable available state; re-running Squirrel check after staging was not verified. | Confirmed, document and implement staged-ready retry path. |
+| QA-R3-3 | Low | `quitAndInstall()` failure should not permanently disable future confirmations. | No previous test covered `quitAndInstall()` throwing after `prepareToQuitAndInstall()`. | Confirmed, add rollback test. |
+| QA-R3-4 | Info | TC/TECH naming drift should be corrected. | T-004 function name and main wiring notes lagged implementation. | Confirmed, align docs. |
 
 ## Verdict
 
