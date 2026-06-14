@@ -40,6 +40,8 @@
 | GO-013 | filepanel | **FilePanel 编排遗留 P2**(opus 评审 2026-06,均与重构前等价或更优):① refresh/lockRoot 后 resolveDone 冗余二拉 git.status(seq 闸自纠正);② childDone 无 seq,懒拉与 partial 重拉并发时 last-writer-wins;③ dispose/watchReady 同 tick 边界无专测 | 暂接受;单 reducer 三道过期闸(resolveDone 按 generation、树/着色按 root、top/status 按单调 seq)已覆盖主路径 | DEV.md §5 | v0.3 |
 | GO-014 | notify | **「可能在等输入」静默判据勿用「quiet 到达时刻 − 去激活时刻」时间差推断**:host `tick`(~1.5s)抖动 + 传输延迟 + host/renderer 时钟不同源 → 同时产生漏报/误报(评审 ARCH-1 证伪) | 用渲染层**同源时间戳** `lastOutputAt > deactivatedAt` 直接比较(`src/renderer/services/quietGate.ts`)· 两值均取 renderer `Date.now()` | 2026-06 | TERMPRO-F260613041948-quiet-notify |
 | GO-015 | build | **teamwork worktree 跑无头冒烟报 `Cannot find the package "electron"`**:worktree 默认无 `node_modules`,electron-forge 在 worktree 根找 `node_modules/electron` 失败(找到 lock 文件即停,不向上回退主仓)· tsc/vitest 不受影响(Node 向上解析能命中主仓 node_modules) | 在 worktree 内软链:`ln -sfn <主仓>/node_modules/electron node_modules/electron`(node_modules 已 gitignored · ship 删 worktree 时随之清除) | 2026-06 | TERMPRO-F260613152432-Terminal-File-Link-Open |
+| GO-016 | notify | **通知有两套互不联动的"已读"状态**:源 A `notifications[].read`(顶部 🔔 角标读它 · `Sidebar.tsx`)/ 源 B tab `waiting`·`unseenDone`(状态点 / 工作区 attention pill / Dock 角标)。后台事件同时写两套;**任何"使 tab 可见 = 查看"的入口必须同步两套**,否则角标残留(setActiveTab、setActiveWorkspace 各漏一处即本 bug) | 新增/修改任何"查看 tab"入口一律走 `markTabViewed(workspaceId, tabId)`(`store.ts` · 清源 B + 按 tabId 标源 A 已读) | 2026-06 | TERMPRO-B260614065346 |
+| GO-017 | test | **renderer store 单测会经 `terminalRegistry` 拉入 `@xterm/*`**(vitest 默认 node env 无 DOM · import 链易崩) | 测试顶部 `vi.mock('../../terminal/terminalRegistry', () => ({ disposeTerminal: () => {} }))` 断链,再 `useAppStore.setState/getState` 直驱 store action(见 `notificationBadge.test.ts`) | 2026-06 | TERMPRO-B260614065346 |
 
 ---
 
@@ -81,7 +83,8 @@
 - **shell**: GO-009, GO-010
 - **build**: GO-015
 - **filepanel**: GO-011, GO-013
-- **notify**: GO-012, GO-014
+- **notify**: GO-012, GO-014, GO-016
+- **test**: GO-017
 - **发版**: PR-001
 - **歧义**: FA-001
 - **拒绝**: OS-001, OS-002, OS-003, OS-004, OS-005

@@ -124,6 +124,39 @@ function makeTab(cwd: string): TabState {
   return { id: crypto.randomUUID(), title: basename(cwd), cwd };
 }
 
+/**
+ * 把某 tab 标记为"已查看"并设为其工作区当前 tab:
+ * - 清注意力标记(源 B:waiting/unseenDone)
+ * - 该 tab 未读通知标已读(源 A:notifications[].read)→ 顶部铃铛角标随之递减
+ * 返回可并入 zustand set() 的局部 state(workspaces + notifications)。
+ * 切 tab(setActiveTab)与切工作区使其 active tab 可见(setActiveWorkspace)共用此逻辑,
+ * 避免两个"查看"入口对两套状态的清除不对称(BUG-TERMPRO-B260614065346-001)。
+ */
+function markTabViewed(
+  s: AppState,
+  workspaceId: string,
+  tabId: string,
+): Pick<AppState, 'workspaces' | 'notifications'> {
+  return {
+    workspaces: s.workspaces.map((w) =>
+      w.id === workspaceId
+        ? {
+            ...w,
+            activeTabId: tabId,
+            tabs: w.tabs.map((t) =>
+              t.id === tabId
+                ? { ...t, waiting: false, unseenDone: false }
+                : t,
+            ),
+          }
+        : w,
+    ),
+    notifications: s.notifications.map((n) =>
+      n.tabId === tabId && !n.read ? { ...n, read: true } : n,
+    ),
+  };
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
@@ -200,7 +233,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveWorkspace(id) {
-    set({ activeWorkspaceId: id });
+    set((s) => {
+      const ws = s.workspaces.find((w) => w.id === id);
+      const activeTabId = ws?.activeTabId ?? null;
+      // 切到工作区即让其 active tab 可见 = 视作查看该 tab:
+      // 与 setActiveTab 一致清两套状态,否则角标对该 tab 残留(external review medium)。
+      return {
+        activeWorkspaceId: id,
+        ...(activeTabId ? markTabViewed(s, id, activeTabId) : {}),
+      };
+    });
   },
 
   updateWorkspace(id, patch) {
@@ -251,22 +293,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveTab(workspaceId, tabId) {
-    set((s) => ({
-      workspaces: s.workspaces.map((w) =>
-        w.id === workspaceId
-          ? {
-              ...w,
-              activeTabId: tabId,
-              // 激活即视作已查看,清注意力标记
-              tabs: w.tabs.map((t) =>
-                t.id === tabId
-                  ? { ...t, waiting: false, unseenDone: false }
-                  : t,
-              ),
-            }
-          : w,
-      ),
-    }));
+    // 激活即视作已查看:清注意力标记(源 B)+ 该 tab 未读通知标已读(源 A)→ 角标递减。
+    set((s) => markTabViewed(s, workspaceId, tabId));
   },
 
   moveTab(workspaceId, tabId, toIndex) {
