@@ -31,8 +31,8 @@ pages_changed:
 
 | 场景 | 用户触发 | UI 状态 | 结果 |
 |------|----------|---------|------|
-| Close Window | 红色关闭按钮、Close Window 或等价入口 | 居中确认弹窗；主工作台背景压暗但仍可识别 | Cancel 保持窗口；Confirm 继续关闭窗口 |
-| App Quit | App Quit / `Cmd+Q` | 同款确认弹窗；确认按钮使用危险色 | Cancel 保持应用；Confirm 继续退出 |
+| Close Window | 红色关闭按钮、Close Window 或等价入口 | 居中确认弹窗；主工作台背景压暗但仍可识别；正文提示“关闭后再打开，Tab 内容可能丢失” | Cancel 保持窗口；Confirm 继续关闭窗口 |
+| App Quit | App Quit / `Cmd+Q` | 同款确认弹窗；确认按钮使用危险色；正文提示“退出后再打开，Tab 内容可能丢失” | Cancel 保持应用；Confirm 继续退出 |
 | Install Ready | 升级下载完成 | 安装确认弹窗；升级胶囊文案不再承诺自动重启 | Later 保持运行；Confirm 安装并重启 |
 | Install Canceled | 安装确认取消后 | 无弹窗；底部状态卡和升级胶囊均表示可重试 | 用户可稍后重新点击升级 |
 
@@ -40,6 +40,7 @@ pages_changed:
 
 - 复用 TermPro 深色 token：`--bg`、`--bg-panel`、`--bg-active`、`--fg`、`--fg-dim`、`--accent`、`--amber`、`--red`、`--green`。
 - 确认弹窗沿用 About 弹窗的 overlay/card 层级，但半径收敛到 8px，符合工具型界面密度。
+- Close Window / App Quit 的正文必须明确提示关闭或退出后重新打开时 Tab 内容可能丢失，避免只写“窗口会关闭”导致风险感不足。
 - 关闭确认与安装确认使用蓝色主操作；App Quit 使用红色确认按钮，突出退出应用的破坏性。
 - 升级胶囊文案改为“下载后确认安装 / 可重新安装”，避免继续表达“完成后自动重启”。
 
