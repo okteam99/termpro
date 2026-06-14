@@ -2,3 +2,5 @@
 {"at": "2026-06-14T07:23:36Z", "event": "stage_completed", "stage": "dev", "auto_commit": "de1de39", "duration_minutes": 3, "artifacts": ["src/renderer/state/store.ts", "src/renderer/state/__tests__/notificationBadge.test.ts", "bugfix/BUG-TERMPRO-B260614065346-001.md"]}
 {"at": "2026-06-14T07:35:19Z", "event": "stage_completed", "stage": "review", "auto_commit": "527b03a", "duration_minutes": 11, "artifacts": ["REVIEW.md", "REVIEW-arch.md", "REVIEW-qa.md"]}
 {"at": "2026-06-14T07:35:39Z", "event": "stage_completed", "stage": "review", "auto_commit": "3fce2d1", "duration_minutes": 12, "artifacts": ["REVIEW.md", "REVIEW-arch.md", "REVIEW-qa.md"]}
+{"at": "2026-06-14T07:37:04Z", "event": "stage_completed", "stage": "test", "auto_commit": "b4a4757", "duration_minutes": 1, "artifacts": ["TEST-REPORT.md", "e2e/", "test-stdout.log"]}
+{"at": "2026-06-14T07:41:04Z", "event": "stage_completed", "stage": "pm_acceptance", "auto_commit": "b4a4757a4962949c1ae2d4aa555e807c4388890c", "duration_minutes": 4, "artifacts": []}

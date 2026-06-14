@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "ship",
   "merge_target": "main",
   "review_base_commit": "a8bd2ee",
   "worktree": {
@@ -100,16 +100,62 @@
       "duration_minutes": 12
     },
     "test": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T07:35:39Z",
+      "completed_at": "2026-06-14T07:37:04Z",
+      "auto_commit": "b4a4757",
+      "artifacts": [
+        "TEST-REPORT.md",
+        "e2e/",
+        "test-stdout.log"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "integration_test_exit_code": 0,
+        "e2e_test_exit_code": 0
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-06-14T07:35:39Z",
+          "completed_at": "2026-06-14T07:37:04Z",
+          "test_commit": "b4a4757",
+          "integration_test_exit_code": 0,
+          "e2e_test_exit_code": 0
+        }
+      ],
+      "duration_minutes": 1
+    },
+    "pm_acceptance": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T07:37:04Z",
+      "evidence": {
+        "decision": "approved_and_ship",
+        "note": ""
+      },
+      "completed_at": "2026-06-14T07:41:04Z",
+      "auto_commit": "b4a4757a4962949c1ae2d4aa555e807c4388890c",
+      "artifacts": [],
+      "cited_specs": [],
+      "duration_minutes": 4
+    },
+    "ship": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T07:35:39Z"
+      "started_at": "2026-06-14T07:41:04Z"
     }
   },
   "completed_stages": [
     "diagnose",
     "dev",
-    "review"
+    "review",
+    "test",
+    "pm_acceptance"
   ],
   "created_at": "2026-06-14T06:56:12Z",
   "stage_review_roles": {
@@ -126,10 +172,27 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T07:35:47Z",
+  "updated_at": "2026-06-14T07:43:45Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:5c8b260f64b5b0b478752eb0a320c741bad93bff0568f64c059862c0aba8da8f",
+  "_state_checksum": "sha256:e0c2cb2dbd2abd0c5bf96c81024632fcd7db5f54763b1478127f327a9d978a1a",
   "legal_next_stages": [
-    "pm_acceptance"
-  ]
+    "completed"
+  ],
+  "ship": {
+    "started_at": "2026-06-14T07:43:45Z",
+    "distill": {
+      "knowledge": "promoted GO-016 通知双已读状态须经 markTabViewed 统一查看入口 + GO-017 store 单测 mock terminalRegistry 断 @xterm 链",
+      "adr": "none",
+      "reg": "none",
+      "retro": "n/a",
+      "architecture": "no-change",
+      "db_schema": "no-change",
+      "distilled_at": "2026-06-14T07:43:45Z"
+    },
+    "sanitize_log": {
+      "residual_commits": [],
+      "cleaned_files": [],
+      "suspicious_files": []
+    }
+  }
 }
