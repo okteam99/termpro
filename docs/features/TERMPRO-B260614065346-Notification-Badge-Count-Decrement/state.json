@@ -11,9 +11,9 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "diagnose",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "a8bd2ee",
   "worktree": {
     "strategy": "auto",
     "branch": "fix/termpro-b260614065346-notification-badge-count-decrement",
@@ -34,13 +34,29 @@
   "review_round": 0,
   "stage_contracts": {
     "diagnose": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T06:56:17Z",
+      "completed_at": "2026-06-14T07:19:42Z",
+      "auto_commit": "a8bd2ee",
+      "artifacts": [
+        "bugfix/BUG-TERMPRO-B260614065346-001.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 23
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T06:56:17Z"
+      "started_at": "2026-06-14T07:19:42Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "diagnose"
+  ],
   "created_at": "2026-06-14T06:56:12Z",
   "stage_review_roles": {
     "review": [
@@ -56,10 +72,10 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T06:56:17Z",
+  "updated_at": "2026-06-14T07:19:42Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:aabb7092a0182186993c089b50b097a4ca2a85d76388ae702becda28d29c38aa",
+  "_state_checksum": "sha256:2921e19cdfa9a19de0b99eb4497c6e00b3fd76d2a31685c9acd64e1a74fa2ffc",
   "legal_next_stages": [
-    "dev"
+    "review"
   ]
 }

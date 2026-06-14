@@ -266,6 +266,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             }
           : w,
       ),
+      // 激活即视作已查看:把该 tab 的未读通知也标已读,
+      // 让通知中心角标(读 notifications)随之递减,与 tab 注意力标记对齐。
+      notifications: s.notifications.map((n) =>
+        n.tabId === tabId && !n.read ? { ...n, read: true } : n,
+      ),
     }));
   },
 
