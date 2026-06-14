@@ -33,11 +33,17 @@
       "at": "2026-06-14T09:31:04Z",
       "source": "blueprint-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-06-14T09:43:07Z",
+      "source": "dev-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "blueprint",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "d42ccee",
   "worktree": {
     "strategy": "auto",
     "branch": "feature/TERMPRO-F260614081920-Close-Install-Confirmation",
@@ -103,16 +109,33 @@
       "duration_minutes": 2
     },
     "blueprint": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T09:30:59Z",
+      "completed_at": "2026-06-14T09:42:55Z",
+      "auto_commit": "d42ccee",
+      "artifacts": [
+        "TC.md",
+        "TECH.md",
+        "TECH-REVIEW.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 11
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T09:30:59Z"
+      "started_at": "2026-06-14T09:42:55Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
-    "panorama_sync"
+    "panorama_sync",
+    "blueprint"
   ],
   "created_at": "2026-06-14T08:21:00Z",
   "stage_review_roles": {
@@ -151,11 +174,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T09:31:15Z",
+  "updated_at": "2026-06-14T09:43:07Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:f78ea5537fa05a3e629c98658d896bb3842fe15772f0dffd652d70b7421d1c21",
+  "_state_checksum": "sha256:480a90fde289d4de4f76ff72ffe36b2b689b8e0dac8d629b219b4d2fd98cd6e3",
   "legal_next_stages": [
-    "dev"
+    "review"
   ],
   "execution_hints": {
     "ui_design_needed": true,

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // store.ts → terminalRegistry.ts 会拉入 @xterm/* 浏览器模块;
 // 本测试只验证 store 的通知/激活逻辑,mock 掉终端注册表断开该链。
 vi.mock('../../terminal/terminalRegistry', () => ({
-  disposeTerminal: () => {},
+  disposeTerminal: vi.fn(),
 }));
 
 import { useAppStore } from '../store';

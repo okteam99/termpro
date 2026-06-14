@@ -17,6 +17,8 @@ import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import type { ExitConfirmationResult } from './exitConfirmation';
+import { handleDownloadedUpdateForInstall } from './updateInstallDecision';
 
 const REPO = 'okteam99/termpro';
 // 每 10 分钟周期检测;窗口聚焦(用户行为)且距上次检查 >10 分钟时立即触发
@@ -256,7 +258,18 @@ function serveForSquirrel(zipPath: string, version: string): Promise<string> {
   });
 }
 
-export function initUpdater(): void {
+export interface InitUpdaterOptions {
+  confirmInstallWhenIdle?: (version?: string) => Promise<ExitConfirmationResult>;
+  prepareToQuitAndInstall?: () => void;
+}
+
+export function initUpdater(options: InitUpdaterOptions = {}): void {
+  const confirmInstallWhenIdle =
+    options.confirmInstallWhenIdle ??
+    (async () => ({ status: 'confirmed' }) satisfies ExitConfirmationResult);
+  const prepareToQuitAndInstall =
+    options.prepareToQuitAndInstall ?? (() => undefined);
+
   ipcMain.on('update:install', () => {
     if (!latest || installing) return;
     installing = true;
@@ -315,10 +328,23 @@ export function initUpdater(): void {
   autoUpdater.on('update-downloaded', () => {
     if (!installing) return;
     console.log('[updater] downloaded, restarting to install');
-    clearWatchdog();
-    cleanupInstallArtifacts();
-    broadcast({ state: 'restarting', version: latest?.version });
-    autoUpdater.quitAndInstall();
+    void handleDownloadedUpdateForInstall({
+      version: latest?.version,
+      confirmInstallWhenIdle,
+      clearWatchdog,
+      cleanupInstallArtifacts,
+      setInstalling(value) {
+        installing = value;
+      },
+      broadcast,
+      prepareToQuitAndInstall,
+      quitAndInstall() {
+        autoUpdater.quitAndInstall();
+      },
+    }).catch((err) => {
+      console.error('[updater] install confirmation failed:', err);
+      fallbackToReleasePage();
+    });
   });
   autoUpdater.on('update-not-available', () => {
     if (!installing) return;

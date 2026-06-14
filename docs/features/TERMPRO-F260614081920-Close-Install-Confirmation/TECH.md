@@ -11,7 +11,7 @@ db_schema_change: false
 
 ## 复杂度评估
 
-- [x] 修改文件数: 预计 6 个生产/测试文件 + 3 个 Blueprint 文档
+- [x] 修改文件数: 预计 8 个生产/测试文件 + 3 个 Blueprint 文档
 - [x] 涉及多模块: 是，Electron main lifecycle、updater、renderer copy
 - [x] 数据库变更: 否
 - [x] 影响现有功能: 是，改变主窗口关闭、App Quit、更新安装重启前的默认行为
@@ -137,6 +137,7 @@ src/
 │   ├── exitConfirmation.ts # 新增确认文案、确认锁、close/quit lifecycle helper
 │   ├── main.ts # 接入主窗口 close、before-quit、updater callbacks
 │   ├── updater.ts # update-downloaded 后先确认；取消时恢复 available
+│   ├── updateInstallDecision.ts # 纯函数化 update-downloaded 安装决策，便于单元测试
 │   └── __tests__/
 │       ├── exitConfirmation.test.ts # 覆盖 AC-1/2/6/8
 │       └── updaterInstallConfirmation.test.ts # 覆盖 AC-3/4/5
