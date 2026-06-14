@@ -42,6 +42,7 @@
 | GO-015 | build | **teamwork worktree 跑无头冒烟报 `Cannot find the package "electron"`**:worktree 默认无 `node_modules`,electron-forge 在 worktree 根找 `node_modules/electron` 失败(找到 lock 文件即停,不向上回退主仓)· tsc/vitest 不受影响(Node 向上解析能命中主仓 node_modules) | 在 worktree 内软链:`ln -sfn <主仓>/node_modules/electron node_modules/electron`(node_modules 已 gitignored · ship 删 worktree 时随之清除) | 2026-06 | TERMPRO-F260613152432-Terminal-File-Link-Open |
 | GO-016 | notify | **通知有两套互不联动的"已读"状态**:源 A `notifications[].read`(顶部 🔔 角标读它 · `Sidebar.tsx`)/ 源 B tab `waiting`·`unseenDone`(状态点 / 工作区 attention pill / Dock 角标)。后台事件同时写两套;**任何"使 tab 可见 = 查看"的入口必须同步两套**,否则角标残留(setActiveTab、setActiveWorkspace 各漏一处即本 bug) | 新增/修改任何"查看 tab"入口一律走 `markTabViewed(workspaceId, tabId)`(`store.ts` · 清源 B + 按 tabId 标源 A 已读) | 2026-06 | TERMPRO-B260614065346 |
 | GO-017 | test | **renderer store 单测会经 `terminalRegistry` 拉入 `@xterm/*`**(vitest 默认 node env 无 DOM · import 链易崩) | 测试顶部 `vi.mock('../../terminal/terminalRegistry', () => ({ disposeTerminal: () => {} }))` 断链,再 `useAppStore.setState/getState` 直驱 store action(见 `notificationBadge.test.ts`) | 2026-06 | TERMPRO-B260614065346 |
+| GO-018 | terminal/links | **OSC 8 超链接(程序用转义序列内嵌 URI 的可点链接)由 xterm 核心 `OscLinkProvider` 处理 · 优先级高于自定义 `registerLinkProvider`**(注册下标小者胜 · 核心 provider 下标 0)· 故自定义 `SystemWebLinkProvider` 拦不住 OSC 8 链接;未设 `linkHandler` 时 OSC 链接落核心 `defaultActivate` → `confirm('could be dangerous')` + `window.open()` 弹框 | 控制 OSC 8 链接打开行为必须设 `Terminal({ linkHandler })`(`activate` 路由到 `window.termpro.openExternal`)· `allowNonHttpProtocols` 默认 false 已把 URI 限制在 http/https(与 main `shell:open-external` 的 `^https?` 守卫一致)· 纯文本链接仍归 `SystemWebLinkProvider` | 2026-06 | TERMPRO-B260614085337 |
 
 ---
 
@@ -78,6 +79,7 @@
 
 - **pty**: GO-001, GO-005
 - **render**: GO-002, GO-006
+- **terminal/links**: GO-018
 - **ipc**: GO-003, GO-004, GO-008
 - **persist**: GO-007
 - **shell**: GO-009, GO-010

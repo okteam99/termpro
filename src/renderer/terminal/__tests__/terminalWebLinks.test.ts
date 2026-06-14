@@ -92,3 +92,40 @@ describe('SystemWebLinkProvider', () => {
     expect(windowConfirm).not.toHaveBeenCalled();
   });
 });
+
+describe('createOscLinkHandler (OSC 8 hyperlinks)', () => {
+  // 回归 BUG-TERMPRO-B260614085337-001:OSC 8 超链接由 xterm 核心 OscLinkProvider
+  // 处理,未设 linkHandler 时会落 defaultActivate → confirm 弹框 + window.open。
+  // 设 linkHandler 后必须直接走系统浏览器,且不触碰 confirm / window.open。
+  const range = {
+    start: { x: 1, y: 1 },
+    end: { x: 10, y: 1 },
+  };
+
+  it('routes OSC 8 link activation to the system browser, no confirm dialog', async () => {
+    const { createOscLinkHandler } = await import('../terminalLinks');
+    const handler = createOscLinkHandler();
+    const uri = 'http://localhost:56868/shell/close-install-confirmation';
+    const event = { preventDefault: vi.fn() } as unknown as MouseEvent;
+
+    handler.activate(event, uri, range);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledWith(uri);
+    // 关键:不再走 xterm 默认弹框/新窗口路径
+    expect(windowConfirm).not.toHaveBeenCalled();
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it('opens https OSC 8 links too', async () => {
+    const { createOscLinkHandler } = await import('../terminalLinks');
+    const handler = createOscLinkHandler();
+    const uri = 'https://example.com/path?q=1';
+    const event = { preventDefault: vi.fn() } as unknown as MouseEvent;
+
+    handler.activate(event, uri, range);
+
+    expect(openExternal).toHaveBeenCalledWith(uri);
+    expect(windowConfirm).not.toHaveBeenCalled();
+  });
+});

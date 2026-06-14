@@ -5,6 +5,7 @@
 import type {
   IBufferLine,
   ILink,
+  ILinkHandler,
   ILinkProvider,
   Terminal,
 } from '@xterm/xterm';
@@ -149,6 +150,23 @@ function rowSegments(
     segs.push({ row, startCol, width: endCol - startCol + 1 });
   }
   return segs;
+}
+
+// OSC 8 超链接(程序用转义序列 ESC]8;;URI ST … 内嵌的可点链接)由 xterm 核心
+// 自带的 OscLinkProvider 处理 —— 它注册早于本文件的 SystemWebLinkProvider,
+// 优先级更高,会抢走同格链接。未给 Terminal 设 linkHandler 时,OscLinkProvider
+// 的激活落到内置 defaultActivate → confirm('…could potentially be dangerous')
+// + window.open()(就是用户看到的确认框)。设此 handler 把 OSC 8 链接激活也
+// 路由到系统默认浏览器,与纯文本链接同一条路径,弹框被釜底抽薪。
+// 不开 allowNonHttpProtocols:OscLinkProvider 仅把 http/https 交到这里(与 main
+// 进程 shell:open-external 的 ^https?:// 守卫一致,双重防护)。
+export function createOscLinkHandler(): ILinkHandler {
+  return {
+    activate: (event, uri) => {
+      event.preventDefault();
+      window.termpro.openExternal(uri);
+    },
+  };
 }
 
 export class SystemWebLinkProvider implements ILinkProvider {

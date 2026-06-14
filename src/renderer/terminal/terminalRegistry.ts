@@ -9,6 +9,7 @@ import type { WebglAddon } from '@xterm/addon-webgl';
 import { hostClient } from '../services/hostClient';
 import { recordOutput } from '../services/quietGate';
 import {
+  createOscLinkHandler,
   FsLinkProvider,
   LinkHighlighter,
   SystemWebLinkProvider,
@@ -50,6 +51,9 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     fontSize: 13,
     fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
     scrollback: 10_000,
+    // OSC 8 超链接 → 系统默认浏览器,否则 xterm 核心 OscLinkProvider 会弹
+    // 「could be dangerous」确认框(纯文本链接走 SystemWebLinkProvider,见下)
+    linkHandler: createOscLinkHandler(),
     theme: {
       background: '#1e2227',
       foreground: '#d7dae0',
