@@ -15,9 +15,15 @@
       "at": "2026-06-14T08:21:05Z",
       "source": "goal-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-06-14T08:42:21Z",
+      "source": "ui_design-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "ui_design",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -40,13 +46,30 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T08:21:05Z",
+      "completed_at": "2026-06-14T08:42:16Z",
+      "auto_commit": "c3d6d7a",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 21
+    },
+    "ui_design": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T08:21:05Z"
+      "started_at": "2026-06-14T08:42:16Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal"
+  ],
   "created_at": "2026-06-14T08:21:00Z",
   "stage_review_roles": {
     "goal": [
@@ -84,11 +107,14 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T08:21:05Z",
+  "updated_at": "2026-06-14T08:42:21Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:95bcb77dfd7a22ff1d679ad4b6d3febc6f052faada4cac22fb7bd1e1267b92df",
+  "_state_checksum": "sha256:d6fb7847a591fb6b7ab90456dc476863c4e535a34fdc2bebdc64117f0ac8008f",
   "legal_next_stages": [
-    "ui_design",
+    "panorama_sync",
     "blueprint"
-  ]
+  ],
+  "execution_hints": {
+    "ui_design_needed": true
+  }
 }
