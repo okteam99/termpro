@@ -1,0 +1,65 @@
+{
+  "feature_id": "TERMPRO-B260614065346-Notification-Badge-Count-Decrement",
+  "sub_project": "",
+  "flow_type": "Bug",
+  "artifact_root": "docs/features/TERMPRO-B260614065346-Notification-Badge-Count-Decrement",
+  "host": "claude-code",
+  "host_history": [
+    {
+      "host": "claude-code",
+      "at": "2026-06-14T06:56:12Z",
+      "source": "init-feature"
+    }
+  ],
+  "current_stage": "diagnose",
+  "merge_target": "main",
+  "review_base_commit": null,
+  "worktree": {
+    "strategy": "auto",
+    "branch": "fix/termpro-b260614065346-notification-badge-count-decrement",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/TERMPRO-B260614065346-Notification-Badge-Count-Decrement",
+    "base_branch": "origin/main",
+    "created_at": "2026-06-14T06:56:12Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "fix/termpro-b260614065346-notification-badge-count-decrement",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-06-14T06:56:12Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [],
+  "review_round": 0,
+  "stage_contracts": {
+    "diagnose": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-06-14T06:56:17Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-06-14T06:56:12Z",
+  "stage_review_roles": {
+    "review": [
+      "architect",
+      "qa",
+      "external"
+    ],
+    "test": [
+      "qa"
+    ],
+    "pm_acceptance": [
+      "pm"
+    ]
+  },
+  "stage_review_roles_adjustments": [],
+  "updated_at": "2026-06-14T06:56:17Z",
+  "updated_by": "pmo",
+  "_state_checksum": "sha256:aabb7092a0182186993c089b50b097a4ca2a85d76388ae702becda28d29c38aa",
+  "legal_next_stages": [
+    "dev"
+  ]
+}
