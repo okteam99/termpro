@@ -9,3 +9,4 @@
 |---|---|---|---|---|---|---|---|---|---|
 | TERMPRO-F260613041948-quiet-notify | 敏捷 | goal→blueprint_lite→dev→review→test→pm_acceptance→ship | ~0.8h | 1/1 | 0/0/0(运行1次·0 finding) | PRD评审 arch7+qa8(驱动 v0.2);code arch-adv+qa2(P2) ext0 | 1:2 | 0/0 | 评审证伪初稿时间差判据(ARCH-1)→ 同源时间戳比较;external 此类小改 0 finding |
 | TERMPRO-F260613053134-Terminal-Path-FilePanel | Feature | goal→ui_design→panorama_sync→blueprint→dev→review→test→pm_acceptance→ship | ~5.5h | 2/1 | 52/48/4(defer) | PL1; blueprint ext46; code arch3+qa1+ext3 | 0:4 | 0/0 | external 连续压出 Root/WorkTree 优先级、事务定位、case/symlink/DOM gap;DOM 留 browser/manual |
+| TERMPRO-B260614065346-Notification-Badge-Count-Decrement | Bug | diagnose→dev→review→test→pm_acceptance→ship | ~0.6h | 2/1 | 1/1/0 | arch0真(全reject); qa0真(均测试缺口·采3); ext1真(medium) | 1:2 | 0/0 | external 独家锁定 setActiveWorkspace 同类入口(opus 双评审仅模糊提及)· 异质评审直接拦下复发缺陷 |
