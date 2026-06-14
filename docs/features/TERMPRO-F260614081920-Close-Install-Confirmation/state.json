@@ -47,7 +47,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "d42ccee",
   "worktree": {
@@ -157,12 +157,14 @@
       "duration_minutes": 5
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-06-14T09:48:15Z",
-      "evidence": {},
-      "auto_commit": "91731ee",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "auto_commit": "a02c9c7",
       "artifacts": [
         "REVIEW.md",
         "REVIEW-arch.md",
@@ -265,12 +267,21 @@
         },
         {
           "round": 5,
-          "review_commit": null,
+          "review_commit": "a02c9c7",
           "fix_commit": null,
           "started_at": "2026-06-14T10:33:31Z",
-          "verdict": null
+          "verdict": "APPROVE",
+          "completed_at": "2026-06-14T10:40:21Z"
         }
-      ]
+      ],
+      "completed_at": "2026-06-14T10:40:21Z",
+      "duration_minutes": 52
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-06-14T10:40:21Z"
     }
   },
   "completed_stages": [
@@ -278,7 +289,8 @@
     "ui_design",
     "panorama_sync",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-06-14T08:21:00Z",
   "stage_review_roles": {
@@ -317,12 +329,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T10:33:31Z",
+  "updated_at": "2026-06-14T10:40:21Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:f73618ccbd35b92c64aec28de5857db73cdd5dd63646cba7be71c5d419aac9e3",
+  "_state_checksum": "sha256:17c5098da0d8638d7d781036a3f58c4816a62b0ec5b4bcae47ac9b6318deb2c1",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": true,
