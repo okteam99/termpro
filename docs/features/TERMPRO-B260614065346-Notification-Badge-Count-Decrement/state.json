@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "a8bd2ee",
   "worktree": {
@@ -67,15 +67,49 @@
       "duration_minutes": 3
     },
     "review": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T07:23:36Z",
+      "evidence": {
+        "verdict": "APPROVE",
+        "external_review_files": "external-cross-review/review-codex.md"
+      },
+      "completed_at": "2026-06-14T07:35:39Z",
+      "auto_commit": "3fce2d1",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md"
+      ],
+      "cited_specs": [],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-06-14T07:23:36Z",
+          "completed_at": "2026-06-14T07:35:39Z",
+          "review_commit": "3fce2d1",
+          "verdict": "APPROVE",
+          "fix_commit": "56c99d5",
+          "fix_at": "2026-06-14T07:35:31Z",
+          "addresses_findings": [
+            "EXT-1-setActiveWorkspace"
+          ]
+        }
+      ],
+      "duration_minutes": 12
+    },
+    "test": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T07:23:36Z"
+      "started_at": "2026-06-14T07:35:39Z"
     }
   },
   "completed_stages": [
     "diagnose",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-06-14T06:56:12Z",
   "stage_review_roles": {
@@ -92,11 +126,10 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T07:23:49Z",
+  "updated_at": "2026-06-14T07:35:47Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:1e987763103312f226e3c1a743b8753a88904f3abc361ee5cdc17141566bdafb",
+  "_state_checksum": "sha256:5c8b260f64b5b0b478752eb0a320c741bad93bff0568f64c059862c0aba8da8f",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "pm_acceptance"
   ]
 }
