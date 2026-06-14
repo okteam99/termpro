@@ -1,6 +1,6 @@
 ---
 reviewers: [architect, qa, external]
-verdict: NEEDS_REVISION
+verdict: APPROVE
 stage: review
 feature_id: TERMPRO-B260614065346-Notification-Badge-Count-Decrement
 target_commit: de1de39
