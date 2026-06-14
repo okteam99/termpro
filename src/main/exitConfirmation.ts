@@ -138,7 +138,7 @@ export function createExitConfirmationCoordinator(opts: {
 }
 
 export class ExitLifecycleController {
-  private allowNextWindowClose = false;
+  private readonly allowedWindowCloses = new WeakSet<WindowLike>();
   private isQuittingConfirmed = false;
 
   constructor(
@@ -155,15 +155,15 @@ export class ExitLifecycleController {
 
   handleWindowClose(event: PreventableEvent, win: WindowLike): void {
     if (this.shouldBypass() || this.isQuittingConfirmed) return;
-    if (this.allowNextWindowClose) {
-      this.allowNextWindowClose = false;
+    if (this.allowedWindowCloses.has(win)) {
+      this.allowedWindowCloses.delete(win);
       return;
     }
 
     event.preventDefault();
     void this.confirmExit({ kind: 'close-window' }, win).then((result) => {
       if (result.status !== 'confirmed' || win.isDestroyed()) return;
-      this.allowNextWindowClose = true;
+      this.allowedWindowCloses.add(win);
       win.close();
     });
   }

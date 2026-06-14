@@ -121,10 +121,10 @@ src/main/exitConfirmation.ts
 
 | 接口 | 方法 | 路径 | 参数 | 返回 |
 |------|------|------|------|------|
-| `confirmExit` | function | `src/main/exitConfirmation.ts` | `ExitConfirmationRequest`, optional parent window | `Promise<ExitConfirmationResult>` |
-| `confirmExitWhenIdle` | function | `src/main/exitConfirmation.ts` | `ExitConfirmationRequest`, optional parent window | `Promise<ExitConfirmationResult>` |
-| `handleWindowClose` | method | `src/main/exitConfirmation.ts` | preventable close event, window | `void` |
-| `handleAppBeforeQuit` | method | `src/main/exitConfirmation.ts` | preventable quit event, app, parent window | `void` |
+| `createExitConfirmationCoordinator` | function | `src/main/exitConfirmation.ts` | injected `showMessageBox`, optional `shouldBypass` | `{ confirm, confirmWhenIdle }` |
+| `ExitLifecycleController.handleWindowClose` | method | `src/main/exitConfirmation.ts` | preventable close event, window | `void` |
+| `ExitLifecycleController.handleAppBeforeQuit` | method | `src/main/exitConfirmation.ts` | preventable quit event, app, parent window | `void` |
+| `handleDownloadedUpdateForInstall` | function | `src/main/updateInstallDecision.ts` | injected updater side-effect callbacks | `Promise<void>` |
 | `initUpdater` options | callback | `src/main/updater.ts` | `confirmInstall`, `prepareToQuitAndInstall` | `void` |
 
 ## 实现思路
@@ -236,7 +236,9 @@ sequenceDiagram
 |------|------|------|
 | 确认后再次触发 close / before-quit 导致二次弹窗 | 用户无法关闭或安装 | `isQuittingConfirmed` 放行 quit 引发的 close / before-quit，并用 T-008/T-010 覆盖 |
 | 多个触发源同时弹窗 | 堆叠 native dialog 或重复 quit/install | 全局确认锁；close/quit lock busy 不执行第二动作；install lock busy 等待锁释放 |
+| 主窗口确认 close 的一次性放行状态跨窗口复用 | 新窗口首次关闭被静默放行 | 用 `WeakSet` 绑定待放行窗口实例，放行后删除，不使用跨窗口 boolean |
 | 取消安装后升级胶囊卡在 disabled | 用户无法稍后重试 | 取消分支必须 `installing=false` 并广播 `available(version)` |
+| 更新安装期间版本号从 `latest` 漂移 | 安装确认/available 状态显示错误版本 | 点击安装时快照 `installingVersion`，后续 update-downloaded/cancel/error 均使用该版本 |
 | 用户停留安装确认超过 watchdog 时间 | 错误打开 release page 或状态错乱 | `update-downloaded` 后立即清 watchdog，再等待用户选择 |
 | 冒烟测试卡在确认弹窗 | CI 无头流程超时 | `TERMPRO_SMOKE` bypass 覆盖 close / quit / install confirm |
 
@@ -252,3 +254,4 @@ sequenceDiagram
 |------|------|
 | 2026-06-14 | 起草 main/updater/renderer 文案技术方案与 TDD 计划。 |
 | 2026-06-14 | 根据 external review 补充 quit->close 串扰、确认锁 busy 语义、安装确认等待与更完整文案测试。 |
+| 2026-06-14 | Review fix: 对齐真实 helper 接口、per-window close 放行、安装版本快照与 updater 日志。 |

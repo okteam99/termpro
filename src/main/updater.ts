@@ -34,6 +34,7 @@ export interface UpdateEvent {
 
 let latest: { version: string; htmlUrl: string; zipUrl?: string } | null = null;
 let installing = false;
+let installingVersion: string | null = null;
 let lastCheckTs = 0;
 /** 看门狗兜底下载/安装真卡死的情况 */
 let watchdog: NodeJS.Timeout | null = null;
@@ -123,10 +124,12 @@ async function check(): Promise<void> {
 }
 
 function fallbackToReleasePage(): void {
+  const version = installingVersion ?? latest?.version;
   clearWatchdog();
   cleanupInstallArtifacts();
   installing = false;
-  broadcast({ state: 'error', version: latest?.version });
+  installingVersion = null;
+  broadcast({ state: 'error', version });
   if (latest) void shell.openExternal(latest.htmlUrl);
 }
 
@@ -274,6 +277,7 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
     if (!latest || installing) return;
     installing = true;
     const { version } = latest;
+    installingVersion = version;
     console.log('[updater] install requested for v%s', version);
     broadcast({ state: 'checking', version });
     watchdog = setTimeout(() => {
@@ -327,19 +331,24 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
   });
   autoUpdater.on('update-downloaded', () => {
     if (!installing) return;
-    console.log('[updater] downloaded, restarting to install');
+    const version = installingVersion ?? latest?.version;
+    console.log('[updater] downloaded, awaiting install confirmation');
     void handleDownloadedUpdateForInstall({
-      version: latest?.version,
+      version,
       confirmInstallWhenIdle,
       clearWatchdog,
       cleanupInstallArtifacts,
       setInstalling(value) {
         installing = value;
+        if (!value) installingVersion = null;
       },
       broadcast,
       prepareToQuitAndInstall,
       quitAndInstall() {
         autoUpdater.quitAndInstall();
+      },
+      log(message) {
+        console.log(message);
       },
     }).catch((err) => {
       console.error('[updater] install confirmation failed:', err);

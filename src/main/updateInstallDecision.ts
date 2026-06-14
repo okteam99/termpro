@@ -14,6 +14,7 @@ export interface UpdateInstallDecisionDeps {
   broadcast(payload: UpdateInstallEvent): void;
   prepareToQuitAndInstall(): void;
   quitAndInstall(): void;
+  log?(message: string): void;
 }
 
 export async function handleDownloadedUpdateForInstall(
@@ -27,11 +28,13 @@ export async function handleDownloadedUpdateForInstall(
 
   deps.cleanupInstallArtifacts();
   if (result.status === 'canceled') {
+    deps.log?.('[updater] install postponed, update is available to retry');
     deps.setInstalling(false);
     deps.broadcast({ state: 'available', version: deps.version });
     return;
   }
 
+  deps.log?.('[updater] install confirmed, restarting to install');
   deps.broadcast({ state: 'restarting', version: deps.version });
   deps.prepareToQuitAndInstall();
   deps.quitAndInstall();

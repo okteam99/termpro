@@ -157,10 +157,31 @@
       "duration_minutes": 5
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-06-14T09:48:15Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T09:48:15Z",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "completed_at": "2026-06-14T09:55:40Z",
+      "auto_commit": "0be91c1",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md"
+      ],
+      "cited_specs": [],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-06-14T09:48:15Z",
+          "completed_at": "2026-06-14T09:55:40Z",
+          "review_commit": "0be91c1",
+          "verdict": "NEEDS_REVISION"
+        }
+      ],
+      "duration_minutes": 7
     }
   },
   "completed_stages": [
@@ -207,9 +228,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T09:48:30Z",
+  "updated_at": "2026-06-14T09:55:40Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:ff9f6851a0c7a97b5c742233269999bbc3ce493590754ad00669d8e3284ab6c6",
+  "_state_checksum": "sha256:09ed0bf4f07387a7d58bfa858f67b7108575ce8f40d615594b3ab21ea8d26341",
   "legal_next_stages": [
     "test",
     "dev"

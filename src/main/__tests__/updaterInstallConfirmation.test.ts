@@ -83,4 +83,22 @@ describe('update install confirmation decision', () => {
       version: '0.4.0',
     });
   });
+
+  it('retries a busy install confirmation result before deciding', async () => {
+    const deps = setupDeps();
+    deps.confirmInstallWhenIdle
+      .mockResolvedValueOnce({ status: 'busy' })
+      .mockResolvedValueOnce({ status: 'canceled' });
+
+    await handleDownloadedUpdateForInstall(deps);
+
+    expect(deps.confirmInstallWhenIdle).toHaveBeenCalledTimes(2);
+    expect(deps.cleanupInstallArtifacts).toHaveBeenCalledTimes(1);
+    expect(deps.setInstalling).toHaveBeenCalledWith(false);
+    expect(deps.broadcast).toHaveBeenCalledWith({
+      state: 'available',
+      version: '0.4.0',
+    });
+    expect(deps.quitAndInstall).not.toHaveBeenCalled();
+  });
 });
