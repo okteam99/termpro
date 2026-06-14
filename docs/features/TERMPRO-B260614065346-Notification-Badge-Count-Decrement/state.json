@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "a8bd2ee",
   "worktree": {
@@ -48,14 +48,34 @@
       "duration_minutes": 23
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T07:19:42Z",
+      "completed_at": "2026-06-14T07:23:36Z",
+      "auto_commit": "de1de39",
+      "artifacts": [
+        "src/renderer/state/store.ts",
+        "src/renderer/state/__tests__/notificationBadge.test.ts",
+        "bugfix/BUG-TERMPRO-B260614065346-001.md"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "/var/folders/dt/k8ytkf1x7mxb6d_cnhb_nn2c0000gp/T//teamwork/TERMPRO-B260614065346/dev-vitest.log"
+      },
+      "duration_minutes": 3
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T07:19:42Z"
+      "started_at": "2026-06-14T07:23:36Z"
     }
   },
   "completed_stages": [
-    "diagnose"
+    "diagnose",
+    "dev"
   ],
   "created_at": "2026-06-14T06:56:12Z",
   "stage_review_roles": {
@@ -72,10 +92,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T07:19:42Z",
+  "updated_at": "2026-06-14T07:23:49Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:2921e19cdfa9a19de0b99eb4497c6e00b3fd76d2a31685c9acd64e1a74fa2ffc",
+  "_state_checksum": "sha256:1e987763103312f226e3c1a743b8753a88904f3abc361ee5cdc17141566bdafb",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ]
 }
