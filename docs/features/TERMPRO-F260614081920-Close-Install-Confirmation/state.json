@@ -39,9 +39,15 @@
       "at": "2026-06-14T09:43:07Z",
       "source": "dev-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-06-14T09:48:30Z",
+      "source": "review-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "d42ccee",
   "worktree": {
@@ -125,17 +131,44 @@
       "duration_minutes": 11
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T09:42:55Z",
+      "completed_at": "2026-06-14T09:48:15Z",
+      "auto_commit": "5c0141f",
+      "artifacts": [
+        "src/main/exitConfirmation.ts",
+        "src/main/updateInstallDecision.ts",
+        "src/main/main.ts",
+        "src/main/updater.ts",
+        "src/main/__tests__/exitConfirmation.test.ts",
+        "src/main/__tests__/updaterInstallConfirmation.test.ts",
+        "src/renderer/components/Sidebar.tsx",
+        "src/renderer/components/__tests__/SidebarUpdatePill.test.tsx",
+        "src/renderer/state/__tests__/notificationBadge.test.ts",
+        "docs/features/TERMPRO-F260614081920-Close-Install-Confirmation/TECH.md"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "typecheck PASS; npm test PASS (22 files, 187 tests); lint PASS (warnings only); smoke PASS (SMOKE_OK)"
+      },
+      "duration_minutes": 5
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T09:42:55Z"
+      "started_at": "2026-06-14T09:48:15Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
     "panorama_sync",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-06-14T08:21:00Z",
   "stage_review_roles": {
@@ -174,11 +207,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T09:43:07Z",
+  "updated_at": "2026-06-14T09:48:30Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:480a90fde289d4de4f76ff72ffe36b2b689b8e0dac8d629b219b4d2fd98cd6e3",
+  "_state_checksum": "sha256:ff9f6851a0c7a97b5c742233269999bbc3ce493590754ad00669d8e3284ab6c6",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
