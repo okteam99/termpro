@@ -64,6 +64,9 @@ src/
 ├── main/                        # Electron 主进程壳层
 │   ├── main.ts                  # 窗口创建、菜单、utilityProcess 拉起 Host、布局存档 IPC、冒烟逻辑
 │   ├── appStore.ts              # 布局持久化 IPC 实现（store:get / store:set）
+│   ├── exitConfirmation.ts       # 主窗口关闭 / App Quit / 更新安装的 native 确认与 lifecycle helper
+│   ├── updateInstallDecision.ts  # update-downloaded 后安装确认/取消恢复的纯决策
+│   ├── updateInstallSession.ts   # 已 staged 更新的复用、版本漂移与重试会话状态
 │   └── updater.ts               # 更新检查与 Squirrel.Mac 升级逻辑
 │
 ├── preload/                     # 沙箱 preload（contextBridge）

@@ -42,6 +42,7 @@
 | GO-015 | build | **teamwork worktree 跑无头冒烟报 `Cannot find the package "electron"`**:worktree 默认无 `node_modules`,electron-forge 在 worktree 根找 `node_modules/electron` 失败(找到 lock 文件即停,不向上回退主仓)· tsc/vitest 不受影响(Node 向上解析能命中主仓 node_modules) | 在 worktree 内软链:`ln -sfn <主仓>/node_modules/electron node_modules/electron`(node_modules 已 gitignored · ship 删 worktree 时随之清除) | 2026-06 | TERMPRO-F260613152432-Terminal-File-Link-Open |
 | GO-016 | notify | **通知有两套互不联动的"已读"状态**:源 A `notifications[].read`(顶部 🔔 角标读它 · `Sidebar.tsx`)/ 源 B tab `waiting`·`unseenDone`(状态点 / 工作区 attention pill / Dock 角标)。后台事件同时写两套;**任何"使 tab 可见 = 查看"的入口必须同步两套**,否则角标残留(setActiveTab、setActiveWorkspace 各漏一处即本 bug) | 新增/修改任何"查看 tab"入口一律走 `markTabViewed(workspaceId, tabId)`(`store.ts` · 清源 B + 按 tabId 标源 A 已读) | 2026-06 | TERMPRO-B260614065346 |
 | GO-017 | test | **renderer store 单测会经 `terminalRegistry` 拉入 `@xterm/*`**(vitest 默认 node env 无 DOM · import 链易崩) | 测试顶部 `vi.mock('../../terminal/terminalRegistry', () => ({ disposeTerminal: () => {} }))` 断链,再 `useAppStore.setState/getState` 直驱 store action(见 `notificationBadge.test.ts`) | 2026-06 | TERMPRO-B260614065346 |
+| GO-018 | lifecycle | **Electron `before-quit` 不是"用户主动退出"专属入口**;系统 logout/shutdown 与已确认退出/安装也会走这里,在此 `preventDefault()` 弹确认会阻塞 OS 退出或造成二次确认 | 用户 App Quit 只从菜单/Cmd+Q 显式入口发起确认;`before-quit` 仅标记 quitting 放行;安装确认前用专用 lifecycle helper 标记 `quitAndInstall()` 可绕过二次确认 | 2026-06 | TERMPRO-F260614081920-Close-Install-Confirmation |
 
 ---
 
@@ -85,6 +86,7 @@
 - **filepanel**: GO-011, GO-013
 - **notify**: GO-012, GO-014, GO-016
 - **test**: GO-017
+- **lifecycle**: GO-018
 - **发版**: PR-001
 - **歧义**: FA-001
 - **拒绝**: OS-001, OS-002, OS-003, OS-004, OS-005
