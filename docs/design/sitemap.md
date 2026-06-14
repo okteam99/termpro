@@ -15,3 +15,7 @@
 - `/` 在 preview-project 中保留为设计预览入口；当前会重定向到本 Feature 的工作台局部交互预览。
 - 本 sitemap 不定义真实 Web navigation。真实产品仍是 single-window Electron workbench: Sidebar / TabBar / Terminal / File Panel。
 - 后续 UI Feature 若新增可预览节点，应在本表登记 route、page id、owner feature 和交互范围。
+
+## Sync Log
+
+- 2026-06-14 · `TERMPRO-F260614081920-Close-Install-Confirmation` · 新增 `/shell/close-install-confirmation` 设计预览节点；仅影响 preview-project 全景，不改变真实产品导航。
