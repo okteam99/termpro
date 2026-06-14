@@ -16,7 +16,13 @@ import { Sidebar } from '../Sidebar';
 const noop = () => undefined;
 
 function mockTermproUpdateEvent(event: {
-  state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
+  state:
+    | 'available'
+    | 'checking'
+    | 'downloading'
+    | 'confirming'
+    | 'restarting'
+    | 'error';
   version?: string;
   percent?: number;
 }) {
@@ -87,5 +93,15 @@ describe('Sidebar UpdatePill copy', () => {
     const downloadingPill = screen.getByRole('button', { name: /下载中 42%/ });
     expect(downloadingPill).toHaveTextContent('完成后确认安装');
     expect(downloadingPill).not.toHaveTextContent('完成后自动重启');
+
+    cleanup();
+
+    mockTermproUpdateEvent({ state: 'confirming', version: '0.4.0' });
+    render(<Sidebar />);
+
+    const confirmingPill = screen.getByRole('button', {
+      name: /等待确认安装/,
+    });
+    expect(confirmingPill).toBeDisabled();
   });
 });

@@ -51,7 +51,13 @@ function BellIcon() {
 /** 左下角升级胶囊:有新 Release 时出现,点击下载并升级 */
 function UpdatePill() {
   const [ev, setEv] = useState<{
-    state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
+    state:
+      | 'available'
+      | 'checking'
+      | 'downloading'
+      | 'confirming'
+      | 'restarting'
+      | 'error';
     version?: string;
     percent?: number;
   } | null>(null);
@@ -66,6 +72,8 @@ function UpdatePill() {
       ? `⬆ 新版本 v${ev.version} — 下载后确认安装`
       : ev.state === 'checking'
         ? '正在连接更新源…'
+        : ev.state === 'confirming'
+          ? '等待确认安装…'
         : ev.state === 'downloading'
           ? percent != null
             ? `下载中 ${percent}%(完成后确认安装)`
@@ -98,6 +106,7 @@ function UpdatePill() {
       disabled={
         ev.state === 'checking' ||
         ev.state === 'downloading' ||
+        ev.state === 'confirming' ||
         ev.state === 'restarting'
       }
       onClick={() => window.termpro.installUpdate()}

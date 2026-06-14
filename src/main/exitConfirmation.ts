@@ -181,6 +181,8 @@ export class ExitLifecycleController {
       }
       this.markQuitting();
       app.quit();
+    }).catch((err: unknown) => {
+      this.log(`[exit] app-quit dialog failed: ${String(err)}`);
     });
   }
 
@@ -200,6 +202,8 @@ export class ExitLifecycleController {
       if (win.isDestroyed()) return;
       this.allowedWindowCloses.add(win);
       win.close();
+    }).catch((err: unknown) => {
+      this.log(`[exit] close-window dialog failed: ${String(err)}`);
     });
   }
 

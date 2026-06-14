@@ -183,4 +183,26 @@ describe('exit lifecycle controller', () => {
     expect(app.quit).toHaveBeenCalledTimes(1);
     expect(confirmExit).not.toHaveBeenCalled();
   });
+
+  it('exitLifecycle_logs_dialog_rejection_without_closing_or_quitting', async () => {
+    const confirmExit = vi.fn().mockRejectedValue(new Error('dialog failed'));
+    const log = vi.fn();
+    const controller = new ExitLifecycleController(confirmExit, () => false, log);
+    const app = { quit: vi.fn() };
+    const win = { isDestroyed: () => false, close: vi.fn() };
+
+    controller.requestAppQuit(app, undefined);
+    controller.handleWindowClose({ preventDefault: vi.fn() }, win);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(app.quit).not.toHaveBeenCalled();
+    expect(win.close).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('app-quit dialog failed'),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('close-window dialog failed'),
+    );
+  });
 });

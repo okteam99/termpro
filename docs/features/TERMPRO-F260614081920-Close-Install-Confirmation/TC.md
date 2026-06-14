@@ -92,6 +92,30 @@ tests:
     covers_ac: ["AC-5"]
     level: unit
     priority: P1
+  - id: T-016
+    file: src/main/__tests__/updateInstallSession.test.ts
+    function: reuses_a_staged_update_after_cancel_and_reclick_same_version
+    covers_ac: ["AC-3", "AC-4"]
+    level: unit
+    priority: P0
+  - id: T-017
+    file: src/main/__tests__/updateInstallSession.test.ts
+    function: downloads_again_when_a_newer_version_replaces_the_staged_version
+    covers_ac: ["AC-3", "AC-4"]
+    level: unit
+    priority: P1
+  - id: T-018
+    file: src/main/__tests__/updateInstallSession.test.ts
+    function: uses_the_installing_version_snapshot_when_latest_drifts
+    covers_ac: ["AC-3", "AC-4"]
+    level: unit
+    priority: P1
+  - id: T-019
+    file: src/main/__tests__/exitConfirmation.test.ts
+    function: exitLifecycle_logs_dialog_rejection_without_closing_or_quitting
+    covers_ac: ["AC-1", "AC-2"]
+    level: unit
+    priority: P1
 ---
 
 # Close / Install Confirmation - 测试用例
@@ -109,10 +133,10 @@ tests:
 
 | AC ID（PRD） | 需求描述 | 优先级 | 覆盖测试 | 状态 |
 |-------------|---------|--------|----------|------|
-| AC-1 | 主窗口关闭前确认，取消保持窗口 | P0 | T-001 | ✅ |
-| AC-2 | App Quit / Cmd+Q 前确认，取消保持应用 | P0 | T-002, T-013, T-014 | ✅ |
-| AC-3 | 更新下载完成后安装前确认，取消不 restarting、不 quitAndInstall | P0 | T-003, T-011, T-012 | ✅ |
-| AC-4 | 取消安装后清 watchdog / artifacts / installing，并恢复 available | P0 | T-003, T-009 | ✅ |
+| AC-1 | 主窗口关闭前确认，取消保持窗口 | P0 | T-001, T-019 | ✅ |
+| AC-2 | App Quit / Cmd+Q 前确认，取消保持应用 | P0 | T-002, T-013, T-014, T-019 | ✅ |
+| AC-3 | 更新下载完成后安装前确认，取消不 restarting、不 quitAndInstall | P0 | T-003, T-011, T-012, T-016, T-017, T-018 | ✅ |
+| AC-4 | 取消安装后清 watchdog / artifacts / installing，并恢复 available | P0 | T-003, T-009, T-016, T-017, T-018 | ✅ |
 | AC-5 | 确认安装后广播 restarting 并继续 quitAndInstall | P1 | T-004, T-012, T-015 | ✅ |
 | AC-6 | 任一确认等待时不堆叠弹窗、不重复动作 | P1 | T-005, T-008, T-009, T-010, T-011 | ✅ |
 | AC-7 | 升级胶囊文案不再承诺完成后自动重启 | P1 | T-006 | ✅ |
@@ -205,7 +229,7 @@ When 第一个确认完成
 Then 确认锁释放，之后新的触发可以重新显示确认
 ```
 
-### Scenario: T-006 升级胶囊 available / downloading 文案不承诺自动重启
+### Scenario: T-006 升级胶囊 available / downloading / confirming 文案不承诺自动重启
 **优先级**: P1
 **类型**: UI
 **测试层级**: unit
@@ -219,6 +243,9 @@ When renderer 收到 update:event downloading
 When Sidebar 渲染升级胶囊
 Then 胶囊文本表达下载完成后需要确认安装或重启
  And 胶囊文本不包含“完成后自动重启”
+When renderer 收到 update:event confirming
+Then 胶囊显示“等待确认安装”
+ And 胶囊处于 disabled 状态
 ```
 
 ### Scenario: T-007 冒烟模式绕过确认
@@ -348,6 +375,56 @@ Then updater 回滚 quitting 标记
  And 后续关闭/退出确认能力不会在本会话永久丢失
 ```
 
+### Scenario: T-016 取消后再次点击同版本复用 staged update
+**优先级**: P0
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given 更新器已为 v0.4.0 收到 update-downloaded
+ And 用户选择稍后导致 installing=false
+When 用户再次点击同版本安装
+Then updater 进入 reuse-staged 分支
+ And 不重新下载、不重新 checkForUpdates
+```
+
+### Scenario: T-017 新版本替换 staged 版本时重新下载
+**优先级**: P1
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given v0.4.0 已 staged 且用户稍后
+When latest 变为 v0.5.0 后用户点击安装
+Then updater 进入 download 分支
+ And installingVersion 快照为 v0.5.0
+```
+
+### Scenario: T-018 latest 漂移时 update-downloaded 使用安装快照版本
+**优先级**: P1
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given 用户点击安装时 latest 为 v0.4.0
+When 下载期间 latest 漂移为 v0.5.0
+ And Squirrel 发出 update-downloaded
+Then updater 仍以 installingVersion v0.4.0 作为安装确认和 staged-ready 版本
+```
+
+### Scenario: T-019 native dialog reject 时不关闭、不退出
+**优先级**: P1
+**类型**: 异常
+**测试层级**: unit
+
+```gherkin
+Given native close 或 App Quit 确认 dialog promise reject
+When lifecycle handler 接收到该错误
+Then main 记录日志
+ And 不调用 win.close
+ And 不调用 app.quit
+```
+
 ## UI 还原检查
 
 | 检查点 | 设计稿标准 | 状态 |
@@ -406,3 +483,4 @@ Then updater 回滚 quitting 标记
 | 2026-06-14 | 根据 external review 补充 close/quit 串扰、安装锁忙等待、available 文案与 quitAndInstall bypass 测试。 |
 | 2026-06-14 | Round 2 补充系统 shutdown bypass、App Quit 后安装确认取消、fallback race 测试。 |
 | 2026-06-14 | Round 3 改为菜单/Cmd+Q 触发 App Quit 确认，before-quit 只标记系统退出；补 quitAndInstall rollback 与 native 手测项。 |
+| 2026-06-14 | Round 4 补 staged update 纯状态机、confirming 胶囊状态、latest drift 和 native dialog reject 测试。 |

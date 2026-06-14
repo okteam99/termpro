@@ -17,7 +17,13 @@ declare global {
       focusWindow(): void;
       onUpdateEvent(
         callback: (e: {
-          state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
+          state:
+            | 'available'
+            | 'checking'
+            | 'downloading'
+            | 'confirming'
+            | 'restarting'
+            | 'error';
           version?: string;
           percent?: number;
         }) => void,

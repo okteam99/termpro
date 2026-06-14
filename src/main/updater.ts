@@ -19,6 +19,14 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import type { ExitConfirmationResult } from './exitConfirmation';
 import { handleDownloadedUpdateForInstall } from './updateInstallDecision';
+import {
+  clearReadyToInstall,
+  createUpdateInstallSession,
+  markUpdateDownloaded,
+  requestUpdateInstall,
+  resetUpdateInstallSession,
+  setUpdateInstalling,
+} from './updateInstallSession';
 
 const REPO = 'okteam99/termpro';
 // 每 10 分钟周期检测;窗口聚焦(用户行为)且距上次检查 >10 分钟时立即触发
@@ -26,16 +34,20 @@ const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const FIRST_CHECK_DELAY_MS = 10_000;
 
 export interface UpdateEvent {
-  state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
+  state:
+    | 'available'
+    | 'checking'
+    | 'downloading'
+    | 'confirming'
+    | 'restarting'
+    | 'error';
   version?: string;
   /** downloading 阶段的真实进度(0-100);无 Content-Length 时缺省 */
   percent?: number;
 }
 
 let latest: { version: string; htmlUrl: string; zipUrl?: string } | null = null;
-let installing = false;
-let installingVersion: string | null = null;
-let readyToInstallVersion: string | null = null;
+const installSession = createUpdateInstallSession();
 let lastCheckTs = 0;
 /** 看门狗兜底下载/安装真卡死的情况 */
 let watchdog: NodeJS.Timeout | null = null;
@@ -125,12 +137,10 @@ async function check(): Promise<void> {
 }
 
 function fallbackToReleasePage(): void {
-  const version = installingVersion ?? latest?.version;
+  const version = installSession.installingVersion ?? latest?.version;
   clearWatchdog();
   cleanupInstallArtifacts();
-  installing = false;
-  installingVersion = null;
-  readyToInstallVersion = null;
+  resetUpdateInstallSession(installSession);
   broadcast({ state: 'error', version });
   if (latest) void shell.openExternal(latest.htmlUrl);
 }
@@ -279,24 +289,28 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
     options.rollbackQuitAndInstall ?? (() => undefined);
 
   const confirmReadyToInstall = (version: string | undefined): void => {
-    console.log('[updater] downloaded, awaiting install confirmation');
+    console.log(
+      version
+        ? `[updater] v${version} ready, awaiting install confirmation`
+        : '[updater] update ready, awaiting install confirmation',
+    );
+    broadcast({ state: 'confirming', version });
     void handleDownloadedUpdateForInstall({
       version,
       confirmInstallWhenIdle,
       clearWatchdog,
       cleanupInstallArtifacts,
       isStillInstalling() {
-        return installing;
+        return installSession.installing;
       },
       setInstalling(value) {
-        installing = value;
-        if (!value) installingVersion = null;
+        setUpdateInstalling(installSession, value);
       },
       broadcast,
       prepareToQuitAndInstall,
       rollbackQuitAndInstall,
       quitAndInstall() {
-        readyToInstallVersion = null;
+        clearReadyToInstall(installSession);
         autoUpdater.quitAndInstall();
       },
       log(message) {
@@ -309,16 +323,18 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
   };
 
   ipcMain.on('update:install', () => {
-    if (!latest || installing) return;
-    installing = true;
-    const { version } = latest;
-    installingVersion = version;
+    const decision = requestUpdateInstall(installSession, latest?.version);
+    if (decision.action === 'ignore') return;
+    const { version } = decision;
     console.log('[updater] install requested for v%s', version);
-    broadcast({ state: 'checking', version });
-    if (readyToInstallVersion === version) {
+    if (decision.action === 'reuse-staged') {
+      // Squirrel.Mac has already emitted update-downloaded for this version; the
+      // staged copy is ready, so retry only needs user confirmation.
+      console.log('[updater] reusing staged update for v%s', version);
       confirmReadyToInstall(version);
       return;
     }
+    broadcast({ state: 'checking', version });
     watchdog = setTimeout(() => {
       console.error('[updater] watchdog timeout (15min), falling back');
       fallbackToReleasePage();
@@ -341,7 +357,7 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
 
   // 新窗口打开时补发当前状态(查看器窗口/重载后也能看到胶囊)
   ipcMain.on('update:query', (event) => {
-    if (latest && !installing) {
+    if (latest && !installSession.installing) {
       event.sender.send('update:event', {
         state: 'available',
         version: latest.version,
@@ -358,7 +374,7 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
     console.log('[updater] checking local feed…');
   });
   autoUpdater.on('update-available', () => {
-    if (!installing) return;
+    if (!installSession.installing) return;
     // 本地 feed:Squirrel 从 127.0.0.1 拉包,秒级完成。
     // 下载阶段没拿到 Content-Length(全程脉冲)就不突然跳 100%
     console.log('[updater] squirrel pulling local zip…');
@@ -369,26 +385,32 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
     });
   });
   autoUpdater.on('update-downloaded', () => {
-    if (!installing) return;
-    const version = installingVersion ?? latest?.version;
-    readyToInstallVersion = version ?? null;
+    if (!installSession.installing) return;
+    const version = markUpdateDownloaded(installSession, latest?.version);
     confirmReadyToInstall(version);
   });
   autoUpdater.on('update-not-available', () => {
-    if (!installing) return;
+    if (!installSession.installing) return;
     fallbackToReleasePage();
   });
   autoUpdater.on('error', (err) => {
-    if (!installing) return;
+    if (!installSession.installing) return;
     console.error('[updater] failed:', err);
     fallbackToReleasePage();
   });
 
-  setTimeout(() => void check(), FIRST_CHECK_DELAY_MS);
-  setInterval(() => void check(), CHECK_INTERVAL_MS);
+  setTimeout(() => {
+    if (!installSession.installing) void check();
+  }, FIRST_CHECK_DELAY_MS);
+  setInterval(() => {
+    if (!installSession.installing) void check();
+  }, CHECK_INTERVAL_MS);
   // 用户行为触发:窗口聚焦且距上次检查超过一个周期 → 立即检查
   app.on('browser-window-focus', () => {
-    if (!installing && Date.now() - lastCheckTs > CHECK_INTERVAL_MS) {
+    if (
+      !installSession.installing &&
+      Date.now() - lastCheckTs > CHECK_INTERVAL_MS
+    ) {
       void check();
     }
   });

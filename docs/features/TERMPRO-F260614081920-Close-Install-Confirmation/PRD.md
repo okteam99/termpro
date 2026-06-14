@@ -101,7 +101,7 @@ TermPro 当前主窗口没有应用级关闭确认。用户通过 macOS 红色�
 | AC-4 | Given 用户取消升级安装确认 / When 取消结果返回 / Then 安装看门狗停止，安装中状态复位，临时本地 feed/zip 按既有清理策略释放，渲染层收到同版本 available/retryable 状态并重新启用升级胶囊。 | P0 | Blueprint: updater state reset tests |
 | AC-5 | Given 用户确认安装升级 / When 确认结果返回 / Then TermPro 广播 restarting 状态并继续调用 `autoUpdater.quitAndInstall()` 完成原有安装流程。 | P1 | Blueprint: update-install confirm tests |
 | AC-6 | Given 任一关闭/退出/安装确认正在等待用户选择 / When 另一个关闭、退出或安装触发再次发生 / Then TermPro 不堆叠多个确认弹窗，也不重复执行关闭/退出/安装动作。 | P1 | Blueprint: confirmation lock tests |
-| AC-7 | Given 升级胶囊显示 checking/downloading/restarting 等状态 / When 本 Feature 生效 / Then 用户可见文案不再承诺“完成后自动重启”，而是表达“下载完成后确认安装/重启”。 | P1 | Blueprint/UI: update pill copy tests |
+| AC-7 | Given 升级胶囊显示 checking/downloading/confirming/restarting 等状态 / When 本 Feature 生效 / Then 用户可见文案不再承诺“完成后自动重启”，而是表达“下载完成后确认安装/重启”。 | P1 | Blueprint/UI: update pill copy tests |
 | AC-8 | Given TermPro 处于自动化/冒烟路径（`TERMPRO_SMOKE=1`）/ When 冒烟测试通过后触发退出 / Then 不出现需要人工点击的确认，避免 CI 或无头验证卡住。 | P1 | Blueprint: TERMPRO_SMOKE bypass test |
 
 ## 业务流程图 / 交互时序图

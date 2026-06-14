@@ -58,15 +58,16 @@ src/main/exitConfirmation.ts
 
 1. `clearWatchdog()`，避免用户停在确认弹窗时 15 分钟 watchdog 误判卡死。
 2. 等待 `confirmInstallWhenIdle(version)`；如果其他确认正在显示，则保持 `installing=true` 与本地安装产物，等锁释放后再显示安装确认。
-3. `update-downloaded` 后记录 `readyToInstallVersion`。用户取消后保留这个 staged-ready 标记；再次点击同版本升级时跳过重新下载 / `checkForUpdates()`，直接进入安装确认并调用已就绪的 `quitAndInstall()`。
-4. 确认返回后复核 `isStillInstalling()`；如果 updater fallback / error 已经清掉 installing，则忽略本次确认结果，不再广播 restarting 或调用 `quitAndInstall()`。
-5. 用户取消:
+3. `update-downloaded` 后记录 `readyToInstallVersion` 并广播 `confirming`，让升级胶囊显示“等待确认安装…”且保持 disabled。
+4. 用户取消后保留这个 staged-ready 标记；再次点击同版本升级时跳过重新下载 / `checkForUpdates()`，直接进入安装确认并调用已就绪的 `quitAndInstall()`。
+5. 确认返回后复核 `isStillInstalling()`；如果 updater fallback / error 已经清掉 installing，则忽略本次确认结果，不再广播 restarting 或调用 `quitAndInstall()`。
+6. 用户取消:
    - `cleanupInstallArtifacts()`
    - `installing = false`
    - `broadcast({ state: 'available', version })`
    - 不广播 `restarting`
    - 不调用 `autoUpdater.quitAndInstall()`
-6. 用户确认:
+7. 用户确认:
    - `cleanupInstallArtifacts()`
    - `broadcast({ state: 'restarting', version })`
    - `prepareToQuitAndInstall()`
@@ -110,7 +111,7 @@ src/main/exitConfirmation.ts
 
 | 字段 | 类型 | 必填 | 校验规则 | 默认值 | 备注 |
 |------|------|------|----------|--------|------|
-| state | `'available' \| 'checking' \| 'downloading' \| 'restarting' \| 'error'` | 是 | 既有枚举 | - | 取消安装后复用 `available` 表达可重试 |
+| state | `'available' \| 'checking' \| 'downloading' \| 'confirming' \| 'restarting' \| 'error'` | 是 | 既有枚举扩展 | - | 取消安装后复用 `available` 表达可重试；等待 native 安装确认时用 `confirming` 禁用胶囊 |
 | version | `string` | 否 | 既有 | - | 取消安装后带同版本 |
 | percent | `number` | 否 | 0-100 | - | 下载态使用 |
 
@@ -134,6 +135,7 @@ src/main/exitConfirmation.ts
 | `ExitLifecycleController.isQuitting` | method | `src/main/exitConfirmation.ts` | none | `boolean` |
 | `ExitLifecycleController.resetQuitting` | method | `src/main/exitConfirmation.ts` | none | `void` |
 | `handleDownloadedUpdateForInstall` | function | `src/main/updateInstallDecision.ts` | injected updater side-effect callbacks | `Promise<void>` |
+| `updateInstallSession` helpers | functions | `src/main/updateInstallSession.ts` | install session state + version | install request decision / state mutation |
 | `initUpdater` options | callback | `src/main/updater.ts` | `confirmInstallWhenIdle`, `prepareToQuitAndInstall`, `rollbackQuitAndInstall` | `void` |
 
 ## 实现思路
@@ -146,9 +148,11 @@ src/
 │   ├── exitConfirmation.ts # 新增确认文案、确认锁、close/quit lifecycle helper
 │   ├── main.ts # 接入主窗口 close、用户 Quit 菜单、before-quit 标记、updater callbacks
 │   ├── updater.ts # update-downloaded 后先确认；取消时恢复 available
+│   ├── updateInstallSession.ts # 纯状态机: installingVersion / staged retry / latest drift
 │   ├── updateInstallDecision.ts # 纯函数化 update-downloaded 安装决策，便于单元测试
 │   └── __tests__/
 │       ├── exitConfirmation.test.ts # 覆盖 AC-1/2/6/8
+│       ├── updateInstallSession.test.ts # 覆盖 staged retry / version drift
 │       └── updaterInstallConfirmation.test.ts # 覆盖 AC-3/4/5
 └── renderer/
     └── components/
@@ -159,9 +163,9 @@ src/
 ### 前端技术方案
 
 - **组件结构**: 不新增组件。继续复用 `Sidebar.tsx` 内部 `UpdatePill`。
-- **状态管理**: 不新增 renderer 状态。取消安装后 main 广播既有 `available` 事件，renderer 现有 `onUpdateEvent` 订阅即可重新启用按钮。
+- **状态管理**: 不新增 renderer store；main 广播 `confirming` 禁用等待确认中的胶囊，取消安装后广播 `available` 重新启用按钮。
 - **路由变更**: 无真实产品路由变更。设计预览路由已在 ui_design 阶段完成。
-- **样式方案**: 不改 CSS。仅调整下载态、available title 的文本。
+- **样式方案**: 不改 CSS。调整下载态、confirming 态、available title 的文本。
 
 ### 流程图 / 时序图
 
@@ -226,6 +230,10 @@ sequenceDiagram
 | T-013 | `exitLifecycle_mark_quitting_bypasses_app_quit_confirmation` | ☐ |
 | T-014 | `exitLifecycle_before_quit_marks_quitting_without_prompt` | ☐ |
 | T-015 | `updater_rolls_back_quit_bypass_when_quit_and_install_throws` | ☐ |
+| T-016 | `reuses_a_staged_update_after_cancel_and_reclick_same_version` | ☐ |
+| T-017 | `downloads_again_when_a_newer_version_replaces_the_staged_version` | ☐ |
+| T-018 | `uses_the_installing_version_snapshot_when_latest_drifts` | ☐ |
+| T-019 | `exitLifecycle_logs_dialog_rejection_without_closing_or_quitting` | ☐ |
 
 ### 实现步骤
 
@@ -241,7 +249,7 @@ sequenceDiagram
 | 8 | 实现 `update-downloaded` 安装确认取消分支 | 🟢 Green | updater 测试通过 | ☐ |
 | 9 | 写 updater 锁忙等待和确认安装继续 quitAndInstall 失败测试 | 🔴 Red | updater 测试失败后修复 | ☐ |
 | 10 | 实现等待式 install confirmation 和 quitAndInstall bypass wiring | 🟢 Green | updater 测试通过 | ☐ |
-| 11 | 写 UpdatePill available/downloading 文案失败测试 | 🔴 Red | `npm test -- src/renderer/components/__tests__/SidebarUpdatePill.test.tsx` | ☐ |
+| 11 | 写 UpdatePill available/downloading/confirming 文案失败测试 | 🔴 Red | `npm test -- src/renderer/components/__tests__/SidebarUpdatePill.test.tsx` | ☐ |
 | 12 | 调整 `Sidebar.tsx` 文案和 title | 🟢 Green | renderer 测试通过 | ☐ |
 | 13 | 全量验证 | 🔵 Refactor | `npm run typecheck` + `npm test` + smoke | ☐ |
 
@@ -257,7 +265,9 @@ sequenceDiagram
 | 用户停留安装确认超过 watchdog 时间 | 错误打开 release page 或状态错乱 | `update-downloaded` 后立即清 watchdog，再等待用户选择 |
 | 系统 logout / shutdown 被 App Quit 确认框阻塞 | OS 退出流程被 TermPro 中断 | `before-quit` 不弹确认，只标记 quitting；用户 App Quit 由菜单/Cmd+Q 显式入口确认 |
 | 已 staged 更新取消后再次安装与 Squirrel 状态冲突 | 稍后重试失败或打开 release fallback | 记录 `readyToInstallVersion`，再次点击同版本时复用已 staged 的 update，不重跑 `checkForUpdates()` |
+| 安装确认期间周期检查广播新 available | 胶囊在 native 确认未结束时重新变可点 | 周期和聚焦触发的 `check()` 均 gated on `!installing` |
 | `quitAndInstall()` 同步失败后 quitting 标记永久保留 | 本会话后续关闭/退出不再提示 | `rollbackQuitAndInstall()` 回滚 lifecycle 标记并覆盖单测 |
+| native dialog promise reject | unhandled rejection 或静默失败 | close / app-quit handler catch 并记录日志，默认不关闭、不退出 |
 | 冒烟测试卡在确认弹窗 | CI 无头流程超时 | `TERMPRO_SMOKE` bypass 覆盖 close / quit / install confirm |
 
 ## 待决策
@@ -273,4 +283,5 @@ sequenceDiagram
 | 2026-06-14 | 起草 main/updater/renderer 文案技术方案与 TDD 计划。 |
 | 2026-06-14 | 根据 external review 补充 quit->close 串扰、确认锁 busy 语义、安装确认等待与更完整文案测试。 |
 | 2026-06-14 | Round 3 根据 external review 改为菜单/Cmd+Q 触发 App Quit 确认，before-quit 仅标记系统退出；补 staged update 重试与 quitAndInstall rollback。 |
+| 2026-06-14 | Round 4 补 `updateInstallSession` 纯状态机测试、`confirming` UI 状态、installing 期间周期检查门控与 dialog rejection 日志。 |
 | 2026-06-14 | Review fix: 对齐真实 helper 接口、per-window close 放行、安装版本快照与 updater 日志。 |
