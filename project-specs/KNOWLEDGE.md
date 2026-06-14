@@ -43,6 +43,7 @@
 | GO-016 | notify | **通知有两套互不联动的"已读"状态**:源 A `notifications[].read`(顶部 🔔 角标读它 · `Sidebar.tsx`)/ 源 B tab `waiting`·`unseenDone`(状态点 / 工作区 attention pill / Dock 角标)。后台事件同时写两套;**任何"使 tab 可见 = 查看"的入口必须同步两套**,否则角标残留(setActiveTab、setActiveWorkspace 各漏一处即本 bug) | 新增/修改任何"查看 tab"入口一律走 `markTabViewed(workspaceId, tabId)`(`store.ts` · 清源 B + 按 tabId 标源 A 已读) | 2026-06 | TERMPRO-B260614065346 |
 | GO-017 | test | **renderer store 单测会经 `terminalRegistry` 拉入 `@xterm/*`**(vitest 默认 node env 无 DOM · import 链易崩) | 测试顶部 `vi.mock('../../terminal/terminalRegistry', () => ({ disposeTerminal: () => {} }))` 断链,再 `useAppStore.setState/getState` 直驱 store action(见 `notificationBadge.test.ts`) | 2026-06 | TERMPRO-B260614065346 |
 | GO-018 | terminal/links | **OSC 8 超链接(程序用转义序列内嵌 URI 的可点链接)由 xterm 核心 `OscLinkProvider` 处理 · 优先级高于自定义 `registerLinkProvider`**(注册下标小者胜 · 核心 provider 下标 0)· 故自定义 `SystemWebLinkProvider` 拦不住 OSC 8 链接;未设 `linkHandler` 时 OSC 链接落核心 `defaultActivate` → `confirm('could be dangerous')` + `window.open()` 弹框 | 控制 OSC 8 链接打开行为必须设 `Terminal({ linkHandler })`(`activate` 路由到 `window.termpro.openExternal`)· `allowNonHttpProtocols` 默认 false 已把 URI 限制在 http/https(与 main `shell:open-external` 的 `^https?` 守卫一致)· 纯文本链接仍归 `SystemWebLinkProvider` | 2026-06 | TERMPRO-B260614085337 |
+| GO-019 | lifecycle | **Electron `before-quit` 不是"用户主动退出"专属入口**;系统 logout/shutdown 与已确认退出/安装也会走这里,在此 `preventDefault()` 弹确认会阻塞 OS 退出或造成二次确认 | 用户 App Quit 只从菜单/Cmd+Q 显式入口发起确认;`before-quit` 仅标记 quitting 放行;安装确认前用专用 lifecycle helper 标记 `quitAndInstall()` 可绕过二次确认 | 2026-06 | TERMPRO-F260614081920-Close-Install-Confirmation |
 
 ---
 
@@ -87,6 +88,7 @@
 - **filepanel**: GO-011, GO-013
 - **notify**: GO-012, GO-014, GO-016
 - **test**: GO-017
+- **lifecycle**: GO-019
 - **发版**: PR-001
 - **歧义**: FA-001
 - **拒绝**: OS-001, OS-002, OS-003, OS-004, OS-005

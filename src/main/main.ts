@@ -6,8 +6,9 @@ import {
   dialog,
   ipcMain,
   utilityProcess,
+  clipboard,
+  shell,
 } from 'electron';
-import { clipboard, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,11 @@ import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { registerAppStore } from './appStore';
 import { buildAdditionalArguments } from './buildAdditionalArguments';
+import {
+  ExitLifecycleController,
+  createExitConfirmationCoordinator,
+  shouldBypassExitConfirmation,
+} from './exitConfirmation';
 import { installExternalUrlPolicy } from './externalUrlPolicy';
 import { initUpdater } from './updater';
 
@@ -49,8 +55,48 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
+let mainWin: BrowserWindow | null = null;
+let fileWin: BrowserWindow | null = null;
+let diffWin: BrowserWindow | null = null;
+
+const exitConfirmation = createExitConfirmationCoordinator({
+  shouldBypass: () => shouldBypassExitConfirmation(),
+  showMessageBox(parent, options) {
+    const win = parent instanceof BrowserWindow ? parent : undefined;
+    if (win && !win.isDestroyed()) return dialog.showMessageBox(win, options);
+    return dialog.showMessageBox(options);
+  },
+});
+const exitLifecycle = new ExitLifecycleController(
+  (request, parent) => exitConfirmation.confirm(request, parent),
+  () => shouldBypassExitConfirmation(),
+  (message) => console.log(message),
+);
+
+function confirmationParentWindow(): BrowserWindow | undefined {
+  return mainWin ?? BrowserWindow.getFocusedWindow() ?? undefined;
+}
+
 registerAppStore();
-initUpdater();
+app.on('before-quit', () => {
+  exitLifecycle.handleAppBeforeQuit();
+});
+initUpdater({
+  confirmInstallWhenIdle: async (version) => {
+    if (exitLifecycle.isQuitting()) return { status: 'canceled' } as const;
+    return exitConfirmation.confirmWhenIdle(
+      { kind: 'install-update', version },
+      confirmationParentWindow(),
+      () => exitLifecycle.isQuitting(),
+    );
+  },
+  prepareToQuitAndInstall: () => {
+    exitLifecycle.markQuitting();
+  },
+  rollbackQuitAndInstall: () => {
+    exitLifecycle.resetQuitting();
+  },
+});
 
 // ---- Host 进程(utilityProcess)----------------------------------------
 
@@ -210,10 +256,6 @@ if (process.env.TERMPRO_SMOKE) {
 // 主窗口(终端工作台)/ 文件内容窗口(单例,多 tab,所有可编辑文件共用)/
 // git diff 窗口(单例,模态挂主窗口;打开期间禁止再开任何查看窗口)。
 
-let mainWin: BrowserWindow | null = null;
-let fileWin: BrowserWindow | null = null;
-let diffWin: BrowserWindow | null = null;
-
 function loadViewer(win: BrowserWindow, payload: unknown): void {
   const json = JSON.stringify(payload);
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -310,11 +352,31 @@ ipcMain.on('viewer:open-window', (_event, payload: unknown) => {
 function buildMenu(): void {
   const sendMenu = (action: string) => () =>
     BrowserWindow.getFocusedWindow()?.webContents.send('menu', action);
+  const requestAppQuit = () => {
+    exitLifecycle.requestAppQuit(app, confirmationParentWindow());
+  };
+
+  const appMenu = (): Electron.MenuItemConstructorOptions => ({
+    label: app.getName(),
+    submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      {
+        label: `Quit ${app.getName()}`,
+        accelerator: 'Command+Q',
+        click: requestAppQuit,
+      },
+    ],
+  });
 
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(process.platform === 'darwin'
-      ? [{ role: 'appMenu' as const }]
-      : []),
+    ...(process.platform === 'darwin' ? [appMenu()] : []),
     {
       label: 'Shell',
       submenu: [
@@ -388,6 +450,9 @@ const createWindow = () => {
   }
 
   mainWin = mainWindow;
+  mainWindow.on('close', (event) => {
+    exitLifecycle.handleWindowClose(event, mainWindow);
+  });
   mainWindow.on('closed', () => {
     if (mainWin === mainWindow) mainWin = null;
   });
@@ -405,6 +470,7 @@ app.on('ready', () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    exitLifecycle.markQuitting();
     app.quit();
   }
 });

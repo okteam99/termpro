@@ -11,3 +11,4 @@
 | TERMPRO-F260613150158-Settings-About-Entry | 侧栏左下角新增用户信息入口:默认头像占位 + 「Settings」入口行,点击展开仅含 About 的菜单,About 弹出当前应用版本(经壳层同步暴露 app 版本号)。作为未来用户/设置区入口的脚手架第一步。 | 2026-06-14T07:20:42Z | `TERMPRO-F260613150158-Settings-About-Entry.zip` |
 | TERMPRO-B260614065346-Notification-Badge-Count-Decrement | 修复工作区顶部通知铃铛角标不递减:查看 tab(setActiveTab)与切换工作区(setActiveWorkspace)使其 active tab 可见时,统一经 markTabViewed 把该 tab 未读通知标已读,角标随之递减;不影响 tab 状态点/attention pill/Dock 角标。 | 2026-06-14T07:45:11Z | `TERMPRO-B260614065346-Notification-Badge-Count-Decrement.zip` |
 | TERMPRO-B260614085337-Osc8-Link-Open-Browser | 修复终端点击 OSC 8 超链接弹「危险链接」安全确认框的问题 · 现可与纯文本链接一致 · 点击直接用系统默认浏览器打开。 | 2026-06-14T11:07:14Z | `TERMPRO-B260614085337-Osc8-Link-Open-Browser.zip` |
+| TERMPRO-F260614081920-Close-Install-Confirmation | 主窗口关闭、App Quit 和更新安装重启前增加 native 确认；取消后保留工作现场并恢复升级可重试，确认后继续原关闭/退出/Squirrel 安装流程。 | 2026-06-14T11:10:42Z | `TERMPRO-F260614081920-Close-Install-Confirmation.zip` |

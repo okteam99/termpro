@@ -51,7 +51,13 @@ function BellIcon() {
 /** 左下角升级胶囊:有新 Release 时出现,点击下载并升级 */
 function UpdatePill() {
   const [ev, setEv] = useState<{
-    state: 'available' | 'checking' | 'downloading' | 'restarting' | 'error';
+    state:
+      | 'available'
+      | 'checking'
+      | 'downloading'
+      | 'confirming'
+      | 'restarting'
+      | 'error';
     version?: string;
     percent?: number;
   } | null>(null);
@@ -63,13 +69,15 @@ function UpdatePill() {
   const percent = ev.state === 'downloading' ? ev.percent : undefined;
   const label =
     ev.state === 'available'
-      ? `⬆ 新版本 v${ev.version} — 点击升级`
+      ? `⬆ 新版本 v${ev.version} — 下载后确认安装`
       : ev.state === 'checking'
         ? '正在连接更新源…'
+        : ev.state === 'confirming'
+          ? '等待确认安装…'
         : ev.state === 'downloading'
           ? percent != null
-            ? `下载中 ${percent}%(完成后自动重启)`
-            : '下载中(完成后自动重启)…'
+            ? `下载中 ${percent}%(完成后确认安装)`
+            : '下载中(完成后确认安装)…'
           : ev.state === 'restarting'
             ? '即将重启完成升级…'
             : '自动升级失败,已打开发布页';
@@ -98,10 +106,11 @@ function UpdatePill() {
       disabled={
         ev.state === 'checking' ||
         ev.state === 'downloading' ||
+        ev.state === 'confirming' ||
         ev.state === 'restarting'
       }
       onClick={() => window.termpro.installUpdate()}
-      title="下载新版本并自动重启升级"
+      title="下载新版本，完成后确认安装并重启"
     >
       {label}
     </button>

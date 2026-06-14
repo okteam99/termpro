@@ -69,6 +69,7 @@ const scenarios = {
 const KNOWN_ROUTES = [
   '/terminal/file-panel-path-location',
   '/sidebar/settings-about-entry',
+  '/shell/close-install-confirmation',
 ];
 
 function routeMatchesPreview() {
@@ -76,7 +77,11 @@ function routeMatchesPreview() {
   return KNOWN_ROUTES.includes(p) || p === '/';
 }
 
-function Sidebar() {
+function Sidebar({
+  updatePillLabel = '⬆ 新版本 v0.4.0 — 点击升级',
+  updatePillTitle = '下载新版本并自动重启升级',
+  updatePillState = 'available',
+} = {}) {
   return (
     <aside className="sidebar" aria-label="Workspaces">
       <div className="sidebar-header">
@@ -97,7 +102,14 @@ function Sidebar() {
           <div className="sidebar-item-meta">staging · ~/apps/joli/aon</div>
         </div>
       </div>
-      <SidebarFooter devChannel updateAvailable version="0.3.12" />
+      <SidebarFooter
+        devChannel
+        updateAvailable
+        version="0.3.12"
+        updatePillLabel={updatePillLabel}
+        updatePillTitle={updatePillTitle}
+        updatePillState={updatePillState}
+      />
     </aside>
   );
 }
@@ -149,7 +161,14 @@ function AboutModal({ version, onClose }) {
 }
 
 /** 左下角用户信息入口:头像占位 + Settings + 上弹菜单(仅 About)→ About 弹版本。 */
-function SidebarFooter({ devChannel = false, updateAvailable = false, version = '' }) {
+function SidebarFooter({
+  devChannel = false,
+  updateAvailable = false,
+  version = '',
+  updatePillLabel = '⬆ 新版本 v0.4.0 — 点击升级',
+  updatePillTitle = '下载新版本并自动重启升级',
+  updatePillState = 'available',
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const footerRef = useRef(null);
@@ -177,8 +196,11 @@ function SidebarFooter({ devChannel = false, updateAvailable = false, version = 
   return (
     <div className="sidebar-footer" ref={footerRef}>
       {updateAvailable && (
-        <button className="sidebar-update-pill" title="下载新版本并自动重启升级">
-          ⬆ 新版本 v0.4.0 — 点击升级
+        <button
+          className={`sidebar-update-pill sidebar-update-pill--${updatePillState}`}
+          title={updatePillTitle}
+        >
+          {updatePillLabel}
         </button>
       )}
 
@@ -207,6 +229,155 @@ function SidebarFooter({ devChannel = false, updateAvailable = false, version = 
       </div>
 
       {aboutOpen && <AboutModal version={version} onClose={() => setAboutOpen(false)} />}
+    </div>
+  );
+}
+
+const confirmationScenarios = {
+  close: {
+    label: 'Close Window',
+    shellEvent: 'main-window close requested',
+    title: '关闭主窗口?',
+    message: '关闭后再打开，Tab 内容可能丢失。取消后 Workspace、Tab 和 Terminal 视图保持可用。',
+    confirm: '关闭窗口',
+    cancel: '取消',
+    accent: 'neutral',
+    updateLabel: '⬆ 新版本 v0.4.0 — 下载后确认安装',
+    updateState: 'available',
+    note: 'AC-1: 取消保持主窗口打开;确认继续 close window。',
+  },
+  quit: {
+    label: 'App Quit',
+    shellEvent: 'application quit requested',
+    title: '退出 TermPro?',
+    message: '退出后再打开，Tab 内容可能丢失。确认退出前会保留原有状态落盘机会。',
+    confirm: '退出',
+    cancel: '取消',
+    accent: 'danger',
+    updateLabel: '⬆ 新版本 v0.4.0 — 下载后确认安装',
+    updateState: 'available',
+    note: 'AC-2: 取消保持应用运行;确认继续 App Quit / Cmd+Q。',
+  },
+  install: {
+    label: 'Install Ready',
+    shellEvent: 'update downloaded, install pending',
+    title: '安装 v0.4.0 并重启?',
+    message: '升级包已下载完成。确认后 TermPro 会重启并交给 Squirrel.Mac 完成安装。',
+    confirm: '安装并重启',
+    cancel: '稍后',
+    accent: 'primary',
+    updateLabel: '下载完成 — 确认后安装',
+    updateState: 'ready',
+    note: 'AC-3/AC-5: 下载完成后先确认;确认才广播 restarting 并 quitAndInstall。',
+  },
+  retry: {
+    label: 'Install Canceled',
+    shellEvent: 'install canceled, update retryable',
+    title: null,
+    message: null,
+    confirm: null,
+    cancel: null,
+    accent: 'success',
+    updateLabel: '⬆ 新版本 v0.4.0 — 可重新安装',
+    updateState: 'retryable',
+    note: 'AC-4: 取消后不重启,watchdog 清理,installing 复位,胶囊恢复可点。',
+  },
+};
+
+function ConfirmationDialog({ scenario }) {
+  if (!scenario.title) return null;
+  const confirmClass = [
+    'confirm-dialog__button',
+    'confirm-dialog__button--confirm',
+    scenario.accent === 'danger' ? 'confirm-dialog__button--danger' : '',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <div className="confirm-backdrop" data-ac="AC-1 AC-2 AC-3 AC-5 AC-6">
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div className="confirm-dialog__icon">!</div>
+        <div className="confirm-dialog__body">
+          <h1 id="confirm-title">{scenario.title}</h1>
+          <p>{scenario.message}</p>
+          <div className="confirm-dialog__actions">
+            <button className="confirm-dialog__button confirm-dialog__button--cancel">
+              {scenario.cancel}
+            </button>
+            <button className={confirmClass}>
+              {scenario.confirm}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ConfirmationStatusPanel({ scenario }) {
+  return (
+    <div className="confirmation-status" data-ac="AC-4 AC-7">
+      <div className="confirmation-status__eyebrow">Update state</div>
+      <div className="confirmation-status__title">{scenario.updateLabel}</div>
+      <div className="confirmation-status__body">{scenario.note}</div>
+    </div>
+  );
+}
+
+function ConfirmationTerminal({ scenario, onScenario }) {
+  const lines = [
+    ['event', scenario.shellEvent],
+    ['guard', scenario.title ? 'confirmation pending' : 'retryable state restored'],
+    ['result', scenario.note],
+    ['smoke', 'TERMPRO_SMOKE bypasses this confirmation path'],
+  ];
+
+  return (
+    <div className="terminal-host" aria-label="Terminal">
+      <div className="terminal-toolbar">
+        {Object.entries(confirmationScenarios).map(([key, item]) => (
+          <button
+            key={key}
+            className={`scenario-chip${scenario === item ? ' scenario-chip--active' : ''}`}
+            onClick={() => onScenario(key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className="terminal-screen">
+        {lines.map(([prefix, value], index) => (
+          <div className="terminal-line" key={`${prefix}-${index}`}>
+            <span className="terminal-prefix">{prefix}</span>
+            <span>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmationPreview() {
+  const [scenarioKey, setScenarioKey] = useState('close');
+  const scenario = confirmationScenarios[scenarioKey];
+
+  return (
+    <div className="app-shell">
+      <Sidebar
+        updatePillLabel={scenario.updateLabel}
+        updatePillTitle="下载完成后确认安装/重启"
+        updatePillState={scenario.updateState}
+      />
+      <div className="pane-handle" />
+      <main className="main-column">
+        <TabBar />
+        <div className="terminal-area terminal-area--confirm-preview">
+          <ConfirmationTerminal scenario={scenario} onScenario={setScenarioKey} />
+          <ConfirmationStatusPanel scenario={scenario} />
+          <ConfirmationDialog scenario={scenario} />
+        </div>
+      </main>
+      <div className="pane-handle" />
+      <FilePanel scenario={scenarios.worktree} />
     </div>
   );
 }
@@ -352,6 +523,10 @@ function App() {
 
   if (!routeMatchesPreview()) {
     window.history.replaceState(null, '', '/terminal/file-panel-path-location');
+  }
+
+  if (window.location.pathname === '/shell/close-install-confirmation') {
+    return <ConfirmationPreview />;
   }
 
   const scenario = scenarios[scenarioKey];

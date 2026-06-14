@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('termpro', {
   setDockBadge(count: number): void {
     ipcRenderer.send('dock:badge', count);
   },
-  /** 订阅更新事件(available/downloading/restarting/error),返回退订函数 */
+  /** 订阅更新事件(available/downloading/confirming/restarting/error),返回退订函数 */
   onUpdateEvent(
     callback: (e: { state: string; version?: string; percent?: number }) => void,
   ): () => void {
