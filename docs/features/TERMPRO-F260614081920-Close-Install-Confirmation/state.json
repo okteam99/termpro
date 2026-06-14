@@ -157,14 +157,11 @@
       "duration_minutes": 5
     },
     "review": {
-      "input_satisfied": true,
-      "process_satisfied": true,
-      "output_satisfied": true,
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
       "started_at": "2026-06-14T09:48:15Z",
-      "evidence": {
-        "verdict": "NEEDS_REVISION"
-      },
-      "completed_at": "2026-06-14T09:55:40Z",
+      "evidence": {},
       "auto_commit": "0be91c1",
       "artifacts": [
         "REVIEW.md",
@@ -178,10 +175,29 @@
           "started_at": "2026-06-14T09:48:15Z",
           "completed_at": "2026-06-14T09:55:40Z",
           "review_commit": "0be91c1",
-          "verdict": "NEEDS_REVISION"
+          "verdict": "NEEDS_REVISION",
+          "fix_commit": "7545b99",
+          "fix_at": "2026-06-14T09:57:02Z",
+          "addresses_findings": [
+            "QA-R1-2",
+            "ARCH-R1-1",
+            "ARCH-R1-2",
+            "ARCH-R1-3",
+            "CR-1",
+            "CR-2",
+            "CR-3",
+            "CR-5",
+            "CR-6"
+          ]
+        },
+        {
+          "round": 2,
+          "review_commit": null,
+          "fix_commit": null,
+          "started_at": "2026-06-14T09:57:06Z",
+          "verdict": null
         }
-      ],
-      "duration_minutes": 7
+      ]
     }
   },
   "completed_stages": [
@@ -228,9 +244,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T09:55:40Z",
+  "updated_at": "2026-06-14T09:57:06Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:09ed0bf4f07387a7d58bfa858f67b7108575ce8f40d615594b3ab21ea8d26341",
+  "_state_checksum": "sha256:d3d78135c552df1fe3a771e9c7274c1ac6e863fbc561635257c3c4000aef8f5d",
   "legal_next_stages": [
     "test",
     "dev"

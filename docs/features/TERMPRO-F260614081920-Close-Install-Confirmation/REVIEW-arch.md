@@ -1,36 +1,26 @@
 ---
 feature_id: "TERMPRO-F260614081920-Close-Install-Confirmation"
 reviewer: architect
-round: 1
+round: 2
 verdict: NEEDS_REVISION
 reviewed_at: "2026-06-14"
 ---
 
-# Architect Review - Round 1
+# Architect Review - Round 2
 
-## 范围
+## Scope
 
-Reviewed commit: `5c0141f`
-
-Files reviewed:
-
-- `src/main/exitConfirmation.ts`
-- `src/main/updateInstallDecision.ts`
-- `src/main/main.ts`
-- `src/main/updater.ts`
-- `src/renderer/components/Sidebar.tsx`
-- main / renderer tests added in dev stage
+Reviewed code after Round 1 fixes through `7545b99`.
 
 ## Findings
 
 | ID | Severity | Finding | Evidence | Verdict |
 |----|----------|---------|----------|---------|
-| ARCH-R1-1 | Low | `allowNextWindowClose` is a process-long boolean and can theoretically survive a failed/suppressed synthetic close event, letting a future rebuilt main window close once without confirmation. | `src/main/exitConfirmation.ts` keeps `allowNextWindowClose` on the controller singleton; `main.ts` reuses one controller across recreated windows. | Confirmed, fix by binding the allowance to the specific window instance. |
-| ARCH-R1-2 | Low | Update install log still says “restarting to install” before the user has confirmed install. | `src/main/updater.ts` logs before `handleDownloadedUpdateForInstall`; cancel path is now valid. | Confirmed, use neutral pre-confirmation log and decision logs. |
-| ARCH-R1-3 | Info | TECH interface table names helper functions as if they are standalone exports, while implementation uses `createExitConfirmationCoordinator()` and `ExitLifecycleController`. | `TECH.md` interface table vs `src/main/exitConfirmation.ts`. | Confirmed docs drift, fix TECH. |
+| ARCH-R2-1 | High | App Quit confirmation should not block OS shutdown / logout paths. | `main.ts` routes every `before-quit` through confirmation; PRD AC-2 names user App Quit / Cmd+Q, not system shutdown. | Confirmed, add `powerMonitor.shutdown` bypass. |
+| ARCH-R2-2 | Low | Install confirmation can continue after app quit has already been confirmed. | `confirmWhenIdle` waits for current dialog, but does not know lifecycle is already quitting. | Confirmed, short-circuit install confirmation if lifecycle is quitting. |
+| ARCH-R2-3 | Low | Error/fallback can race with a pending install confirmation. | `handleDownloadedUpdateForInstall` awaits user choice after clearing watchdog; updater error handlers can call fallback while the dialog is open. | Confirmed, add `isStillInstalling` guard before acting on confirmation result. |
+| ARCH-R2-4 | Info | `allowNextQuitWithoutConfirmation` name implies one-shot, but it marks the app as quitting for the rest of process life. | `ExitLifecycleController` sets `isQuittingConfirmed=true`; all current call sites terminate the app. | Rename to reflect mark-quitting semantics. |
 
-## Architecture Verdict
+## Verdict
 
 NEEDS_REVISION.
-
-The main architecture is sound: Electron lifecycle concerns remain in `src/main`; renderer only changes copy; Host and protocol stay untouched. The requested fixes are small and local.
