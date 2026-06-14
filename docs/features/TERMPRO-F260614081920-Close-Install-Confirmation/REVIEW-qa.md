@@ -1,27 +1,37 @@
 ---
 feature_id: "TERMPRO-F260614081920-Close-Install-Confirmation"
 reviewer: qa
-round: 4
-verdict: NEEDS_REVISION
+round: 5
+verdict: APPROVE
 reviewed_at: "2026-06-14"
 ---
 
-# QA Review - Round 4
+# QA Review - Round 5
 
-## Regression Status
+## AC Coverage
 
-- Round 3 validation passed before Round 4 review.
-- External review found missing coverage around updater staged retry and latest drift.
+| AC | Status | Evidence |
+|----|--------|----------|
+| AC-1 Close Window confirmation | Covered | `exitConfirmation.test.ts` close cancel/confirm + dialog rejection |
+| AC-2 App menu / Cmd+Q confirmation | Covered | `requestAppQuit` tests, `before-quit` mark-only boundary |
+| AC-3 Update install confirmation cancel | Covered | `updaterInstallConfirmation.test.ts`, `updateInstallSession.test.ts` |
+| AC-4 Cancel recovery / retryable available | Covered | cancel branch + staged retry session tests |
+| AC-5 Confirm install / quitAndInstall | Covered | restart broadcast + rollback-on-throw test |
+| AC-6 Confirmation lock | Covered | coordinator busy + wait-when-idle tests |
+| AC-7 Update pill copy | Covered | available/downloading/confirming copy test |
+| AC-8 Smoke bypass | Covered | coordinator bypass test + Electron smoke |
 
-## Findings
+## Verification Evidence
 
-| ID | Severity | Finding | Evidence | Verdict |
-|----|----------|---------|----------|---------|
-| QA-R4-1 | High | Staged retry and latest drift need automated tests. | Previous tests covered the pure decision function but not the state transition that decides reuse vs download. | Confirmed, add `updateInstallSession.test.ts`. |
-| QA-R4-2 | Low | `confirming` UI state should be covered. | Reuse/ready path should disable the update pill without misleading “checking” copy. | Confirmed, add UpdatePill assertion. |
-| QA-R4-3 | Low | Dialog rejection should be covered. | No previous test covered rejected native dialog promises. | Confirmed, add lifecycle rejection test. |
-| QA-R4-4 | Info | Dock Quit / OS Quit tradeoff needs explicit QA note. | Implementation intentionally confirms App menu / Cmd+Q only. | Confirmed, document in PRD/TC and retain PM acceptance native check. |
+- `npm run typecheck`: PASS
+- `npm test`: PASS, 23 files / 198 tests
+- `npm run lint`: PASS with existing warnings
+- `TERMPRO_SMOKE=1 npx electron-forge start`: PASS, `SMOKE_OK`
+
+## Residual Risk
+
+Native Squirrel.Mac retry after a staged update and OS/Dock quit behavior remain best validated manually in PM acceptance because they depend on platform behavior outside jsdom/unit test reach.
 
 ## Verdict
 
-NEEDS_REVISION.
+APPROVE.

@@ -1,26 +1,25 @@
 ---
 feature_id: "TERMPRO-F260614081920-Close-Install-Confirmation"
 reviewer: architect
-round: 4
-verdict: NEEDS_REVISION
+round: 5
+verdict: APPROVE
 reviewed_at: "2026-06-14"
 ---
 
-# Architect Review - Round 4
+# Architect Review - Round 5
 
 ## Scope
 
-Reviewed code after Round 3 fixes through `cdd0cd3` plus Round 4 external review output.
+Reviewed implementation after Round 4 fix commit `0919293`.
 
 ## Findings
 
 | ID | Severity | Finding | Evidence | Verdict |
 |----|----------|---------|----------|---------|
-| ARCH-R4-1 | High | Staged update retry / version drift state should be extracted and unit tested. | `readyToInstallVersion`, `installingVersion`, and retry decisions are the riskiest updater behavior and were embedded in `updater.ts`. | Confirmed, extract `updateInstallSession` helpers and tests. |
-| ARCH-R4-2 | Low | Reuse staged update branch needs explicit invariant and clearer UI/log state. | The branch relies on Squirrel.Mac retaining the staged update after `update-downloaded`; `checking` is misleading for this path. | Confirmed, document invariant and broadcast `confirming`. |
-| ARCH-R4-3 | Low | Periodic update checks should be disabled while install confirmation is pending. | Focus-triggered checks already gate on `!installing`; interval checks did not. | Confirmed, gate timer checks. |
-| ARCH-R4-4 | Low | Dialog rejection should be caught. | Native dialog promise rejection would otherwise be unhandled. | Confirmed, catch and log safe outcome. |
+| ARCH-R5-1 | Advisory | Reuse-staged silent no-op fallback is not fully detectable. | `quitAndInstall()` synchronous throw is rolled back; silent no-op is speculative and native-specific. | Non-blocking; keep native update retry in PM acceptance. |
+| ARCH-R5-2 | Advisory | Main wiring has limited direct unit coverage. | Core lifecycle/updater state is now tested through pure helpers; main startup is smoke-tested. | Non-blocking; acceptable for this Feature scope. |
+| ARCH-R5-3 | Advisory | Install dialog parent could be polished for modal viewer windows. | `confirmationParentWindow()` prefers `mainWin`. | Non-blocking UX hardening. |
 
 ## Verdict
 
-NEEDS_REVISION.
+APPROVE.

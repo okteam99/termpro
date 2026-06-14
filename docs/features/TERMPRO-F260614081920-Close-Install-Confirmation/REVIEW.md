@@ -1,16 +1,16 @@
 ---
 feature_id: "TERMPRO-F260614081920-Close-Install-Confirmation"
 reviewers: [architect, qa, external]
-verdict: NEEDS_REVISION
-round: 4
+verdict: APPROVE
+round: 5
 reviewed_at: "2026-06-14"
 ---
 
-# Close / Install Confirmation - Review Round 4
+# Close / Install Confirmation - Review Round 5
 
 ## Summary
 
-Round 4 reviewed the user-intent App Quit and staged-update retry changes. External review found one remaining high-value gap: the updater module state that owns staged retry and version drift was not directly covered. The rest were low-severity hardening / documentation items. The findings are valid and cheap to address.
+Round 5 reviewed the staged-update session helper, `confirming` UI state, install-check gating, and dialog rejection handling added after Round 4. External review reported no blocker/high findings. Remaining findings are low/info advisory items around rare Squirrel staged-copy no-op behavior, main wiring coverage, modal parent-window choice, and log granularity.
 
 ## External Findings Adjudication
 
@@ -18,20 +18,18 @@ External artifact: `external-cross-review/review-claude.md`
 
 | ID | Severity | Adjudication | Evidence / Decision |
 |----|----------|--------------|---------------------|
-| CR-1 | High | Confirmed | `handleDownloadedUpdateForInstall` was tested, but `readyToInstallVersion` / `installingVersion` state decisions lived in `updater.ts` without focused tests. Extract a pure session helper and cover staged retry, newer-version redownload, and latest drift. |
-| CR-2 | Low | Confirmed | Reusing a staged update depends on Squirrel.Mac's update-downloaded staged copy. Document the invariant at the reuse branch and keep fallback/rollback as recovery. |
-| CR-3 | Low | Confirmed | Reuse retry broadcast `checking` and used a generic downloaded log, which was misleading. Add `confirming` state and distinct staged-reuse log. |
-| CR-4 | Low | Confirmed | Periodic `check()` was not gated while installing; this could broadcast a new available state during a long native confirmation. Gate timer checks on `!installing`. |
-| CR-5 | Low | Confirmed | Close/App Quit dialog promise rejections were not caught. Add catch logging and keep safe outcome: no close / no quit. |
-| CR-6 | Info | Confirmed / documented tradeoff | Dock Quit cannot be distinguished from OS quit via `before-quit`. PRD/TC should explicitly scope App Quit confirmation to App menu / Cmd+Q and not system logout/shutdown. |
+| CR-1 | Low | Deferred / advisory | A silent `quitAndInstall()` no-op after Squirrel staging is plausible but speculative and hard to detect without risking false fallback during a legitimate slow quit. Current code covers synchronous throw rollback and PM acceptance keeps native update retry as a manual check. |
+| CR-2 | Low | Deferred / advisory | Main wiring direct tests would require additional Electron-module harnessing. The risky logic is extracted into `exitConfirmation`, `updateInstallDecision`, and `updateInstallSession` tests; smoke covers main startup. Keep as residual test gap. |
+| CR-3 | Low | Deferred / advisory | Focused/modal parent choice for install confirmation is UX-hardening, not a correctness blocker. Current parent fallback is stable for the main window; defer to a focused-window polish task if needed. |
+| CR-4 | Info | Deferred / advisory | Reuse-staged path now logs reuse and `confirming`; additional quit result logging can be added later if field diagnostics require it. |
 
-## Verification Before This Review
+## Verification Evidence
 
 - `npm run typecheck`: PASS
-- `npm test`: PASS, 23 files / 198 tests after local Round 4 fix draft
+- `npm test`: PASS, 23 files / 198 tests
 - `npm run lint`: PASS with existing warnings
 - `TERMPRO_SMOKE=1 npx electron-forge start`: PASS, `SMOKE_OK`
 
 ## Verdict
 
-NEEDS_REVISION.
+APPROVE. Residual advisories are non-blocking and should be considered during PM acceptance / future updater hardening.

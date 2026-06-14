@@ -2,93 +2,85 @@
 review_model: 2.1.177 (Claude Code)
 review_role: external
 review_stage: review
-target_commit: 75b35ba
+target_commit: 91731ee
 target_base: d42ccee
 title: "TERMPRO-F260614081920-Close-Install-Confirmation · review stage external review"
-generated_at: "2026-06-14T10:28:12Z"
+generated_at: "2026-06-14T10:39:25Z"
 invoked_by: state.py external-review (v8.20)
 host: codex-cli
 ---
-I have a comprehensive view of the change set. Here is my independent review.
+Analysis complete. Below is my independent external review record.
 
 ```yaml
 ---
 perspective: external-claude
 target: code
-generated_at: "2026-06-14T10:26:00Z"
+generated_at: "2026-06-14T10:42:00Z"
 files_read:
   - src/main/exitConfirmation.ts
   - src/main/updateInstallDecision.ts
+  - src/main/updateInstallSession.ts
   - src/main/updater.ts
-  - src/main/main.ts (diff vs main)
-  - src/renderer/components/Sidebar.tsx (diff vs main)
+  - src/main/main.ts
   - src/main/__tests__/exitConfirmation.test.ts
   - src/main/__tests__/updaterInstallConfirmation.test.ts
+  - src/main/__tests__/updateInstallSession.test.ts
+  - src/renderer/components/Sidebar.tsx (via diff)
+  - src/renderer/types.d.ts (via diff)
+  - src/preload/preload.ts (via diff)
   - docs/features/TERMPRO-F260614081920-Close-Install-Confirmation/TECH.md
 model: "claude-opus-4-8"
 findings:
   - id: CR-1
-    checklist: C5
-    severity: high
-    location: "src/main/updater.ts:281-340,371-376 (no test); src/main/__tests__/updaterInstallConfirmation.test.ts only covers pure handleDownloadedUpdateForInstall"
-    issue: "The stateful integration glue in updater.ts — installingVersion snapshot, the readyToInstallVersion reuse short-circuit (L318-321), and the update-downloaded→confirmReadyToInstall wiring (L371-376) — has zero automated coverage. The pure decision fn is tested, but the module-level state machine that drives it is not."
-    rationale: "TECH §关键边界/风险 calls out the staged-reuse retry and version-drift snapshot as the riskiest behaviors, and they live entirely in this untested glue. A regression in the readyToInstallVersion===version branch (wrong version, skipped download, stale reuse) would ship green, and this path is nearly impossible to exercise by hand."
-    suggestion: "Extract the install:install IPC handler + update-downloaded handler over injected updater state (or refactor the module state behind a small testable object) and add tests for: (a) cancel→re-click same version reuses staged install without re-download, (b) cancel→newer version found→full re-download, (c) installingVersion snapshot is used (not latest) after latest drifts."
+    checklist: C3
+    severity: low
+    location: "src/main/updateInstallDecision.ts:48-56 + src/main/updater.ts:312-315 (reuse-staged confirm path)"
+    issue: "reuse-staged 确认分支无条件信任 Squirrel 内部 staged 副本：先 broadcast 'restarting' + markQuitting + clearReadyToInstall，再调用 autoUpdater.quitAndInstall()。若 ShipIt 缓存已被清理/失效，quitAndInstall() 可能既不抛错也不真正重启（静默 no-op）。"
+    rationale: "此时 installing 仍为 true（confirm 分支不调用 setInstalling(false)）、readyToInstallVersion 已清、isQuittingConfirmed 已置 true，但进程未退出——胶囊永久停在 '即将重启完成升级…'，且本会话后续 close/quit 确认被静默绕过，用户无重试出口。download 路径有 watchdog/STALL 兜底，唯独 reuse-staged 路径无任何 no-op 兜底。"
+    suggestion: "reuse-staged 确认后加宽限超时：若 quitAndInstall() 后进程在数百毫秒内仍存活，视为 staged 失效 → resetQuitting() + setInstalling(false) + 回退 download 路径或 broadcast available/error；或将 clearReadyToInstall 推迟到确认真正重启之后，保留一次重试机会。"
   - id: CR-2
-    checklist: C3
+    checklist: C5
     severity: low
-    location: "src/main/updateInstallDecision.ts:40 + src/main/updater.ts:298-301,318-321"
-    issue: "On cancel, handleDownloadedUpdateForInstall calls cleanupInstallArtifacts() which closes the local feed server and deletes the temp zip; the reuse retry path then calls autoUpdater.quitAndInstall() relying solely on Squirrel's internal staged copy, with no re-validation that the staged update still exists."
-    rationale: "Reuse correctness depends on an undocumented Squirrel.Mac assumption (staged copy survives across a cancel+cleanup in the same process). If that assumption is wrong, quitAndInstall() fails and the only recovery is the catch→fallbackToReleasePage. This is the highest-risk path and is unverified (see CR-1)."
-    rationale_note: "Likely correct for Squirrel.Mac since ShipIt stages on update-downloaded, but it is an implicit invariant."
-    suggestion: "Document the Squirrel staging invariant in a comment at the reuse branch, and treat a quitAndInstall failure on the reuse path as a first-class recoverable state (it already falls back, but a test/log asserting this is the intended recovery would harden it)."
+    location: "src/main/main.ts:62-99,355-376,453-476 (initUpdater 回调 / before-quit / window-all-closed / 菜单 Quit / role:'close' 接线)"
+    issue: "全部 19 条 TC 与现有单测只覆盖纯 helper（exitConfirmation / updateInstallDecision / updateInstallSession），main.ts 的实际接线零测试。confirmInstallWhenIdle↔isQuitting 的双重 gate、confirmationParentWindow 选择、Close Window 菜单经 role:'close'→handleWindowClose 的路由、markQuitting 与 quitAndInstall 的时序，均无回归保护。"
+    rationale: "本 Feature 最高风险恰在 lifecycle 接线（漏传 shouldCancel、回调顺序错、before-quit/window-all-closed 误标记 quitting 等）。这些都在 main.ts 而非被测 helper 里；'cancel→reuse-staged→confirm' 端到端链路也被拆散在两个测试文件、从未作为一条流贯穿 updater.ts 跑通。"
+    suggestion: "补一个不依赖 Electron 的薄集成测：用真实 ExitLifecycleController + createExitConfirmationCoordinator 注入到 initUpdater 形态的回调中，断言 isQuitting=true 时 confirmInstallWhenIdle 返回 canceled、确认安装后 close 不二次弹窗、staged 取消后重点击同版本走 reuse-staged→confirm→quitAndInstall。"
   - id: CR-3
-    checklist: C6
-    severity: low
-    location: "src/main/updater.ts:317 (broadcast 'checking') + :282 + updateInstallDecision.ts:26 (log)"
-    issue: "On the reuse retry, the handler broadcasts state:'checking' (UI: '正在连接更新源…') and logs '[updater] downloaded, awaiting install confirmation', though nothing is downloading/connecting — it is only awaiting user confirmation of an already-staged update."
-    rationale: "Misleading UI state and log text on the retry path make field diagnosis harder and momentarily show the wrong status to the user; the message does not match the actual lifecycle stage."
-    suggestion: "On the readyToInstallVersion===version branch, skip the 'checking' broadcast (or broadcast a confirm-pending state) and log a distinct message like 'reusing staged update, awaiting confirmation'."
-  - id: CR-4
     checklist: C3
     severity: low
-    location: "src/main/updater.ts:388 (setInterval check) vs :390-394 (focus check gated on !installing)"
-    issue: "The periodic setInterval(check) is not gated on `installing`, unlike the focus-triggered check. Because the watchdog is cleared on update-downloaded, the install-confirmation dialog can stay open indefinitely; a periodic check() during that window can overwrite `latest` and broadcast available(newVersion), flipping the pill out of its disabled state mid-confirmation."
-    rationale: "The installingVersion snapshot protects install correctness, but not renderer state: the user could see 'new version available' re-enable the pill while their confirm dialog for the prior version is still open. Pre-existing check() was harmless when installing was momentary; the new long-lived confirm window widens the race."
-    suggestion: "Gate the interval check() (and/or broadcast in check()) on `!installing`, consistent with the focus handler, so no update events are emitted while an install confirmation is pending."
-  - id: CR-5
-    checklist: C2
-    severity: low
-    location: "src/main/exitConfirmation.ts:177-184,195-203 (requestAppQuit / handleWindowClose)"
-    issue: "Both attach `.then(...)` to confirmExit() with no `.catch`. If the injected showMessageBox / dialog.showMessageBox rejects, the rejection is unhandled (the coordinator lock is released via finally, so no deadlock, but the error path is silent)."
-    rationale: "C2 'assumes-always-succeeds': the dialog promise is treated as infallible. An unhandled rejection in main can surface as a process-level warning/crash depending on Electron config, and the failure is neither logged nor recovered."
-    suggestion: "Add `.catch((err) => this.log(...))` to both handlers; on dialog error default to the safe outcome (do not quit / keep window open)."
-  - id: CR-6
-    checklist: C1
+    location: "src/main/main.ts:76-78,84-92 (confirmationParentWindow 用于 install 确认)"
+    issue: "安装确认父窗口固定优先 mainWin（confirmationParentWindow 先返回 mainWin 再 getFocusedWindow）。当 diffWin（modal: true，parent=mainWin）正打开时，安装确认会作为 sheet 挂到处于其模态子窗口背后的 mainWin。"
+    rationale: "确认锁（active）与 modal 窗口是两套机制：confirmWhenIdle 只等 exit-dialog 空闲，不感知已打开的 modal 查看窗口。sheet 挂在被 modal 子窗口遮挡的父窗口上，在 macOS 下可能不可见/不可达，用户需先关 diff 才能处理，体验割裂。"
+    suggestion: "install 确认优先选 topmost/focused 窗口为 parent（或在存在 modal 查看窗口时延后安装确认直至其关闭），避免把 sheet 钉在被模态子窗遮挡的窗口上。"
+  - id: CR-4
+    checklist: C6
     severity: info
-    location: "src/main/main.ts:58-60 (before-quit→handleAppBeforeQuit) + src/main/exitConfirmation.ts:206-208; TECH.md §258"
-    issue: "App-quit confirmation only triggers from the macOS menu / Cmd+Q. Dock right-click 'Quit' and other OS-level terminations flow through before-quit, which intentionally only marks quitting (to avoid blocking logout/shutdown), so those quit paths show no confirmation."
-    rationale: "This is a deliberate, documented trade-off (Electron cannot distinguish Dock-Quit from OS shutdown on before-quit), but it means 'quitting always confirms' is not literally true — worth explicit PRD/AC sign-off so it is a known gap, not a silent miss."
-    suggestion: "Confirm with the PRD owner that no-confirmation on Dock-Quit/OS-quit is acceptable, and note this residual explicitly in the AC so QA does not file it as a defect."
+    location: "src/main/updater.ts:330-335,291-323 (reuse-staged 日志) + updateInstallDecision.ts:48-56"
+    issue: "reuse-staged 与首次 download 两条安装路径在确认/重启阶段共用同一组日志，无法从日志区分本次 quitAndInstall 走的是新下载还是复用 staged，也无 quitAndInstall 结果（是否真重启）的可观测信号。"
+    rationale: "结合 CR-1，staged 复用是最易出现'看似成功实则未升级'的路径，却恰恰缺少能事后定位的日志；readyToInstallVersion 在 quitAndInstall 前即清，进一步抹掉了'本次消费了哪个 staged 版本'的痕迹。"
+    suggestion: "在 reuse-staged 分支与 quitAndInstall 注入函数中各加一行带 version 与 path（download|reuse-staged）的日志，便于线上排查升级未生效问题。"
 findings_summary:
   blocker: 0
-  high: 1
-  low: 4
+  high: 0
+  low: 3
   info: 1
-  total: 6
+  total: 4
 ---
-```
 
 # 详情
 
-整体实现质量较高：确认锁的 `confirmed | canceled | busy` 三态语义清晰，`WeakSet` 绑定 per-window 放行、`isQuittingConfirmed` 防二次弹窗、`installingVersion` 版本快照、`rollbackQuitAndInstall` 同步失败回滚等关键边界都已覆盖，纯决策函数 `handleDownloadedUpdateForInstall` 的单测也较完整（取消/确认/锁忙重试/installing 已清除忽略/quitAndInstall 抛错回滚）。与 TECH.md 的关键路径一致（C1 基本对齐），未触碰 HostService 协议与 fs/pty/git 红线（C4 通过）。
+## 总体评价
 
-主要遗漏集中在两点：
+实现质量较高，分层干净：`exitConfirmation.ts` / `updateInstallDecision.ts` / `updateInstallSession.ts` 全部做成无 Electron 依赖、可注入的纯逻辑，符合项目"main 可用 Electron、核心逻辑零 Electron import 便于单测"的取向。确认锁的 `confirmed | canceled | busy` 三态区分、`WeakSet` per-window 放行、`isQuittingConfirmed` 对 quit→close 串扰的封堵、quitAndInstall 同步失败的 rollback、安装版本快照（installingVersion）防 latest 漂移——这些此前 review 轮次暴露的竞态都已被针对性覆盖。happy path 与多数边界（busy 重试、isStillInstalling 失效忽略、staged 重试/版本漂移）都有对应单测。
 
-1. **测试覆盖的"最后一公里"缺口（CR-1，high）**：被测的是抽离出的纯函数，而真正承载文档化高风险行为（staged-reuse 重试、version 漂移快照、update-downloaded 接线）的 `updater.ts` 模块级状态机没有任何自动化测试。这正是手工 QA 最难触达、回归后果最直接（装错版本/装不上）的部分。建议把 IPC/事件处理也做成可注入状态的形态并补测三条 reuse/drift 路径。
+## 未发现 blocker/high 的理由（自检）
 
-2. **取消→复用路径的隐式不变量与状态噪声（CR-2/CR-3/CR-4）**：取消已 `cleanupInstallArtifacts()`（关本地 feed、删 zip）后，复用路径完全依赖 Squirrel 内部 staged 副本仍然有效——大概率成立但属未声明不变量；同路径还会广播误导性的 `checking` 状态、且 watchdog 清零后确认弹窗可无限停留，期间未被 `installing` 门控的周期 `check()` 可能改写 `latest` 并把胶囊从禁用态翻回可点。这些都不阻断主流程但值得收口。
+- **二次弹窗**：confirm 即时锁 busy + isQuittingConfirmed 放行 + allowedWindowCloses 一次性放行，T-005/T-008/T-010 覆盖，逻辑闭合。
+- **取消不退出/不重启**：cancel 分支不调 quitAndInstall、不 markQuitting、保留 readyToInstallVersion，setInstalling(false)+broadcast available，胶囊恢复可点，闭合。
+- **cleanup 早于 quitAndInstall**：TECH §70-74 已论证 update-downloaded 后 Squirrel 已内部 staged，本地 feed/zip 不再需要，顺序正确。
+- **fallback 幂等**：autoUpdater.on('error') 与 catch 均经 `!installing` gate，resetUpdateInstallSession 后二次进入早退，重复 openExternal 仅边角。
 
-CR-5 是 dialog promise 无 `.catch` 的健壮性小洞；CR-6 是 Dock/OS 退出不弹确认这一已记录的设计取舍，建议在 AC 里显式签字以免被当缺陷。
+## findings 聚焦
 
-无 blocker。建议优先补 CR-1 的 reuse/drift 集成测试，再顺手处理 CR-4 的 `check()` 门控。
+四条均为 low/info 级的健壮性与可测性缺口，集中在两个主题：(1) **reuse-staged 路径**缺少对 Squirrel staged 副本失效的兜底与可观测性（CR-1/CR-4，CR-1 是其中最值得处理的——会留下不可恢复的 stuck 状态）；(2) **main.ts 接线**与端到端 staged-retry 链路无测试覆盖（CR-2）。CR-3 是 modal 查看窗口与安装确认父窗口选择的交互体验问题。建议主对话优先评估 CR-1 的兜底，其余按成本酌情。
+```
