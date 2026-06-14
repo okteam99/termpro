@@ -27,9 +27,15 @@
       "at": "2026-06-14T09:29:00Z",
       "source": "panorama_sync-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-06-14T09:31:04Z",
+      "source": "blueprint-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "panorama_sync",
+  "current_stage": "blueprint",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -46,7 +52,7 @@
     "base": "origin/main",
     "executed_at": "2026-06-14T08:21:00Z"
   },
-  "auto_mode": false,
+  "auto_mode": true,
   "yolo": false,
   "concerns": [],
   "review_round": 0,
@@ -83,15 +89,30 @@
       "duration_minutes": 46
     },
     "panorama_sync": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-14T09:28:48Z",
+      "completed_at": "2026-06-14T09:30:59Z",
+      "auto_commit": "04e6ede",
+      "artifacts": [
+        "panorama-change-summary.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 2
+    },
+    "blueprint": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-14T09:28:48Z"
+      "started_at": "2026-06-14T09:30:59Z"
     }
   },
   "completed_stages": [
     "goal",
-    "ui_design"
+    "ui_design",
+    "panorama_sync"
   ],
   "created_at": "2026-06-14T08:21:00Z",
   "stage_review_roles": {
@@ -130,14 +151,31 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T09:29:00Z",
+  "updated_at": "2026-06-14T09:31:15Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:5c04de25e92fc49c62093f93538eb9303a139ee62f069fbfba96eb9dd6893791",
+  "_state_checksum": "sha256:f78ea5537fa05a3e629c98658d896bb3842fe15772f0dffd652d70b7421d1c21",
   "legal_next_stages": [
-    "blueprint"
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
     "panorama_changed": true
-  }
+  },
+  "mode_changes": [
+    {
+      "at": "2026-06-14T09:31:15Z",
+      "before": {
+        "auto_mode": false,
+        "yolo": false,
+        "merge_target": "main"
+      },
+      "after": {
+        "auto_mode": true,
+        "yolo": false,
+        "merge_target": "main"
+      },
+      "reason": "user requested auto mode continue during blueprint",
+      "via": "set-mode"
+    }
+  ]
 }
