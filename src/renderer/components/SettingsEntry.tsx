@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
+// 应用图标(About 弹窗 logo)· Vite 把资源打进 renderer bundle(dev + 打包均生效)
+const appIconUrl = new URL('../../../assets/icon.png', import.meta.url).href;
+
 // ---- Icons ----------------------------------------------------------------
 
 function PersonIcon() {
@@ -77,7 +80,7 @@ export function AboutModal({ version, onClose }: AboutModalProps) {
         >
           ×
         </button>
-        <div className="about-logo">T</div>
+        <img className="about-logo" src={appIconUrl} alt="TermPro" />
         <div className="about-name">TermPro</div>
         <div className="about-version">{versionText}</div>
       </div>
