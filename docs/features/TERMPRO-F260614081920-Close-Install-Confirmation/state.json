@@ -157,12 +157,14 @@
       "duration_minutes": 5
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-06-14T09:48:15Z",
-      "evidence": {},
-      "auto_commit": "0be91c1",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "auto_commit": "9b2ae7f",
       "artifacts": [
         "REVIEW.md",
         "REVIEW-arch.md",
@@ -192,12 +194,15 @@
         },
         {
           "round": 2,
-          "review_commit": null,
+          "review_commit": "9b2ae7f",
           "fix_commit": null,
           "started_at": "2026-06-14T09:57:06Z",
-          "verdict": null
+          "verdict": "NEEDS_REVISION",
+          "completed_at": "2026-06-14T10:06:11Z"
         }
-      ]
+      ],
+      "completed_at": "2026-06-14T10:06:11Z",
+      "duration_minutes": 17
     }
   },
   "completed_stages": [
@@ -244,9 +249,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-14T09:57:06Z",
+  "updated_at": "2026-06-14T10:06:11Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:d3d78135c552df1fe3a771e9c7274c1ac6e863fbc561635257c3c4000aef8f5d",
+  "_state_checksum": "sha256:adcafa38218d00d2097020ebe312e508ea1a44e732bb357a59d82664ab07bd99",
   "legal_next_stages": [
     "test",
     "dev"

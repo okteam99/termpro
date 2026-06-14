@@ -338,6 +338,9 @@ export function initUpdater(options: InitUpdaterOptions = {}): void {
       confirmInstallWhenIdle,
       clearWatchdog,
       cleanupInstallArtifacts,
+      isStillInstalling() {
+        return installing;
+      },
       setInstalling(value) {
         installing = value;
         if (!value) installingVersion = null;

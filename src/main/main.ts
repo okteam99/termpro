@@ -5,6 +5,7 @@ import {
   MessageChannelMain,
   dialog,
   ipcMain,
+  powerMonitor,
   utilityProcess,
   clipboard,
   shell,
@@ -80,14 +81,20 @@ registerAppStore();
 app.on('before-quit', (event) => {
   exitLifecycle.handleAppBeforeQuit(event, app, confirmationParentWindow());
 });
+powerMonitor.on('shutdown', () => {
+  exitLifecycle.markQuitting();
+});
 initUpdater({
-  confirmInstallWhenIdle: (version) =>
-    exitConfirmation.confirmWhenIdle(
+  confirmInstallWhenIdle: async (version) => {
+    if (exitLifecycle.isQuitting()) return { status: 'canceled' } as const;
+    return exitConfirmation.confirmWhenIdle(
       { kind: 'install-update', version },
       confirmationParentWindow(),
-    ),
+      () => exitLifecycle.isQuitting(),
+    );
+  },
   prepareToQuitAndInstall: () => {
-    exitLifecycle.allowNextQuitWithoutConfirmation();
+    exitLifecycle.markQuitting();
   },
 });
 
@@ -443,7 +450,7 @@ app.on('ready', () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    exitLifecycle.allowNextQuitWithoutConfirmation();
+    exitLifecycle.markQuitting();
     app.quit();
   }
 });

@@ -47,22 +47,24 @@ src/main/exitConfirmation.ts
 
 - 主窗口 `close` 事件交给 lifecycle controller。
 - `app.before-quit` 交给 lifecycle controller。
+- `powerMonitor.shutdown` 标记系统关机 / 注销路径正在退出，不弹用户 App Quit 确认。
 - `window-all-closed` 非 macOS 触发 `app.quit()` 前标记本次 quit 来源于已确认关闭，可绕过二次确认。
 - `initUpdater()` 注入两个 callback:
-  - `confirmInstallWhenIdle(version)`：等待当前关闭/退出确认结束后显示安装确认，避免把锁忙误判为取消。
+  - `confirmInstallWhenIdle(version)`：等待当前关闭/退出确认结束后显示安装确认；如果等待期间应用已进入 quitting，则返回取消而不再弹安装确认。
   - `prepareToQuitAndInstall()`：确认安装后标记本次 `quitAndInstall()` 可绕过 App Quit 确认。
 
 `src/main/updater.ts` 保持原下载/本地 feed/Squirrel.Mac 流程，仅在 `update-downloaded` 后插入确认分支:
 
 1. `clearWatchdog()`，避免用户停在确认弹窗时 15 分钟 watchdog 误判卡死。
 2. 等待 `confirmInstallWhenIdle(version)`；如果其他确认正在显示，则保持 `installing=true` 与本地安装产物，等锁释放后再显示安装确认。
-3. 用户取消:
+3. 确认返回后复核 `isStillInstalling()`；如果 updater fallback / error 已经清掉 installing，则忽略本次确认结果，不再广播 restarting 或调用 `quitAndInstall()`。
+4. 用户取消:
    - `cleanupInstallArtifacts()`
    - `installing = false`
    - `broadcast({ state: 'available', version })`
    - 不广播 `restarting`
    - 不调用 `autoUpdater.quitAndInstall()`
-4. 用户确认:
+5. 用户确认:
    - `cleanupInstallArtifacts()`
    - `broadcast({ state: 'restarting', version })`
    - `prepareToQuitAndInstall()`
@@ -124,8 +126,10 @@ src/main/exitConfirmation.ts
 | `createExitConfirmationCoordinator` | function | `src/main/exitConfirmation.ts` | injected `showMessageBox`, optional `shouldBypass` | `{ confirm, confirmWhenIdle }` |
 | `ExitLifecycleController.handleWindowClose` | method | `src/main/exitConfirmation.ts` | preventable close event, window | `void` |
 | `ExitLifecycleController.handleAppBeforeQuit` | method | `src/main/exitConfirmation.ts` | preventable quit event, app, parent window | `void` |
+| `ExitLifecycleController.markQuitting` | method | `src/main/exitConfirmation.ts` | none | `void` |
+| `ExitLifecycleController.isQuitting` | method | `src/main/exitConfirmation.ts` | none | `boolean` |
 | `handleDownloadedUpdateForInstall` | function | `src/main/updateInstallDecision.ts` | injected updater side-effect callbacks | `Promise<void>` |
-| `initUpdater` options | callback | `src/main/updater.ts` | `confirmInstall`, `prepareToQuitAndInstall` | `void` |
+| `initUpdater` options | callback | `src/main/updater.ts` | `confirmInstallWhenIdle`, `prepareToQuitAndInstall` | `void` |
 
 ## 实现思路
 

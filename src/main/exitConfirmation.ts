@@ -130,8 +130,13 @@ export function createExitConfirmationCoordinator(opts: {
     confirm(request: ExitConfirmationRequest, parent?: unknown) {
       return runDialog(request, parent);
     },
-    async confirmWhenIdle(request: ExitConfirmationRequest, parent?: unknown) {
+    async confirmWhenIdle(
+      request: ExitConfirmationRequest,
+      parent?: unknown,
+      shouldCancel?: () => boolean,
+    ) {
       await waitUntilIdle();
+      if (shouldCancel?.()) return { status: 'canceled' } as const;
       return runDialog(request, parent);
     },
   };
@@ -149,8 +154,12 @@ export class ExitLifecycleController {
     private readonly shouldBypass: () => boolean,
   ) {}
 
-  allowNextQuitWithoutConfirmation(): void {
+  markQuitting(): void {
     this.isQuittingConfirmed = true;
+  }
+
+  isQuitting(): boolean {
+    return this.isQuittingConfirmed;
   }
 
   handleWindowClose(event: PreventableEvent, win: WindowLike): void {
@@ -178,7 +187,7 @@ export class ExitLifecycleController {
     event.preventDefault();
     void this.confirmExit({ kind: 'app-quit' }, parent).then((result) => {
       if (result.status !== 'confirmed') return;
-      this.isQuittingConfirmed = true;
+      this.markQuitting();
       app.quit();
     });
   }

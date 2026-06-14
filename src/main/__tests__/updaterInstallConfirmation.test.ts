@@ -15,10 +15,12 @@ function setupDeps() {
     confirmInstallWhenIdle: vi.fn(),
     clearWatchdog: vi.fn(),
     cleanupInstallArtifacts: vi.fn(),
+    isStillInstalling: vi.fn(() => true),
     setInstalling: vi.fn(),
     broadcast: vi.fn(),
     prepareToQuitAndInstall: vi.fn(),
     quitAndInstall: vi.fn(),
+    log: vi.fn(),
   };
 }
 
@@ -100,5 +102,25 @@ describe('update install confirmation decision', () => {
       version: '0.4.0',
     });
     expect(deps.quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it('updater_confirmed_install_is_ignored_if_installing_was_cleared', async () => {
+    const deps = setupDeps();
+    deps.confirmInstallWhenIdle.mockResolvedValue({ status: 'confirmed' });
+    deps.isStillInstalling.mockReturnValue(false);
+
+    await handleDownloadedUpdateForInstall(deps);
+
+    expect(deps.clearWatchdog).toHaveBeenCalledTimes(1);
+    expect(deps.cleanupInstallArtifacts).not.toHaveBeenCalled();
+    expect(deps.broadcast).not.toHaveBeenCalledWith({
+      state: 'restarting',
+      version: '0.4.0',
+    });
+    expect(deps.prepareToQuitAndInstall).not.toHaveBeenCalled();
+    expect(deps.quitAndInstall).not.toHaveBeenCalled();
+    expect(deps.log).toHaveBeenCalledWith(
+      '[updater] install confirmation ignored; install is no longer active',
+    );
   });
 });

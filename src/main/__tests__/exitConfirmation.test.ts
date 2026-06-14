@@ -90,6 +90,31 @@ describe('exit confirmation coordinator lock', () => {
     await coordinator.confirm({ kind: 'app-quit' });
     expect(showMessageBox).toHaveBeenCalledTimes(2);
   });
+
+  it('confirmWhenIdle_can_cancel_after_waiting_before_showing_dialog', async () => {
+    const firstDialog = deferred<{ response: number }>();
+    const showMessageBox = vi.fn(() => firstDialog.promise);
+    const coordinator = createExitConfirmationCoordinator({
+      showMessageBox,
+      shouldBypass: () => false,
+    });
+
+    const first = coordinator.confirm({ kind: 'app-quit' });
+    let quitting = false;
+    const second = coordinator.confirmWhenIdle(
+      { kind: 'install-update', version: '0.4.0' },
+      undefined,
+      () => quitting,
+    );
+
+    expect(showMessageBox).toHaveBeenCalledTimes(1);
+    quitting = true;
+    firstDialog.resolve({ response: 1 });
+
+    await expect(first).resolves.toEqual({ status: 'confirmed' });
+    await expect(second).resolves.toEqual({ status: 'canceled' });
+    expect(showMessageBox).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('exit lifecycle controller', () => {
@@ -136,7 +161,21 @@ describe('exit lifecycle controller', () => {
     const app = { quit: vi.fn() };
     const event = { preventDefault: vi.fn() };
 
-    controller.allowNextQuitWithoutConfirmation();
+    controller.markQuitting();
+    controller.handleAppBeforeQuit(event, app, undefined);
+
+    expect(controller.isQuitting()).toBe(true);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(confirmExit).not.toHaveBeenCalled();
+  });
+
+  it('exitLifecycle_mark_quitting_bypasses_app_quit_confirmation', () => {
+    const confirmExit = vi.fn();
+    const controller = new ExitLifecycleController(confirmExit, () => false);
+    const app = { quit: vi.fn() };
+    const event = { preventDefault: vi.fn() };
+
+    controller.markQuitting();
     controller.handleAppBeforeQuit(event, app, undefined);
 
     expect(event.preventDefault).not.toHaveBeenCalled();

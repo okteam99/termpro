@@ -62,6 +62,24 @@ tests:
     covers_ac: ["AC-1", "AC-2", "AC-6"]
     level: unit
     priority: P1
+  - id: T-011
+    file: src/main/__tests__/exitConfirmation.test.ts
+    function: confirmWhenIdle_can_cancel_after_waiting_before_showing_dialog
+    covers_ac: ["AC-3", "AC-6"]
+    level: unit
+    priority: P1
+  - id: T-012
+    file: src/main/__tests__/updaterInstallConfirmation.test.ts
+    function: updater_confirmed_install_is_ignored_if_installing_was_cleared
+    covers_ac: ["AC-3", "AC-5"]
+    level: unit
+    priority: P1
+  - id: T-013
+    file: src/main/__tests__/exitConfirmation.test.ts
+    function: exitLifecycle_mark_quitting_bypasses_app_quit_confirmation
+    covers_ac: ["AC-2"]
+    level: unit
+    priority: P1
 ---
 
 # Close / Install Confirmation - 测试用例
@@ -80,11 +98,11 @@ tests:
 | AC ID（PRD） | 需求描述 | 优先级 | 覆盖测试 | 状态 |
 |-------------|---------|--------|----------|------|
 | AC-1 | 主窗口关闭前确认，取消保持窗口 | P0 | T-001 | ✅ |
-| AC-2 | App Quit / Cmd+Q 前确认，取消保持应用 | P0 | T-002 | ✅ |
-| AC-3 | 更新下载完成后安装前确认，取消不 restarting、不 quitAndInstall | P0 | T-003 | ✅ |
+| AC-2 | App Quit / Cmd+Q 前确认，取消保持应用 | P0 | T-002, T-013 | ✅ |
+| AC-3 | 更新下载完成后安装前确认，取消不 restarting、不 quitAndInstall | P0 | T-003, T-011, T-012 | ✅ |
 | AC-4 | 取消安装后清 watchdog / artifacts / installing，并恢复 available | P0 | T-003, T-009 | ✅ |
-| AC-5 | 确认安装后广播 restarting 并继续 quitAndInstall | P1 | T-004 | ✅ |
-| AC-6 | 任一确认等待时不堆叠弹窗、不重复动作 | P1 | T-005, T-008, T-009, T-010 | ✅ |
+| AC-5 | 确认安装后广播 restarting 并继续 quitAndInstall | P1 | T-004, T-012 | ✅ |
+| AC-6 | 任一确认等待时不堆叠弹窗、不重复动作 | P1 | T-005, T-008, T-009, T-010, T-011 | ✅ |
 | AC-7 | 升级胶囊文案不再承诺完成后自动重启 | P1 | T-006 | ✅ |
 | AC-8 | TERMPRO_SMOKE 自动化路径绕过确认 | P1 | T-007 | ✅ |
 
@@ -251,6 +269,48 @@ Then main 标记本次 app quit 来源于已确认的 window close
  And before-quit handler 不再显示第二个 App Quit 确认
 ```
 
+### Scenario: T-011 App Quit 已确认后等待中的安装确认不再弹出
+**优先级**: P1
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given App Quit 确认弹窗正在等待用户选择
+ And 更新安装确认正在等待确认锁释放
+When 用户确认 App Quit
+Then lifecycle 标记应用正在退出
+ And 更新安装确认在锁释放后返回 canceled
+ And 不再显示安装确认弹窗
+```
+
+### Scenario: T-012 fallback 已清理 installing 后忽略迟到的安装确认
+**优先级**: P1
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given 更新器处于 installing 状态
+ And 安装确认弹窗正在等待用户选择
+When updater error 或 update-not-available 先触发 fallback 并清理 installing
+ And 用户随后选择“安装并重启”
+Then main 不广播 restarting
+ And 不调用 prepareToQuitAndInstall
+ And 不调用 autoUpdater.quitAndInstall
+```
+
+### Scenario: T-013 系统 shutdown / logout 路径不弹 App Quit 确认
+**优先级**: P1
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given 系统关机或注销事件已通知 main
+When Electron 触发 before-quit
+Then lifecycle 识别应用正在退出
+ And 不显示 App Quit 确认
+ And 不阻止系统退出流程
+```
+
 ## UI 还原检查
 
 | 检查点 | 设计稿标准 | 状态 |
@@ -305,3 +365,4 @@ Then main 标记本次 app quit 来源于已确认的 window close
 |------|------|
 | 2026-06-14 | 起草关闭/退出/更新安装确认测试矩阵，覆盖 AC-1..AC-8。 |
 | 2026-06-14 | 根据 external review 补充 close/quit 串扰、安装锁忙等待、available 文案与 quitAndInstall bypass 测试。 |
+| 2026-06-14 | Round 2 补充系统 shutdown bypass、App Quit 后安装确认取消、fallback race 测试。 |
