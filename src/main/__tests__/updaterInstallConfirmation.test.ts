@@ -19,6 +19,7 @@ function setupDeps() {
     setInstalling: vi.fn(),
     broadcast: vi.fn(),
     prepareToQuitAndInstall: vi.fn(),
+    rollbackQuitAndInstall: vi.fn(),
     quitAndInstall: vi.fn(),
     log: vi.fn(),
   };
@@ -122,5 +123,20 @@ describe('update install confirmation decision', () => {
     expect(deps.log).toHaveBeenCalledWith(
       '[updater] install confirmation ignored; install is no longer active',
     );
+  });
+
+  it('updater_rolls_back_quit_bypass_when_quit_and_install_throws', async () => {
+    const deps = setupDeps();
+    deps.confirmInstallWhenIdle.mockResolvedValue({ status: 'confirmed' });
+    deps.quitAndInstall.mockImplementation(() => {
+      throw new Error('quit failed');
+    });
+
+    await expect(handleDownloadedUpdateForInstall(deps)).rejects.toThrow(
+      'quit failed',
+    );
+
+    expect(deps.prepareToQuitAndInstall).toHaveBeenCalledTimes(1);
+    expect(deps.rollbackQuitAndInstall).toHaveBeenCalledTimes(1);
   });
 });

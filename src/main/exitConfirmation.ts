@@ -152,6 +152,7 @@ export class ExitLifecycleController {
       parent?: unknown,
     ) => Promise<ExitConfirmationResult>,
     private readonly shouldBypass: () => boolean,
+    private readonly log: (message: string) => void = () => undefined,
   ) {}
 
   markQuitting(): void {
@@ -160,6 +161,27 @@ export class ExitLifecycleController {
 
   isQuitting(): boolean {
     return this.isQuittingConfirmed;
+  }
+
+  resetQuitting(): void {
+    this.isQuittingConfirmed = false;
+  }
+
+  requestAppQuit(app: AppLike, parent?: unknown): void {
+    if (this.shouldBypass() || this.isQuittingConfirmed) {
+      this.markQuitting();
+      app.quit();
+      return;
+    }
+
+    void this.confirmExit({ kind: 'app-quit' }, parent).then((result) => {
+      if (result.status !== 'confirmed') {
+        this.log(`[exit] app-quit ${result.status}`);
+        return;
+      }
+      this.markQuitting();
+      app.quit();
+    });
   }
 
   handleWindowClose(event: PreventableEvent, win: WindowLike): void {
@@ -171,24 +193,17 @@ export class ExitLifecycleController {
 
     event.preventDefault();
     void this.confirmExit({ kind: 'close-window' }, win).then((result) => {
-      if (result.status !== 'confirmed' || win.isDestroyed()) return;
+      if (result.status !== 'confirmed') {
+        this.log(`[exit] close-window ${result.status}`);
+        return;
+      }
+      if (win.isDestroyed()) return;
       this.allowedWindowCloses.add(win);
       win.close();
     });
   }
 
-  handleAppBeforeQuit(
-    event: PreventableEvent,
-    app: AppLike,
-    parent?: unknown,
-  ): void {
-    if (this.shouldBypass() || this.isQuittingConfirmed) return;
-
-    event.preventDefault();
-    void this.confirmExit({ kind: 'app-quit' }, parent).then((result) => {
-      if (result.status !== 'confirmed') return;
-      this.markQuitting();
-      app.quit();
-    });
+  handleAppBeforeQuit(): void {
+    this.markQuitting();
   }
 }

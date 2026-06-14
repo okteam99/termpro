@@ -5,7 +5,6 @@ import {
   MessageChannelMain,
   dialog,
   ipcMain,
-  powerMonitor,
   utilityProcess,
   clipboard,
   shell,
@@ -71,6 +70,7 @@ const exitConfirmation = createExitConfirmationCoordinator({
 const exitLifecycle = new ExitLifecycleController(
   (request, parent) => exitConfirmation.confirm(request, parent),
   () => shouldBypassExitConfirmation(),
+  (message) => console.log(message),
 );
 
 function confirmationParentWindow(): BrowserWindow | undefined {
@@ -78,11 +78,8 @@ function confirmationParentWindow(): BrowserWindow | undefined {
 }
 
 registerAppStore();
-app.on('before-quit', (event) => {
-  exitLifecycle.handleAppBeforeQuit(event, app, confirmationParentWindow());
-});
-powerMonitor.on('shutdown', () => {
-  exitLifecycle.markQuitting();
+app.on('before-quit', () => {
+  exitLifecycle.handleAppBeforeQuit();
 });
 initUpdater({
   confirmInstallWhenIdle: async (version) => {
@@ -95,6 +92,9 @@ initUpdater({
   },
   prepareToQuitAndInstall: () => {
     exitLifecycle.markQuitting();
+  },
+  rollbackQuitAndInstall: () => {
+    exitLifecycle.resetQuitting();
   },
 });
 
@@ -352,11 +352,31 @@ ipcMain.on('viewer:open-window', (_event, payload: unknown) => {
 function buildMenu(): void {
   const sendMenu = (action: string) => () =>
     BrowserWindow.getFocusedWindow()?.webContents.send('menu', action);
+  const requestAppQuit = () => {
+    exitLifecycle.requestAppQuit(app, confirmationParentWindow());
+  };
+
+  const appMenu = (): Electron.MenuItemConstructorOptions => ({
+    label: app.getName(),
+    submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      {
+        label: `Quit ${app.getName()}`,
+        accelerator: 'Command+Q',
+        click: requestAppQuit,
+      },
+    ],
+  });
 
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(process.platform === 'darwin'
-      ? [{ role: 'appMenu' as const }]
-      : []),
+    ...(process.platform === 'darwin' ? [appMenu()] : []),
     {
       label: 'Shell',
       submenu: [

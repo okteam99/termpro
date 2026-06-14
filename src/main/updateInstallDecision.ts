@@ -14,6 +14,7 @@ export interface UpdateInstallDecisionDeps {
   setInstalling(value: boolean): void;
   broadcast(payload: UpdateInstallEvent): void;
   prepareToQuitAndInstall(): void;
+  rollbackQuitAndInstall?(): void;
   quitAndInstall(): void;
   log?(message: string): void;
 }
@@ -47,5 +48,10 @@ export async function handleDownloadedUpdateForInstall(
   deps.log?.('[updater] install confirmed, restarting to install');
   deps.broadcast({ state: 'restarting', version: deps.version });
   deps.prepareToQuitAndInstall();
-  deps.quitAndInstall();
+  try {
+    deps.quitAndInstall();
+  } catch (err) {
+    deps.rollbackQuitAndInstall?.();
+    throw err;
+  }
 }

@@ -41,34 +41,36 @@ src/main/exitConfirmation.ts
 1. 生成 Close Window / App Quit / Install Update 三类确认文案与 `showMessageBox` 参数。
 2. 提供单实例确认锁，确认结果使用 `confirmed | canceled | busy` 区分用户取消与锁占用，避免 updater 把锁忙误当成用户取消。
 3. 提供 `TERMPRO_SMOKE` bypass 判定，自动化路径不弹确认。
-4. 提供轻量 lifecycle controller，封装 close / before-quit 的退出中标记，避免 App Quit 确认通过后内部触发 `mainWin.close()` 时二次弹窗。
+4. 提供轻量 lifecycle controller，封装 close / 用户 App Quit 请求 / before-quit 的退出中标记，避免 App Quit 确认通过后内部触发 `mainWin.close()` 时二次弹窗。
 
 `src/main/main.ts` 只做 wiring:
 
 - 主窗口 `close` 事件交给 lifecycle controller。
-- `app.before-quit` 交给 lifecycle controller。
-- `powerMonitor.shutdown` 标记系统关机 / 注销路径正在退出，不弹用户 App Quit 确认。
+- macOS App 菜单 `Quit TermPro` / `Cmd+Q` 交给 lifecycle controller 的用户 quit 请求，显示 App Quit 确认。
+- `app.before-quit` 只标记进程正在退出，不 `preventDefault()`、不显示确认，避免系统 logout / shutdown 被确认框阻塞。
 - `window-all-closed` 非 macOS 触发 `app.quit()` 前标记本次 quit 来源于已确认关闭，可绕过二次确认。
 - `initUpdater()` 注入两个 callback:
   - `confirmInstallWhenIdle(version)`：等待当前关闭/退出确认结束后显示安装确认；如果等待期间应用已进入 quitting，则返回取消而不再弹安装确认。
   - `prepareToQuitAndInstall()`：确认安装后标记本次 `quitAndInstall()` 可绕过 App Quit 确认。
+  - `rollbackQuitAndInstall()`：`quitAndInstall()` 同步失败时回滚 quitting 标记，避免本会话后续关闭确认被永久绕过。
 
 `src/main/updater.ts` 保持原下载/本地 feed/Squirrel.Mac 流程，仅在 `update-downloaded` 后插入确认分支:
 
 1. `clearWatchdog()`，避免用户停在确认弹窗时 15 分钟 watchdog 误判卡死。
 2. 等待 `confirmInstallWhenIdle(version)`；如果其他确认正在显示，则保持 `installing=true` 与本地安装产物，等锁释放后再显示安装确认。
-3. 确认返回后复核 `isStillInstalling()`；如果 updater fallback / error 已经清掉 installing，则忽略本次确认结果，不再广播 restarting 或调用 `quitAndInstall()`。
-4. 用户取消:
+3. `update-downloaded` 后记录 `readyToInstallVersion`。用户取消后保留这个 staged-ready 标记；再次点击同版本升级时跳过重新下载 / `checkForUpdates()`，直接进入安装确认并调用已就绪的 `quitAndInstall()`。
+4. 确认返回后复核 `isStillInstalling()`；如果 updater fallback / error 已经清掉 installing，则忽略本次确认结果，不再广播 restarting 或调用 `quitAndInstall()`。
+5. 用户取消:
    - `cleanupInstallArtifacts()`
    - `installing = false`
    - `broadcast({ state: 'available', version })`
    - 不广播 `restarting`
    - 不调用 `autoUpdater.quitAndInstall()`
-5. 用户确认:
+6. 用户确认:
    - `cleanupInstallArtifacts()`
    - `broadcast({ state: 'restarting', version })`
    - `prepareToQuitAndInstall()`
-   - `autoUpdater.quitAndInstall()`
+   - `autoUpdater.quitAndInstall()`；若同步抛错则 `rollbackQuitAndInstall()`
 
 ### 数据结构
 
@@ -99,7 +101,8 @@ src/main/exitConfirmation.ts
 
 调用约定:
 
-- Close Window / App Quit 使用即时确认；`busy` 时只阻止当前触发，不执行第二动作。
+- Close Window / 用户 App Quit 菜单请求使用即时确认；`busy` 时只阻止当前触发，不执行第二动作。
+- `app.before-quit` 不显示确认，只标记 quitting 以放行系统 logout / shutdown / 已确认退出触发的窗口关闭。
 - Update Install 使用等待式确认；如果当前锁忙，先等待锁释放，再显示安装确认。只有用户明确选择“稍后”才进入取消安装恢复。
 - `TERMPRO_SMOKE` bypass 返回 `confirmed`，不显示 dialog。
 
@@ -125,11 +128,13 @@ src/main/exitConfirmation.ts
 |------|------|------|------|------|
 | `createExitConfirmationCoordinator` | function | `src/main/exitConfirmation.ts` | injected `showMessageBox`, optional `shouldBypass` | `{ confirm, confirmWhenIdle }` |
 | `ExitLifecycleController.handleWindowClose` | method | `src/main/exitConfirmation.ts` | preventable close event, window | `void` |
-| `ExitLifecycleController.handleAppBeforeQuit` | method | `src/main/exitConfirmation.ts` | preventable quit event, app, parent window | `void` |
+| `ExitLifecycleController.requestAppQuit` | method | `src/main/exitConfirmation.ts` | app, parent window | `void` |
+| `ExitLifecycleController.handleAppBeforeQuit` | method | `src/main/exitConfirmation.ts` | none | `void` |
 | `ExitLifecycleController.markQuitting` | method | `src/main/exitConfirmation.ts` | none | `void` |
 | `ExitLifecycleController.isQuitting` | method | `src/main/exitConfirmation.ts` | none | `boolean` |
+| `ExitLifecycleController.resetQuitting` | method | `src/main/exitConfirmation.ts` | none | `void` |
 | `handleDownloadedUpdateForInstall` | function | `src/main/updateInstallDecision.ts` | injected updater side-effect callbacks | `Promise<void>` |
-| `initUpdater` options | callback | `src/main/updater.ts` | `confirmInstallWhenIdle`, `prepareToQuitAndInstall` | `void` |
+| `initUpdater` options | callback | `src/main/updater.ts` | `confirmInstallWhenIdle`, `prepareToQuitAndInstall`, `rollbackQuitAndInstall` | `void` |
 
 ## 实现思路
 
@@ -139,7 +144,7 @@ src/main/exitConfirmation.ts
 src/
 ├── main/
 │   ├── exitConfirmation.ts # 新增确认文案、确认锁、close/quit lifecycle helper
-│   ├── main.ts # 接入主窗口 close、before-quit、updater callbacks
+│   ├── main.ts # 接入主窗口 close、用户 Quit 菜单、before-quit 标记、updater callbacks
 │   ├── updater.ts # update-downloaded 后先确认；取消时恢复 available
 │   ├── updateInstallDecision.ts # 纯函数化 update-downloaded 安装决策，便于单元测试
 │   └── __tests__/
@@ -168,7 +173,7 @@ sequenceDiagram
   participant Updater as autoUpdater
   participant UI as Renderer UpdatePill
 
-  User->>Main: close / before-quit / update-downloaded
+  User->>Main: close / Cmd+Q menu / update-downloaded
   Main->>Main: TERMPRO_SMOKE bypass?
   alt bypass
     Main->>Main: continue original flow
@@ -194,9 +199,10 @@ sequenceDiagram
 - Close Window 只拦主窗口 `mainWin` 的 `close`。文件查看窗口和 diff 窗口继续按原局部窗口行为处理。
 - `Cmd+W` 仍是 Close Tab，不变。
 - `Cmd+Shift+W` / 菜单 Close Window 对主窗口会经 `close` 事件触发确认；对其他窗口仍按原关闭窗口行为。
-- `before-quit` 初次触发时会 `preventDefault()` 并显示 App Quit 确认；确认后设置 `isQuittingConfirmed`，放行后续 `app.quit()` 以及 quit 流程内部触发的主窗口 `close`。
-- `autoUpdater.quitAndInstall()` 前先设置 `isQuittingConfirmed`，避免安装确认后又弹 App Quit 确认或 Close Window 确认。
+- 用户 App Quit 只在 App 菜单 `Quit TermPro` / `Cmd+Q` 入口显示确认；`before-quit` 不阻塞，只设置 `isQuittingConfirmed`，放行系统 logout / shutdown 以及已确认退出流程内部触发的主窗口 `close`。
+- `autoUpdater.quitAndInstall()` 前先设置 `isQuittingConfirmed`，避免安装确认后又弹 App Quit 确认或 Close Window 确认；若同步失败则回滚该标记。
 - 确认锁忙与用户取消必须分开处理：lock busy 不清理 updater artifacts、不复位 installing、不广播 available；只有用户在安装确认里选择“稍后”才执行取消恢复。
+- 取消已 staged 的更新后保留 `readyToInstallVersion`；再次点击同版本升级直接复用已 `update-downloaded` 的安装就绪态，不重新跑 Squirrel check。
 - native dialog 取消按钮为默认按钮，降低误关闭风险。
 
 ## TDD 开发计划
@@ -208,13 +214,18 @@ sequenceDiagram
 | T-001 | `confirmExit_close_window_cancel_and_confirm_copy` | ☐ |
 | T-002 | `exitLifecycle_app_quit_cancel_and_confirm_flow` | ☐ |
 | T-003 | `updater_downloaded_update_cancel_does_not_quit_or_restart` | ☐ |
-| T-004 | `updater_downloaded_update_confirm_broadcasts_restarting_and_quits` | ☐ |
+| T-004 | `updater_downloaded_update_confirm_broadcasts_restarting_and_bypasses_quit_dialog` | ☐ |
 | T-005 | `confirmExit_lock_prevents_stacked_dialogs_and_second_action` | ☐ |
 | T-006 | `updatePill_available_and_downloading_copy_requires_confirmation_not_auto_restart` | ☐ |
 | T-007 | `confirmExit_smoke_bypasses_dialog` | ☐ |
 | T-008 | `exitLifecycle_quit_confirm_allows_window_close_without_second_prompt` | ☐ |
 | T-009 | `updater_install_confirm_waits_when_another_confirmation_is_active` | ☐ |
 | T-010 | `exitLifecycle_window_all_closed_quit_bypasses_second_app_quit_confirm` | ☐ |
+| T-011 | `confirmWhenIdle_can_cancel_after_waiting_before_showing_dialog` | ☐ |
+| T-012 | `updater_confirmed_install_is_ignored_if_installing_was_cleared` | ☐ |
+| T-013 | `exitLifecycle_mark_quitting_bypasses_app_quit_confirmation` | ☐ |
+| T-014 | `exitLifecycle_before_quit_marks_quitting_without_prompt` | ☐ |
+| T-015 | `updater_rolls_back_quit_bypass_when_quit_and_install_throws` | ☐ |
 
 ### 实现步骤
 
@@ -222,8 +233,8 @@ sequenceDiagram
 |---|------|------|----------|------|
 | 1 | 写 `exitConfirmation` 文案、取消默认和 smoke bypass 的失败测试 | 🔴 Red | `npm test -- src/main/__tests__/exitConfirmation.test.ts` | ☐ |
 | 2 | 实现 `exitConfirmation` 文案构造、确认锁和 smoke bypass 最小代码 | 🟢 Green | 同上通过 | ☐ |
-| 3 | 写 close / before-quit lifecycle 取消与确认路径失败测试 | 🔴 Red | `npm test -- src/main/__tests__/exitConfirmation.test.ts` | ☐ |
-| 4 | 实现 lifecycle controller 并在 `main.ts` 接入主窗口 close / before-quit | 🟢 Green | 同上通过 + typecheck | ☐ |
+| 3 | 写 close / 用户 App Quit lifecycle 取消与确认路径失败测试 | 🔴 Red | `npm test -- src/main/__tests__/exitConfirmation.test.ts` | ☐ |
+| 4 | 实现 lifecycle controller 并在 `main.ts` 接入主窗口 close / Cmd+Q 菜单 / before-quit 标记 | 🟢 Green | 同上通过 + typecheck | ☐ |
 | 5 | 写 App Quit 确认后内部 close 不二次弹窗失败测试 | 🔴 Red | `npm test -- src/main/__tests__/exitConfirmation.test.ts` | ☐ |
 | 6 | 实现 `isQuittingConfirmed` / window-all-closed bypass | 🟢 Green | exitConfirmation 测试通过 | ☐ |
 | 7 | 写 updater 取消安装恢复失败测试 | 🔴 Red | `npm test -- src/main/__tests__/updaterInstallConfirmation.test.ts` | ☐ |
@@ -244,6 +255,9 @@ sequenceDiagram
 | 取消安装后升级胶囊卡在 disabled | 用户无法稍后重试 | 取消分支必须 `installing=false` 并广播 `available(version)` |
 | 更新安装期间版本号从 `latest` 漂移 | 安装确认/available 状态显示错误版本 | 点击安装时快照 `installingVersion`，后续 update-downloaded/cancel/error 均使用该版本 |
 | 用户停留安装确认超过 watchdog 时间 | 错误打开 release page 或状态错乱 | `update-downloaded` 后立即清 watchdog，再等待用户选择 |
+| 系统 logout / shutdown 被 App Quit 确认框阻塞 | OS 退出流程被 TermPro 中断 | `before-quit` 不弹确认，只标记 quitting；用户 App Quit 由菜单/Cmd+Q 显式入口确认 |
+| 已 staged 更新取消后再次安装与 Squirrel 状态冲突 | 稍后重试失败或打开 release fallback | 记录 `readyToInstallVersion`，再次点击同版本时复用已 staged 的 update，不重跑 `checkForUpdates()` |
+| `quitAndInstall()` 同步失败后 quitting 标记永久保留 | 本会话后续关闭/退出不再提示 | `rollbackQuitAndInstall()` 回滚 lifecycle 标记并覆盖单测 |
 | 冒烟测试卡在确认弹窗 | CI 无头流程超时 | `TERMPRO_SMOKE` bypass 覆盖 close / quit / install confirm |
 
 ## 待决策
@@ -258,4 +272,5 @@ sequenceDiagram
 |------|------|
 | 2026-06-14 | 起草 main/updater/renderer 文案技术方案与 TDD 计划。 |
 | 2026-06-14 | 根据 external review 补充 quit->close 串扰、确认锁 busy 语义、安装确认等待与更完整文案测试。 |
+| 2026-06-14 | Round 3 根据 external review 改为菜单/Cmd+Q 触发 App Quit 确认，before-quit 仅标记系统退出；补 staged update 重试与 quitAndInstall rollback。 |
 | 2026-06-14 | Review fix: 对齐真实 helper 接口、per-window close 放行、安装版本快照与 updater 日志。 |

@@ -69,7 +69,7 @@ TermPro 当前主窗口没有应用级关闭确认。用户通过 macOS 红色�
 ### 风险模型
 
 - **Close Window**: 关闭主工作台窗口，造成当前可视工作面中断；在 macOS 上不等同于 App Quit。
-- **App Quit / Cmd+Q**: 退出应用进程，可能中断 Host/PTY 会话并触发 `before-quit` 状态落盘。
+- **App Quit / Cmd+Q**: 用户通过应用菜单或快捷键退出应用进程，可能中断 Host/PTY 会话并触发 `before-quit` 状态落盘；系统 logout / shutdown 不是用户误触退出入口，不弹确认以免阻塞 OS 退出。
 - **Update Install Restart**: 升级安装会重启应用，风险接近 App Quit，且当前实现下载完成后自动执行。
 
 ## 用户故事
@@ -96,7 +96,7 @@ TermPro 当前主窗口没有应用级关闭确认。用户通过 macOS 红色�
 | ID | 描述(BDD) | 优先级 | 覆盖测试 |
 |----|-----------|--------|----------|
 | AC-1 | Given 主窗口处于打开状态 / When 用户通过主窗口红色关闭按钮、菜单 Close Window 或等价主窗口关闭入口请求关闭 / Then TermPro 先显示关闭确认，用户取消时主窗口保持打开且当前 Workspace、Tab、Terminal 视图不被主动销毁。 | P0 | Blueprint: close-window cancel/confirm lifecycle tests |
-| AC-2 | Given 应用处于运行状态 / When 用户通过 App Quit、`Cmd+Q` 或等价应用退出入口请求退出 / Then TermPro 先显示退出确认，用户取消时应用继续运行，用户确认时继续原应用退出流程。 | P0 | Blueprint: app-quit cancel/confirm lifecycle tests |
+| AC-2 | Given 应用处于运行状态 / When 用户通过 App 菜单 Quit TermPro 或 `Cmd+Q` 请求退出 / Then TermPro 先显示退出确认，用户取消时应用继续运行，用户确认时继续原应用退出流程；系统 logout / shutdown 触发的退出不显示确认、不阻塞系统退出。 | P0 | Blueprint: app-quit cancel/confirm lifecycle tests |
 | AC-3 | Given 应用内升级已下载完成并准备重启安装 / When 安装流程准备调用 Squirrel.Mac 安装重启 / Then TermPro 先显示安装确认，用户取消时不广播 restarting、不调用 `quitAndInstall`，应用继续运行且升级入口恢复为可重试状态。 | P0 | Blueprint: update-install cancel tests |
 | AC-4 | Given 用户取消升级安装确认 / When 取消结果返回 / Then 安装看门狗停止，安装中状态复位，临时本地 feed/zip 按既有清理策略释放，渲染层收到同版本 available/retryable 状态并重新启用升级胶囊。 | P0 | Blueprint: updater state reset tests |
 | AC-5 | Given 用户确认安装升级 / When 确认结果返回 / Then TermPro 广播 restarting 状态并继续调用 `autoUpdater.quitAndInstall()` 完成原有安装流程。 | P1 | Blueprint: update-install confirm tests |

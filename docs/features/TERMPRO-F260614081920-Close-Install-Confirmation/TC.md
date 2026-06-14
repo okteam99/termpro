@@ -80,6 +80,18 @@ tests:
     covers_ac: ["AC-2"]
     level: unit
     priority: P1
+  - id: T-014
+    file: src/main/__tests__/exitConfirmation.test.ts
+    function: exitLifecycle_before_quit_marks_quitting_without_prompt
+    covers_ac: ["AC-2"]
+    level: unit
+    priority: P1
+  - id: T-015
+    file: src/main/__tests__/updaterInstallConfirmation.test.ts
+    function: updater_rolls_back_quit_bypass_when_quit_and_install_throws
+    covers_ac: ["AC-5"]
+    level: unit
+    priority: P1
 ---
 
 # Close / Install Confirmation - 测试用例
@@ -98,10 +110,10 @@ tests:
 | AC ID（PRD） | 需求描述 | 优先级 | 覆盖测试 | 状态 |
 |-------------|---------|--------|----------|------|
 | AC-1 | 主窗口关闭前确认，取消保持窗口 | P0 | T-001 | ✅ |
-| AC-2 | App Quit / Cmd+Q 前确认，取消保持应用 | P0 | T-002, T-013 | ✅ |
+| AC-2 | App Quit / Cmd+Q 前确认，取消保持应用 | P0 | T-002, T-013, T-014 | ✅ |
 | AC-3 | 更新下载完成后安装前确认，取消不 restarting、不 quitAndInstall | P0 | T-003, T-011, T-012 | ✅ |
 | AC-4 | 取消安装后清 watchdog / artifacts / installing，并恢复 available | P0 | T-003, T-009 | ✅ |
-| AC-5 | 确认安装后广播 restarting 并继续 quitAndInstall | P1 | T-004, T-012 | ✅ |
+| AC-5 | 确认安装后广播 restarting 并继续 quitAndInstall | P1 | T-004, T-012, T-015 | ✅ |
 | AC-6 | 任一确认等待时不堆叠弹窗、不重复动作 | P1 | T-005, T-008, T-009, T-010, T-011 | ✅ |
 | AC-7 | 升级胶囊文案不再承诺完成后自动重启 | P1 | T-006 | ✅ |
 | AC-8 | TERMPRO_SMOKE 自动化路径绕过确认 | P1 | T-007 | ✅ |
@@ -134,13 +146,13 @@ Then main 允许下一次 close 继续执行
 
 ```gherkin
 Given TermPro 应用处于运行状态
-When 用户触发 before-quit
-Then main 阻止本次 quit
+When 用户触发 App 菜单 Quit TermPro 或 Cmd+Q
+Then main 显示 App Quit 确认
  And 显示标题为“退出 TermPro？”的确认
  And 正文提示“退出后再打开，Tab 内容可能丢失”
 When 用户选择取消
 Then app.quit 不被再次调用
-When 用户再次触发 before-quit 并选择确认
+When 用户再次触发 App Quit 并选择确认
 Then main 允许下一次 quit 继续原退出流程
 ```
 
@@ -228,7 +240,7 @@ Then main 不调用确认弹窗
 
 ```gherkin
 Given TermPro 应用处于运行状态
-When 用户触发 before-quit 并在退出确认中选择确认
+When 用户触发 App 菜单 Quit TermPro 或 Cmd+Q 并在退出确认中选择确认
 Then main 标记应用正在退出
  And app.quit 被调用一次
 When app.quit 关闭主窗口并触发 mainWin close
@@ -298,17 +310,42 @@ Then main 不广播 restarting
  And 不调用 autoUpdater.quitAndInstall
 ```
 
-### Scenario: T-013 系统 shutdown / logout 路径不弹 App Quit 确认
+### Scenario: T-013 已标记 quitting 后 App Quit 请求直接放行
 **优先级**: P1
 **类型**: 边界
 **测试层级**: unit
 
 ```gherkin
-Given 系统关机或注销事件已通知 main
+Given lifecycle 已标记应用正在退出
+When 用户 App Quit 请求再次进入 lifecycle
+Then app.quit 被调用
+ And 不显示 App Quit 确认
+```
+
+### Scenario: T-014 系统 shutdown / logout 路径不弹 App Quit 确认
+**优先级**: P1
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given 系统关机、注销或程序化退出已通知 main
 When Electron 触发 before-quit
 Then lifecycle 识别应用正在退出
  And 不显示 App Quit 确认
  And 不阻止系统退出流程
+```
+
+### Scenario: T-015 quitAndInstall 同步失败时回滚 quit bypass
+**优先级**: P1
+**类型**: 边界
+**测试层级**: unit
+
+```gherkin
+Given 用户已确认安装升级
+When main 标记本次 quitAndInstall 可绕过 App Quit 确认
+ And autoUpdater.quitAndInstall 同步抛错
+Then updater 回滚 quitting 标记
+ And 后续关闭/退出确认能力不会在本会话永久丢失
 ```
 
 ## UI 还原检查
@@ -319,6 +356,8 @@ Then lifecycle 识别应用正在退出
 | Install Ready | 下载完成后显示安装确认，不直接重启 | ⬜ |
 | Install Canceled | 升级胶囊恢复可重试，不保留禁用态 | ⬜ |
 | Upgrade pill copy | 不再出现“完成后自动重启” | ⬜ |
+| OS Quit | 系统 logout / shutdown 不被 App Quit 确认框阻塞 | ⬜ |
+| Update Retry | 取消已 staged 更新后再次点击同版本安装可继续确认并重启 | ⬜ |
 
 ## E2E 端到端验收
 
@@ -335,7 +374,7 @@ Then lifecycle 识别应用正在退出
 |------|------|
 | 是否需要 Browser E2E | ⏭️ 可跳过 |
 | 用户是否可选择跳过 | 是 |
-| 原因 | 实际确认是 Electron native dialog 与 updater 事件，浏览器 DOM 自动化无法直接验证；采用 main/updater 单元测试 + smoke 验证。UI 设计预览已在 ui_design 阶段验证。 |
+| 原因 | 实际确认是 Electron native dialog、OS quit 与 updater/Squirrel.Mac 事件，浏览器 DOM 自动化无法直接验证；采用 main/updater 单元测试 + smoke 验证，并在 PM acceptance 保留 native 手测项。UI 设计预览已在 ui_design 阶段验证。 |
 
 ## 实现完整性报告（代码审查时填写）
 
@@ -366,3 +405,4 @@ Then lifecycle 识别应用正在退出
 | 2026-06-14 | 起草关闭/退出/更新安装确认测试矩阵，覆盖 AC-1..AC-8。 |
 | 2026-06-14 | 根据 external review 补充 close/quit 串扰、安装锁忙等待、available 文案与 quitAndInstall bypass 测试。 |
 | 2026-06-14 | Round 2 补充系统 shutdown bypass、App Quit 后安装确认取消、fallback race 测试。 |
+| 2026-06-14 | Round 3 改为菜单/Cmd+Q 触发 App Quit 确认，before-quit 只标记系统退出；补 quitAndInstall rollback 与 native 手测项。 |

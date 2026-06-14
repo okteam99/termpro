@@ -126,15 +126,11 @@ describe('exit lifecycle controller', () => {
     const controller = new ExitLifecycleController(confirmExit, () => false);
     const app = { quit: vi.fn() };
 
-    const cancelEvent = { preventDefault: vi.fn() };
-    controller.handleAppBeforeQuit(cancelEvent, app, undefined);
-    expect(cancelEvent.preventDefault).toHaveBeenCalledTimes(1);
+    controller.requestAppQuit(app, undefined);
     await flushMicrotasks();
     expect(app.quit).not.toHaveBeenCalled();
 
-    const confirmEvent = { preventDefault: vi.fn() };
-    controller.handleAppBeforeQuit(confirmEvent, app, undefined);
-    expect(confirmEvent.preventDefault).toHaveBeenCalledTimes(1);
+    controller.requestAppQuit(app, undefined);
     await flushMicrotasks();
     expect(app.quit).toHaveBeenCalledTimes(1);
   });
@@ -145,7 +141,7 @@ describe('exit lifecycle controller', () => {
     const app = { quit: vi.fn() };
     const win = { isDestroyed: () => false, close: vi.fn() };
 
-    controller.handleAppBeforeQuit({ preventDefault: vi.fn() }, app, win);
+    controller.requestAppQuit(app, win);
     await flushMicrotasks();
 
     const closeEvent = { preventDefault: vi.fn() };
@@ -158,14 +154,21 @@ describe('exit lifecycle controller', () => {
   it('exitLifecycle_window_all_closed_quit_bypasses_second_app_quit_confirm', () => {
     const confirmExit = vi.fn();
     const controller = new ExitLifecycleController(confirmExit, () => false);
-    const app = { quit: vi.fn() };
-    const event = { preventDefault: vi.fn() };
 
     controller.markQuitting();
-    controller.handleAppBeforeQuit(event, app, undefined);
+    controller.handleAppBeforeQuit();
 
     expect(controller.isQuitting()).toBe(true);
-    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(confirmExit).not.toHaveBeenCalled();
+  });
+
+  it('exitLifecycle_before_quit_marks_quitting_without_prompt', () => {
+    const confirmExit = vi.fn();
+    const controller = new ExitLifecycleController(confirmExit, () => false);
+
+    controller.handleAppBeforeQuit();
+
+    expect(controller.isQuitting()).toBe(true);
     expect(confirmExit).not.toHaveBeenCalled();
   });
 
@@ -173,12 +176,11 @@ describe('exit lifecycle controller', () => {
     const confirmExit = vi.fn();
     const controller = new ExitLifecycleController(confirmExit, () => false);
     const app = { quit: vi.fn() };
-    const event = { preventDefault: vi.fn() };
 
     controller.markQuitting();
-    controller.handleAppBeforeQuit(event, app, undefined);
+    controller.requestAppQuit(app, undefined);
 
-    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(app.quit).toHaveBeenCalledTimes(1);
     expect(confirmExit).not.toHaveBeenCalled();
   });
 });
