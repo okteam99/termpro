@@ -2,15 +2,15 @@
 feature_id: "TERMPRO-F260614081920-Close-Install-Confirmation"
 reviewers: [architect, qa, external]
 verdict: NEEDS_REVISION
-round: 3
+round: 4
 reviewed_at: "2026-06-14"
 ---
 
-# Close / Install Confirmation - Review Round 3
+# Close / Install Confirmation - Review Round 4
 
 ## Summary
 
-Round 3 reviewed the Round 2 lifecycle hardening. External review found that the shutdown bypass fix still left two real lifecycle problems: `before-quit` was still too broad for system logout/shutdown, and update cancel/retry relied on unverified Squirrel.Mac staged-update behavior. These are valid and require another review-fix.
+Round 4 reviewed the user-intent App Quit and staged-update retry changes. External review found one remaining high-value gap: the updater module state that owns staged retry and version drift was not directly covered. The rest were low-severity hardening / documentation items. The findings are valid and cheap to address.
 
 ## External Findings Adjudication
 
@@ -18,17 +18,17 @@ External artifact: `external-cross-review/review-claude.md`
 
 | ID | Severity | Adjudication | Evidence / Decision |
 |----|----------|--------------|---------------------|
-| CR-1 | High | Confirmed | The `powerMonitor.shutdown` hook was registered at module load and only existed to compensate for `before-quit` confirmation. Fix by removing that hook and making `before-quit` non-blocking. |
-| CR-2 | High | Confirmed | `before-quit` cannot reliably distinguish user Cmd+Q from OS logout/shutdown. Fix by moving user App Quit confirmation to the App menu / Cmd+Q entry and letting `before-quit` only mark quitting. |
-| CR-3 | High | Confirmed | Cancel-after-`update-downloaded` should not depend on re-running Squirrel checks against an already staged update. Fix by retaining a staged `readyToInstallVersion` and reusing it on retry. |
-| CR-4 | Low | Confirmed | `quitAndInstall()` throwing after `markQuitting()` would leave confirmation bypass enabled. Fix by adding rollback on synchronous `quitAndInstall()` failure. |
-| CR-5 | Low | Confirmed | Close/App Quit cancellation and busy paths were silent. Add lightweight debug logs for non-confirmed close/quit outcomes. |
-| CR-6 | Info | Confirmed | TC/TECH naming and main wiring evidence drifted after fixes. Align TC names and add OS quit / retry manual checks. |
+| CR-1 | High | Confirmed | `handleDownloadedUpdateForInstall` was tested, but `readyToInstallVersion` / `installingVersion` state decisions lived in `updater.ts` without focused tests. Extract a pure session helper and cover staged retry, newer-version redownload, and latest drift. |
+| CR-2 | Low | Confirmed | Reusing a staged update depends on Squirrel.Mac's update-downloaded staged copy. Document the invariant at the reuse branch and keep fallback/rollback as recovery. |
+| CR-3 | Low | Confirmed | Reuse retry broadcast `checking` and used a generic downloaded log, which was misleading. Add `confirming` state and distinct staged-reuse log. |
+| CR-4 | Low | Confirmed | Periodic `check()` was not gated while installing; this could broadcast a new available state during a long native confirmation. Gate timer checks on `!installing`. |
+| CR-5 | Low | Confirmed | Close/App Quit dialog promise rejections were not caught. Add catch logging and keep safe outcome: no close / no quit. |
+| CR-6 | Info | Confirmed / documented tradeoff | Dock Quit cannot be distinguished from OS quit via `before-quit`. PRD/TC should explicitly scope App Quit confirmation to App menu / Cmd+Q and not system logout/shutdown. |
 
 ## Verification Before This Review
 
 - `npm run typecheck`: PASS
-- `npm test`: PASS, 22 files / 191 tests after Round 2 fix; 193 after local Round 3 fix draft
+- `npm test`: PASS, 23 files / 198 tests after local Round 4 fix draft
 - `npm run lint`: PASS with existing warnings
 - `TERMPRO_SMOKE=1 npx electron-forge start`: PASS, `SMOKE_OK`
 
