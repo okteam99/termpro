@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "a3fbc69",
   "worktree": {
@@ -48,14 +48,35 @@
       "duration_minutes": 26
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-15T17:19:42Z",
+      "completed_at": "2026-06-15T17:30:00Z",
+      "auto_commit": "363d9d4",
+      "artifacts": [
+        "bugfix/BUG-TERMPRO-B260615152207-001.md",
+        "src/renderer/terminal/webglAtlasResync.ts",
+        "src/renderer/terminal/__tests__/webglAtlasResync.test.ts",
+        "src/renderer/terminal/TerminalView.tsx"
+      ],
+      "cited_specs": [],
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "/var/folders/dt/k8ytkf1x7mxb6d_cnhb_nn2c0000gp/T//teamwork/TERMPRO-B260615152207/vitest-clean.log"
+      },
+      "duration_minutes": 10
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-15T17:19:42Z"
+      "started_at": "2026-06-15T17:30:00Z"
     }
   },
   "completed_stages": [
-    "diagnose"
+    "diagnose",
+    "dev"
   ],
   "created_at": "2026-06-15T16:53:24Z",
   "stage_review_roles": {
@@ -72,10 +93,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-15T17:19:42Z",
+  "updated_at": "2026-06-15T17:30:29Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:ecfe52f13c0d4a9891a95bbc7b491cfe329dca7c97d44e024443e7985c7118d3",
+  "_state_checksum": "sha256:7c2a26457718157b167bc26447a51a8a018c9e6e10f24c5e610dfe0e4940be72",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ]
 }
