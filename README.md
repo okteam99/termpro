@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/icon.png" alt="TermPro" width="112" />
+<img src="assets/logo.webp" alt="TermPro" width="112" />
 
 # TermPro
 
@@ -18,8 +18,6 @@
 
 [核心特点](#核心特点) · [安装](#安装) · [概念模型](#概念模型) · [架构](#架构) · [开发](#开发) · [路线图](#路线图与规划)
 
-<img src="snapshot/01.png" alt="TermPro 主界面:左侧 workspace 列表 · 中间终端 · 右侧文件面板" width="860" />
-
 </div>
 
 ## 这是什么
@@ -35,6 +33,10 @@ TermPro 是一个面向「同时驱动多个 CLI agent 并行开发」场景的�
 - **相比通用 agent 管理器**:往往反过来绑定特定 agent,终端体验从属、可替换性差。
 
 TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个窗口里同时管理多个工程、多条并行会话,系统主动告诉你"谁在跑、谁完成了、谁在等输入",文件与 git 视图随当前会话自动联动——不绑定任何 agent,也不解析任何 agent 的私有输出。
+
+<p align="center">
+  <img src="snapshot/01.webp" alt="TermPro 主界面:左侧 workspace 列表 · 中间终端 · 右侧文件面板" width="860" />
+</p>
 
 ## 核心特点
 
@@ -100,9 +102,9 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个
 - **窗口与更新**:三窗口模型(终端主窗口 / 文件内容窗口 / git diff 模态窗口);Host 多客户端共享 PTY 池、按归属路由;GitHub Release 轮询 + 侧栏升级胶囊,经 Squirrel.Mac 一键升级;脏 tab 关窗统一确认。
 
 <p align="center">
-  <img src="snapshot/02.png" alt="git diff 窗口(Monaco diff editor)" width="49%" />
+  <img src="snapshot/02.webp" alt="git diff 窗口(Monaco diff editor)" width="49%" />
   &nbsp;
-  <img src="snapshot/04.png" alt="Markdown 预览(marked + mermaid)" width="49%" />
+  <img src="snapshot/04.webp" alt="Markdown 预览(marked + mermaid)" width="49%" />
 </p>
 
 > 完整里程碑分解、已完成基线与下一阶段路线图见 [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md)。
