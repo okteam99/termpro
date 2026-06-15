@@ -5,6 +5,7 @@ import { wireWebglAtlasResync } from '../webglAtlasResync';
 function makeFakeWebgl() {
   const removeListeners = new Set<() => void>();
   const changeListeners = new Set<() => void>();
+  const addListeners = new Set<() => void>();
   return {
     onRemoveTextureAtlasCanvas(l: () => void) {
       removeListeners.add(l);
@@ -13,6 +14,11 @@ function makeFakeWebgl() {
     onChangeTextureAtlas(l: () => void) {
       changeListeners.add(l);
       return { dispose: () => changeListeners.delete(l) };
+    },
+    // 故意暴露 add 事件:用于断言 wire 不订阅它(增页不重排索引,订阅会刷新风暴)
+    onAddTextureAtlasCanvas(l: () => void) {
+      addListeners.add(l);
+      return { dispose: () => addListeners.delete(l) };
     },
     emitRemove() {
       for (const l of removeListeners) l();
@@ -25,6 +31,9 @@ function makeFakeWebgl() {
     },
     get changeCount() {
       return changeListeners.size;
+    },
+    get addCount() {
+      return addListeners.size;
     },
   };
 }
@@ -92,6 +101,14 @@ describe('wireWebglAtlasResync', () => {
     await flushMicrotasks();
 
     expect(term.refresh).toHaveBeenCalledWith(0, 0);
+  });
+
+  it('不订阅 onAddTextureAtlasCanvas(增页不重排索引 · 锁定设计意图)', async () => {
+    const webgl = makeFakeWebgl();
+    const term = { rows: 20, refresh: vi.fn() };
+    wireWebglAtlasResync(webgl, term);
+
+    expect(webgl.addCount).toBe(0);
   });
 
   it('stop() 解除订阅,后续事件不再重绘', async () => {
