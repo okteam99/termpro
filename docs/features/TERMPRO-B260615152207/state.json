@@ -11,7 +11,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "a3fbc69",
   "worktree": {
@@ -68,15 +68,44 @@
       "duration_minutes": 10
     },
     "review": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-15T17:30:00Z",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "completed_at": "2026-06-15T17:40:41Z",
+      "auto_commit": "51b577a",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md",
+        "external-cross-review/review-codex.md"
+      ],
+      "cited_specs": [],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-06-15T17:30:00Z",
+          "completed_at": "2026-06-15T17:40:41Z",
+          "review_commit": "51b577a",
+          "verdict": "APPROVE"
+        }
+      ],
+      "duration_minutes": 10
+    },
+    "test": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-15T17:30:00Z"
+      "started_at": "2026-06-15T17:40:41Z"
     }
   },
   "completed_stages": [
     "diagnose",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-06-15T16:53:24Z",
   "stage_review_roles": {
@@ -93,11 +122,10 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-15T17:30:29Z",
+  "updated_at": "2026-06-15T17:40:41Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:7c2a26457718157b167bc26447a51a8a018c9e6e10f24c5e610dfe0e4940be72",
+  "_state_checksum": "sha256:7c56feda1d1e3c1c8cb388fd10b88f92084dc8849270c6e2fca0a1a378605da5",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "pm_acceptance"
   ]
 }
