@@ -44,6 +44,7 @@
 | GO-017 | test | **renderer store 单测会经 `terminalRegistry` 拉入 `@xterm/*`**(vitest 默认 node env 无 DOM · import 链易崩) | 测试顶部 `vi.mock('../../terminal/terminalRegistry', () => ({ disposeTerminal: () => {} }))` 断链,再 `useAppStore.setState/getState` 直驱 store action(见 `notificationBadge.test.ts`) | 2026-06 | TERMPRO-B260614065346 |
 | GO-018 | terminal/links | **OSC 8 超链接(程序用转义序列内嵌 URI 的可点链接)由 xterm 核心 `OscLinkProvider` 处理 · 优先级高于自定义 `registerLinkProvider`**(注册下标小者胜 · 核心 provider 下标 0)· 故自定义 `SystemWebLinkProvider` 拦不住 OSC 8 链接;未设 `linkHandler` 时 OSC 链接落核心 `defaultActivate` → `confirm('could be dangerous')` + `window.open()` 弹框 | 控制 OSC 8 链接打开行为必须设 `Terminal({ linkHandler })`(`activate` 路由到 `window.termpro.openExternal`)· `allowNonHttpProtocols` 默认 false 已把 URI 限制在 http/https(与 main `shell:open-external` 的 `^https?` 守卫一致)· 纯文本链接仍归 `SystemWebLinkProvider` | 2026-06 | TERMPRO-B260614085337 |
 | GO-019 | lifecycle | **Electron `before-quit` 不是"用户主动退出"专属入口**;系统 logout/shutdown 与已确认退出/安装也会走这里,在此 `preventDefault()` 弹确认会阻塞 OS 退出或造成二次确认 | 用户 App Quit 只从菜单/Cmd+Q 显式入口发起确认;`before-quit` 仅标记 quitting 放行;安装确认前用专用 lifecycle helper 标记 `quitAndInstall()` 可绕过二次确认 | 2026-06 | TERMPRO-F260614081920-Close-Install-Confirmation |
+| GO-020 | render | **WebGL 字形图集分页超上限触发合并/删页(`_mergePages`/`_deletePage`)会重排所有字形的 `texturePage` 索引**,但已绘制单元格 `a_texpage`/纹理坐标不会自动同步;合并 fire `onRemoveTextureAtlasCanvas` 却**不调度新帧** → 大量不同 CJK 字形撑爆图集后采样错误纹理页 → 错位/串字乱码(**与 DPR 无关** · 故只清 DPR 的 0847660 治不了 · 区别 GO-002 的 context 数量上限) | 创建 `WebglAddon` 后订阅 `onRemoveTextureAtlasCanvas`+`onChangeTextureAtlas`,微任务去抖触发 `term.refresh(0, rows-1)` 整屏重绘让索引对齐重排后的图集(`src/renderer/terminal/webglAtlasResync.ts`)· **不订阅 `onAdd`**(增页不重排既有索引);真实复现需 CJK 字形撑过 ~16 图集页(`e2e/atlas-resync.e2e.cjs`) | 2026-06 | TERMPRO-B260615152207 |
 
 ---
 
@@ -79,7 +80,7 @@
 > PMO preflight 时可按主题快速 grep。
 
 - **pty**: GO-001, GO-005
-- **render**: GO-002, GO-006
+- **render**: GO-002, GO-006, GO-020
 - **terminal/links**: GO-018
 - **ipc**: GO-003, GO-004, GO-008
 - **persist**: GO-007
