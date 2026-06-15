@@ -5,6 +5,7 @@ import {
   ensureSession,
   getOrCreateTerminal,
 } from './terminalRegistry';
+import { wireWebglAtlasResync } from './webglAtlasResync';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -54,6 +55,10 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
         });
         inst.term.loadAddon(webgl);
         inst.webgl = webgl;
+        // 图集分页合并/换图集会重排字形索引,需整屏重绘让单元格索引对齐新图集,
+        // 否则大量 CJK 字形撑满图集后出现错位/串字乱码(BUG-TERMPRO-B260615152207-001)。
+        // 监听随 webgl.dispose() 自动释放,无需手动清理。
+        wireWebglAtlasResync(webgl, inst.term);
       } catch (err) {
         console.warn('[terminal] WebGL unavailable, falling back to DOM', err);
       }

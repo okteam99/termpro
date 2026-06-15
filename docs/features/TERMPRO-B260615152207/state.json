@@ -11,9 +11,9 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "diagnose",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "a3fbc69",
   "worktree": {
     "strategy": "auto",
     "branch": "fix/termpro-b260615152207-terminal-garbled-text",
@@ -34,13 +34,29 @@
   "review_round": 0,
   "stage_contracts": {
     "diagnose": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-06-15T16:53:31Z",
+      "completed_at": "2026-06-15T17:19:42Z",
+      "auto_commit": "a3fbc69",
+      "artifacts": [
+        "bugfix/BUG-TERMPRO-B260615152207-001.md"
+      ],
+      "cited_specs": [],
+      "evidence": {},
+      "duration_minutes": 26
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-06-15T16:53:31Z"
+      "started_at": "2026-06-15T17:19:42Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "diagnose"
+  ],
   "created_at": "2026-06-15T16:53:24Z",
   "stage_review_roles": {
     "review": [
@@ -56,10 +72,10 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-06-15T16:53:31Z",
+  "updated_at": "2026-06-15T17:19:42Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:79d51675889c34f32868dfe39597b2db3f9d8741baa6ffd76312432c2162cf73",
+  "_state_checksum": "sha256:ecfe52f13c0d4a9891a95bbc7b491cfe329dca7c97d44e024443e7985c7118d3",
   "legal_next_stages": [
-    "dev"
+    "review"
   ]
 }
