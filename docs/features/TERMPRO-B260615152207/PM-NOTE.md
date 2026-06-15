@@ -1,9 +1,9 @@
 ---
 feature_id: "TERMPRO-B260615152207-Terminal-Garbled-Text"
 author: PM
-status: draft
-decision: ""
-decided_at: ""
+status: confirmed
+decision: "approved_and_ship"
+decided_at: "2026-06-15T17:50:00Z"
 prd_ref: N/A (Bug · 规格依据 bugfix/BUG-TERMPRO-B260615152207-001.md)
 test_report_ref: TEST-REPORT.md
 ac_total: 3
@@ -21,7 +21,7 @@ revision_history:
 
 | 项 | 内容 |
 |---|---|
-| 决策 | ⏳ 待用户拍板(三选一) |
+| 决策 | ✅ approved_and_ship(用户拍板 2026-06-15) |
 | 验收标准通过数 | 3 / 3 |
 | 评审依据 | BUG 报告 §现象/§根因/§修复方案 + REVIEW(三视角 APPROVE)+ TEST-REPORT(单测 207 + 真实 WebGL e2e) |
 
