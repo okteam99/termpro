@@ -123,7 +123,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   position: relative;
-  /* 给下方短横线预留空间(=与文字的间距);所有标签都留,切换不跳动 */
+  /* 上下等量留白:下方供短横线占位(=与文字间距),上方等量抵消,保持文字垂直居中。
+     所有标签都留,选中/切换不跳动 */
+  padding-top: 6px;
   padding-bottom: 6px;
 }
 
