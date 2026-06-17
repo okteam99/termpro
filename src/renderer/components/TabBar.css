@@ -122,6 +122,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
+  /* 给下方短横线预留空间(=与文字的间距);所有标签都留,切换不跳动 */
+  padding-bottom: 6px;
+}
+
+/* 选中标签:标题正下方一条 accent 短横线(居中、定宽),与文字拉开间距作主区分 */
+.tabbar-tab--active .tabbar-tab-title::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
 }
 
 /* Tab being dragged: reduced opacity */
