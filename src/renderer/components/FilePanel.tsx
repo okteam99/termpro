@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hostClient } from '../services/hostClient';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
 import type { DirEntry, GitFileStatus } from '../../shared/protocol';
-import { gitStatusClass, joinPath, worktreeLabel } from '../filepanel/core';
+import { gitStatusClass, joinPath } from '../filepanel/core';
 import { registerFilePanelLocateHandler } from '../filepanel/locateRegistry';
 import { useFilePanel } from '../filepanel/useFilePanel';
+import { WorktreeDropdown } from './WorktreeDropdown';
 import './FilePanel.css';
 
 interface TreeNode {
@@ -229,10 +230,10 @@ export function FilePanel() {
   }, [activeTab, autoRoot, updateTabFilePanel]);
 
   // ── Header control: WorkTree mode ──
-  const handleWorktreeChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleWorktreeSelect = useCallback(
+    (path: string) => {
       if (!activeTab) return;
-      updateTabFilePanel(activeTab.id, { worktreePath: e.target.value, mode: 'worktree' });
+      updateTabFilePanel(activeTab.id, { worktreePath: path, mode: 'worktree' });
     },
     [activeTab, updateTabFilePanel],
   );
@@ -336,28 +337,15 @@ export function FilePanel() {
           </>
         ) : (
           <>
-            {/* Row 1: worktree select + reload button */}
+            {/* Row 1: worktree dropdown + reload button */}
             <div className="file-panel__ctrl-row">
-              <select
-                className="file-panel__wt-select"
-                value={selectedWorktreePath}
-                onChange={handleWorktreeChange}
+              <WorktreeDropdown
+                worktrees={worktrees}
+                selectedPath={selectedWorktreePath}
+                mainPath={mainWorktreePath}
                 disabled={!isGitRepo}
-              >
-                {isGitRepo ? (
-                  worktrees.map((wt) => {
-                    const label = worktreeLabel(wt, mainWorktreePath);
-                    const optLabel = `${label} · ${wt.branch ?? wt.head}`;
-                    return (
-                      <option key={wt.path} value={wt.path}>
-                        {optLabel}
-                      </option>
-                    );
-                  })
-                ) : (
-                  <option value="">—</option>
-                )}
-              </select>
+                onSelect={handleWorktreeSelect}
+              />
               <button
                 className="file-panel__ctrl-btn file-panel__ctrl-btn--icon"
                 onClick={handleRefresh}

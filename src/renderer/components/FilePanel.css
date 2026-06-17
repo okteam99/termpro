@@ -91,28 +91,6 @@
   border-color: var(--fg-dim);
 }
 
-/* WorkTree select (WorkTree mode row 1) */
-.file-panel__wt-select {
-  flex: 1;
-  min-width: 0;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--fg);
-  font-size: 11px;
-  padding: 2px 4px;
-  outline: none;
-  height: 22px;
-  box-sizing: border-box;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.file-panel__wt-select:disabled {
-  color: var(--fg-dim);
-  cursor: default;
-}
-
 /* Small flat button (Choose…, Apply, ⟳) */
 .file-panel__ctrl-btn {
   background: var(--bg);
