@@ -58,7 +58,10 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
       background: '#1e2227',
       foreground: '#d7dae0',
       cursor: '#4a8df8',
-      selectionBackground: '#3e4451',
+      // 半透明蓝色高亮:跟随光标蓝(#4a8df8),透明度让其叠加在任意底色上都明显
+      // (含 codex 等 TUI 自绘输入框背景),同时选中文字仍清晰可读。
+      // 不可用纯灰 #3e4451——与背景 #1e2227 过近,叠在 TUI 框上几乎不可见。
+      selectionBackground: 'rgba(74, 141, 248, 0.40)',
     },
   });
   const fit = new FitAddon();

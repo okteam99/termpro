@@ -81,6 +81,24 @@ function lineToString(line: IBufferLine): { text: string; cols: number[] } {
   return { text, cols };
 }
 
+/**
+ * 该行内容是否铺满到最后一列。用于识别「硬折行」——Ink/Claude Code 等 TUI
+ * 自行把长行折到终端宽度(发真实换行),续行不带 isWrapped 标记;但被折的首行
+ * 一定铺满到行尾。尾随空格(右对齐填充)不算,避免把它当续接拼进逻辑行。
+ */
+function reachesRightEdge(line: IBufferLine | undefined): boolean {
+  if (!line || line.length === 0) return false;
+  const last = line.getCell(line.length - 1);
+  if (!last) return false;
+  if (last.getWidth() === 0) {
+    // 宽字符尾随占位格:真正字符落在前一格
+    const prev = line.getCell(line.length - 2);
+    return !!prev?.getChars();
+  }
+  const chars = last.getChars();
+  return !!chars && chars !== ' ';
+}
+
 interface CellPos {
   row: number;
   col: number;
@@ -102,18 +120,26 @@ interface BufferLike {
   getLine(y: number): IBufferLine | undefined;
 }
 
-/** 以任一物理行为起点,沿 isWrapped 拼出完整逻辑行(长 URL 折行场景) */
+/**
+ * 以任一物理行为起点拼出完整逻辑行(长 URL / 长路径折行场景)。
+ * 两种折行都跟随:
+ * - 软折行:终端 auto-wrap,续行 isWrapped=true;
+ * - 硬折行:TUI(Ink/Claude Code)自行折到终端宽度发真实换行,续行 isWrapped=false
+ *   但被折首行铺满到行尾(reachesRightEdge)——据此把相邻行视作续接。
+ */
 function buildLogicalLine(buf: BufferLike, row: number): LogicalLine | null {
   let start = row;
   while (start > 0 && start > row - MAX_LOGICAL_ROWS) {
-    const l = buf.getLine(start);
-    if (!l?.isWrapped) break;
+    const cur = buf.getLine(start);
+    // 本行是续行(软),或上一行铺满到行尾(硬)→ 上一行属于同一逻辑行
+    if (!cur?.isWrapped && !reachesRightEdge(buf.getLine(start - 1))) break;
     start--;
   }
   let end = row;
   while (end + 1 < buf.length && end - start < MAX_LOGICAL_ROWS) {
     const next = buf.getLine(end + 1);
-    if (!next?.isWrapped) break;
+    // 下一行是续行(软),或本行铺满到行尾(硬)→ 下一行属于同一逻辑行
+    if (!next?.isWrapped && !reachesRightEdge(buf.getLine(end))) break;
     end++;
   }
   let text = '';
@@ -291,6 +317,40 @@ export class FsLinkProvider implements ILinkProvider {
     return kind ? { abs: p, kind } : null;
   }
 
+  /**
+   * 解析候选,带「硬折行回退」。逻辑行可能因硬折行把若干物理行拼在一起,候选区间
+   * 也可能跨行。按物理行边界生成「行对齐前缀 + 后缀」子区间,从最长到最短逐一尝试:
+   * - 整段命中 → 链接跨多行(修复 TUI 折行路径只半截可点);
+   * - 某行恰好铺满行尾、其后被无关行误拼进来 → 回退到前缀(下行误拼);
+   * - 其前被无关满行误拼进来 → 回退到后缀(上行误拼)。
+   * 只取前缀/后缀(O(R) 段),不枚举任意中段(两侧同时被无关满行夹击才需要,极罕见,
+   * 不值 O(R²) 次 stat)。最长优先:若拼接后的整段本身也是真实路径,按「显示成一条
+   * 高亮即视作一条」处理——点击打开的就是高亮的那条,行为自洽。
+   * 返回命中信息 + 实际起止 index(用于裁剪范围 / 高亮段)。
+   */
+  async resolveCandidateSpanning(
+    ll: LogicalLine,
+    c: { start: number; end: number },
+  ): Promise<{ abs: string; kind: 'file' | 'dir'; startIdx: number; endIdx: number } | null> {
+    // 候选内每个物理行的起始 index
+    const starts = [c.start];
+    for (let i = c.start + 1; i < c.end; i++) {
+      if (ll.pos[i].row !== ll.pos[i - 1].row) starts.push(i);
+    }
+    const ends = starts.map((_, k) => starts[k + 1] ?? c.end); // 各行结束(末行=c.end)
+    const spans: Array<[number, number]> = [];
+    for (const e of ends) spans.push([c.start, e]); // 前缀(含整段)
+    for (let k = 1; k < starts.length; k++) spans.push([starts[k], c.end]); // 后缀(去重整段)
+    spans.sort((x, y) => y[1] - y[0] - (x[1] - x[0])); // 长 → 短
+    for (const [s, e] of spans) {
+      const text = ll.text.slice(s, e);
+      if (!text) continue;
+      const hit = await this.resolveCandidateText(text);
+      if (hit) return { ...hit, startIdx: s, endIdx: e };
+    }
+    return null;
+  }
+
   private async resolve(
     cands: ReturnType<typeof extractCandidates>,
     ll: LogicalLine,
@@ -298,17 +358,17 @@ export class FsLinkProvider implements ILinkProvider {
     const links: ILink[] = [];
     await Promise.all(
       cands.map(async (c) => {
-        const hit = await this.resolveCandidateText(c.text);
+        const hit = await this.resolveCandidateSpanning(ll, c);
         if (!hit) return;
-        const s = ll.pos[c.start];
-        const e = ll.pos[c.end - 1];
+        const s = ll.pos[hit.startIdx];
+        const e = ll.pos[hit.endIdx - 1];
         links.push({
           // 折行链接:范围跨物理行(x/y 均 1 基)
           range: {
             start: { x: s.col + 1, y: s.row + 1 },
             end: { x: e.col + 1, y: e.row + 1 },
           },
-          text: c.text,
+          text: ll.text.slice(hit.startIdx, hit.endIdx),
           decorations: { underline: true, pointerCursor: true },
           activate: () => {
             openTarget(this.tabId, hit.abs, hit.kind);
@@ -371,15 +431,22 @@ export class LinkHighlighter {
 
     for (let y = top; y < bottom; y++) {
       const ll = buildLogicalLine(buf, y);
-      if (!ll || seenStarts.has(ll.startRow)) continue;
+      if (!ll) continue;
+      // 该逻辑行已覆盖到 endRow,跳过其余物理行,避免每行重拼(硬折行可拼很多行)
+      y = Math.max(y, ll.endRow);
+      if (seenStarts.has(ll.startRow)) continue;
       seenStarts.add(ll.startRow);
       for (const c of extractCandidates(ll.text)) {
+        let startIdx = c.start;
+        let endIdx = c.end;
         if (c.kind === 'fs') {
-          const hit = await this.provider.resolveCandidateText(c.text);
+          const hit = await this.provider.resolveCandidateSpanning(ll, c);
           if (this.epoch !== myEpoch) return; // 已有新一轮扫描
           if (!hit) continue;
+          startIdx = hit.startIdx; // 硬折行回退后的实际起止
+          endIdx = hit.endIdx;
         }
-        for (const seg of rowSegments(ll.pos, c.start, c.end)) {
+        for (const seg of rowSegments(ll.pos, startIdx, endIdx)) {
           hits.push({
             row: seg.row,
             startCol: seg.startCol,
