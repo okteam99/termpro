@@ -613,6 +613,17 @@
     0 0 / 16px 16px;
 }
 
+/* <img> 无法解析的 SVG(缺命名空间等)回退:内联消毒后的源,按容器等比缩放 */
+.viewer-svg-inline {
+  overflow: hidden;
+}
+.viewer-svg-inline svg {
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
 .viewer-image-meta {
   font-size: 11px;
   color: var(--fg-dim);

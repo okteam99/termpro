@@ -2,6 +2,7 @@
 // 重编辑/重型素材请用「系统应用打开」。
 
 import { useEffect, useRef, useState } from 'react';
+import DOMPurify from 'dompurify';
 import { hostClient } from '../../services/hostClient';
 import type { Monaco } from '../../monaco/setup';
 import type * as monacoNs from 'monaco-editor';
@@ -33,9 +34,29 @@ const IMAGE_MIME: Record<string, string> = {
   avif: 'image/avif',
 };
 
+const SVG_MIME = 'image/svg+xml';
+
 function imageMime(p: string): string | null {
   const m = /\.([a-z0-9]+)$/i.exec(p);
   return m ? (IMAGE_MIME[m[1].toLowerCase()] ?? null) : null;
+}
+
+/** base64(任意字节)→ UTF-8 文本 */
+function decodeBase64Utf8(b64: string): string {
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * 消毒 SVG 源用于内联渲染。<img> 把 SVG 当独立 XML 严格解析,缺 xmlns / 用了未声明的
+ * xlink 前缀等不合规写法会整张空白(Illustrator/Sketch/sprite 导出常见);内联进 HTML
+ * 走宽松解析器自动补命名空间即可正常显示。消毒走与 markdown 预览一致的 svg profile,
+ * 剥离 <script>/事件处理器,杜绝内联带来的 XSS。
+ */
+export function sanitizeSvgForInline(b64: string): string {
+  return DOMPurify.sanitize(decodeBase64Utf8(b64), {
+    USE_PROFILES: { svg: true, svgFilters: true },
+  });
 }
 
 export function FileView(props: Props) {
@@ -49,14 +70,18 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
   const [state, setState] = useState<
     | { phase: 'loading' }
     | { phase: 'error'; message: string }
-    | { phase: 'ready'; url: string; size: number }
+    | { phase: 'ready'; base64: string; size: number }
   >({ phase: 'loading' });
   const [dims, setDims] = useState<string | null>(null);
+  // 非 null = <img> 把该 SVG 当独立 XML 解析失败,改内联渲染消毒后的源(见 sanitizeSvgForInline)
+  const [svgHtml, setSvgHtml] = useState<string | null>(null);
+  const svgHostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let disposed = false;
     setState({ phase: 'loading' });
     setDims(null);
+    setSvgHtml(null);
     hostClient.rpc('fs.readFileBinary', { path }).then(
       (r) => {
         if (disposed) return;
@@ -67,11 +92,7 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
           });
           return;
         }
-        setState({
-          phase: 'ready',
-          url: `data:${mime};base64,${r.base64}`,
-          size: r.size,
-        });
+        setState({ phase: 'ready', base64: r.base64, size: r.size });
       },
       (e) => {
         if (!disposed) {
@@ -87,6 +108,12 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
     };
   }, [path, mime]);
 
+  // 消毒后的 SVG 经 ref 注入(与 markdown 预览一致,不用 dangerouslySetInnerHTML)
+  useEffect(() => {
+    const el = svgHostRef.current;
+    if (el) el.innerHTML = svgHtml ?? '';
+  }, [svgHtml]);
+
   if (state.phase !== 'ready') {
     return (
       <div className="viewer-body">
@@ -99,17 +126,37 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
   const kb = state.size / 1024;
   const sizeText =
     kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.ceil(kb)} KB`;
+
+  // <img> 解析失败回退:内联消毒后的 SVG(救回缺命名空间等不合规写法)
+  if (svgHtml !== null) {
+    return (
+      <div className="viewer-body viewer-body--image">
+        <div ref={svgHostRef} className="viewer-image-wrap viewer-svg-inline" />
+        <div className="viewer-image-meta">{sizeText} · SVG</div>
+      </div>
+    );
+  }
+
+  const triggerSvgFallback = () => {
+    if (mime === SVG_MIME) setSvgHtml(sanitizeSvgForInline(state.base64));
+  };
   return (
     <div className="viewer-body viewer-body--image">
       <div className="viewer-image-wrap">
         <img
           className="viewer-image"
-          src={state.url}
+          src={`data:${mime};base64,${state.base64}`}
           alt={path}
           onLoad={(e) => {
             const img = e.currentTarget;
-            setDims(`${img.naturalWidth}×${img.naturalHeight}`);
+            // SVG 报 0×0 = 当作独立 XML 解析失败(缺命名空间等)→ 内联消毒渲染兜底
+            if (img.naturalWidth && img.naturalHeight) {
+              setDims(`${img.naturalWidth}×${img.naturalHeight}`);
+            } else {
+              triggerSvgFallback();
+            }
           }}
+          onError={triggerSvgFallback}
         />
       </div>
       <div className="viewer-image-meta">
