@@ -7,7 +7,7 @@ import { DiffPanel } from './DiffPanel';
 import { FilesWindow } from './FilesWindow';
 
 export type ViewerPayload =
-  | { mode: 'files'; initialPath: string }
+  | { mode: 'files'; initialPath: string; initialKind?: 'file' | 'dir' }
   | {
       mode: 'diff';
       toplevel: string;
@@ -18,7 +18,12 @@ export type ViewerPayload =
 
 export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
   if (payload.mode === 'files') {
-    return <FilesWindow initialPath={payload.initialPath} />;
+    return (
+      <FilesWindow
+        initialPath={payload.initialPath}
+        initialKind={payload.initialKind ?? 'file'}
+      />
+    );
   }
   return <DiffWindow payload={payload} />;
 }

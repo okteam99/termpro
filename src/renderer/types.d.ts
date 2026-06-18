@@ -40,7 +40,9 @@ declare global {
       openPath(path: string): void;
       showItemInFolder(path: string): void;
       openInBrowser(path: string): void;
-      onViewerAddTab(callback: (path: string) => void): () => void;
+      onViewerAddTab(
+        callback: (tab: { path: string; kind: 'file' | 'dir' }) => void,
+      ): () => void;
     };
   }
 }

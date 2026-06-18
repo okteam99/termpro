@@ -87,8 +87,11 @@ contextBridge.exposeInMainWorld('termpro', {
     ipcRenderer.send('viewer:open-window', payload);
   },
   /** 文件内容窗口:订阅"追加 tab"指令(窗口复用),返回退订函数 */
-  onViewerAddTab(callback: (path: string) => void): () => void {
-    const listener = (_e: unknown, path: string) => callback(path);
+  onViewerAddTab(
+    callback: (tab: { path: string; kind: 'file' | 'dir' }) => void,
+  ): () => void {
+    const listener = (_e: unknown, tab: { path: string; kind: 'file' | 'dir' }) =>
+      callback(tab);
     ipcRenderer.on('viewer:add-tab', listener);
     return () => {
       ipcRenderer.removeListener('viewer:add-tab', listener);

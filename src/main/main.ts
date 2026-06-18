@@ -270,20 +270,21 @@ function loadViewer(win: BrowserWindow, payload: unknown): void {
   }
 }
 
-function openFileWindow(filePath: string): void {
+function openFileWindow(filePath: string, kind: 'file' | 'dir' = 'file'): void {
   if (fileWin && !fileWin.isDestroyed()) {
     fileWin.show();
     fileWin.focus();
     const wc = fileWin.webContents;
+    const tab = { path: filePath, kind };
     if (wc.isLoading()) {
       // 窗口冷启动尚未完成:渲染层还没订阅 add-tab,延迟到加载完成
       wc.once('did-finish-load', () => {
         if (fileWin && !fileWin.isDestroyed()) {
-          wc.send('viewer:add-tab', filePath);
+          wc.send('viewer:add-tab', tab);
         }
       });
     } else {
-      wc.send('viewer:add-tab', filePath);
+      wc.send('viewer:add-tab', tab);
     }
     return;
   }
@@ -306,7 +307,7 @@ function openFileWindow(filePath: string): void {
   fileWin.on('closed', () => {
     fileWin = null;
   });
-  loadViewer(fileWin, { mode: 'files', initialPath: filePath });
+  loadViewer(fileWin, { mode: 'files', initialPath: filePath, initialKind: kind });
 }
 
 function openDiffWindow(payload: unknown): void {
@@ -343,7 +344,9 @@ ipcMain.on('viewer:open-window', (_event, payload: unknown) => {
   if (p?.mode === 'diff') {
     openDiffWindow(payload);
   } else if (p?.mode === 'file' && typeof p.path === 'string') {
-    openFileWindow(p.path);
+    openFileWindow(p.path, 'file');
+  } else if (p?.mode === 'dir' && typeof p.path === 'string') {
+    openFileWindow(p.path, 'dir');
   }
 });
 

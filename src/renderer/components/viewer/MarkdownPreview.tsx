@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { marked, type Token, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import { hostClient } from '../../services/hostClient';
+import { resolveMarkdownHref } from './markdownLinks';
 
 interface Props {
   path: string;
@@ -368,17 +369,37 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
     // getEditorValue 引用变化无影响,只随 path 重渲染
   }, [path]);
 
-  // 点击 mermaid 图 → 灯箱(传原始源码,灯箱内重新渲染)
+  // 点击链接 → 外链走系统浏览器 / 锚点滚动 / 本地路径按 stat 在新窗口开(文件内容、目录 listing);
+  // 否则点 mermaid 图 → 灯箱(传原始源码,灯箱内重新渲染)
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const link = (e.target as Element).closest<HTMLAnchorElement>('a[href]');
     if (link) {
-      const href = link.href || link.getAttribute('href') || '';
-      if (/^https?:\/\//i.test(href)) {
-        e.preventDefault();
-        e.stopPropagation();
-        window.termpro.openExternal(href);
-        return;
+      e.preventDefault();
+      e.stopPropagation();
+      // 用原始 href(getAttribute)而非 link.href:后者会按渲染进程 base 解析,
+      // 相对路径会错锚到 app 资源,而非 markdown 文件所在目录
+      const target = resolveMarkdownHref(
+        link.getAttribute('href') ?? '',
+        path,
+        hostClient.info?.homedir ?? '',
+      );
+      if (!target) return;
+      if (target.kind === 'external') {
+        window.termpro.openExternal(target.url);
+      } else if (target.kind === 'anchor') {
+        scrollToHeading(target.id);
+      } else {
+        // 本地路径:stat 决定开内容窗还是目录 listing(不存在则静默)
+        void hostClient.rpc('fs.stat', { path: target.abs }).then(
+          (r) => {
+            if (r.kind === 'file' || r.kind === 'dir') {
+              window.termpro.openViewerWindow({ mode: r.kind, path: target.abs });
+            }
+          },
+          () => undefined,
+        );
       }
+      return;
     }
 
     const el = (e.target as Element).closest<HTMLElement>('.md-mermaid');

@@ -8,18 +8,27 @@ import { hostClient } from '../../services/hostClient';
 import { basename, tildify } from '../../state/store';
 import { FileView } from './FileView';
 import { MarkdownPreview } from './MarkdownPreview';
+import { DirListing } from './DirListing';
 
 interface FileTab {
   id: string;
   path: string;
+  /** dir = 目录 listing tab(无编辑/脏态),file = 文件内容 tab */
+  kind: 'file' | 'dir';
   dirty: boolean;
-  /** null = 非 markdown(始终编辑模式) */
+  /** null = 非 markdown 或目录(无预览/编辑切换) */
   mdMode: 'preview' | 'edit' | null;
 }
 
 const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
 
-export function FilesWindow({ initialPath }: { initialPath: string }) {
+export function FilesWindow({
+  initialPath,
+  initialKind = 'file',
+}: {
+  initialPath: string;
+  initialKind?: 'file' | 'dir';
+}) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -63,7 +72,7 @@ export function FilesWindow({ initialPath }: { initialPath: string }) {
     );
   }, []);
 
-  const addOrFocus = useCallback((path: string) => {
+  const addOrFocus = useCallback((path: string, kind: 'file' | 'dir') => {
     setTabs((prev) => {
       const existing = prev.find((t) => t.path === path);
       if (existing) {
@@ -73,8 +82,9 @@ export function FilesWindow({ initialPath }: { initialPath: string }) {
       const tab: FileTab = {
         id: crypto.randomUUID(),
         path,
+        kind,
         dirty: false,
-        mdMode: isMarkdown(path) ? 'preview' : null,
+        mdMode: kind === 'file' && isMarkdown(path) ? 'preview' : null,
       };
       setActiveId(tab.id);
       return [...prev, tab];
@@ -82,11 +92,14 @@ export function FilesWindow({ initialPath }: { initialPath: string }) {
   }, []);
 
   useEffect(() => {
-    addOrFocus(initialPath);
-  }, [initialPath, addOrFocus]);
+    addOrFocus(initialPath, initialKind);
+  }, [initialPath, initialKind, addOrFocus]);
 
-  // 窗口复用:主窗口再次点击文件 → main 推送 add-tab
-  useEffect(() => window.termpro.onViewerAddTab(addOrFocus), [addOrFocus]);
+  // 窗口复用:主窗口/listing 再次开 → main 推送 add-tab(带 kind)
+  useEffect(
+    () => window.termpro.onViewerAddTab((t) => addOrFocus(t.path, t.kind)),
+    [addOrFocus],
+  );
 
   const closeTab = useCallback((id: string) => {
     saveFns.current.delete(id);
@@ -202,7 +215,7 @@ export function FilesWindow({ initialPath }: { initialPath: string }) {
               </button>
             </div>
           )}
-          {active && (
+          {active?.kind === 'file' && (
             <button
               className="viewer-btn"
               disabled={!active.dirty}
@@ -233,6 +246,17 @@ export function FilesWindow({ initialPath }: { initialPath: string }) {
 
       {tabs.map((tab) => {
         const isActive = tab.id === activeId;
+        if (tab.kind === 'dir') {
+          return (
+            <div
+              key={tab.id}
+              className="files-body"
+              style={{ display: isActive ? 'flex' : 'none' }}
+            >
+              <DirListing path={tab.path} />
+            </div>
+          );
+        }
         const showPreview = tab.mdMode === 'preview';
         return (
           <div
