@@ -3,7 +3,11 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ViewerWindow } from './components/viewer/ViewerWindow';
 import type { ViewerPayload } from './components/viewer/ViewerWindow';
+import { installSelectionGuard } from './terminal/selectionGuard';
 import './index.css';
+
+// 全局选区拖拽兜底:防 xterm「丢失 mouseup → 未按键却自动延展选区」(详见模块顶注)
+installSelectionGuard();
 
 // 同一渲染 bundle 双入口:带 ?viewer= 的窗口渲染独立查看器
 function parseViewerPayload(): ViewerPayload | null {
