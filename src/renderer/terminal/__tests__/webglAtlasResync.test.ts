@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { wireWebglAtlasResync } from '../webglAtlasResync';
 
-/** 最小假 WebglAddon:可手动 emit remove/change 事件,记录订阅 dispose,桩 clearTextureAtlas。 */
+/**
+ * 最小假 WebglAddon:可手动 emit remove/change/add 事件,记录订阅 dispose。
+ * change/add 故意暴露,用于断言 wire **不**订阅它们(只订阅 remove)。
+ */
 function makeFakeWebgl() {
   const removeListeners = new Set<() => void>();
   const changeListeners = new Set<() => void>();
   const addListeners = new Set<() => void>();
   return {
-    clearTextureAtlas: vi.fn(),
     onRemoveTextureAtlasCanvas(l: () => void) {
       removeListeners.add(l);
       return { dispose: () => removeListeners.delete(l) };
@@ -16,7 +18,6 @@ function makeFakeWebgl() {
       changeListeners.add(l);
       return { dispose: () => changeListeners.delete(l) };
     },
-    // 故意暴露 add 事件:用于断言 wire 不订阅它(增页不重排索引,订阅会刷新风暴)
     onAddTextureAtlasCanvas(l: () => void) {
       addListeners.add(l);
       return { dispose: () => addListeners.delete(l) };
@@ -42,72 +43,70 @@ function makeFakeWebgl() {
 const flushMicrotasks = () => Promise.resolve();
 
 describe('wireWebglAtlasResync', () => {
-  it('删页(合并)事件后清空图集(clearTextureAtlas)', async () => {
+  it('删页(合并)事件后触发重建(onRearrange)', async () => {
     const webgl = makeFakeWebgl();
-    wireWebglAtlasResync(webgl);
+    const onRearrange = vi.fn();
+    wireWebglAtlasResync(webgl, onRearrange);
 
     webgl.emitRemove();
-    expect(webgl.clearTextureAtlas).not.toHaveBeenCalled(); // 微任务前不同步触发
+    expect(onRearrange).not.toHaveBeenCalled(); // 微任务前不同步触发
     await flushMicrotasks();
 
-    expect(webgl.clearTextureAtlas).toHaveBeenCalledTimes(1);
+    expect(onRearrange).toHaveBeenCalledTimes(1);
   });
 
-  it('换图集事件也触发清空图集', async () => {
+  it('一帧内多次删页去抖为一次重建', async () => {
     const webgl = makeFakeWebgl();
-    wireWebglAtlasResync(webgl);
+    const onRearrange = vi.fn();
+    wireWebglAtlasResync(webgl, onRearrange);
 
-    webgl.emitChange();
+    webgl.emitRemove();
+    webgl.emitRemove();
+    webgl.emitRemove();
     await flushMicrotasks();
 
-    expect(webgl.clearTextureAtlas).toHaveBeenCalledTimes(1);
+    expect(onRearrange).toHaveBeenCalledTimes(1);
   });
 
-  it('一帧内多次图集变更去抖为一次清空', async () => {
+  it('去抖窗口结束后,新一轮删页再次触发重建', async () => {
     const webgl = makeFakeWebgl();
-    wireWebglAtlasResync(webgl);
+    const onRearrange = vi.fn();
+    wireWebglAtlasResync(webgl, onRearrange);
 
     webgl.emitRemove();
+    await flushMicrotasks();
     webgl.emitRemove();
-    webgl.emitChange();
     await flushMicrotasks();
 
-    expect(webgl.clearTextureAtlas).toHaveBeenCalledTimes(1);
+    expect(onRearrange).toHaveBeenCalledTimes(2);
   });
 
-  it('去抖窗口结束后,新一轮变更再次触发清空', async () => {
+  it('不订阅 change/add 事件(换实例自身走 setAtlas 自愈;且新 addon 初始化会发 change → 订阅会自激无限重建)', async () => {
     const webgl = makeFakeWebgl();
-    wireWebglAtlasResync(webgl);
+    const onRearrange = vi.fn();
+    wireWebglAtlasResync(webgl, onRearrange);
 
-    webgl.emitRemove();
-    await flushMicrotasks();
-    webgl.emitRemove();
-    await flushMicrotasks();
-
-    expect(webgl.clearTextureAtlas).toHaveBeenCalledTimes(2);
-  });
-
-  it('不订阅 onAddTextureAtlasCanvas(增页不重排索引 · 锁定设计意图)', async () => {
-    const webgl = makeFakeWebgl();
-    wireWebglAtlasResync(webgl);
-
+    expect(webgl.changeCount).toBe(0);
     expect(webgl.addCount).toBe(0);
+    expect(webgl.removeCount).toBe(1);
+
+    // change/add 即便被 emit 也不触发重建
+    webgl.emitChange();
+    await flushMicrotasks();
+    expect(onRearrange).not.toHaveBeenCalled();
   });
 
-  it('stop() 解除订阅,后续事件不再清空', async () => {
+  it('stop() 解除订阅,后续删页不再重建', async () => {
     const webgl = makeFakeWebgl();
-    const stop = wireWebglAtlasResync(webgl);
+    const onRearrange = vi.fn();
+    const stop = wireWebglAtlasResync(webgl, onRearrange);
 
     expect(webgl.removeCount).toBe(1);
-    expect(webgl.changeCount).toBe(1);
-
     stop();
     expect(webgl.removeCount).toBe(0);
-    expect(webgl.changeCount).toBe(0);
 
     webgl.emitRemove();
-    webgl.emitChange();
     await flushMicrotasks();
-    expect(webgl.clearTextureAtlas).not.toHaveBeenCalled();
+    expect(onRearrange).not.toHaveBeenCalled();
   });
 });

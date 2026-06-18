@@ -2,7 +2,7 @@
   "name": "termpro",
   "productName": "TermPro",
   "version": "0.3.18",
-  "description": "AI IDE: terminal-first multi-workspace workbench",
+  "description": "Terminal-first workbench for running many AI coding agents in parallel — agent-agnostic, macOS.",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
@@ -15,7 +15,20 @@
     "test": "vitest run",
     "make:dev": "TERMPRO_DEV_BUILD=1 electron-forge make"
   },
-  "keywords": [],
+  "keywords": [
+    "terminal",
+    "terminal-emulator",
+    "ai-agents",
+    "coding-agent",
+    "claude-code",
+    "git-worktree",
+    "developer-tools",
+    "xterm",
+    "monaco-editor",
+    "electron",
+    "tui",
+    "macos"
+  ],
   "author": {
     "name": "lA",
     "email": "1@3.com"

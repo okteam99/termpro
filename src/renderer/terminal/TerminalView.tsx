@@ -2,11 +2,44 @@ import { useEffect, useRef } from 'react';
 import { WebglAddon } from '@xterm/addon-webgl';
 import {
   TermCallbacks,
+  TermInstance,
   ensureSession,
   getOrCreateTerminal,
 } from './terminalRegistry';
 import { wireWebglAtlasResync } from './webglAtlasResync';
 import '@xterm/xterm/css/xterm.css';
+
+// 创建并挂载 WebGL 渲染器到实例。图集分页合并会让 GPU 纹理页因 version 门控碰撞而漏传,
+// 导致 CJK 串字乱码(机制详见 webglAtlasResync.ts 顶注)。clearTextureAtlas 救不了——它
+// 不重置纹理 version;唯一可靠的是让纹理全量重传。这里在合并(删页)事件时重建整个
+// WebglAddon:全新 GlyphRenderer 的纹理 version 全为 -1,下一帧必然全量重传,version
+// 碰撞从物理上不可能发生(等价于整窗 resize 的恢复效果,但无需用户手动)。
+function mountWebgl(inst: TermInstance): void {
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => {
+      webgl.dispose();
+      if (inst.webgl === webgl) inst.webgl = null;
+    });
+    inst.term.loadAddon(webgl);
+    inst.webgl = webgl;
+    // 删页(合并)→ 微任务去抖 → 重建 WebGL。仅当事件来自当前活跃 addon 时才重建,
+    // 避免被替换掉的旧 addon 残留微任务误触发二次重建。
+    wireWebglAtlasResync(webgl, () => {
+      if (inst.webgl === webgl) remountWebgl(inst);
+    });
+  } catch (err) {
+    console.warn('[terminal] WebGL unavailable, falling back to DOM', err);
+  }
+}
+
+// 重建:dispose 旧 addon(renderer.dispose 会 removeTerminalFromCache)→ 同步新建挂载。
+// 全程在同一微任务内完成,renderService 原子换渲染器,不经 DOM 回退、无闪屏。
+function remountWebgl(inst: TermInstance): void {
+  inst.webgl?.dispose();
+  inst.webgl = null;
+  mountWebgl(inst);
+}
 
 interface Props {
   tabId: string;
@@ -47,21 +80,7 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
       return;
     }
     if (!inst.webgl) {
-      try {
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => {
-          webgl.dispose();
-          if (inst.webgl === webgl) inst.webgl = null;
-        });
-        inst.term.loadAddon(webgl);
-        inst.webgl = webgl;
-        // 图集分页合并/换图集会重排字形索引,需 clearTextureAtlas 清空图集+模型+顶点
-        // 缓冲并整屏重绘,否则大量 CJK 字形撑满图集后出现错位/串字乱码
-        // (BUG-TERMPRO-B260615152207-001)。监听随 webgl.dispose() 自动释放,无需手动清理。
-        wireWebglAtlasResync(webgl);
-      } catch (err) {
-        console.warn('[terminal] WebGL unavailable, falling back to DOM', err);
-      }
+      mountWebgl(inst);
     }
     inst.fit.fit();
     inst.term.focus();
@@ -72,11 +91,11 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
       if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
     });
     ro.observe(el);
-    // DPR 变化(窗口跨 retina/非-retina 屏拖拽、改显示缩放)会让 WebGL 字形
-    // 图集按旧像素比烘焙、取字坐标却按新比算 → 错位乱码。变化时清空图集
-    // (按需重建,开销很小)并重新 fit。
+    // DPR 变化(窗口跨 retina/非-retina 屏拖拽、改显示缩放)会让 WebGL 字形图集按旧
+    // 像素比烘焙、取字坐标却按新比算 → 错位乱码。重建 WebGL 让图集按新 DPR 重烘焙、
+    // 纹理全量重传,并重新 fit。
     const stopDpr = watchDevicePixelRatio(() => {
-      inst.webgl?.clearTextureAtlas();
+      if (inst.webgl) remountWebgl(inst);
       if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
     });
     return () => {

@@ -4,9 +4,9 @@
 
 # TermPro
 
-**以终端为主体的多工程、多并行会话工作台**
+**A terminal-first workbench for running many AI coding agents in parallel.**
 
-终端不关心里面跑的是什么 agent——**工具无关**是第一设计原则。
+The terminal doesn't care which agent runs inside it — **agent-agnostic** is the first design principle.
 
 [![CI](https://github.com/okteam99/termpro/actions/workflows/ci.yml/badge.svg)](https://github.com/okteam99/termpro/actions/workflows/ci.yml)
 &nbsp;
@@ -16,172 +16,183 @@
 &nbsp;
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-[核心特点](#核心特点) · [安装](#安装) · [概念模型](#概念模型) · [架构](#架构) · [开发](#开发) · [路线图](#路线图与规划)
+[What is this](#what-is-this) · [Features](#features) · [Install](#install) · [Concepts](#concepts) · [Architecture](#architecture) · [Development](#development) · [Roadmap](#roadmap)
+
+<sub>**English** · [简体中文](README.zh-CN.md)</sub>
 
 </div>
 
-## 这是什么
+## What is this
 
-TermPro 是一个面向「同时驱动多个 CLI agent 并行开发」场景的桌面工作台（macOS，Electron）。
-终端作为主体,外围补齐通用终端缺失的能力:**工程与并行会话管理、终端状态感知与通知、与 git worktree 深度整合的文件管理、内置 Markdown(mermaid)预览/编辑与 diff**——并按「远程就绪」的架构设计,为将来把会话搬到远程机器留好接口。
+TermPro is a macOS desktop workbench (Electron) built for the workflow of driving multiple CLI agents in parallel across several projects and branches. The terminal is the product; everything around it — project management, session awareness, file browsing, git integration, Markdown preview — is the value layer on top.
 
-## 解决什么问题
+## The problem it solves
 
-日常开发的形态已经变成:**同时盯着多个 CLI agent(Claude Code / Codex / 任意工具)在多个项目、多条分支上并行干活**。现有工具落在两个极端:
+Your day now looks like this: five Claude Code / Codex / other CLI agents grinding away across several projects and branches at once. Generic terminals give you "windows + tabs" but no concept of *projects* or *parallel sessions*, and they never tell you which session finished or which one is blocked waiting for your input.
 
-- **相比通用终端**:只有"窗口 + tab",没有"工程"和"并行会话"的概念,更不会告诉你哪个会话在等你输入;
-- **相比通用 agent 管理器**:往往反过来绑定特定 agent,终端体验从属、可替换性差。
+Agent managers do the opposite — they lock you to one specific agent and treat the terminal as a second-class citizen.
 
-TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个窗口里同时管理多个工程、多条并行会话,系统主动告诉你"谁在跑、谁完成了、谁在等输入",文件与 git 视图随当前会话自动联动——不绑定任何 agent,也不解析任何 agent 的私有输出。
+TermPro takes the middle ground: **the terminal is the product; everything around it is the value.**
+
+One window, many projects, many parallel sessions. The app tells you who is running, who finished, and who is waiting for input — without caring which agent is inside.
 
 <p align="center">
-  <img src="snapshot/01.webp" alt="TermPro 主界面:左侧 workspace 列表 · 中间终端 · 右侧文件面板" width="860" />
+  <img src="snapshot/01.webp" alt="TermPro main UI: workspace list on the left, terminal in the center, file panel on the right" width="860" />
 </p>
 
-## 核心特点
+## Features
 
-- **工具无关**——终端保持哑,跑什么 CLI 都行。状态感知只走终端层标准协议(前台进程名、OSC 序列、BEL),不解析特定 agent 输出、不依赖特定 agent 钩子。
-- **工程 + 并行会话为一等公民**——Workspace / Tab 是产品层抽象,一个窗口管理多工程、多会话,布局与会话结构持久化、重启恢复。
-- **主动状态感知,减少盯屏**——四路工具无关信号(前台进程、OSC 133 命令边界、BEL/OSC 通知、静默等待)汇成 tab 状态点、侧栏注意力计数、🔔 通知中心、Dock 角标与系统通知;聚焦中的 tab 永不打扰。
-- **文件管理 ↔ git worktree 深度整合**——File Panel 随当前会话联动,Root / WorkTree 双根切换:WorkTree 从 `git worktree list` 下拉绑定(`相对路径 · 分支`),文件树按 git 状态着色(untracked / modified / ignored,含目录上卷)、watch 自动刷新且保留展开态;自动识别会话所属仓库 / worktree 并联动 UI——只做感知与展示,不代办 worktree 的增删。
-- **内置 Markdown 预览 / 编辑 · 原生 mermaid**——读文档、写规划不用外跳:Markdown 预览 / 编辑双模式(默认预览),marked + DOMPurify 严格消毒;mermaid 流程图懒加载渲染(strict),点击放大灯箱。
-- **Monaco 预览 · 轻编辑 · diff**——点开即看、⌘S 保存(二进制 / >2MB 降级提示);diff 视图(未提交变更 vs HEAD、worktree vs 基线分支 merge-base);重度编辑一键外跳 VS Code / Zed。
-- **远程就绪架构**——UI 与 Host 进程彻底分离,UI 只依赖一个 `HostService` 协议。本地走 MessagePort,将来远程走 SSH 隧道 + WebSocket,**UI 不改一行**。
+- **Truly agent-agnostic** — the terminal stays dumb. Status detection uses only standard terminal-layer signals (foreground process name, OSC sequences, BEL). No parsing of agent-specific output. No dependency on agent hooks.
+- **Projects and parallel sessions as first-class citizens** — Workspace / Tab are product-level abstractions. One window manages multiple projects and sessions. Layout and session structure persist across restarts.
+- **Active status awareness, less screen-watching** — four agent-agnostic signals (foreground process name, OSC 133 command boundaries, BEL/OSC notifications, silence timeout) roll up into tab status dots, a sidebar attention counter, a notification center, Dock badge, and system notifications. The focused tab is never interrupted.
+- **File panel with deep git worktree integration** — the file tree tracks the active session's working directory (Root or WorkTree view). The WorkTree selector pulls from `git worktree list`. Files are colored by git status (untracked / modified / ignored), with directory-level rollup. Auto-refreshes on changes while preserving expanded state. Read-only — TermPro shows worktree state; it doesn't manage worktree lifecycle.
+- **Built-in Markdown preview and editing with native Mermaid** — read docs and review plans without switching apps. Toggle between preview and edit mode (default: preview). Rendered with marked + DOMPurify; Mermaid diagrams load lazily in strict mode with click-to-enlarge.
+- **Monaco file viewer, light editor, and diff** — click any file to view it; ⌘S to save (binary / >2 MB files degrade gracefully). Diff view for uncommitted changes vs HEAD, and worktree vs merge-base with the base branch. Jump to VS Code or Zed for heavy editing.
+- **Remote-ready architecture** — UI and Host process are fully separated; the UI depends on exactly one `HostService` interface. Locally this runs over MessagePort. In the future it runs over SSH tunnel + WebSocket with no UI changes.
 
-## 安装
+## Screenshots
 
-> macOS(Apple Silicon / Intel);Windows / Linux 未来支持。
+<p align="center">
+  <img src="snapshot/02.webp" alt="Git diff window (Monaco diff editor)" width="49%" />
+  &nbsp;
+  <img src="snapshot/04.webp" alt="Markdown preview with Mermaid diagram" width="49%" />
+</p>
 
-1. 到 [Releases](https://github.com/okteam99/termpro/releases) 下载最新 `.dmg`,打开后拖入「应用程序」。
-2. 首次启动若提示"无法验证开发者",在 *系统设置 › 隐私与安全性* 点「仍要打开」。
-3. 装好后**无需再手动下载**:应用会轮询 GitHub Release,有新版时侧栏左下角出现升级胶囊,点一下经 Squirrel.Mac 自动下载并重启升级(失败兜底打开发布页)。
+## Install
 
-从源码运行见 [开发](#开发)。
+> macOS (Apple Silicon / Intel). Windows / Linux planned for the future.
 
-## 概念模型
+1. Download the latest `.dmg` from [Releases](https://github.com/okteam99/termpro/releases) and drag TermPro to Applications.
+2. On first launch, macOS may warn "unidentified developer" — go to System Settings › Privacy & Security › Open Anyway.
+3. After that, no manual downloads needed. TermPro polls GitHub Releases and shows an upgrade capsule in the bottom-left sidebar when a new version is available. One click downloads and restarts via Squirrel.Mac (falls back to the release page if the update fails).
 
-| 概念 | 含义 | 对应 UI |
+To run from source, see [Development](#development).
+
+## Concepts
+
+| Concept | Meaning | UI location |
 |---|---|---|
-| **Workspace** | 一个项目工程(通常对应一个 repo) | 左侧栏一项 |
-| **Tab** | Workspace 内的一个并行开发会话,持有一个 PTY;通常对应一个 git worktree,但**不强绑定** | 顶部 tab 条 |
-| **Terminal** | 哑终端,跑任意 CLI | 中间区域 |
-| **File Panel** | 当前会话的文件视图,可在 Root / WorkTree 两个根之间切换 | 右侧面板 |
+| **Workspace** | One project, usually one repo | Sidebar item |
+| **Tab** | One parallel development session inside a Workspace; holds one PTY. Typically maps to a git worktree, but not required to. | Top tab bar |
+| **Terminal** | A dumb terminal running any CLI | Center area |
+| **File Panel** | File tree for the active session, switchable between Root and WorkTree root | Right panel |
 
-> 核心原则:终端保持哑且工具无关。一切状态感知走终端层标准协议(进程名、OSC 序列、BEL),
-> 不解析特定 agent 的输出、不依赖特定 agent 的钩子(将来可作为可选 adapter 插件,但核心永不依赖)。
+> Core rule: the terminal stays dumb and agent-agnostic. All status detection goes through standard terminal-layer signals (process name, OSC sequences, BEL). TermPro never parses agent-specific output and never requires agent-specific hooks. Optional adapters may be added in the future, but the core will never depend on them.
 
-## 界面一览
+## UI tour
 
 ```
 ┌────────────┬───────────────────────────────┬─────────────────┐
 │ 🔔  ＋     │ Tab1 │ Tab2 ✕    [⌨][🌐][▥]   │ Root │ WorkTree │
 │            ├───────────────────────────────┤ path…  [Choose] │
-│ ▌AON       │                               │ 38 entries   ⟳  │
+│ ▌Project A │                               │ 38 entries   ⟳  │
 │  staging*  │                               │ ▸ .claude       │
-│  ~/path    │      终端区 (xterm.js)        │ ▸ apps          │
+│  ~/path    │      Terminal (xterm.js)      │ ▸ apps          │
 │            │                               │ ▸ docs          │
-│ VLite      │                               │   README.md     │
+│ Project B  │                               │   README.md     │
 │  main      │                               │   …             │
 │  ⎇ PR#289  │                               │                 │
 └────────────┴───────────────────────────────┴─────────────────┘
 ```
 
-- **左侧栏(Workspace 列表)**:每项显示 名称 / 当前分支(脏标记 `*`)/ 路径 / 徽标(PR 状态、运行中 / 等待输入)。当前项高亮。顶部 `＋` 新建 workspace。
-- **顶部 Tab 条**:会话名 + 关闭按钮;右侧预留 内容类型 / 分栏布局 切换按钮。
-- **右侧 File Panel**:`Root / WorkTree` 切换 = 换树根;路径栏可手动指定 + Apply;条目按 git 状态着色(untracked / modified / ignored);条目计数 + 手动刷新。
-- **🔔 通知中心**:聚合所有 tab 的"等待输入 / 已完成"事件,点击跳转对应 tab。
+- **Left sidebar (Workspace list)** — each item shows name / current branch (dirty marker `*`) / path / status badges (PR number, running / waiting for input). The active item is highlighted. `＋` at the top adds a new workspace.
+- **Top tab bar** — session name + close button. Right side: content type / split-layout toggles.
+- **Right File Panel** — Root / WorkTree toggle switches the tree root. The path bar accepts manual input + Apply. Entries are colored by git status. Entry count + manual refresh.
+- **Notification center (🔔)** — aggregates "waiting for input" and "finished" events across all tabs. Click to jump to the relevant tab.
 
-## 已实现能力
+## What's shipped
 
-当前版本已交付一个可日常使用的本地工作台(M1–M4 + v0.2/v0.3 增量,2026-06):
+Current release is a daily-usable local workbench (M1–M4 + v0.2/v0.3 increments, June 2026):
 
-- **工程与会话编排**:三栏布局,可拖拽调宽并持久化;workspace 增删 / 重命名 / 切换;tab 增删 / 切换(⌘T/⌘W/⌘1-9),每 tab 一个 node-pty 会话(可选起始目录);xterm.js ≥ 6(WebGL + unicode11 宽字符对齐 + 搜索);结构与布局持久化、重启恢复。
-- **状态感知与通知**:前台进程名轮询 + OSC 133 命令边界 + BEL/OSC 9/777 + 静默等待四路信号;状态机驻留 Host(UI 断开照常跟踪);tab 状态点、侧栏注意力计数、通知中心、Dock 角标、系统通知,聚焦 tab 不打扰。
-- **文件与 git 工作面**:File Panel 随会话联动 Root / WorkTree(与单个 tab 绑定、不随终端 cd 漂移);文件树 watch 自动刷新(保留展开态)、git 状态着色(含目录上卷);侧栏显示主工作区当前分支;WorkTree 从 `git worktree list` 下拉选择。
-- **预览 / 编辑 / diff**:Monaco 懒加载文件预览 + 轻编辑(⌘S 保存,二进制 />2MB 降级);diff 视图(未提交变更 vs HEAD、worktree vs 基线分支 merge-base);Markdown 预览/编辑双模式(marked + DOMPurify 消毒,mermaid 严格渲染);一键外跳 VS Code / Zed。
-- **窗口与更新**:三窗口模型(终端主窗口 / 文件内容窗口 / git diff 模态窗口);Host 多客户端共享 PTY 池、按归属路由;GitHub Release 轮询 + 侧栏升级胶囊,经 Squirrel.Mac 一键升级;脏 tab 关窗统一确认。
+- **Project and session orchestration** — three-panel layout with drag-to-resize (persisted); workspace add/remove/rename/switch; tab add/remove/switch (⌘T / ⌘W / ⌘1–9), each tab gets one node-pty session (optional start directory); xterm.js ≥ 6 with WebGL renderer, unicode11 wide-char alignment, and search; structure and layout survive restarts.
+- **Status awareness and notifications** — foreground process polling + OSC 133 command boundaries + BEL/OSC 9/777 + silence timeout; state machine lives in Host (keeps tracking when UI is disconnected); tab status dots, sidebar attention counter, notification center, Dock badge, system notifications; focused tab is never interrupted.
+- **File and git workspace** — File Panel tracks Root / WorkTree per tab (not per `cd` in the terminal); file tree auto-refreshes on changes (preserving expanded state) with git status coloring and directory rollup; sidebar shows the main worktree's current branch; WorkTree selector pulls from `git worktree list`.
+- **Preview / edit / diff** — Monaco file viewer with light editing (⌘S save; binary / >2 MB degrades gracefully); diff view (uncommitted vs HEAD, worktree vs merge-base); Markdown preview/edit with marked + DOMPurify sanitization and strict Mermaid rendering; one-click jump to VS Code / Zed.
+- **Windows and updates** — three-window model (main terminal window / file content window / git diff modal); Host shares PTY pool across clients and routes by ownership; GitHub Release polling + sidebar upgrade capsule with Squirrel.Mac one-click update; dirty-tab close confirmation.
 
-<p align="center">
-  <img src="snapshot/02.webp" alt="git diff 窗口(Monaco diff editor)" width="49%" />
-  &nbsp;
-  <img src="snapshot/04.webp" alt="Markdown 预览(marked + mermaid)" width="49%" />
-</p>
+> Full milestone breakdown and roadmap: [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md)
 
-> 完整里程碑分解、已完成基线与下一阶段路线图见 [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md)。
+## Architecture
 
-## 架构
-
-> **UI 与 Host 分离 · 远程就绪。** 设计约束:**UI 层永远不直接访问文件系统 / PTY / git,只通过 `HostService` 协议通信。**
-> 目的:终端核心逻辑未来可整体搬到远程机器,UI 不改一行。参照 VS Code Remote
-> (workbench ↔ vscode-server)的成熟形状。
+> **UI and Host are separated. Remote-ready by design.** The hard rule: the UI layer never directly touches the filesystem, PTY, or git — everything goes through the `HostService` protocol.
+>
+> The goal: terminal core logic can move to a remote machine in the future with zero UI changes. Modeled after VS Code Remote (workbench ↔ vscode-server).
 
 ```
-┌── UI 壳(Electron renderer + main)───────────────┐
-│ xterm.js · Monaco · React · OS 通知 / Dock 角标    │
-│           只依赖一个接口:HostService              │
-└───────────────────┬───────────────────────────────┘
-    统一协议:RPC + 事件推送 + PTY 二进制流(含流控)
-    本地传输:MessagePort    远程传输:SSH 隧道 + WebSocket
-┌───────────────────┴───────────────────────────────┐
-│ Host 进程(纯 Node,零 Electron 依赖)             │
-│ PTY 池 · fs 读写/watch · git/gh · 会话状态机       │
-│ 输出环形缓冲(断线重连回放,tmux 式)              │
-└───────────────────────────────────────────────────┘
+┌── UI shell (Electron renderer + main) ───────────────────────┐
+│  xterm.js · Monaco · React · OS notifications / Dock badge   │
+│              depends on exactly one interface: HostService    │
+└───────────────────────┬──────────────────────────────────────┘
+    Unified protocol: RPC + event push + PTY binary stream (with flow control)
+    Local transport: MessagePort     Remote transport: SSH tunnel + WebSocket
+┌───────────────────────┴──────────────────────────────────────┐
+│  Host process (pure Node, zero Electron dependency)          │
+│  PTY pool · fs read/write/watch · git/gh · session state machine │
+│  Output ring buffer (reconnect replay, tmux-style)           │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-关键规则(完整版见 [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md) 与 [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md)):
+Key rules (full spec in [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md) and [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md)):
 
-1. **Host 进程零 Electron 依赖**——本地跑在 utilityProcess,远程跑在 ssh 拉起的独立 node 进程,同一份代码;OS 通知 / Dock 角标留在壳层,由 host 事件驱动。
-2. **一套协议三类消息**——RPC、事件推送、PTY 二进制流;流控(credit / pause-resume)是协议的一部分,本地与远程共用。
-3. **UI 中一切路径都是 `(hostId, path)`**——不存在裸本地路径;文件树 / 读写 / watch 全走 host,API 粗粒度避免 WAN 上的 chatty 调用。
-4. **git / gh 在 host 侧执行**——UI 只收结构化结果;Monaco 读写与 diff 内容同样经 fs 服务获取,远程自动可用。
-5. **会话状态机驻留 host**——host 对 PTY 字节流做轻量扫描 + `pty.process` 轮询;**UI 断开时会话与状态照常运行**,host 维护输出环形缓冲,重连回放屏幕。
+1. **Host process has zero Electron dependency** — locally it runs in a utilityProcess; remotely it runs as a standalone Node process spawned over SSH. Same code, both cases. OS notifications and Dock badge stay in the shell layer, driven by Host events.
+2. **One protocol, three message types** — RPC, event push, PTY binary stream. Flow control (credit / pause-resume) is part of the protocol and shared between local and remote.
+3. **All paths in the UI are `(hostId, path)` tuples** — no bare local paths exist in the UI. File tree, reads, writes, and watches all go through Host. APIs are coarse-grained to avoid chatty calls over WAN.
+4. **git / gh run on the Host side** — the UI receives structured results only. Monaco file reads, writes, and diff content go through the fs service, so remote works automatically.
+5. **Session state machine lives in Host** — Host does lightweight scanning of PTY byte output plus `pty.process` polling. Sessions and their states keep running when the UI disconnects. Host maintains an output ring buffer for reconnect replay.
 
-这套分离顺手解锁「合盖离开,服务器上的 agent 继续跑,回来重连看徽标」的 tmux 式体验——与产品定位天然契合。
+This separation unlocks a tmux-like experience: close the lid, let agents keep running on the server, reconnect and see the badges. That maps directly to why this product exists.
 
-## 技术栈与关键决策
+## Tech stack and key decisions
 
-| 决策点 | 结论 | 理由 |
+| Decision | Choice | Reason |
 |---|---|---|
-| 壳 | **Electron**(utilityProcess 跑 PTY,MessagePort 流给渲染层) | node-pty / xterm / Monaco 均为一等公民 |
-| 终端 | **`@xterm/xterm` ≥ 6.0** + addon-webgl / fit / unicode11 / serialize / search | 6.0 起支持同步输出(DEC mode 2026),Ink 类 TUI(Claude Code)不闪烁 |
-| PTY | **node-pty** | `process` 属性直接给出前台进程名 = 状态信号① |
-| 编辑 / diff | **monaco-editor**(懒加载) | diff 视图零成本,首屏不含 |
-| git | shell out **`git` / `gh`** | 不引 libgit2,降低维护面 |
-| 架构 | UI ↔ Host 进程分离,单一 RPC 协议 | 远程就绪;本地 MessagePort,远程 SSH 隧道 + WebSocket |
+| Shell | **Electron** (utilityProcess for PTY, MessagePort to renderer) | node-pty / xterm.js / Monaco are all first-class here |
+| Terminal | **`@xterm/xterm` ≥ 6.0** + addon-webgl / fit / unicode11 / serialize / search | 6.0 adds synchronous output (DEC mode 2026), so Ink-style TUIs (Claude Code) render without flicker |
+| PTY | **node-pty** | `process` property gives the foreground process name directly — status signal #1 |
+| Editor / diff | **monaco-editor** (lazy-loaded) | diff view comes for free; not bundled in the initial render |
+| git | Shell out to **`git` / `gh`** | No libgit2 dependency; smaller maintenance surface |
+| Architecture | UI ↔ Host process separation, single RPC protocol | Remote-ready; local uses MessagePort, remote uses SSH tunnel + WebSocket |
 
-> **为什么不 fork Ghostty / 不自研原生终端**:终端品质本身(Metal 渲染、输入延迟)不是本产品的差异化点,而原生路线要用 Swift 手搓侧栏 / 文件树 / diff / 通知且只覆盖 macOS,投入收益错配。xterm.js 跑 agentic CLI 已被 VS Code / Cursor 海量验证。[Crystal](https://github.com/stravu/crystal)(Electron + xterm.js + git worktree 多会话,MIT)是同形态先例,可作参考。
+**Why not fork Ghostty or build a native terminal?** Terminal quality (GPU rendering, input latency) is not the differentiator here. The native route would mean writing a sidebar, file tree, diff viewer, and notification system in Swift — and it would still only cover macOS. The cost-benefit is wrong. xterm.js running agentic CLIs is battle-tested at scale by VS Code and Cursor. [Crystal](https://github.com/stravu/crystal) (Electron + xterm.js + git worktree multi-session, MIT) is a same-shape precedent worth studying.
 
-## 非目标(明确不做)
+## Non-goals
 
-- ❌ 完整编辑器 / LSP——重度编辑外跳到专业编辑器
-- ❌ 内置或绑定任何 agent;不解析特定 agent 的输出格式
-- ❌ 通用终端的极致性能竞赛(够流畅跑 agent CLI 即可)
-- ⚠️ 当前仅 macOS;Windows / Linux 未来支持
-- ⚠️ 远程会话:当前不交付,但**架构按远程就绪设计**,留待 M5 兑现(详见规划文档)
+- ❌ No full editor or LSP — delegate heavy editing to VS Code, Zed, or your editor of choice
+- ❌ No bundled or locked-in agent; no parsing of agent-specific output formats
+- ❌ Not chasing raw terminal performance — smooth enough for agent CLIs is the bar
+- ⚠️ macOS only for now — Windows / Linux planned but not scheduled
+- ⚠️ Remote sessions — the architecture is designed for it, but the feature ships in M5 (see the planning doc)
 
-## 开发
+## Development
 
-- 开发:`npm start`;类型:`npm run typecheck`;单测:`npm test`
-- 无头冒烟:`TERMPRO_SMOKE=1 npx electron-forge start`(打印 `SMOKE_OK` 即通过)
-- 发版:`npm version patch && git push --follow-tags`(CI 自动出包发 Release)
+```sh
+npm start          # dev mode
+npm run typecheck  # type check
+npm test           # unit tests
+```
 
-更多开发细节与已知约束见 [`docs/DEV.md`](docs/DEV.md);开发规范(架构红线、性能红线、测试与发版纪律)见 [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md)。
+Headless smoke test: `TERMPRO_SMOKE=1 npx electron-forge start` — pass if it prints `SMOKE_OK`.
 
-## 路线图与规划
+Release: `npm version patch && git push --follow-tags` — CI builds and publishes the Release automatically.
 
-下一阶段聚焦 **M5 远程 Host**——把本地 Host 能力演进为 SSH/WebSocket 远程接入:Host 打包独立可执行、协议版本握手、断线重连(scrollback 回放 + 状态对账)、远程通知对账;并行做一轮稳态打磨(文件面板定位、worktree 展开、git 状态一致性、窗口与通知边界)。
+More details and known constraints: [`docs/DEV.md`](docs/DEV.md). Architecture hard rules and test/release discipline: [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md).
 
-完整业务架构、执行线、里程碑跟踪统一维护在:
+## Roadmap
 
-- [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md) — 产品定位、业务架构、执行线、MVP 范围、路线图(上游权威)
-- [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md) — 架构事实来源
-- [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md) — 开发规范与红线
+Next up is **M5: Remote Host** — evolving the local Host into SSH/WebSocket remote access: Host packaged as a standalone executable, protocol version handshake, reconnect with scrollback replay and state reconciliation, remote notification bridging. Running in parallel: a stability pass (file panel positioning, worktree expansion, git status consistency, window and notification edge cases).
 
-## 贡献
+Full architecture, execution plan, and milestone tracking:
 
-欢迎 issue / PR。动手前请读 [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md)(架构红线、性能红线、测试与发版纪律)与 [`docs/DEV.md`](docs/DEV.md);改通信契约先动 `src/shared/protocol.ts`,UI 永不直接碰 fs / PTY / git。
+- [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md) — product positioning, business architecture, execution plan, MVP scope, roadmap (upstream source of truth)
+- [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md) — architecture source of truth
+- [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md) — development rules and hard constraints
 
-## 许可
+## Contributing
+
+Issues and PRs welcome. Before writing code, read [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md) (architecture constraints, performance constraints, test and release discipline) and [`docs/DEV.md`](docs/DEV.md). If you're changing the communication contract, start with `src/shared/protocol.ts`. The UI must never directly touch fs / PTY / git.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
+
+## License
 
 [MIT](LICENSE) © 2026 okteam99
