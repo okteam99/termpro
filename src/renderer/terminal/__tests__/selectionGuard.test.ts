@@ -28,6 +28,14 @@ describe('selectionGuard', () => {
     window.dispatchEvent(new MouseEvent('mousemove', { buttons }));
   const up = () => window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
   const blur = () => window.dispatchEvent(new Event('blur'));
+  const focus = () => window.dispatchEvent(new Event('focus'));
+  const visibility = (state: 'visible' | 'hidden') => {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => state,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
 
   it('左键按下后丢失 mouseup,再无按键移动 → 合成一发 mouseup 收尾', () => {
     down(0);
@@ -73,6 +81,35 @@ describe('selectionGuard', () => {
     move(0); // 第一发
     move(0); // 已退出拖拽态,不再合成
     move(0);
+    expect(synthetic).toHaveBeenCalledTimes(1);
+  });
+
+  it('窗外松手丢失 up:buttons 幻影卡 1,切回(focus)与 buttons 无关地收尾', () => {
+    down(0);
+    // 鼠标拖出窗口、在别的应用松手:本窗口收不到 up,blur 也未派发(窗口仍 key)。
+    // 切回来时 Chromium 把 buttons 卡在 1,基于 buttons 的兜底失效:
+    move(1);
+    expect(synthetic).not.toHaveBeenCalled();
+    focus(); // 跨应用切回 → 强制收尾
+    expect(synthetic).toHaveBeenCalledTimes(1);
+  });
+
+  it('拖拽中文档转隐藏 → 合成收尾;转可见不重复', () => {
+    down(0);
+    visibility('hidden');
+    expect(synthetic).toHaveBeenCalledTimes(1);
+    visibility('visible'); // 已退出拖拽态
+    expect(synthetic).toHaveBeenCalledTimes(1);
+  });
+
+  it('非拖拽态获焦不合成', () => {
+    focus();
+    expect(synthetic).not.toHaveBeenCalled();
+  });
+
+  it('左键位抬起但右键仍按住的移动 → 视为左键松开,补发收尾', () => {
+    down(0);
+    move(2); // buttons=2:左键位为 0
     expect(synthetic).toHaveBeenCalledTimes(1);
   });
 });
