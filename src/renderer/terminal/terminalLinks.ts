@@ -220,9 +220,15 @@ export class SystemWebLinkProvider implements ILinkProvider {
           },
           text: c.text,
           decorations: { underline: true, pointerCursor: true },
+          // 只 preventDefault,**绝不 stopPropagation**:链接激活由 xterm Linkifier2
+          // 在 screenElement 上的 mouseup 里触发,而 SelectionService 的收尾监听挂在
+          // document 上(冒泡更外层)。一旦在这里 stopPropagation,这发 mouseup 就到不了
+          // document → SelectionService 的 _removeMouseDownListeners 不执行 → 它在
+          // mousedown 时挂到 document 的「拖选 mousemove」永久残留(且 _handleMouseMove
+          // 不校验 buttons)。点完 url 切去浏览器再切回、一动鼠标,选区就从单击点疯狂蔓延。
+          // 文件链接(FsLinkProvider)从不 stopPropagation,故只有 url 会犯——根因即此。
           activate: (event, text) => {
             event.preventDefault();
-            event.stopPropagation();
             window.termpro.openExternal(text);
           },
         };

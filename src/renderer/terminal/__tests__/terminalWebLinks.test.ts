@@ -84,7 +84,9 @@ describe('SystemWebLinkProvider', () => {
     });
 
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
-    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
+    // 回归:绝不 stopPropagation——否则 mouseup 到不了 document,xterm
+    // SelectionService 的拖选 mousemove 监听残留 → 点 url 切回应用后选区自动蔓延。
+    expect(event.stopPropagation).not.toHaveBeenCalled();
     expect(openExternal).toHaveBeenCalledWith(
       'https://github.com/okteam99/termpro/releases/tag/v0.3.11',
     );
