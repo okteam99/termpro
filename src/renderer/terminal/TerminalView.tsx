@@ -64,6 +64,8 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
     if (!inst.opened) {
       inst.term.open(el);
       inst.opened = true;
+      // 底部输入栏固定面板:挂在 .xterm 内,随终端元素跨 tab 搬运存活
+      inst.barPin.mount();
     } else if (inst.term.element && inst.term.element.parentElement !== el) {
       el.appendChild(inst.term.element);
     }
@@ -97,6 +99,8 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
     const stopDpr = watchDevicePixelRatio(() => {
       if (inst.webgl) remountWebgl(inst);
       if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
+      // DPR 变致 cell 尺寸改变但行列数未变时不发 onResize,手动刷新固定面板度量
+      inst.barPin.refresh();
     });
     return () => {
       ro.disconnect();

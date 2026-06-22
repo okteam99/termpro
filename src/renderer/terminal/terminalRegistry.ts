@@ -14,6 +14,7 @@ import {
   LinkHighlighter,
   SystemWebLinkProvider,
 } from './terminalLinks';
+import { BottomBarPin } from './bottomBarPin';
 
 export interface TermCallbacks {
   onTitle?(processName: string): void;
@@ -27,6 +28,8 @@ export interface TermInstance {
   fit: FitAddon;
   search: SearchAddon;
   webgl: WebglAddon | null;
+  /** 底部输入栏固定面板:滚离底部时镜像 live 区域底部,挂载见 TerminalView */
+  barPin: BottomBarPin;
   sessionId: string | null;
   spawning: boolean;
   opened: boolean;
@@ -51,6 +54,9 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     fontSize: 13,
     fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
     scrollback: 10_000,
+    // 不在打字时自动跳回底部:配合底部输入栏固定面板(BottomBarPin),
+    // 用户向上滚动读历史时可停在原处继续输入,固定面板实时显示输入内容。
+    scrollOnUserInput: false,
     // OSC 8 超链接 → 系统默认浏览器,否则 xterm 核心 OscLinkProvider 会弹
     // 「could be dangerous」确认框(纯文本链接走 SystemWebLinkProvider,见下)
     linkHandler: createOscLinkHandler(),
@@ -77,6 +83,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     fit,
     search,
     webgl: null,
+    barPin: new BottomBarPin(term),
     sessionId: null,
     spawning: false,
     opened: false,
@@ -189,6 +196,7 @@ export function disposeTerminal(tabId: string): void {
       /* host 可能已回收 */
     });
   }
+  inst.barPin.dispose();
   inst.webgl?.dispose();
   inst.term.dispose();
   registry.delete(tabId);
