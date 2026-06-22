@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAppStore } from '../state/store';
 
 // 应用图标(About 弹窗 logo)· Vite 把资源打进 renderer bundle(dev + 打包均生效)
 const appIconUrl = new URL('../../../assets/icon.png', import.meta.url).href;
@@ -40,6 +41,24 @@ function InfoIcon() {
       <circle cx="7.5" cy="7.5" r="6" />
       <line x1="7.5" y1="7" x2="7.5" y2="10.5" />
       <circle cx="7.5" cy="4.7" r="0.55" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** 底部输入栏固定:外框 + 底部填充条 */
+function BottomBarIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      aria-hidden="true"
+    >
+      <rect x="1.8" y="2.5" width="11.4" height="10" rx="1.5" />
+      <rect x="1.8" y="9.5" width="11.4" height="3" rx="0" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -104,6 +123,8 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
   // 持有打开弹窗前的聚焦元素,关闭时还原(AC-6)
   const prevFocusRef = useRef<HTMLElement | null>(null);
+  const pinBottomBar = useAppStore((s) => s.pinBottomBar);
+  const setPinBottomBar = useAppStore((s) => s.setPinBottomBar);
 
   // 安全读 version:bridge 缺失或 version 空都回退 ""
   const version = window.termpro?.version ?? '';
@@ -144,6 +165,26 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
     <div className="settings-anchor" ref={anchorRef}>
       {menuOpen && (
         <div className="settings-menu" role="menu">
+          <button
+            className="settings-menu-item"
+            role="menuitemcheckbox"
+            aria-checked={pinBottomBar}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            onClick={() => setPinBottomBar(!pinBottomBar)}
+            title="向上滚动查看历史时,把底部输入栏固定在视口底部(可见可输入)"
+          >
+            <span className="settings-menu-icon">
+              <BottomBarIcon />
+            </span>
+            <span className="settings-menu-label">底部输入栏固定</span>
+            <span
+              className="settings-switch"
+              data-on={pinBottomBar ? 'true' : 'false'}
+              aria-hidden="true"
+            >
+              <span className="settings-switch-knob" />
+            </span>
+          </button>
           <button
             className="settings-menu-item"
             role="menuitem"

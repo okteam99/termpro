@@ -45,6 +45,10 @@ function serialize(s: AppState): PersistedState {
         filePanel: t.filePanel,
       })),
     })),
-    ui: { sidebarWidth: s.sidebarWidth, filePanelWidth: s.filePanelWidth },
+    ui: {
+      sidebarWidth: s.sidebarWidth,
+      filePanelWidth: s.filePanelWidth,
+      pinBottomBar: s.pinBottomBar,
+    },
   };
 }

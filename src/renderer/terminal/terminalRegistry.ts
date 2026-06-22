@@ -42,6 +42,10 @@ export interface TermInstance {
 
 const registry = new Map<string, TermInstance>();
 
+// 「底部输入栏固定」设置的当前值:新建终端的默认,由 settingsSync 经 applyPinBottomBar 推入。
+// 不直接 import store,避免 store↔terminalRegistry 循环依赖。
+let pinBottomBarEnabled = true;
+
 export function getOrCreateTerminal(tabId: string): TermInstance {
   const existing = registry.get(tabId);
   if (existing) return existing;
@@ -56,7 +60,8 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     scrollback: 10_000,
     // 不在打字时自动跳回底部:配合底部输入栏固定面板(BottomBarPin),
     // 用户向上滚动读历史时可停在原处继续输入,固定面板实时显示输入内容。
-    scrollOnUserInput: false,
+    // 设置关闭固定面板时恢复默认 true(打字即回底)。
+    scrollOnUserInput: !pinBottomBarEnabled,
     // OSC 8 超链接 → 系统默认浏览器,否则 xterm 核心 OscLinkProvider 会弹
     // 「could be dangerous」确认框(纯文本链接走 SystemWebLinkProvider,见下)
     linkHandler: createOscLinkHandler(),
@@ -92,6 +97,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     spawnCwd: '',
     callbacks: {},
   };
+  inst.barPin.setEnabled(pinBottomBarEnabled);
 
   // 网页链接 → 系统默认浏览器。不要使用 xterm WebLinksAddon 的默认
   // window.open 路径,否则 Electron/宿主可能弹确认框或开内置窗口。
@@ -185,6 +191,18 @@ export function findTabBySessionId(sessionId: string): string | null {
     if (inst.sessionId === sessionId) return tabId;
   }
   return null;
+}
+
+/**
+ * 设置「底部输入栏固定」变更 → 记为新终端默认 + 实时应用到所有已存在终端:
+ * 切 scrollOnUserInput(关→打字回底)+ 开关 BottomBarPin(关→隐藏面板)。
+ */
+export function applyPinBottomBar(enabled: boolean): void {
+  pinBottomBarEnabled = enabled;
+  for (const inst of registry.values()) {
+    inst.term.options.scrollOnUserInput = !enabled;
+    inst.barPin.setEnabled(enabled);
+  }
 }
 
 export function disposeTerminal(tabId: string): void {

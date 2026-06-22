@@ -75,7 +75,12 @@ export interface PersistedState {
   version: 1;
   activeWorkspaceId: string | null;
   workspaces: PersistedWorkspace[];
-  ui?: { sidebarWidth?: number; filePanelWidth?: number };
+  ui?: {
+    sidebarWidth?: number;
+    filePanelWidth?: number;
+    /** 向上滚动时固定底部输入栏(默认开) */
+    pinBottomBar?: boolean;
+  };
 }
 
 export interface AppState {
@@ -117,6 +122,9 @@ export interface AppState {
     sidebarWidth?: number;
     filePanelWidth?: number;
   }): void;
+  /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
+  pinBottomBar: boolean;
+  setPinBottomBar(value: boolean): void;
 }
 
 
@@ -163,6 +171,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
   sidebarWidth: 240,
   filePanelWidth: 280,
+  pinBottomBar: true,
 
   hydrate(persisted) {
     if (!persisted || persisted.version !== 1) {
@@ -173,6 +182,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         sidebarWidth: persisted.ui.sidebarWidth ?? 240,
         filePanelWidth: persisted.ui.filePanelWidth ?? 280,
+        pinBottomBar: persisted.ui.pinBottomBar ?? true,
       });
     }
     const workspaces: WorkspaceState[] = persisted.workspaces.map((w) => {
@@ -340,6 +350,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       sidebarWidth: patch.sidebarWidth ?? s.sidebarWidth,
       filePanelWidth: patch.filePanelWidth ?? s.filePanelWidth,
     }));
+  },
+
+  setPinBottomBar(value) {
+    set({ pinBottomBar: value });
   },
 
   notifications: [],

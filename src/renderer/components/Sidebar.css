@@ -427,6 +427,43 @@
   color: var(--fg-dim);
 }
 
+.settings-menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+/* 滑动开关:右对齐;轨道色随状态变,圆点平移 */
+.settings-switch {
+  flex: none;
+  margin-left: auto;
+  position: relative;
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  transition: background 0.15s ease;
+}
+
+.settings-switch[data-on='true'] {
+  background: var(--accent);
+}
+
+.settings-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease;
+}
+
+.settings-switch[data-on='true'] .settings-switch-knob {
+  transform: translateX(13px);
+}
+
 /* About 弹窗 */
 .about-backdrop {
   position: fixed;

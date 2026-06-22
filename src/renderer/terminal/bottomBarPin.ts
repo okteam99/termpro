@@ -187,10 +187,20 @@ export class BottomBarPin {
   private disposables: { dispose(): void }[] = [];
   private raf = 0;
   private mounted = false;
+  /** 设置开关:关闭则永不显示面板(配合 scrollOnUserInput 恢复默认) */
+  private enabled = true;
   /** 上次渲染的内容+几何指纹;隐藏时清空,确保再次显示必重建 */
   private lastSig = '';
 
   constructor(private term: Terminal) {}
+
+  /** 设置变更:开关固定面板。关闭立即隐藏,开启重新评估。 */
+  setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    if (enabled) this.schedule();
+    else this.hide();
+  }
 
   /** term.open() 之后调用:在 .xterm 内建面板并挂事件。幂等。 */
   mount(): void {
@@ -248,6 +258,7 @@ export class BottomBarPin {
     const root = this.root;
     const el = this.term.element;
     if (!root || !el) return;
+    if (!this.enabled) return this.hide();
 
     const buf = this.term.buffer.active;
     // alt-screen 无 scrollback,固定无意义

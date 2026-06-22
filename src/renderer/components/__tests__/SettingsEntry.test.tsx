@@ -8,6 +8,7 @@ import React from 'react';
 expect.extend(matchers);
 
 import { SettingsEntry } from '../SettingsEntry';
+import { useAppStore } from '../../state/store';
 
 // hostClient touches IPC — mock it so the real Sidebar can mount in jsdom (T-009).
 vi.mock('../../services/hostClient', () => ({
@@ -94,6 +95,31 @@ describe('settingsEntry_toggles_menu_with_exactly_one_about_item', () => {
     // Second click: close (toggle)
     fireEvent.click(entryBtn);
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+});
+
+// --- 底部输入栏固定:开关项渲染 + 点击切换 store(默认开)---
+describe('settingsEntry_pin_bottom_bar_toggle', () => {
+  it('shows checked toggle by default and flips store on click', () => {
+    mockTermpro();
+    useAppStore.setState({ pinBottomBar: true });
+    render(<SettingsEntry />);
+
+    fireEvent.click(screen.getByTitle('Settings'));
+    const toggle = screen.getByRole('menuitemcheckbox');
+    expect(toggle).toHaveTextContent('底部输入栏固定');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(toggle);
+    expect(useAppStore.getState().pinBottomBar).toBe(false);
+    // 菜单保持打开,勾随状态消失
+    expect(screen.getByRole('menuitemcheckbox')).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+
+    // 复位,避免污染其它用例共享的 store 单例
+    useAppStore.setState({ pinBottomBar: true });
   });
 });
 
