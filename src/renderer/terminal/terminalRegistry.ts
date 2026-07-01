@@ -42,9 +42,9 @@ export interface TermInstance {
 
 const registry = new Map<string, TermInstance>();
 
-// 「底部输入栏固定」设置的当前值:新建终端的默认,由 settingsSync 经 applyPinBottomBar 推入。
-// 不直接 import store,避免 store↔terminalRegistry 循环依赖。
-let pinBottomBarEnabled = true;
+// 「底部输入栏固定」设置的当前值:新建终端的默认(默认关),由 settingsSync 经
+// applyPinBottomBar 推入。不直接 import store,避免 store↔terminalRegistry 循环依赖。
+let pinBottomBarEnabled = false;
 
 export function getOrCreateTerminal(tabId: string): TermInstance {
   const existing = registry.get(tabId);

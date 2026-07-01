@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { type PersistedState, useAppStore } from '../store';
 
 function persisted(ui: PersistedState['ui']): PersistedState {
@@ -7,29 +7,27 @@ function persisted(ui: PersistedState['ui']): PersistedState {
 }
 
 describe('pinBottomBar 设置', () => {
-  beforeEach(() => {
-    useAppStore.setState({ pinBottomBar: true });
-  });
-
-  it('默认开启', () => {
-    expect(useAppStore.getState().pinBottomBar).toBe(true);
+  it('默认关闭(store create 初值)', () => {
+    // 本测试文件模块隔离,store 尚未被改动 → 读到 create() 默认值
+    expect(useAppStore.getState().pinBottomBar).toBe(false);
   });
 
   it('setPinBottomBar 切换', () => {
-    useAppStore.getState().setPinBottomBar(false);
-    expect(useAppStore.getState().pinBottomBar).toBe(false);
     useAppStore.getState().setPinBottomBar(true);
     expect(useAppStore.getState().pinBottomBar).toBe(true);
-  });
-
-  it('hydrate 恢复 ui.pinBottomBar=false', () => {
-    useAppStore.getState().hydrate(persisted({ pinBottomBar: false }));
+    useAppStore.getState().setPinBottomBar(false);
     expect(useAppStore.getState().pinBottomBar).toBe(false);
   });
 
-  it('hydrate 时 ui 无 pinBottomBar 字段 → 回退默认 true', () => {
-    useAppStore.setState({ pinBottomBar: false }); // 先置脏
-    useAppStore.getState().hydrate(persisted({ sidebarWidth: 200 }));
+  it('hydrate 恢复 ui.pinBottomBar=true', () => {
+    useAppStore.setState({ pinBottomBar: false });
+    useAppStore.getState().hydrate(persisted({ pinBottomBar: true }));
     expect(useAppStore.getState().pinBottomBar).toBe(true);
+  });
+
+  it('hydrate 时 ui 无 pinBottomBar 字段 → 回退默认 false', () => {
+    useAppStore.setState({ pinBottomBar: true }); // 先置脏
+    useAppStore.getState().hydrate(persisted({ sidebarWidth: 200 }));
+    expect(useAppStore.getState().pinBottomBar).toBe(false);
   });
 });

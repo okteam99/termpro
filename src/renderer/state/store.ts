@@ -78,7 +78,7 @@ export interface PersistedState {
   ui?: {
     sidebarWidth?: number;
     filePanelWidth?: number;
-    /** 向上滚动时固定底部输入栏(默认开) */
+    /** 向上滚动时固定底部输入栏(默认关) */
     pinBottomBar?: boolean;
   };
 }
@@ -171,7 +171,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
   sidebarWidth: 240,
   filePanelWidth: 280,
-  pinBottomBar: true,
+  pinBottomBar: false,
 
   hydrate(persisted) {
     if (!persisted || persisted.version !== 1) {
@@ -182,7 +182,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         sidebarWidth: persisted.ui.sidebarWidth ?? 240,
         filePanelWidth: persisted.ui.filePanelWidth ?? 280,
-        pinBottomBar: persisted.ui.pinBottomBar ?? true,
+        pinBottomBar: persisted.ui.pinBottomBar ?? false,
       });
     }
     const workspaces: WorkspaceState[] = persisted.workspaces.map((w) => {
