@@ -57,6 +57,28 @@ const config: ForgeConfig = {
       ? 'com.okteam99.termpro.dev'
       : 'com.okteam99.termpro',
     icon: './assets/icon', // packager 自动按平台补 .icns/.ico
+    // Markdown 文件关联:Finder「打开方式」推荐 TermPro(Alternate = 不抢默认,
+    // 仅进候选列表);双击 .md 由 main 的 open-file 事件路由到查看器窗口。
+    // 仅对打包后的 .app 生效(Launch Services 扫描 bundle);dev 模式不注册。
+    extendInfo: {
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: 'Markdown Document',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          CFBundleTypeExtensions: [
+            'md',
+            'markdown',
+            'mdown',
+            'mkd',
+            'mdwn',
+            'mkdn',
+            'markdn',
+          ],
+          LSItemContentTypes: ['net.daringfireball.markdown', 'public.markdown'],
+        },
+      ],
+    },
     ...(signingIdentity
       ? {
           osxSign: { identity: signingIdentity },

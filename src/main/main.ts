@@ -60,6 +60,17 @@ let mainWin: BrowserWindow | null = null;
 let fileWin: BrowserWindow | null = null;
 let diffWin: BrowserWindow | null = null;
 
+// .md 文件关联:双击 md / 「打开方式」选 TermPro → 查看器窗口打开。
+// macOS 冷启动时 open-file 可能早于 ready,先入队,ready 后统一打开(openFileWindow
+// 为函数声明,已提升,此处引用安全)。
+let appIsReady = false;
+const pendingOpenPaths: string[] = [];
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (appIsReady) openFileWindow(filePath, 'file');
+  else pendingOpenPaths.push(filePath);
+});
+
 const exitConfirmation = createExitConfirmationCoordinator({
   shouldBypass: () => shouldBypassExitConfirmation(),
   showMessageBox(parent, options) {
@@ -491,6 +502,9 @@ app.on('ready', () => {
   }
   buildMenu();
   createWindow();
+  // 冲刷启动前(open-file 早于 ready)入队的待打开文件
+  appIsReady = true;
+  for (const p of pendingOpenPaths.splice(0)) openFileWindow(p, 'file');
 });
 
 app.on('window-all-closed', () => {
