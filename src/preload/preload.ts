@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseVersionArg } from './parseVersionArg';
 
 // 壳层 API:仅暴露与「本地 OS / 窗口」相关的能力。
@@ -99,6 +99,14 @@ contextBridge.exposeInMainWorld('termpro', {
   },
   focusWindow(): void {
     ipcRenderer.send('window:focus-self');
+  },
+  /** 取拖入 File 的真实磁盘路径(Electron webUtils;file.path 已废弃) */
+  getPathForFile(file: File): string {
+    return webUtils.getPathForFile(file);
+  },
+  /** 发起原生拖出:把本地文件/目录拖到 Finder 等(OS 默认=复制) */
+  startFileDrag(path: string): void {
+    ipcRenderer.send('file:start-drag', path);
   },
 });
 

@@ -97,6 +97,17 @@ export interface RpcMethods {
     result: { base64: string | null; size: number };
   };
   'fs.writeFile': { params: { path: string; content: string }; result: undefined };
+  /** 把 src 移动进 destDir(拖拽内部移动);重名自动加后缀不覆盖;原地移动忽略;
+   *  禁止把目录移进自身/子孙。返回最终目标绝对路径。 */
+  'fs.move': {
+    params: { src: string; destDir: string };
+    result: { dst: string };
+  };
+  /** 把 src 复制进 destDir(外部拖入/复制);递归;重名自动加后缀;返回最终目标绝对路径。 */
+  'fs.copy': {
+    params: { src: string; destDir: string };
+    result: { dst: string };
+  };
   /** 读 ref 下的文件内容(不存在/二进制 → null) */
   'git.show': {
     params: { toplevel: string; ref: string; path: string };

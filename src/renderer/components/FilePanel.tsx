@@ -14,6 +14,13 @@ interface TreeNode {
   depth: number;
 }
 
+// 面板内拖拽的源路径:dragstart 记下(此时用原生 startDrag 接管,拖出到 Finder
+// 也走这里)。drop 时若落回面板,据此判定「内部移动」;外部拖入无此记录 → 复制。
+// ts:新鲜度戳。dragstart 用原生拖拽接管后 HTML5 dragend 不一定触发,靠 drop 清、
+// onDragEnd 清、以及新鲜度窗口三重兜底,杜绝陈旧源被误判为内部移动。单例面板,模块级即可。
+const DRAG_FRESH_MS = 15_000;
+const dragState: { path: string | null; ts: number } = { path: null, ts: 0 };
+
 /** 行级动作:文件夹图标 11×11 */
 function FolderIcon() {
   return (
@@ -261,6 +268,40 @@ export function FilePanel() {
     toggleDir(path);
   }, [clearLocateHighlight, toggleDir]);
 
+  // 落点统一处理:内部拖动(源路径 = 本次 dragstart 记录)→ 移动;外部拖入 → 复制。
+  // 原生同窗口拖放个别情况下 dataTransfer.files 为空,用 dragState 兜底走移动。
+  const performDrop = useCallback(
+    async (destDir: string, dt: DataTransfer) => {
+      // 仅新鲜的本次 dragstart 才算内部拖动;陈旧值一律当外部(复制),最坏「该移变复制」不丢数据
+      const internal =
+        dragState.path && Date.now() - dragState.ts < DRAG_FRESH_MS
+          ? dragState.path
+          : null;
+      dragState.path = null;
+      const dropped: string[] = [];
+      for (const f of Array.from(dt.files)) {
+        const p = window.termpro.getPathForFile(f);
+        if (p) dropped.push(p);
+      }
+      const ops: { src: string; move: boolean }[] = dropped.length
+        ? dropped.map((p) => ({ src: p, move: p === internal }))
+        : internal
+          ? [{ src: internal, move: true }]
+          : [];
+      let changed = false;
+      for (const { src, move } of ops) {
+        try {
+          await hostClient.rpc(move ? 'fs.move' : 'fs.copy', { src, destDir });
+          changed = true;
+        } catch (err) {
+          console.error('[filepanel] drop failed', src, '→', destDir, err);
+        }
+      }
+      if (changed) refresh();
+    },
+    [refresh],
+  );
+
   if (!workspace) {
     return (
       <div className="file-panel">
@@ -394,8 +435,34 @@ export function FilePanel() {
 
       <div className="file-panel__divider" />
 
-      {/* File tree */}
-      <div className="file-panel__tree">
+      {/* File tree.根落点:拖到空白/文件行(冒泡至此)→ 放进 effectiveRoot。
+          目录行自身停冒泡,单独作为目标。 */}
+      <div
+        className="file-panel__tree"
+        onDragOver={
+          effectiveRoot
+            ? (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = dragState.path ? 'move' : 'copy';
+                e.currentTarget.classList.add('file-panel__tree--drop-target');
+              }
+            : undefined
+        }
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            e.currentTarget.classList.remove('file-panel__tree--drop-target');
+          }
+        }}
+        onDrop={
+          effectiveRoot
+            ? (e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove('file-panel__tree--drop-target');
+                void performDrop(effectiveRoot, e.dataTransfer);
+              }
+            : undefined
+        }
+      >
         {rows.map((node) => {
           const isDir = node.entry.kind === 'dir';
           const isErr = node.entry.name === '(unreadable)';
@@ -429,6 +496,49 @@ export function FilePanel() {
               }}
               className={rowClass}
               style={{ paddingLeft }}
+              draggable={!isErr}
+              onDragStart={
+                isErr
+                  ? undefined
+                  : (e) => {
+                      dragState.path = node.absPath;
+                      dragState.ts = Date.now();
+                      // 交给原生 startDrag:可拖到 Finder(复制),落回面板则据
+                      // dragState 判为内部移动。preventDefault 取消 HTML5 拖拽。
+                      e.preventDefault();
+                      window.termpro.startFileDrag(node.absPath);
+                    }
+              }
+              onDragEnd={isErr ? undefined : () => { dragState.path = null; }}
+              onDragOver={
+                isDir && !isErr
+                  ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation(); // 本目录即目标,别再冒泡到根
+                      e.dataTransfer.dropEffect = dragState.path ? 'move' : 'copy';
+                      e.currentTarget.classList.add('file-panel__row--drop-target');
+                    }
+                  : undefined
+              }
+              onDragLeave={
+                isDir && !isErr
+                  ? (e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                        e.currentTarget.classList.remove('file-panel__row--drop-target');
+                      }
+                    }
+                  : undefined
+              }
+              onDrop={
+                isDir && !isErr
+                  ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.currentTarget.classList.remove('file-panel__row--drop-target');
+                      void performDrop(node.absPath, e.dataTransfer);
+                    }
+                  : undefined
+              }
               onClick={
                 isErr
                   ? undefined

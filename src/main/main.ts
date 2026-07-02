@@ -5,6 +5,7 @@ import {
   MessageChannelMain,
   dialog,
   ipcMain,
+  nativeImage,
   utilityProcess,
   clipboard,
   shell,
@@ -165,6 +166,27 @@ ipcMain.on('shell:open-in-browser', (_event, p: string) => {
   if (typeof p === 'string' && path.isAbsolute(p) && /\.html?$/i.test(p)) {
     void shell.openExternal(pathToFileURL(p).href);
   }
+});
+
+// 原生拖出:文件面板把本地文件/目录拖到 Finder 等(OS 默认=复制)。
+// startDrag 要求非空 icon 且须在拖拽手势期间同步调用,故用缓存图标。
+let cachedDragIcon: Electron.NativeImage | null = null;
+function dragIcon(): Electron.NativeImage {
+  if (cachedDragIcon) return cachedDragIcon;
+  const img = nativeImage.createFromPath(
+    path.join(__dirname, '../../assets/icon.png'),
+  );
+  cachedDragIcon = img.isEmpty()
+    ? // 兜底 1x1 透明像素(打包后相对路径可能取不到 icon;startDrag 不接受空 icon)
+      nativeImage.createFromDataURL(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      )
+    : img.resize({ width: 32, height: 32 });
+  return cachedDragIcon;
+}
+ipcMain.on('file:start-drag', (event, p: string) => {
+  if (typeof p !== 'string' || !path.isAbsolute(p)) return;
+  event.sender.startDrag({ file: p, icon: dragIcon() });
 });
 
 // 剪贴板:沙箱 preload 里 clipboard 模块不可用,必须经 main

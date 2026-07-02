@@ -43,6 +43,10 @@ declare global {
       onViewerAddTab(
         callback: (tab: { path: string; kind: 'file' | 'dir' }) => void,
       ): () => void;
+      /** 取拖入 File 的真实磁盘路径(Electron webUtils) */
+      getPathForFile(file: File): string;
+      /** 发起原生拖出(把本地文件/目录拖到 Finder 等) */
+      startFileDrag(path: string): void;
     };
   }
 }

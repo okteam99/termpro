@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { DirEntry } from '../shared/protocol';
 
 const SYMLINK_STAT_TIMEOUT_MS = 100;
@@ -123,4 +123,86 @@ export async function writeTextFile(
   const stat = await fs.stat(path);
   if (!stat.isFile()) throw new Error('not a regular file');
   await fs.writeFile(path, content, 'utf8');
+}
+
+// ---- 拖拽:移动 / 复制 --------------------------------------------------
+
+/** 路径是否存在(含断链符号链接,故用 lstat) */
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.lstat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 目标目录内不冲突的绝对路径:重名时仿 Finder 加「 (2)」「 (3)」后缀 */
+async function uniqueDest(destDir: string, name: string): Promise<string> {
+  if (!(await pathExists(join(destDir, name)))) return join(destDir, name);
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name; // 开头的点(隐藏文件)不算扩展名
+  const ext = dot > 0 ? name.slice(dot) : '';
+  for (let i = 2; ; i++) {
+    const cand = join(destDir, `${stem} (${i})${ext}`);
+    if (!(await pathExists(cand))) return cand;
+  }
+}
+
+/** 禁止把目录移动/复制进自身或其子孙(否则递归自噬)。
+ *  大小写不敏感比较(macOS APFS 默认),词法层拦住常见误操作;内核层另有兜底。 */
+function guardDescendant(src: string, destDir: string): void {
+  const s = resolve(src).toLowerCase();
+  const d = resolve(destDir).toLowerCase();
+  if (d === s || d.startsWith(s + sep)) {
+    throw new Error('cannot move/copy a folder into itself');
+  }
+}
+
+/** 把 src 移动进 destDir。原地移动忽略;跨设备回退 copy+删;返回最终目标路径。 */
+export async function moveInto(
+  src: string,
+  destDir: string,
+): Promise<{ dst: string }> {
+  guardDescendant(src, destDir);
+  // 原地(目标目录就是当前所在目录)→ 无操作,避免被 uniqueDest 误改名
+  if (resolve(dirname(src)) === resolve(destDir)) return { dst: src };
+  const dst = await uniqueDest(destDir, basename(src));
+  try {
+    await fs.rename(src, dst);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+      // 跨卷:先完整复制,**校验目标确实落地**再删源。cp 抛错则不到这步、源保留;
+      // 校验失败(目标缺失)也抛错保留源 —— 杜绝「cp 静默不全就删源」的数据丢失。
+      await fs.cp(src, dst, { recursive: true });
+      await fs.lstat(dst);
+      await fs.rm(src, { recursive: true, force: true });
+    } else {
+      throw err;
+    }
+  }
+  return { dst };
+}
+
+/** 把 src 复制进 destDir(递归);返回最终目标路径。重名竞态则重算目标重试。 */
+export async function copyInto(
+  src: string,
+  destDir: string,
+): Promise<{ dst: string }> {
+  guardDescendant(src, destDir);
+  const name = basename(src);
+  for (let attempt = 0; ; attempt++) {
+    const dst = await uniqueDest(destDir, name);
+    try {
+      // errorOnExist:uniqueDest 与写入之间被并发抢占同名 → 抛错重算(不覆盖别人)
+      await fs.cp(src, dst, { recursive: true, force: false, errorOnExist: true });
+      return { dst };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if ((code === 'ERR_FS_CP_EEXIST' || code === 'EEXIST') && attempt < 5) {
+        continue;
+      }
+      throw err;
+    }
+  }
 }

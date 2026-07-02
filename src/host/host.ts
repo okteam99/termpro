@@ -12,8 +12,10 @@ import {
 } from '../shared/protocol';
 import { PtyPool } from './ptyPool';
 import {
+  copyInto,
   homeDir,
   listDir,
+  moveInto,
   readBinaryFile,
   readTextFile,
   realPath,
@@ -215,6 +217,16 @@ async function handleRpc(
       case 'fs.writeFile': {
         const p = msg.params as { path: string; content: string };
         await writeTextFile(p.path, p.content);
+        break;
+      }
+      case 'fs.move': {
+        const p = msg.params as { src: string; destDir: string };
+        result = await moveInto(p.src, p.destDir);
+        break;
+      }
+      case 'fs.copy': {
+        const p = msg.params as { src: string; destDir: string };
+        result = await copyInto(p.src, p.destDir);
         break;
       }
       case 'git.show': {
