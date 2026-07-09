@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "d6494c63a06ae881f5026dc701105ecfcd7ab9b9",
   "worktree": {
@@ -104,13 +104,19 @@
       "duration_minutes": 50
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-07-09T14:22:20Z",
-      "evidence": {},
-      "auto_commit": "ea5ddf3ed406bea7142c01132b6eeb50338815fe",
-      "artifacts": [],
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "auto_commit": "HEAD",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md"
+      ],
       "rounds": [
         {
           "round": 1,
@@ -130,52 +136,60 @@
         },
         {
           "round": 2,
-          "review_commit": null,
+          "review_commit": "HEAD",
           "fix_commit": null,
           "started_at": "2026-07-09T16:35:40Z",
-          "verdict": null
+          "verdict": "APPROVE",
+          "completed_at": "2026-07-09T16:45:48Z",
+          "new_findings_count": 1,
+          "carried_open_count": 0
         }
       ],
       "findings_ledger": [
         {
           "id": "F1",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "hydrate 期 workspace.list 失败被当『注册表为空』→ v2 视图态全量孤儿丢弃,可被后续写回永久固化",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F2",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "并发 mutation + 前序写失败回滚 → 入队时快照把被回滚条目落盘,内存/盘/广播分叉,重启复活",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F3",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "create 幂等为 insert-if-absent 非 upsert,partial 迁移 + v1 fallback 改名在重试后丢失",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F4",
           "severity": "MINOR",
-          "status": "open",
+          "status": "deferred",
           "title": "部分迁移非原子 + fallback 期删除 + 重试成功 → 已删 workspace 复活为默认视图",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F5",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "简洁性:整条 mutation 串行队列比『同步改内存+入队快照+逐 op 回滚』更简且天然规避 F2",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F6",
@@ -183,7 +197,8 @@
           "status": "deferred",
           "title": "AC-1 备份内容未被测试断言;appStore store:backup-v1 零覆盖",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F7",
@@ -191,7 +206,8 @@
           "status": "rejected",
           "title": "生产传输粘合层(host.ts dispatch/hostClient 路由)未进测试",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F8",
@@ -199,7 +215,8 @@
           "status": "deferred",
           "title": "迁移输入健壮性:畸形 v1 存档(非数组/单条坏条目)→ hydrate 崩溃或永卡 v1 无诊断",
           "source": "external",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F9",
@@ -207,7 +224,8 @@
           "status": "deferred",
           "title": "remove no-op/update 同值仍广播+写盘,与 TECH no-op 语义偏差(多余 churn)",
           "source": "external",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F10",
@@ -215,7 +233,8 @@
           "status": "deferred",
           "title": "service 边界 params 无运行时形状校验,M5 远程不可信输入面偏弱",
           "source": "external",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F11",
@@ -223,7 +242,8 @@
           "status": "deferred",
           "title": "viewer 窗口注册进广播 senders 但不消费 workspace:changed(无害冗余)",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F12",
@@ -231,15 +251,33 @@
           "status": "rejected",
           "title": "TDD 先后顺序不可从 git 验证(单 squash commit)",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
+        },
+        {
+          "id": "F13",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "F1 重试耗尽后提示仍停『正在重试…』与实际(已停止)不符,恢复需手动 ⌘R(修复 diff 引入 · NV-1)",
+          "source": "external",
+          "round_opened": 2
         }
-      ]
+      ],
+      "completed_at": "2026-07-09T16:45:48Z",
+      "duration_minutes": 143
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-07-09T16:45:48Z"
     }
   },
   "completed_stages": [
     "goal",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-07-09T09:38:45Z",
   "stage_review_roles": {
@@ -278,12 +316,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T16:35:40Z",
+  "updated_at": "2026-07-09T16:46:02Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:5a7048f4c80d1dfee8a458e57c87281133bbb956f78afd68e3aa2b248bd84e3d",
+  "_state_checksum": "sha256:1a9a9a4ebd6436e1b839f489c171f025086ccdef9c85fca915eafe6fed2cfd9e",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": false
