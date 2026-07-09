@@ -15,6 +15,7 @@ import {
   SystemWebLinkProvider,
 } from './terminalLinks';
 import { BottomBarPin } from './bottomBarPin';
+import { disposeWebglAddon } from './webglContextRelease';
 
 export interface TermCallbacks {
   onTitle?(processName: string): void;
@@ -215,7 +216,10 @@ export function disposeTerminal(tabId: string): void {
     });
   }
   inst.barPin.dispose();
-  inst.webgl?.dispose();
+  if (inst.webgl) {
+    disposeWebglAddon(inst.webgl);
+    inst.webgl = null;
+  }
   inst.term.dispose();
   registry.delete(tabId);
 }
