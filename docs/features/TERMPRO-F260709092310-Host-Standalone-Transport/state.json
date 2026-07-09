@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "c66b717d36c079cc347bdca4b00c9897e8a81ad8",
   "worktree": {
@@ -102,13 +102,19 @@
       "duration_minutes": 175
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-07-09T16:27:37Z",
-      "evidence": {},
-      "auto_commit": "e10fe00f919f9ff6d2494b46f3e2cc68a24817df",
-      "artifacts": [],
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "auto_commit": "HEAD",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md"
+      ],
       "rounds": [
         {
           "round": 1,
@@ -130,52 +136,60 @@
         },
         {
           "round": 2,
-          "review_commit": null,
+          "review_commit": "HEAD",
           "fix_commit": null,
           "started_at": "2026-07-09T16:59:35Z",
-          "verdict": null
+          "verdict": "APPROVE",
+          "completed_at": "2026-07-09T17:07:31Z",
+          "new_findings_count": 1,
+          "carried_open_count": 0
         }
       ],
       "findings_ledger": [
         {
           "id": "F1",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "fs.watch 集成测首事件预算 3000ms 满负载下不足(T-032/033/042/043)+ T-038 echo 5s 与同族 12s 不一致,偶发失败污染三绿门",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F2",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "AC-4/TC-F05 明列的 linux-arm64 产物在打包脚本与 CI 矩阵中完全缺失",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F3",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "token 空值 fail-open:file/fd/stdin 三通道 trim 后无非空断言,空白 token 源使端口闸恒通过(verifyToken('','')===true)",
           "source": "external",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F4",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "TC frontmatter test_refs 文件名失真(host-package-smoke.yml → 实际 host-package.yml)",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F5",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "WS RPC parity 20 方法测 18:git.show / git.changedFiles 未经 WS 往返",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F6",
@@ -183,7 +197,8 @@
           "status": "deferred",
           "title": "WS upgrade 无 Origin 校验(纵深加固;token 熵仍是真屏障)",
           "source": "external",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F7",
@@ -191,7 +206,8 @@
           "status": "deferred",
           "title": "认证失败告警越阈后每次失败重复 emit,坏 token 洪泛刷 WARN 日志(建议节流)",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F8",
@@ -199,7 +215,8 @@
           "status": "deferred",
           "title": "边界缺口组:恰好 32MiB 帧/逐字节慢速 host.info/pong 迟到非丢失/握手风暴",
           "source": "qa",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F9",
@@ -207,7 +224,8 @@
           "status": "deferred",
           "title": "token 运维面:generated token stdout 可能被日志采集落盘 + token-file TOCTOU/符号链接(归 BL-003 部署流程)",
           "source": "external",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F10",
@@ -215,7 +233,8 @@
           "status": "rejected",
           "title": "host.info-first 门控安全价值仅协议卫生(非鉴权边界)",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F11",
@@ -223,15 +242,33 @@
           "status": "deferred",
           "title": "门控实现细节组:非数字 id 边缘/done-flip 时序依赖/握手前分配 Client/双 connection 处理器/打包脚本探测面/连接数上限(→BL-003/005)",
           "source": "arch",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
+        },
+        {
+          "id": "F12",
+          "severity": "NIT",
+          "status": "deferred",
+          "title": "验证轮 info 组:poke 临时文件不清理/T-038 余量备注/startWsServer 入口纵深断言(无可达旁路)",
+          "source": "external",
+          "round_opened": 2
         }
-      ]
+      ],
+      "completed_at": "2026-07-09T17:07:31Z",
+      "duration_minutes": 39
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-07-09T17:07:31Z"
     }
   },
   "completed_stages": [
     "goal",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-07-09T09:38:53Z",
   "stage_review_roles": {
@@ -270,12 +307,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T16:59:35Z",
+  "updated_at": "2026-07-09T17:07:50Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:a0246159cb793a2a51ed8c86a6565e1ddcf7e67da8236e73854ba155daab05c1",
+  "_state_checksum": "sha256:857322daef948f44adb36f739d25b8407adf93cd888e7b69e97a7f0fe51f447a",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": false
