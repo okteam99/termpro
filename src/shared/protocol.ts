@@ -69,6 +69,16 @@ export interface WorktreeInfo {
   head: string;
 }
 
+/** Workspace 注册表记录(Host 单源:id/name/root)。协议 DTO + 推送快照元素。 */
+export interface WorkspaceEntry {
+  /** 稳定 id(幂等键 + UI 存档 v2 外键单源);create 省略时 Host 生成 */
+  id: string;
+  /** 展示名(Host 单源) */
+  name: string;
+  /** 绝对路径的 workspace 根目录 */
+  root: string;
+}
+
 // RPC 方法签名表:新增方法在这里登记,两端自动获得类型。
 export interface RpcMethods {
   'host.info': { params: undefined; result: HostInfo };
@@ -124,6 +134,21 @@ export interface RpcMethods {
     params: { toplevel: string; baseRef?: string };
     result: { entries: GitStatusEntry[]; mergeBase: string | null };
   };
+  // ---- Workspace 注册表(驻留 Host,模型 A 地基)----
+  /** 列出机器全部 workspace(注册表全量,顺序=插入序,排序是 UI 视图态职责) */
+  'workspace.list': { params: undefined; result: { workspaces: WorkspaceEntry[] } };
+  /** 新建/迁移写入;幂等:id 已存在→返回既有(不重复插入)。省略 id 时 Host 生成 */
+  'workspace.create': {
+    params: { id?: string; name: string; root: string };
+    result: WorkspaceEntry;
+  };
+  /** 删除;幂等:不存在→no-op success */
+  'workspace.remove': { params: { id: string }; result: undefined };
+  /** 改名/改根;不存在→抛错;同值→no-op。返回更新后记录 */
+  'workspace.update': {
+    params: { id: string; name?: string; root?: string };
+    result: WorkspaceEntry;
+  };
 }
 
 export type RpcMethodName = keyof RpcMethods;
@@ -152,4 +177,6 @@ export type HostMessage =
   | { t: 'pty:exit'; sessionId: string; exitCode: number }
   | { t: 'pty:title'; sessionId: string; processName: string }
   | { t: 'session:event'; sessionId: string; event: SessionEvent }
-  | { t: 'fs:changed'; watchId: number };
+  | { t: 'fs:changed'; watchId: number }
+  // 注册表变更后向全部客户端广播全量快照(非增量);收端按 id 协调本地视图态
+  | { t: 'workspace:changed'; workspaces: WorkspaceEntry[] };

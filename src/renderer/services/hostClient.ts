@@ -12,6 +12,7 @@ import {
   RpcMethodName,
   RpcMethods,
   SessionEvent,
+  WorkspaceEntry,
 } from '../../shared/protocol';
 import {
   checkHostInfoCompatible,
@@ -87,14 +88,18 @@ export class HostClient {
   private sessionListeners = new Set<
     (sessionId: string, event: SessionEvent) => void
   >();
+  private workspaceListeners = new Set<(workspaces: WorkspaceEntry[]) => void>();
 
   info: HostInfo | null = null;
 
   constructor() {
-    // main 广播 host 进程退出 → 拒绝所有挂起调用,通知 UI
-    window.addEventListener('message', (e: MessageEvent) => {
-      if (e.data?.t === 'host:down') this.markDown();
-    });
+    // main 广播 host 进程退出 → 拒绝所有挂起调用,通知 UI。
+    // 守卫 window 缺失(node 环境单测导入 store→hostClient 时不崩)。
+    if (typeof window !== 'undefined') {
+      window.addEventListener('message', (e: MessageEvent) => {
+        if (e.data?.t === 'host:down') this.markDown();
+      });
+    }
   }
 
   /** 订阅 host 进程退出事件,返回退订函数 */
@@ -120,6 +125,14 @@ export class HostClient {
     this.sessionListeners.add(cb);
     return () => {
       this.sessionListeners.delete(cb);
+    };
+  }
+
+  /** 订阅注册表变更(全量快照),返回退订函数 */
+  onWorkspaceChanged(cb: (workspaces: WorkspaceEntry[]) => void): () => void {
+    this.workspaceListeners.add(cb);
+    return () => {
+      this.workspaceListeners.delete(cb);
     };
   }
 
@@ -308,6 +321,9 @@ export class HostClient {
         break;
       case 'session:event':
         this.sessionListeners.forEach((cb) => cb(msg.sessionId, msg.event));
+        break;
+      case 'workspace:changed':
+        this.workspaceListeners.forEach((cb) => cb(msg.workspaces));
         break;
     }
   }

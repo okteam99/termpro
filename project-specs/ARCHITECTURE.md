@@ -28,6 +28,7 @@ graph TD
     proc["前台进程名轮询（pty.process）"]
     shellIntegration["shell 集成注入（ZDOTDIR · zsh）"]
     watchService["fs watch 服务（chokidar）"]
+    workspaceService["Workspace 注册表（workspaces.json 持久化 · 变更全量广播）"]
   end
 
   main -->|utilityProcess.fork| Host
@@ -110,6 +111,6 @@ src/
 |------|----------|
 | `src/main` | Electron 壳：窗口/菜单/utilityProcess 拉起 host/布局存档/更新检查 |
 | `src/preload` | contextBridge 壳层 API + host MessagePort 转移 |
-| `src/host` | 纯 Node Host 进程：PTY 池/流控/fs/git/状态机/watch，零 Electron import，远程就绪 |
+| `src/host` | 纯 Node Host 进程：PTY 池/流控/fs/git/状态机/watch/Workspace 注册表（机器级持久化+广播），零 Electron import，远程就绪 |
 | `src/shared` | HostService 协议唯一真相源（消息类型 + 流控常量 + 协议版本） |
 | `src/renderer` | React UI：store / components / filepanel / monaco / terminal |

@@ -3,6 +3,7 @@
 // standalone WebSocket)都把自己包装成 PortLike 后调 attachClient 复用本模块全部逻辑。
 
 import os from 'node:os';
+import path from 'node:path';
 import {
   ClientMessage,
   HostMessage,
@@ -11,6 +12,7 @@ import {
   RpcMethods,
   SpawnOptions,
 } from '../shared/protocol';
+import { WorkspaceService } from './workspaceService';
 import { PtyPool } from './ptyPool';
 import {
   copyInto,
@@ -70,6 +72,16 @@ export function createHostCore(): HostCore {
   const clients = new Map<number, Client>();
   let clientSeq = 0;
 
+  // Workspace 注册表:数据目录经壳层(main)注入 env,不调 app.getPath(零 Electron)。
+  // 未注入时兜底到 homedir 下的隐藏目录(dev/edge;正常 local 由 main 注入 userData)。
+  const hostDataDir =
+    process.env.TERMPRO_HOST_DATA_DIR || path.join(os.homedir(), '.termpro-host');
+  const workspaces = new WorkspaceService(hostDataDir);
+  // 启动即预读注册表进内存(RPC 到达前完成;handle 内亦 await load 幂等兜底)
+  void workspaces.load().catch((err) =>
+    console.error('[host] registry initial load failed:', err),
+  );
+
   function attachClient(port: PortLike): void {
     const id = ++clientSeq;
     const send = (msg: HostMessage) => port.postMessage(msg);
@@ -80,12 +92,14 @@ export function createHostCore(): HostCore {
       sessions: new Set(),
     };
     clients.set(id, client);
+    // 注册到 workspace 服务:注册表变更广播会推给该客户端
+    workspaces.addClient(id, send);
 
     port.on('message', (e) => {
       const msg = e.data as ClientMessage;
       switch (msg.t) {
         case 'rpc:req':
-          void handleRpc(msg, send, client, pool);
+          void handleRpc(msg, send, client, pool, workspaces);
           break;
         // PTY 控制消息只接受会话归属方(sessionId 不当 capability 用;
         // 多连接下的防御纵深)
@@ -111,6 +125,7 @@ export function createHostCore(): HostCore {
     port.on('close', () => {
       for (const sid of client.sessions) pool.kill(sid);
       client.watches.dispose();
+      workspaces.removeClient(id);
       clients.delete(id);
       console.log(
         '[host] client %d detached (sessions cleaned: %d, clients left: %d)',
@@ -132,6 +147,7 @@ async function handleRpc(
   send: (m: HostMessage) => void,
   client: Client,
   pool: PtyPool,
+  workspaces: WorkspaceService,
 ): Promise<void> {
   try {
     let result: unknown;
@@ -237,6 +253,13 @@ async function handleRpc(
         result = await gitChangedFiles(p.toplevel, p.baseRef);
         break;
       }
+      case 'workspace.list':
+      case 'workspace.create':
+      case 'workspace.remove':
+      case 'workspace.update':
+        // 服务内部:mutate 注册表 → 落盘 → 向全部客户端广播 workspace:changed
+        result = await workspaces.handle(msg.method, msg.params);
+        break;
       default:
         throw new Error(`unknown rpc method: ${String(msg.method)}`);
     }

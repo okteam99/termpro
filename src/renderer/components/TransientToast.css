@@ -1,0 +1,19 @@
+/* 一次性轻量提示:顶部居中横幅,复用既有通知视觉 token,不引入新设计语言 */
+.transient-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: 480px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #fff;
+  background: var(--bg-active, #2a2f37);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}

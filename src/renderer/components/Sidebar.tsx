@@ -123,9 +123,10 @@ export function Sidebar() {
   const addWorkspace = useAppStore((s) => s.addWorkspace);
   const removeWorkspace = useAppStore((s) => s.removeWorkspace);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const updateWorkspace = useAppStore((s) => s.updateWorkspace);
+  const renameWorkspace = useAppStore((s) => s.renameWorkspace);
   const moveWorkspace = useAppStore((s) => s.moveWorkspace);
   const notifications = useAppStore((s) => s.notifications);
+  const creatingWorkspace = useAppStore((s) => s.creatingWorkspace);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
@@ -142,14 +143,16 @@ export function Sidebar() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   async function handleAdd() {
+    // 等待期防重复提交:in-flight 时忽略(store 亦有 guard 兜底)
+    if (creatingWorkspace) return;
     const path = await window.termpro.pickDirectory();
-    if (path) addWorkspace(path);
+    if (path) await addWorkspace(path);
   }
 
   function handleRemove(e: React.MouseEvent, id: string, name: string) {
     e.stopPropagation();
     if (window.confirm(`Remove workspace "${name}"? Terminal sessions will be closed.`)) {
-      removeWorkspace(id);
+      void removeWorkspace(id);
     }
   }
 
@@ -159,7 +162,7 @@ export function Sidebar() {
   }
 
   function handleModalSave(id: string, name: string) {
-    updateWorkspace(id, { name });
+    void renameWorkspace(id, name);
   }
 
   function handleModalClose() {
@@ -233,6 +236,7 @@ export function Sidebar() {
           className="sidebar-add-btn"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onClick={handleAdd}
+          disabled={creatingWorkspace}
           title="Add workspace"
         >
           +
@@ -247,7 +251,11 @@ export function Sidebar() {
         {workspaces.length === 0 ? (
           <div className="sidebar-empty">
             <span className="sidebar-empty-text">No workspaces</span>
-            <button className="sidebar-add-ws-btn" onClick={handleAdd}>
+            <button
+              className="sidebar-add-ws-btn"
+              onClick={handleAdd}
+              disabled={creatingWorkspace}
+            >
               Add Workspace
             </button>
           </div>

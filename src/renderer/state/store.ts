@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { disposeTerminal } from '../terminal/terminalRegistry';
+import { hostClient } from '../services/hostClient';
 import { basename } from './pathLabel';
+import { reconcileWorkspaces } from './workspaceSync';
+import type { WorkspaceEntry } from '../../shared/protocol';
 
 export { basename, tildify, tabPathLabel } from './pathLabel';
 
@@ -63,7 +66,8 @@ export interface PersistedTab {
   filePanel?: TabFilePanelState;
 }
 
-export interface PersistedWorkspace {
+/** v1 存档 workspace(迁移前 / 迁移失败 fallback):自带 name/root */
+export interface PersistedWorkspaceV1 {
   id: string;
   name: string;
   root: string;
@@ -71,31 +75,76 @@ export interface PersistedWorkspace {
   tabs: PersistedTab[];
 }
 
-export interface PersistedState {
+/** v2 存档 workspace(已迁移):去 name/root,只留 workspaceId 外键 + 视图态 */
+export interface PersistedWorkspaceV2 {
+  /** 外键 → WorkspaceEntry.id(name/root 单源 = Host 注册表) */
+  workspaceId: string;
+  activeTabId: string | null;
+  tabs: PersistedTab[];
+}
+
+interface PersistedUi {
+  sidebarWidth?: number;
+  filePanelWidth?: number;
+  /** 向上滚动时固定底部输入栏(默认关) */
+  pinBottomBar?: boolean;
+}
+
+/** v1 存档(version:1):未迁移或迁移失败 fallback 的全功能形态 */
+export interface PersistedStateV1 {
   version: 1;
   activeWorkspaceId: string | null;
-  workspaces: PersistedWorkspace[];
-  ui?: {
-    sidebarWidth?: number;
-    filePanelWidth?: number;
-    /** 向上滚动时固定底部输入栏(默认关) */
-    pinBottomBar?: boolean;
-  };
+  workspaces: PersistedWorkspaceV1[];
+  /** 跨启动累计迁移失败次数(AC-4;version=1 的失败落点) */
+  migrationFailureCount?: number;
+  ui?: PersistedUi;
 }
+
+/** v2 存档(version:2):已迁移,workspace 去 name/root 只留外键 */
+export interface PersistedStateV2 {
+  version: 2;
+  activeWorkspaceId: string | null;
+  workspaces: PersistedWorkspaceV2[];
+  migrationFailureCount?: number;
+  ui?: PersistedUi;
+}
+
+export type PersistedState = PersistedStateV1 | PersistedStateV2;
 
 export interface AppState {
   workspaces: WorkspaceState[];
   activeWorkspaceId: string | null;
   /** 存档已加载(或确认无存档),UI 渲染与持久化订阅以此为门 */
   hydrated: boolean;
-  hydrate(persisted: PersistedState | null): void;
-  addWorkspace(root: string): void;
-  removeWorkspace(id: string): void;
+  /** persistence 模式:v2=已迁移(CRUD 走 Host RPC、serialize 去 name/root) /
+   *  v1=迁移失败 fallback(CRUD 本地全功能、serialize 保留 name/root)。迁移标记单源。 */
+  persistMode: 'v1' | 'v2';
+  /** 跨启动累计迁移失败次数(随存档持久化) */
+  migrationFailureCount: number;
+  /** 非 tab 级一次性轻量提示(null=不显示);TransientToast 消费,无历史/无导航 */
+  transientNotice: string | null;
+  /** create RPC 在途 → 等待期防重复提交(AC-2) */
+  creatingWorkspace: boolean;
+  /** remove/rename RPC 在途的 workspace id → 等待期防重复提交(AC-2) */
+  pendingWorkspaceIds: string[];
+  /** hydrate:注册表(name/root 单源)+ 存档(视图态/迁移标记)合并 */
+  hydrate(registry: WorkspaceEntry[], archive: PersistedState | null): void;
+  /** 新增:v2=等待 workspace.create 确认后入列并激活(新建即选中);v1=本地同步全功能 */
+  addWorkspace(root: string): Promise<void>;
+  /** 删除:v2=等待 workspace.remove 确认后本地回收;v1=本地同步 */
+  removeWorkspace(id: string): Promise<void>;
+  /** 改名:v2=等待 workspace.update 确认后同步;v1=本地同步 */
+  renameWorkspace(id: string, name: string): Promise<void>;
   setActiveWorkspace(id: string): void;
+  /** 运行时字段本地更新(branch 等,不入注册表;v1 模式的 name 亦经此本地写) */
   updateWorkspace(
     id: string,
     patch: Partial<Pick<WorkspaceState, 'name' | 'branch'>>,
   ): void;
+  /** 收到 workspace:changed 全量快照 → 按 id 协调本地视图态(仅 v2 模式生效) */
+  applyWorkspaceSnapshot(snapshot: WorkspaceEntry[]): void;
+  /** 设置/清除一次性提示 */
+  setTransientNotice(text: string | null): void;
   /** 拖拽排序:把工作区移到目标下标(越界自动夹紧) */
   moveWorkspace(id: string, toIndex: number): void;
   addTab(workspaceId: string, cwd?: string): void;
@@ -130,6 +179,46 @@ export interface AppState {
 
 function makeTab(cwd: string): TabState {
   return { id: crypto.randomUUID(), title: basename(cwd), cwd };
+}
+
+function hydrateTab(t: PersistedTab): TabState {
+  return {
+    id: t.id,
+    title: basename(t.cwd),
+    cwd: t.cwd,
+    customName: t.customName,
+    filePanel: t.filePanel,
+  };
+}
+
+function resolveActiveTab(
+  tabs: TabState[],
+  activeTabId: string | null,
+): string | null {
+  return tabs.find((t) => t.id === activeTabId)?.id ?? tabs[0]?.id ?? null;
+}
+
+function resolveActiveWs(
+  workspaces: WorkspaceState[],
+  activeWorkspaceId: string | null,
+): string | null {
+  return (
+    workspaces.find((w) => w.id === activeWorkspaceId)?.id ??
+    workspaces[0]?.id ??
+    null
+  );
+}
+
+/** 由注册表记录合成默认单 tab 视图(新建 / 快照新增 / 注册表有存档无) */
+function buildDefaultWorkspace(entry: WorkspaceEntry): WorkspaceState {
+  const tab = makeTab(entry.root);
+  return {
+    id: entry.id,
+    name: entry.name,
+    root: entry.root,
+    tabs: [tab],
+    activeTabId: tab.id,
+  };
 }
 
 /**
@@ -169,77 +258,192 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
   hydrated: false,
+  persistMode: 'v2',
+  migrationFailureCount: 0,
+  transientNotice: null,
+  creatingWorkspace: false,
+  pendingWorkspaceIds: [],
   sidebarWidth: 240,
   filePanelWidth: 280,
   pinBottomBar: false,
 
-  hydrate(persisted) {
-    if (!persisted || persisted.version !== 1) {
-      set({ hydrated: true });
-      return;
-    }
-    if (persisted.ui) {
+  hydrate(registry, archive) {
+    // ui 恢复(两种模式都读)
+    if (archive?.ui) {
       set({
-        sidebarWidth: persisted.ui.sidebarWidth ?? 240,
-        filePanelWidth: persisted.ui.filePanelWidth ?? 280,
-        pinBottomBar: persisted.ui.pinBottomBar ?? false,
+        sidebarWidth: archive.ui.sidebarWidth ?? 240,
+        filePanelWidth: archive.ui.filePanelWidth ?? 280,
+        pinBottomBar: archive.ui.pinBottomBar ?? false,
       });
     }
-    const workspaces: WorkspaceState[] = persisted.workspaces.map((w) => {
-      const tabs: TabState[] = w.tabs.map((t) => ({
-        id: t.id,
-        title: basename(t.cwd),
-        cwd: t.cwd,
-        customName: t.customName,
-        filePanel: t.filePanel,
-      }));
-      return {
-        id: w.id,
-        name: w.name,
-        root: w.root,
-        tabs,
-        activeTabId:
-          tabs.find((t) => t.id === w.activeTabId)?.id ?? tabs[0]?.id ?? null,
-      };
-    });
+
+    // v1 fallback:从存档直接构建(自带 name/root),忽略注册表(全功能)
+    if (archive && archive.version === 1) {
+      const workspaces: WorkspaceState[] = archive.workspaces.map((w) => {
+        const tabs = w.tabs.map(hydrateTab);
+        return {
+          id: w.id,
+          name: w.name,
+          root: w.root,
+          tabs,
+          activeTabId: resolveActiveTab(tabs, w.activeTabId),
+        };
+      });
+      set({
+        workspaces,
+        activeWorkspaceId: resolveActiveWs(workspaces, archive.activeWorkspaceId),
+        persistMode: 'v1',
+        migrationFailureCount: archive.migrationFailureCount ?? 0,
+        hydrated: true,
+      });
+      return;
+    }
+
+    // v2(archive null 或 version==2):注册表(name/root)⋈ 存档 v2(视图态)按 workspaceId 外键
+    const v2 = archive && archive.version === 2 ? archive : null;
+    const regById = new Map(registry.map((e) => [e.id, e]));
+    const seen = new Set<string>();
+    const workspaces: WorkspaceState[] = [];
+    if (v2) {
+      for (const pw of v2.workspaces) {
+        const entry = regById.get(pw.workspaceId);
+        if (!entry) continue; // 孤儿外键 → 静默丢弃(AC-5)
+        seen.add(entry.id);
+        const tabs = pw.tabs.map(hydrateTab);
+        workspaces.push({
+          id: entry.id,
+          name: entry.name,
+          root: entry.root,
+          tabs,
+          activeTabId: resolveActiveTab(tabs, pw.activeTabId),
+        });
+      }
+    }
+    // 注册表有、存档未引用的 → 合成默认视图(追加末尾)
+    for (const entry of registry) {
+      if (seen.has(entry.id)) continue;
+      workspaces.push(buildDefaultWorkspace(entry));
+    }
     set({
       workspaces,
-      activeWorkspaceId:
-        workspaces.find((w) => w.id === persisted.activeWorkspaceId)?.id ??
-        workspaces[0]?.id ??
-        null,
+      activeWorkspaceId: resolveActiveWs(workspaces, v2?.activeWorkspaceId ?? null),
+      persistMode: 'v2',
+      migrationFailureCount: v2?.migrationFailureCount ?? 0,
       hydrated: true,
     });
   },
 
-  addWorkspace(root) {
-    const tab = makeTab(root);
-    const ws: WorkspaceState = {
-      id: crypto.randomUUID(),
-      name: basename(root),
-      root,
-      tabs: [tab],
-      activeTabId: tab.id,
-    };
-    set((s) => ({
-      workspaces: [...s.workspaces, ws],
-      activeWorkspaceId: ws.id,
-    }));
+  async addWorkspace(root) {
+    // v1 全功能:本地同步(与迁移前行为一致)
+    if (get().persistMode === 'v1') {
+      const ws = buildDefaultWorkspace({ id: crypto.randomUUID(), name: basename(root), root });
+      set((s) => ({ workspaces: [...s.workspaces, ws], activeWorkspaceId: ws.id }));
+      return;
+    }
+    // v2:等待确认式 RPC + 防重复提交
+    if (get().creatingWorkspace) return;
+    set({ creatingWorkspace: true });
+    try {
+      const entry = await hostClient.rpc('workspace.create', {
+        name: basename(root),
+        root,
+      });
+      set((s) => {
+        const exists = s.workspaces.some((w) => w.id === entry.id);
+        const workspaces = exists
+          ? s.workspaces.map((w) =>
+              w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,
+            )
+          : [...s.workspaces, buildDefaultWorkspace(entry)];
+        return { workspaces, activeWorkspaceId: entry.id, creatingWorkspace: false };
+      });
+    } catch (err) {
+      console.warn('[renderer] workspace create failed:', err);
+      set({ creatingWorkspace: false, transientNotice: '新增 workspace 失败,请重试' });
+    }
   },
 
-  removeWorkspace(id) {
-    const ws = get().workspaces.find((w) => w.id === id);
-    ws?.tabs.forEach((t) => disposeTerminal(t.id));
-    set((s) => {
-      const workspaces = s.workspaces.filter((w) => w.id !== id);
-      return {
-        workspaces,
-        activeWorkspaceId:
-          s.activeWorkspaceId === id
-            ? (workspaces[0]?.id ?? null)
-            : s.activeWorkspaceId,
-      };
-    });
+  async removeWorkspace(id) {
+    const disposeAndRemove = () => {
+      const ws = get().workspaces.find((w) => w.id === id);
+      ws?.tabs.forEach((t) => disposeTerminal(t.id));
+      set((s) => {
+        const workspaces = s.workspaces.filter((w) => w.id !== id);
+        return {
+          workspaces,
+          activeWorkspaceId:
+            s.activeWorkspaceId === id
+              ? (workspaces[0]?.id ?? null)
+              : s.activeWorkspaceId,
+          pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
+        };
+      });
+    };
+
+    // v1 全功能:本地同步
+    if (get().persistMode === 'v1') {
+      disposeAndRemove();
+      return;
+    }
+    // v2:等待确认式 RPC + 防重复提交
+    if (get().pendingWorkspaceIds.includes(id)) return;
+    set((s) => ({ pendingWorkspaceIds: [...s.pendingWorkspaceIds, id] }));
+    try {
+      await hostClient.rpc('workspace.remove', { id });
+      // 成功才本地回收;回声 workspace:changed 再次协调为幂等 no-op
+      disposeAndRemove();
+    } catch (err) {
+      console.warn('[renderer] workspace remove failed:', err);
+      set((s) => ({
+        pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
+        transientNotice: '删除 workspace 失败,请重试',
+      }));
+    }
+  },
+
+  async renameWorkspace(id, name) {
+    // v1 全功能:本地同步
+    if (get().persistMode === 'v1') {
+      set((s) => ({
+        workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, name } : w)),
+      }));
+      return;
+    }
+    // v2:等待确认式 RPC + 防重复提交
+    if (get().pendingWorkspaceIds.includes(id)) return;
+    set((s) => ({ pendingWorkspaceIds: [...s.pendingWorkspaceIds, id] }));
+    try {
+      const entry = await hostClient.rpc('workspace.update', { id, name });
+      set((s) => ({
+        workspaces: s.workspaces.map((w) =>
+          w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,
+        ),
+        pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
+      }));
+    } catch (err) {
+      console.warn('[renderer] workspace rename failed:', err);
+      set((s) => ({
+        pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
+        transientNotice: '重命名 workspace 失败,请重试',
+      }));
+    }
+  },
+
+  applyWorkspaceSnapshot(snapshot) {
+    // v1 fallback 下 Host 无权威(单机 fallback 无第二客户端)→ 忽略广播
+    if (get().persistMode !== 'v2') return;
+    const s = get();
+    const { workspaces, activeWorkspaceId, disposedTabIds } = reconcileWorkspaces(
+      s.workspaces,
+      s.activeWorkspaceId,
+      snapshot,
+    );
+    disposedTabIds.forEach((tabId) => disposeTerminal(tabId));
+    set({ workspaces, activeWorkspaceId });
+  },
+
+  setTransientNotice(text) {
+    set({ transientNotice: text });
   },
 
   setActiveWorkspace(id) {
