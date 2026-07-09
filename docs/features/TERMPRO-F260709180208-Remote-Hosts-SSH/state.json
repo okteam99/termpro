@@ -1,0 +1,91 @@
+{
+  "feature_id": "TERMPRO-F260709180208-Remote-Hosts-SSH",
+  "bl": null,
+  "sub_project": "",
+  "flow_type": "Feature",
+  "artifact_root": "docs/features/TERMPRO-F260709180208-Remote-Hosts-SSH",
+  "host": "claude-code",
+  "host_history": [
+    {
+      "host": "claude-code",
+      "at": "2026-07-09T18:03:12Z",
+      "source": "init-feature"
+    }
+  ],
+  "current_stage": "goal",
+  "merge_target": "yolo/m5-remote-host",
+  "review_base_commit": null,
+  "worktree": {
+    "strategy": "auto",
+    "branch": "feature/termpro-f260709180208-remote-hosts-ssh",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/TERMPRO-F260709180208-Remote-Hosts-SSH",
+    "base_branch": "origin/yolo/m5-remote-host",
+    "created_at": "2026-07-09T18:03:12Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "feature/termpro-f260709180208-remote-hosts-ssh",
+    "merge_target": "yolo/m5-remote-host",
+    "base": "origin/yolo/m5-remote-host",
+    "executed_at": "2026-07-09T18:03:12Z"
+  },
+  "auto_mode": true,
+  "yolo": true,
+  "concerns": [
+    "2026-07-09T18:18:03Z WARN yolo auto 早问门代决:D-6 部署 bundle 运行时来源=应用 resources 内置全架构产物(ARCH-1 暴露·体积代价数 MB·C 选项 npm 手装保留为释放阀);D-7 token 交接=--token-stdin 注入+端口文件 O_EXCL 0600 回读(PENDING-003 用户已授权范围);PL-CHALLENGE-1 凭据语义按 remedy B 消解(保持用户预研门 D-2 拍板·落 ADR-001+同步上游 4 处台账措辞·不重开已确认决策)"
+  ],
+  "review_round": 0,
+  "stage_contracts": {
+    "goal": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-07-09T18:03:26Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-07-09T18:03:12Z",
+  "stage_review_roles": {
+    "goal": [
+      "qa",
+      "architect",
+      "pl"
+    ],
+    "ui_design": [
+      "designer",
+      "pm"
+    ],
+    "panorama_sync": [
+      "pm",
+      "architect"
+    ],
+    "blueprint": [
+      "qa",
+      "architect",
+      "external"
+    ],
+    "review": [
+      "architect",
+      "qa",
+      "external"
+    ],
+    "test": [
+      "qa"
+    ],
+    "browser_e2e": [
+      "qa",
+      "designer"
+    ],
+    "pm_acceptance": [
+      "pm"
+    ]
+  },
+  "stage_review_roles_adjustments": [],
+  "updated_at": "2026-07-09T18:18:03Z",
+  "updated_by": "add-concern",
+  "_state_checksum": "sha256:d41d3f0324958d0ab6d4601b616e0d0d624a45a8fa5e4df5c008b4089c7f05f8",
+  "legal_next_stages": [
+    "ui_design",
+    "blueprint"
+  ]
+}

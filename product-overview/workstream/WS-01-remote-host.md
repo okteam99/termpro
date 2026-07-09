@@ -35,7 +35,7 @@ features:
   - id: WS-01-S3
     target: TERMPRO
     bl: BL-003
-    scope: "远程机管理与 SSH 连接编排：远程机配置 CRUD（手动添加 + 最近使用）+ 凭据入系统钥匙串（SSH 密钥 / 密码，Q-003）；ssh 隧道建立 + 首次连接自动部署 host bundle（上传/启动/握手进度）+ 连接生命周期事件；Settings → Remote Hosts 管理 UI"
+    scope: "远程机管理与 SSH 连接编排：远程机配置 CRUD（手动添加 + 最近使用）+ 凭据入系统钥匙串（SSH 密钥 / 密码，Q-003 · 实现语义 safeStorage · BL-003 ADR-001）；ssh 隧道建立 + 首次连接自动部署 host bundle（上传/启动/握手进度）+ 连接生命周期事件；Settings → Remote Hosts 管理 UI"
     current_state: "全仓零 SSH 代码；main.ts 仅本地 utilityProcess 拉起 Host；全景页 /settings/remote-hosts 已用户确认（最近使用 + 手动添加 · 密钥/密码认证）"
     flow_type: feature
     dependencies: [WS-01-S2]
@@ -82,7 +82,7 @@ risks:
     severity: high
   - id: R2
     description: "密码认证无法纯靠系统 ssh 免交互完成（Q-003 引入密码登录）"
-    mitigation: "blueprint 阶段定方案：node ssh2 库 vs SSH_ASKPASS 注入；凭据仅建连瞬时从钥匙串取用，不落日志"
+    mitigation: "blueprint 阶段定方案：node ssh2 库 vs SSH_ASKPASS 注入；凭据仅建连瞬时解密取用（safeStorage · BL-003 ADR-001），不落日志"
     severity: medium
   - id: R3
     description: "『UI 断开会话存活』语义与本地现行为（端口关闭即回收会话）冲突"
@@ -107,7 +107,7 @@ risks:
 用户提出「配置 SSH 登录后，部分项目使用远程机开发」。规划讨论中用户拍板两个产品决策（详 product-overview 议题追踪）：
 
 - **Q-002 · 模型 A（远程机为中心）**：workspace 注册表驻留各机器的 Host 侧，UI 是可断开视图，连接机器即发现其全部 workspace 与活跃会话。动因：未来 mobile 客户端直连远程机即见全部内容，此模型更直接。
-- **Q-003 · 远程机自管**：不做 ~/.ssh/config 导入；远程机由 TermPro 管理（最近使用 + 手动添加），SSH 密钥或密码登录，密码凭据存系统钥匙串。
+- **Q-003 · 远程机自管**：不做 ~/.ssh/config 导入；远程机由 TermPro 管理（最近使用 + 手动添加），SSH 密钥或密码登录，密码凭据存系统钥匙串（实现语义 safeStorage · BL-003 ADR-001）。
 
 架构已按远程就绪设计（UI 零 fs/PTY/git 直连、Host 零 Electron import、协议传输无关），本 WS 兑现 M5 全部范围。
 
@@ -181,7 +181,7 @@ flowchart LR
 - **范围**：远程机管理与 SSH 连接编排。配置 CRUD（手动添加 + 最近使用）、凭据钥匙串（密钥/密码 · Q-003）、ssh 隧道、首次连接自动部署 host bundle（上传/启动/握手进度）、连接生命周期事件、Settings → Remote Hosts 管理 UI（全景 `settings-remote-hosts` 页）。
 - **flow_type**：feature
 - **依赖**：S2
-- **核心 AC**：① 添加一台远程机（密钥或密码）→ 测试连接可达 ② 首次连接自动部署并拉起远程 host，握手成功，进度可视 ③ 凭据仅存系统钥匙串，仓库/日志/配置文件零明文。
+- **核心 AC**：① 添加一台远程机（密钥或密码）→ 测试连接可达 ② 首次连接自动部署并拉起远程 host，握手成功，进度可视 ③ 凭据零明文——实现语义 = safeStorage（加密密钥在系统钥匙串·凭据密文落 userData·私钥仅路径引用不入库·BL-003 D-2/ADR-001 用户已确认），仓库/日志/配置文件零明文。
 
 ### WS-01-S4（→ TERMPRO ROADMAP · BL-004）
 - **范围**：机器分组 Sidebar + 添加项目流程（全景 `workspace-add-workspace` 页）。连接即发现该机 workspace 与会话徽标；添加项目 = 选择机器 → 本机系统对话框 / 远程目录浏览器 → 创建落对应 Host 注册表。
