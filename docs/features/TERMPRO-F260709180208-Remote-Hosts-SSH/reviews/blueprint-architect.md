@@ -141,3 +141,48 @@ TECH 的 grounding 纪律扎实：抽查约 30 处 line 引用（token.ts 四信
 ## 结论
 
 **NEEDS_REVISION**。ARCH-B1（认领回退闭环不可实现/livelock）+ ARCH-B2（兄弟进程误杀）是 PRD 指定 must-resolve（ARCH-11）里的真实架构缺口，须先修；建议以「main 侧认领验证 + configId 入 argv + 版本化 bundle 目录」一并收敛 ARCH-B1/B2/B4。B6（grounding 错误）、B7（R2-N2 CI 闭合）、B8（residency TC 覆盖）为 blueprint 交付前应补齐项。B3/B5/B9/B10 有界可改，B11 仅需 spike 实证。
+
+---
+
+## Round 2 Verify（architect · 2026-07-10）
+
+- verify_scope: 仅复核 ARCH-B1~B11 是否有效消解 + B1/B2 收敛有无残留竞态 + 是否引入新矛盾（不重开全面评审）
+- files_read: TECH.md（v0.2 全文 · SSH-1/SSH-4/SSH-5/实现步骤/风险/时序图）、TC.md（v0.2 全文 · tests[] T-001..039 + §2 决策表 + §4/§6）
+- **verdict: APPROVE**（残留 3 条 low/low-med · 全非阻塞 · dev 阶段处理）
+
+### 11 findings 逐条核销
+
+| finding | 状态 | 落点核验 |
+|---|---|---|
+| ARCH-B1 livelock | ✅ 消解 | 认领验证前移 main（SSH-4「认领验证前移 main」段 · probe.ok+hostTag+compatible 才 emit verifying；失败**同栈**走 step4 回收，无 renderer→main 信道）；错误处理表新增「认领探测失败→同栈转回收·不 emit failed·不 livelock」行；T-033 断言 probe 失败转 reap 而非再 claim |
+| ARCH-B2 兄弟误杀 | ✅ 消解 | `--host-tag <configId>` 显式 argv（SSH-4 启动命令 + host.ts 解析·仅自证不入闸）；端口文件加 `hostTag` 字段；reap 唯一放行 = cmdline 含【本 configId】`--host-tag`；T-034 断言 `kill` 从不出现于兄弟分支；T-038 断言 host-tag 不入端口闸 |
+| ARCH-B3 并发 connect | ✅ 消解 | orchestrator `private inflight = Map<string,Promise>`（SSH-1）+ 错误处理「并发 connect→guard 复用/拒绝」行 + F1 测 |
+| ARCH-B4 版本 flap | ✅ 消解 | `bundle/<appVersion>/` 版本隔离 + `.deploying` O_EXCL 锁 + `.tmp-…`→原子 `sftpRename`→`.ready`（SSH-5）；多版本并存杜绝删共享目录；T-039 并发锁测 |
+| ARCH-B5 EPIPE 时序 | ✅ 消解（spike 化） | A0 步骤补「token-stdin EOF 时序三点(a/b/c)」+ 退化 `--token-fd`/wrapper；风险表 med 行 |
+| ARCH-B6 RemoteHostsPage | ✅ 消解 | 改标「新·从预览工程移植生产 TSX」；复杂度 新增9/改动10；真缺口#6 登记；改动文件清单 `components/settings/RemoteHostsPage.tsx # 新`；H2/H3 拆两步 |
+| ARCH-B7 CI 版本偏斜 | ✅ 消解 | release.yml 增 `build-host-bundles` 三架构 matrix（tag 流水线同 commit 现产）+ `build-macos needs` 下载→make；保证 bundle.version==release version；「下载 prior artifact」排除；J1 步骤 |
+| ARCH-B8 residency TC | ✅ 消解 | T-032~037 六分支决策表（§2）+ T-038/T-039；T-033/T-034/T-036 为守门可执行断言 |
+| ARCH-B9 路径绝对化 | ✅ 消解 | 全程 `${dataDir}/hosts/<id>/host.port`（host env/main sftp/main rm 三处共用绝对常量） |
+| ARCH-B10 DI 接缝 | ✅ 消解 | `ConnectSsh` 工厂注入 + `SshConnectionLike` 接口（生产=SshConnection.connect·测试注桩）；`shouldAlert` 纯函数；TC §4「注入 connectSsh 桩·不 mock static」 |
+| ARCH-B11 Origin 实证 | ✅ 消解 | 白名单 `{'null','file://'}`+dev 保留 + A0 步骤「抓打包版真实 Origin 值命中白名单」 |
+
+### B1/B2 收敛的残留竞态核查（重点）
+
+**逐场景推演均闭环**：
+- **认领到兄弟进程**：probe.hostTag≠configId → probe 失败 → step4 → reap 检 `portRaw.pid` 的 cmdline 不含本 tag → 不 kill，仅清陈旧 → fresh deploy 到**新随机端口**，不碰兄弟。兄弟存活。✅
+- **PID 被兄弟复用**（旧进程死、pid 被兄弟占）：reap 基于 `portRaw.pid` + cmdline tag 双验，兄弟 cmdline 含**别的** tag → 不 kill。✅（reap 只认 pid+tag，不认端口，故端口复用也不误伤）
+- **storedToken 损坏但进程确为我方**：probe 失败 → step4 → cmdline 含本 tag → reap 自身 → 重部署新 token。确定性恢复，无 livelock。✅
+- **两 App 实例并发连同一远程机**：各实例 configId 独立（per-userData nanoid）→ `hosts/<A>/` vs `hosts/<B>/` 端口文件隔离、驻留进程各一；唯一共享态 = `bundle/<appVersion>/`，已由**版本隔离 + `.deploying` O_EXCL 锁 + tmp+原子 rename** 保护（不同版本各取目录互不覆盖；同版本首装靠锁串行）。**并发安全**。✅
+
+**未见新硬矛盾**。protocol.ts 零改承诺仍成立；grounding line 引用未变仍准；main 侧 probe 用 Node-ws 无 Origin 头 → 正好命中「undefined 放行」，与 AC-10 自洽。
+
+### 残留（3 条 · 非阻塞 · dev 阶段处理）
+
+- **R2V-1 · low-med · concurrency-race** — `.deploying` O_EXCL 锁**无陈旧回收**（B4 补丁引入的新面）。若持锁 flow 在「取锁后、写 `.ready` 前」崩溃/断连，`.deploying` 残留且无自愈（sftp 文件不随 SSH 断开清理），后续 flow/实例轮询 `.ready` 恒超时→deployFailed→重试仍 EEXIST = **该 appVersion 首装永久 wedge**（须手动 `rm bundle/<v>/.deploying`）。窗口窄（仅某版本首装），但后果非显然。**建议**：`.deploying` 写入 pid+timestamp，等待方超时后对「age > 部署超时」的陈旧锁 break-and-reacquire（类比端口文件的陈旧 reap），或直接 rm 陈旧锁重试。
+- **R2V-2 · low · completeness** — 状态机合法边需**显式补 `claiming→deploying`（及 `claiming→failed`）**：B1 的 main 侧 probe 在 emit `claiming` 后失败 → 同栈转 deploying（reap+重部署），此边 PRD 状态图未列（PRD 只有 connecting→starting 认领 + starting→failed）。T-010 明确测「非法边被拒」，若该 fallback 边未纳入合法集，会与 B1 回退路径**自相矛盾**。**建议**：TECH/reducer 合法转移表登记 claiming→deploying / claiming→failed，T-010 覆盖之。
+- **R2V-3 · low · robustness** — 两点收尾：① reap 的 `ident 含 --host-tag <configId>` 宜用**精确 token 匹配**（词界/结尾）而非裸子串——当前 nanoid/uuid 定长下无前缀碰撞（安全），但精确匹配可与 id 方案解耦更稳健；② main 侧 probe 需**有界超时**（复用 10s 握手超时口径）+ 用后 close probe ws，避免探测 hang 拖住 connect() 或残留客户端。
+
+### 结论
+
+11/11 finding 有效消解；ARCH-B1/B2 收敛**真闭环**（回退全在 main 同栈 · reap 双验不误杀兄弟）；两 App 实例并发连同一机**安全**（版本隔离 bundle + O_EXCL 端口文件 + per-config 目录）。3 条残留均为 dev 阶段有界处理项，不阻断进入实现。**APPROVE**。
+

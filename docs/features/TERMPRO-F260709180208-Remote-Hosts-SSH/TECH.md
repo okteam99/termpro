@@ -308,8 +308,11 @@ token 由 **main 生成**（`randomBytes(16).base64url`，与 `generateToken` �
 
 - 探测确认「进程确为我方（token 校验通过）+ 版本兼容（`checkHostInfoCompatible`）+ `hostTag==configId`」→ **才** emit `verifying{localPort,token}` 交 renderer；
 - 探测失败（token 陈旧/进程非我方/不兼容）→ main 在**同一 `connect()` 调用栈内**同步走回收+重部署（下方 step 4），**无需任何 renderer→main 反馈信道**，回退闭环全在 main。
+- 🔴 **probe ws 须有界超时 + 用后即 close（R2V-3/R2-5）**：探测 ws 复用握手超时口径（10s · `HANDSHAKE_TIMEOUT_MS`）；无论成功/失败/超时都 `ws.close()`，绝不留悬挂 host client（否则拖住 `connect()` 或泄漏连接）。
 
-renderer 侧握手因此退化为**版本二次确认**（main 已验，near-必成功）；`remoteHost:event` 维持单向。§接口不新增 renderer→main RPC、状态机不新增 `verifying→deploying` 边、§前端不必映射「通用 ws 失败」（原 livelock 的无归宿态被消除）。main 探测复用 `versionCompat.checkHostInfoCompatible`（shared 纯函数）。
+renderer 侧握手因此退化为**版本二次确认**（main 已验，near-必成功）；`remoteHost:event` 维持单向。§接口不新增 renderer→main RPC、§前端不必映射「通用 ws 失败」（原 livelock 的无归宿态被消除）。main 探测复用 `versionCompat.checkHostInfoCompatible`（shared 纯函数）。
+
+🔴 **主 state 机合法转移补边（R2V-2 · architect）**：main emit `claiming` 后 probe 失败 → 同栈转 `deploying`（reap+重部署），故 reducer 合法转移表须显式登记 **`claiming→deploying`** 与 **`claiming→failed`**（probe 后确定回收失败时）两条边；否则与 B1 的 main 侧回退路径自相矛盾。T-010（非法边被拒）须把这两条纳入合法集覆盖。renderer 可见的 `verifying→deploying` 边仍**不新增**（回退全在 main 内部，renderer 只见最终 verifying/failed）。
 
 #### 认领-或-确定性回收算法（main · residency.ts · connectSsh 注入 · 纯决策可单测 ARCH-B8）
 
@@ -333,7 +336,9 @@ renderer 侧握手因此退化为**版本二次确认**（main 已验，near-必
      ident ← ssh.exec(读 <pid> cmdline)   // darwin: ps -o command= -p <pid>; linux: tr '\0' ' ' </proc/<pid>/cmdline
      // reap 唯一放行：cmdline 明确含【本配置】--host-tag <configId>
      //   （仅 host.js 签名不足以区分兄弟——ARCH-B2 根因；且此处已是 step3 probe 失败后）
-     IF alive==Y 且 ident 含 `--host-tag <configId>`:
+     //   🔴 R2V-3/R2-4：argv 分词【全等】比对('--host-tag' 后一 token === configId)，非裸 substring
+     //   （nanoid 定长下无前缀碰撞，但精确匹配与 id 方案解耦更稳健）
+     IF alive==Y 且 ident 的 argv 中 `--host-tag` 后一 token 全等 configId:
         ssh.exec(`kill <pid>`) → 轮询 kill -0 至多 3s → 仍在则 `kill -9 <pid>`   // 确定性 reap
      // pid 死 / cmdline 不含本 tag（PID 被兄弟或无关进程复用）→ 绝不 kill，仅清陈旧
    ssh.exec(`rm -f ${dataDir}/hosts/<id>/host.port`)         // 清陈旧（O_EXCL 单写者，无 TOCTOU）
@@ -382,12 +387,19 @@ function detectArch(uname: string): HostArch | null;   // `uname -sm` → 归一
 
 ```
 1. IF sftp 存在 bundle/<appVersion>/.ready → 该版本已就绪，跳过上传（AC-13 skip 段可观测）
-2. 取部署锁: sftp openSync(`bundle/<appVersion>/.deploying`, 'wx' O_EXCL)
-   EEXIST → 另一 flow/实例正首装该版本 → 轮询等 .ready 出现（超时→deployFailed）
+2. 取部署锁: sftp openSync(`bundle/.deploying-<appVersion>`, 'wx' O_EXCL)   # 🔴 锁在版本目录【外】(R2-1)
+   ├ 成功 → 写 {pid, ts} 进锁文件（陈旧回收用 · R2V-1）
+   └ EEXIST → 读锁 {ts}:
+       ├ age ≤ 部署超时(120s) → 另一 flow/实例正首装 → 轮询等 .ready（超时→deployFailed）
+       └ age > 部署超时 → 判定陈旧崩溃残留 → rm 陈旧锁 + 清 .tmp-<v>-* 残留 → 重试取锁（break-and-reacquire · R2V-1）
 3. 上传到临时目录 bundle/.tmp-<appVersion>-<rand>/（sftp 逐文件 · 进度%）
-4. 原子切换: sftp rename(.tmp-… → bundle/<appVersion>/) → 写 .ready 标记
-5. 释放锁: rm .deploying
+4. 原子切换: 🔴 仅当 bundle/<appVersion>/ **不存在** 时 rename(.tmp-… → bundle/<appVersion>/)（rename 目标须不存在 · 否则 ENOTEMPTY · R2-1）；
+   已存在(并发赢家先落地) → 弃本 tmp（rm -rf .tmp-…）复用赢家产物 → 写/确认 .ready
+5. 释放锁: rm bundle/.deploying-<appVersion>
 ```
+
+> **R2-1 根因（external verify · high）**：原设计锁 `bundle/<v>/.deploying` 落在版本目录**内** → 该目录非空 → step4 `rename(tmp → bundle/<v>/)` 对已存在非空目录抛 **ENOTEMPTY**，连单 flow happy-path 都失败。修法：① 锁移出版本目录（`bundle/.deploying-<v>`）；② rename 仅在目标不存在时执行，已存在则复用。T-039 mock 须建模「rename 目标已存在即失败」，锁文件在版本目录外。
+> **R2V-1（architect · low-med）**：`.deploying` 陈旧锁（持锁 flow 崩溃/断连，sftp 文件不随 SSH 断开清理）→ 锁文件写 `{pid,ts}`，等待方对 `age > 120s` 的陈旧锁 break-and-reacquire，避免某 appVersion 首装永久 wedge。
 
 启动命令指向 `bundle/<appVersion>/host.js`（SSH-4）。旧版本目录留存（多版本并存 · 磁盘代价数 MB/版本 · 清理归后续 YAGNI）。跨实例：v0.3.27 与 v0.3.28 各取 `bundle/0.3.27/` / `bundle/0.3.28/`，**互不覆盖**（消 ARCH-B4 版本 flap）。
 
@@ -397,6 +409,7 @@ function detectArch(uname: string): HostArch | null;   // `uname -sm` → 归一
 
 - `release.yml` 增三架构 matrix job `build-host-bundles`（darwin-arm64 on macos-14 / linux-x64 on ubuntu-latest / linux-arm64 on ubuntu-24.04-arm · `fail-fast:false` · 各 `npm ci → package-host.mjs → verify-host-artifact.mjs → upload artifact`）；
 - `build-macos` job `needs: build-host-bundles`，下载三 artifact 解到 `resources/host-bundles/<arch>/` 后再 `npm run make`。同一 tag commit 产出 → **保证 `bundle.version == release version`**。
+- 🔴 **降级阀须在 CI 层不阻断发版（R2-2 · external verify）**：裸 `needs: build-host-bundles` 下，matrix 任一腿失败会令 build-host-bundles 整体 failed → build-macos 默认 skip → **整个 macOS 发版被跳过**，与「arm64 缺位应运行时降级、不阻断发版」相反。修法：build-macos 加 **`if: ${{ !cancelled() }}`**（上游非取消即运行）+ 下载步骤对每个 arch **逐个存在性判断**（缺某 arch → 跳过该 arch 复制、继续 make · 该 arch 走运行时降级阀），linux-x64/darwin-arm64 属**必需**（缺则 fail release），仅 linux-arm64 允许缺失降级。
 - **linux-arm64 降级阀（R2-N2）**：若 `ubuntu-24.04-arm` runner 不可用/该 arch job 失败（`fail-fast:false` 隔离，不牵连其余）→ 该架构 bundle 不进 resources → 运行时 `detectArch` 命中但 `resources/host-bundles/linux-arm64/` 缺 → `archUnsupported` + 「远端 `npm i -g termpro-host` 手装」引导（D-6 释放阀 C · 触发记 concerns WARN）。
 - 「下载 prior-run artifact」因版本偏斜**排除**（从 §待决策 移除）。
 
@@ -575,6 +588,8 @@ if (origin !== undefined && !ORIGIN_ALLOW.has(origin)) { socket.destroy(); retur
 - `forge.config.ts` `EXTERNAL_MODULES` 加 `'ssh2'`（`packageAfterCopy` 已有 `copyModuleWithDeps` 递归搬运运行时依赖，:18-37）；
 - **asar 行为风险**：ssh2 纯 JS 通常可留 asar 内；`cpu-features` 若被解析为 native `.node` 需 unpack。blueprint 最小 spike（连接+forwardOut+sftp+exec 四能力）验证打包后行为，失败则 asar.unpack 补 ssh2（PRD 风险区已记）。
 
+**依赖 `ws`（probeHostInfo · main 前移探测 · R2-3）**：main 侧 probe 用 Node `ws` 客户端——`ws` **已在 dependencies**（`package.json:69-85` 含 `"ws"`，wsServer 已用），无需新增；但它此前**仅在 host 打包链**出现，本 Feature 首次在 **main** 进程 import → 须确认 `forge.config.ts` main 打包/`EXTERNAL_MODULES` 覆盖到 main-side `ws`（A0 spike 顺带验证 main 能 require 'ws'）。
+
 ---
 
 ## 实现思路
@@ -737,6 +752,7 @@ sequenceDiagram
 |------|------|
 | 2026-07-10 | v0.1 首版 TECH（RD · 据 PRD v0.3 + PRD-REVIEW Round2 三路 APPROVE + ADR-001 + UI.md · 逐文件 grounded；ARCH-11/R2-N2/QA-R2-1 三 must-resolve 落地） |
 | 2026-07-10 | v0.2 Round 2 修订（RD · 处置 blueprint-architect NEEDS_REVISION 全 11 条 ARCH-B1~B11 + 外部冷审 EXT-1~9）：**B1** 认领验证前移 main 消 livelock；**B2** `--host-tag` argv + reap 双验消兄弟误杀；**B4** bundle 版本隔离 + 部署锁 + 原子切换；**B7** CI 三架构并入 tag 流水线（版本一致）；**B3** in-flight guard；**B6** RemoteHostsPage 改标「移植生产 TSX」并修计数；**B8** residency.test.ts P0 决策表；**B9** 端口路径绝对化；**B10** connectSsh DI + shouldAlert 纯函数；**B5/B11** A0 spike 补 EOF 时序 + Origin 实证；**EXT-6** shared/remoteHost.ts FailReason 单源 |
+| 2026-07-10 | v0.3 Round 2 verify 残留折入（PMO · 两路 verify APPROVE 后钉死 5 条局部 bug 防 dev 漏）：**R2-1(high)** 部署锁移出版本目录 `bundle/.deploying-<v>` + rename 仅目标不存在时执行（原设计锁在版本目录内致 rename ENOTEMPTY 破 happy-path）；**R2V-1** 陈旧锁写 {pid,ts} + break-and-reacquire（防首装永久 wedge）；**R2V-2** 补 `claiming→deploying`/`claiming→failed` 合法转移边（防与 B1 回退自相矛盾）+ T-010b；**R2-2(CI)** build-macos `if:!cancelled()` + 逐 arch 存在性判断（防 arm64 一腿失败跳过整个发版）；**R2-3** probe 依赖 `ws`（已在 deps · 首次 main 侧 import 须 A0 验证）；**R2V-3/R2-4** reap `--host-tag` argv 分词全等比对（非裸 substring）；**R2-5** probe ws 有界超时 + 用后 close。TC 补 T-039b/T-010b |
 
 ## 完工自查（RD 实现完逐项打钩 · review 据此核）
 

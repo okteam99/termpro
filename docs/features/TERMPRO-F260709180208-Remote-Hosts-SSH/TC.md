@@ -244,6 +244,18 @@ tests:
     covers_ac: ["AC-4"]
     level: unit
     priority: P0
+  - id: T-039b
+    file: src/main/remote/__tests__/deploy.test.ts
+    function: test_AC4_stale_deploy_lock_break_and_reacquire
+    covers_ac: ["AC-4"]
+    level: unit
+    priority: P1
+  - id: T-010b
+    file: src/main/remote/__tests__/orchestrator.test.ts
+    function: test_AC5_claiming_to_deploying_fallback_edge_legal
+    covers_ac: ["AC-5"]
+    level: unit
+    priority: P0
 ---
 
 # TC · 远程机管理与 SSH 连接编排（BL-003 · TERMPRO-F260709180208-Remote-Hosts-SSH）
@@ -346,6 +358,12 @@ Scenario: 认领驻留进程走快链路（跳过 deploying）
   Given 远端已部署同版本产物 + 驻留进程在 + storedToken 有效
   When 连接
   Then 状态走 connecting→claiming→verifying→ready（无 deploying 段·fastPath=true）
+
+Scenario: 认领 probe 失败同栈回退（claiming→deploying 合法边 · R2V-2）
+  Given 驻留进程在但 main 侧 probe 失败（token 陈旧/hostTag 不符）
+  When residency 同栈转回收+重部署
+  Then 状态机允许 claiming→deploying（及 probe 后确定回收失败时 claiming→failed）两条边
+  And 这两条边在合法转移集内（非法边断言不得把它们误判为非法）
 ```
 
 ### 5.2 首次部署三段进度 + 版本隔离幂等 + 并发锁（AC-4 · T-008 / T-009 / T-031 / T-035 / T-037 / T-039）
@@ -361,14 +379,20 @@ Scenario: 三段进度可视且有序（T-008）
 Scenario: 版本隔离重部署幂等（T-009）
   Given 远端已存在旧版本 bundle/<oldVer>/
   When 以 appVersion=<newVer> 重连触发部署
-  Then 上传进 bundle/.tmp-<newVer>-<rand>/ → 原子 rename → bundle/<newVer>/ → 写 .ready
+  Then 上传进 bundle/.tmp-<newVer>-<rand>/ → 仅当 bundle/<newVer>/ 不存在时 rename → 写 .ready
   And 旧 bundle/<oldVer>/ 不被删（多版本并存·杜绝跨实例 flap）；再次以同版本部署走 skip（幂等）
 
-Scenario: 并发首装取 .deploying O_EXCL 锁（T-039 · 可 mock sftp）
-  Given 两个 flow 并发首装同一 bundle/<ver>/、mock sftp 建模 O_EXCL
-  When flow-A openSync('bundle/<ver>/.deploying','wx') 成功、flow-B 得 EEXIST
+Scenario: 并发首装取 .deploying O_EXCL 锁（T-039 · 可 mock sftp · R2-1 修正）
+  Given 两个 flow 并发首装同一 <ver>、mock sftp 建模：① O_EXCL 锁 ② rename 目标已存在即抛错(ENOTEMPTY)
+  And 🔴 锁文件在版本目录【外】：bundle/.deploying-<ver>（若锁在 bundle/<ver>/ 内则该目录非空→rename 必失败·R2-1 回归守门）
+  When flow-A openSync('bundle/.deploying-<ver>','wx') 成功、flow-B 得 EEXIST
   Then flow-B 不重复上传，轮询等 .ready 出现后复用（超时→deployFailed）
-  And 最终该版本只被写入一次（无双写覆盖）
+  And flow-A rename 前断言 bundle/<ver>/ 不存在；最终该版本只被写入一次（无双写/无 ENOTEMPTY）
+
+Scenario: .deploying 陈旧锁 break-and-reacquire（T-039b · R2V-1）
+  Given bundle/.deploying-<ver> 存在且 {ts} age > 部署超时(120s)（持锁 flow 崩溃残留）
+  When 新 flow 尝试取锁得 EEXIST 并读到陈旧 ts
+  Then 判定陈旧 → rm 陈旧锁 + 清 .tmp-<ver>-* → 重取锁成功（不永久 wedge）
 
 Scenario: reap 后部署 / 无 bundle 首装（residency T-035 / T-037）
   Given 存活且 cmdline 匹配本 --host-tag 的旧进程（T-035）/ bundleReady=false（T-037）
