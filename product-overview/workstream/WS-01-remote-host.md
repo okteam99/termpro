@@ -133,16 +133,16 @@ risks:
 
 <!-- WS-PROGRESS:START · 工具生成(state.py ws-progress) · 名册驱动 · 自各 ROADMAP 匹配状态 · 勿手改 -->
 进度 0/5 已完成 · 5 待开始
-（名册 5 feature · 状态自 1 个 ROADMAP 匹配 · 2026-07-09T07:49:34Z）
+（名册 5 feature · 状态自 1 个 ROADMAP 匹配 · 2026-07-09T17:15:55Z）
 
 | feature | BL | 子项目 | 功能 | 状态 | 当前阶段 | F |
 |---------|----|--------|------|------|----------|---|
-| S1 | BL-001 | TERMPRO | Workspace 注册表驻留 Host（本地先行） | 待开始 | - | - |
+| S1 | BL-001 | TERMPRO | Workspace 注册表驻留 Host（本地先行） | ✅ 已交付 | - | TERMPRO-F260709092258 |
 | S2 | BL-002 | TERMPRO | Host standalone + WebSocket + 协议握手 | 待开始 | - | - |
 | S3 | BL-003 | TERMPRO | 远程机管理与 SSH 连接编排 | 待开始 | - | - |
 | S4 | BL-004 | TERMPRO | 机器分组 Sidebar + 添加项目流程 | 待开始 | - | - |
 | S5 | BL-005 | TERMPRO | 断线重连与会话连续性 | 待开始 | - | - |
-▶ **可启动(依赖已齐)**:S1(BL-001) · S2(BL-002)
+▶ **可启动(依赖已齐)**:S2(BL-002)
 <!-- WS-PROGRESS:END -->
 
 ## feature 依赖关系图（工具汇总）
