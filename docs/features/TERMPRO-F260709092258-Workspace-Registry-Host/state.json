@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "d6494c63a06ae881f5026dc701105ecfcd7ab9b9",
   "worktree": {
@@ -64,15 +64,56 @@
       "duration_minutes": 28
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T13:31:36Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "Test Files 39 passed (39) / Tests 338 passed (338) / typecheck exit 0 / SMOKE_OK"
+      },
+      "completed_at": "2026-07-09T14:22:20Z",
+      "auto_commit": "c53ec30ffb2bece70e07af3ebf9e5f246c5bd57f",
+      "artifacts": [
+        "src/host/__tests__/workspaceMultiClient.integration.test.ts",
+        "src/host/__tests__/workspaceRegistry.test.ts",
+        "src/host/host.ts",
+        "src/host/workspaceRegistry.ts",
+        "src/host/workspaceService.ts",
+        "src/main/__tests__/workspaceMigration.test.ts",
+        "src/main/appStore.ts",
+        "src/main/main.ts",
+        "src/preload/preload.ts",
+        "src/renderer/App.tsx",
+        "src/renderer/components/Sidebar.tsx",
+        "src/renderer/components/TransientToast.css",
+        "src/renderer/components/TransientToast.tsx",
+        "src/renderer/services/hostClient.ts",
+        "src/renderer/state/__tests__/pinBottomBar.test.ts",
+        "src/renderer/state/__tests__/workspaceCrud.test.ts",
+        "src/renderer/state/__tests__/workspaceHydrate.test.ts",
+        "src/renderer/state/__tests__/workspaceSync.test.ts",
+        "src/renderer/state/__tests__/workspaceUpgrade.integration.test.ts",
+        "src/renderer/state/persistence.ts",
+        "src/renderer/state/store.ts",
+        "src/renderer/state/workspaceMigration.ts",
+        "src/renderer/state/workspaceSync.ts",
+        "src/renderer/types.d.ts",
+        "src/shared/protocol.ts"
+      ],
+      "duration_minutes": 50
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-09T13:31:36Z"
+      "started_at": "2026-07-09T14:22:20Z"
     }
   },
   "completed_stages": [
     "goal",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-07-09T09:38:45Z",
   "stage_review_roles": {
@@ -111,11 +152,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T13:32:37Z",
+  "updated_at": "2026-07-09T14:22:27Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:9207504099d3ecd7f078c9b12d17dc18de8d5382b7c5d46701f8ce4d5e03d652",
+  "_state_checksum": "sha256:d097a82c1e3f371d702af7341de2f6c078cf666ebf7c07b9a9e18ada8add0a32",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": false
