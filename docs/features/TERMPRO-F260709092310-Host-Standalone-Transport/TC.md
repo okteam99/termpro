@@ -321,43 +321,43 @@ tests:
     level: integration
     priority: P0
   - id: T-053
-    file: .github/workflows/host-package-smoke.yml
+    file: .github/workflows/host-package.yml
     function: darwin_arm64_listening_log_line_grep
     covers_ac: ["AC-4"]
     level: api-e2e
     priority: P0
   - id: T-054
-    file: .github/workflows/host-package-smoke.yml
+    file: .github/workflows/host-package.yml
     function: darwin_arm64_node_pty_real_shell_spawn
     covers_ac: ["AC-4"]
     level: api-e2e
     priority: P0
   - id: T-055
-    file: .github/workflows/host-package-smoke.yml
+    file: .github/workflows/host-package.yml
     function: linux_x64_listening_log_line_grep
     covers_ac: ["AC-4"]
     level: api-e2e
     priority: P0
   - id: T-056
-    file: .github/workflows/host-package-smoke.yml
+    file: .github/workflows/host-package.yml
     function: linux_x64_node_pty_real_shell_spawn
     covers_ac: ["AC-4"]
     level: api-e2e
     priority: P0
   - id: T-057
-    file: .github/workflows/host-package-smoke.yml
+    file: .github/workflows/host-package.yml
     function: linux_arm64_artifact_present_no_real_machine_run
     covers_ac: ["AC-4"]
     level: api-e2e
     priority: P1
   - id: T-058
-    file: .github/workflows/host-package-smoke.yml
+    file: .github/workflows/host-package.yml
     function: host_package_job_independent_of_macos_release_gate
     covers_ac: ["AC-4"]
     level: api-e2e
     priority: P1
   - id: T-059
-    file: .github/workflows/host-package-smoke.yml
+    file: .github/workflows/host-package.yml
     function: d1_fallback_tar_node20_boots_and_spawns_pty_conditional
     covers_ac: ["AC-4"]
     level: api-e2e

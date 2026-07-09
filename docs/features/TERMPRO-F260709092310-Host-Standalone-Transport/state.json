@@ -102,10 +102,118 @@
       "duration_minutes": 175
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-07-09T16:27:37Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T16:27:37Z",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "completed_at": "2026-07-09T16:43:38Z",
+      "auto_commit": "6d460e861183407eaab66957d9fb86c8aecac578",
+      "artifacts": [],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-07-09T16:27:37Z",
+          "completed_at": "2026-07-09T16:43:38Z",
+          "review_commit": "6d460e861183407eaab66957d9fb86c8aecac578",
+          "verdict": "NEEDS_REVISION",
+          "new_findings_count": 11,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "fs.watch 集成测首事件预算 3000ms 满负载下不足(T-032/033/042/043)+ T-038 echo 5s 与同族 12s 不一致,偶发失败污染三绿门",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F2",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "AC-4/TC-F05 明列的 linux-arm64 产物在打包脚本与 CI 矩阵中完全缺失",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F3",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "token 空值 fail-open:file/fd/stdin 三通道 trim 后无非空断言,空白 token 源使端口闸恒通过(verifyToken('','')===true)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F4",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "TC frontmatter test_refs 文件名失真(host-package-smoke.yml → 实际 host-package.yml)",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F5",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "WS RPC parity 20 方法测 18:git.show / git.changedFiles 未经 WS 往返",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F6",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "WS upgrade 无 Origin 校验(纵深加固;token 熵仍是真屏障)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F7",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "认证失败告警越阈后每次失败重复 emit,坏 token 洪泛刷 WARN 日志(建议节流)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F8",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "边界缺口组:恰好 32MiB 帧/逐字节慢速 host.info/pong 迟到非丢失/握手风暴",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F9",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "token 运维面:generated token stdout 可能被日志采集落盘 + token-file TOCTOU/符号链接(归 BL-003 部署流程)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F10",
+          "severity": "MINOR",
+          "status": "rejected",
+          "title": "host.info-first 门控安全价值仅协议卫生(非鉴权边界)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F11",
+          "severity": "NIT",
+          "status": "deferred",
+          "title": "门控实现细节组:非数字 id 边缘/done-flip 时序依赖/握手前分配 Client/双 connection 处理器/打包脚本探测面/连接数上限(→BL-003/005)",
+          "source": "arch",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 16
     }
   },
   "completed_stages": [
@@ -150,9 +258,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T16:27:50Z",
+  "updated_at": "2026-07-09T16:43:38Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:1e2538a647dae06facfc5b47a556ad8cb2333a6c4e5945b42991ee6fa7821e33",
+  "_state_checksum": "sha256:29fe266bd73187807092eeab03a8604337cb43a5cbfd9268b0ff77b9839740ae",
   "legal_next_stages": [
     "test",
     "dev"

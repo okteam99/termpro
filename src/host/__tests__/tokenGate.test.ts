@@ -139,6 +139,38 @@ describe('AC-3 token 信道白名单 (单元)', () => {
   });
 });
 
+describe('AC-3 token 空值 fail-closed (单元 · F3 回归)', () => {
+  it('--token-file 指向空白文件 → 抛错拒绝启动', () => {
+    const f = path.join(os.tmpdir(), `tp-tok-empty-file-${Date.now()}`);
+    tmpFiles.push(f);
+    fs.writeFileSync(f, '   \n', { mode: 0o600 });
+    fs.chmodSync(f, 0o600);
+    expect(() =>
+      resolveToken(['--listen', '127.0.0.1:0', '--token-file', f], {}),
+    ).toThrow(/refusing empty token/);
+  });
+
+  it('--token-fd 空内容 → 抛错拒绝启动', () => {
+    expect(() =>
+      resolveToken(
+        ['--listen', '127.0.0.1:0', '--token-fd', '9'],
+        {},
+        { readFd: () => '   ' },
+      ),
+    ).toThrow(/refusing empty token/);
+  });
+
+  it('--token-stdin 空 → 抛错拒绝启动', () => {
+    expect(() =>
+      resolveToken(
+        ['--listen', '127.0.0.1:0', '--token-stdin'],
+        {},
+        { readFd: () => '\n' },
+      ),
+    ).toThrow(/refusing empty token/);
+  });
+});
+
 // ---------------------------------------------------------- 集成:loopback + 闸
 
 describe('AC-3 token 闸 (集成:真实 ws)', () => {
@@ -163,6 +195,18 @@ describe('AC-3 token 闸 (集成:真实 ws)', () => {
     // 无任何 rpc:res 泄露
     expect(missing.messages.length).toBe(0);
     expect(wrong.messages.length).toBe(0);
+  });
+
+  it('客户端 ?token= 空串在正常(非空)token host 上被拒(F3 回归)', async () => {
+    host = await startTestHost({ token: 'the-right-token' });
+    const empty = track(new TestClient(host.url('')));
+    const err = await empty.waitOpen().then(
+      () => 'opened',
+      () => 'rejected',
+    );
+    expect(err).toBe('rejected');
+    expect(empty.ws.readyState).not.toBe(1);
+    expect(empty.messages.length).toBe(0);
   });
 
   it('T-019 正确 token → 正常连接并进入握手', async () => {

@@ -30,6 +30,21 @@ function argValue(argv: string[], flag: string): string | undefined {
 }
 
 /**
+ * fail-closed 非空断言:file/fd/stdin 三通道 trim 后若为空/全空白,
+ * `verifyToken('', expected)` 对非空 expected 恒为 false,但对错配到「同样解析出
+ * 空串」的场景(如两端都读到空文件)会造成端口闸静默失效。三通道一律拒绝启动。
+ */
+function requireNonEmptyToken(token: string, description: string): string {
+  if (token === '') {
+    throw new Error(
+      `[host] refusing empty token from ${description}: blank/whitespace-only ` +
+        'token content would fail-open the port gate; provide a non-empty token',
+    );
+  }
+  return token;
+}
+
+/**
  * 解析 token 来源(TECH §token 生命周期)。
  * 优先级:显式传入(env / --token-file / --token-fd / --token-stdin)> 自动生成。
  *
@@ -79,16 +94,25 @@ export function resolveToken(
         `[host] refusing token file with permissions ${(st.mode & 0o777).toString(8)}: require 0600`,
       );
     }
-    return { token: fs.readFileSync(file, 'utf8').trim(), source: 'file' };
+    return {
+      token: requireNonEmptyToken(fs.readFileSync(file, 'utf8').trim(), `--token-file ${file}`),
+      source: 'file',
+    };
   }
 
   const fd = argValue(argv, '--token-fd');
   if (fd !== undefined) {
-    return { token: readFd(Number(fd)).trim(), source: 'fd' };
+    return {
+      token: requireNonEmptyToken(readFd(Number(fd)).trim(), `--token-fd ${fd}`),
+      source: 'fd',
+    };
   }
 
   if (argv.includes('--token-stdin')) {
-    return { token: readFd(0).trim(), source: 'stdin' };
+    return {
+      token: requireNonEmptyToken(readFd(0).trim(), '--token-stdin'),
+      source: 'stdin',
+    };
   }
 
   return { token: generateToken(), source: 'generated' };

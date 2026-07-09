@@ -5,9 +5,16 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { startTestHost, TestClient, TestHost, waitFor, delay } from './wsTestHarness';
+import {
+  startTestHost,
+  TestClient,
+  TestHost,
+  waitFor,
+  delay,
+  pokeUntilFsEvent,
+} from './wsTestHarness';
 import { homeDir, listDir, readBinaryFile } from '../fsService';
-import { gitInfo, gitStatus } from '../gitService';
+import { gitInfo, gitStatus, gitShow, gitChangedFiles } from '../gitService';
 import { FLOW } from '../../shared/protocol';
 
 let host: TestHost | null = null;
@@ -108,6 +115,24 @@ describe('AC-1 全 RPC 方法表 WS roundtrip (T-031)', () => {
     };
     expect(Array.isArray(wt.worktrees)).toBe(true);
 
+    // git.show / git.changedFiles 与直接调用等价(host cwd = 本仓库)
+    const toplevel = gi.toplevel as string;
+    const wsShow = (await c.rpc('git.show', {
+      toplevel,
+      ref: 'HEAD',
+      path: 'package.json',
+    })) as { content: string | null };
+    const directShow = await gitShow(toplevel, 'HEAD', 'package.json');
+    expect(wsShow).toEqual(directShow);
+    expect(wsShow.content).not.toBeNull();
+
+    const wsChanged = (await c.rpc('git.changedFiles', { toplevel })) as {
+      entries: unknown[];
+      mergeBase: string | null;
+    };
+    const directChanged = await gitChangedFiles(toplevel);
+    expect(wsChanged).toEqual(directChanged);
+
     // pty.spawn / pty.cwd / pty.kill(良构)
     const sp = (await c.rpc('pty.spawn', {
       cwd: tmp,
@@ -136,8 +161,7 @@ describe('AC-1 fs.watch 经 WS 推送 (T-032/T-033)', () => {
     const { watchId } = (await c.rpc('fs.watch', { path: tmp })) as {
       watchId: number;
     };
-    fs.writeFileSync(path.join(tmp, 'change1.txt'), 'x');
-    await waitFor(() => c.fsChanged.includes(watchId), 3000);
+    await pokeUntilFsEvent(c, watchId, tmp);
     await delay(500); // 去抖窗后不应重复堆积
     const count = c.fsChanged.filter((id) => id === watchId).length;
     expect(count).toBeGreaterThanOrEqual(1);
@@ -149,8 +173,7 @@ describe('AC-1 fs.watch 经 WS 推送 (T-032/T-033)', () => {
     const { watchId } = (await c.rpc('fs.watch', { path: tmp })) as {
       watchId: number;
     };
-    fs.writeFileSync(path.join(tmp, 'a.txt'), 'x');
-    await waitFor(() => c.fsChanged.includes(watchId), 3000);
+    await pokeUntilFsEvent(c, watchId, tmp);
     await c.rpc('fs.unwatch', { watchId });
     // 充分 drain:让 unwatch 前的 FSEvents 余波(macOS 下有延迟)全部落地,
     // 再取 before 基线,消除并行负载下的 straggler 抖动。
@@ -259,7 +282,7 @@ describe('AC-1 WS 线格式为 JSON 文本帧 (T-038)', () => {
     c.send({ t: 'pty:input', sessionId, data: 'echo frame_check\n' });
     await waitFor(
       () => (c.ptyData.get(sessionId) ?? '').includes('frame_check'),
-      5000,
+      12000,
     );
     expect(c.textFrameCount).toBeGreaterThan(0);
     expect(c.binaryFrameCount).toBe(0);

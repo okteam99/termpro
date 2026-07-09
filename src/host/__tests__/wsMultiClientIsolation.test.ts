@@ -10,6 +10,7 @@ import {
   TestHost,
   waitFor,
   delay,
+  pokeUntilFsEvent,
 } from './wsTestHarness';
 
 let host: TestHost | null = null;
@@ -130,9 +131,8 @@ describe('AC-6 watchId 归属与 fs:changed 路由', () => {
     // A 用 B 的 watchId 调 unwatch(作用在 A 自己的 WatchService,动不到 B)
     await a.rpc('fs.unwatch', { watchId: wb.watchId });
     await delay(100);
-    fs.writeFileSync(path.join(tmp, 'evt.txt'), 'x');
     // B 的 watcher 仍存活 → 仍收到推送
-    await waitFor(() => b.fsChanged.includes(wb.watchId), 3000);
+    await pokeUntilFsEvent(b, wb.watchId, tmp);
     expect(b.fsChanged.includes(wb.watchId)).toBe(true);
     void wa;
   });
@@ -145,8 +145,7 @@ describe('AC-6 watchId 归属与 fs:changed 路由', () => {
     // (fs:changed 由归属 client 的 WatchService.send 走该 client 的端口发出,
     // 天然不广播 —— 用「非归属方 A 全程零收」直接钉死无跨连接广播。)
     const wb = (await b.rpc('fs.watch', { path: tmp })) as { watchId: number };
-    fs.writeFileSync(path.join(tmp, 'shared.txt'), 'x');
-    await waitFor(() => b.fsChanged.includes(wb.watchId), 3000);
+    await pokeUntilFsEvent(b, wb.watchId, tmp);
     await delay(500); // 去抖窗 + 余量
     expect(b.fsChanged).toContain(wb.watchId);
     expect(a.fsChanged.length).toBe(0); // 非归属方从未收到任何 fs:changed

@@ -3,6 +3,8 @@
 // Layer C/D/E 用它做「真实进程内 + 真实 loopback TCP 帧」的传输级验证。
 
 import { WebSocket } from 'ws';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { createHostCore, HostCore } from '../hostCore';
 import { startWsServer, WsServerHandle } from '../wsServer';
 import type { ClientMessage, HostMessage } from '../../shared/protocol';
@@ -221,4 +223,46 @@ export async function waitFor(
 
 export function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * 反复写入直到收到该 watchId 的 fs:changed 或预算耗尽(F1 root-cause fix)。
+ *
+ * 根因:`fs.watch(path, {recursive:true})` 在 macOS 上底层绑定 FSEvents,RPC 调用
+ * 返回 watchId ≠ FSEvents 流已开始实际接收事件 —— 流启动本身异步,在系统满负载
+ * (如全量 vitest 并行)下可能被推迟。若「fs.watch 返回后的第一次写」恰好落在这个
+ * 尚未开始接收的死窗口内,该次变更事件永久丢失,不会补发 —— 此时任何等待预算
+ * (无论 3000ms 还是 8000ms)都注定超时,因为不是「慢」而是「丢」。
+ *
+ * 修法:持续 poke(每隔 pokeIntervalMs 写一个新文件名,确保不被去重)直到某一次
+ * 命中「流已就绪」的窗口而收到事件,把「死窗口丢失」转化为「预算内最终必达」。
+ */
+export async function pokeUntilFsEvent(
+  client: TestClient,
+  watchId: number,
+  dir: string,
+  opts: { budgetMs?: number; pokeIntervalMs?: number } = {},
+): Promise<void> {
+  const budgetMs = opts.budgetMs ?? 8000;
+  const pokeIntervalMs = opts.pokeIntervalMs ?? 1000;
+  const deadline = Date.now() + budgetMs;
+  let n = 0;
+  while (true) {
+    n++;
+    fs.writeFileSync(path.join(dir, `.fs-poke-${Date.now()}-${n}`), String(n));
+    const remaining = deadline - Date.now();
+    const step = Math.max(50, Math.min(pokeIntervalMs, remaining));
+    try {
+      await waitFor(() => client.fsChanged.includes(watchId), step);
+      return;
+    } catch {
+      // 本轮未命中,若预算未耗尽则继续下一次 poke
+    }
+    if (Date.now() >= deadline) break;
+  }
+  if (!client.fsChanged.includes(watchId)) {
+    throw new Error(
+      `pokeUntilFsEvent: watchId=${watchId} 在 ${budgetMs}ms 预算内(含持续 poke)始终未收到 fs:changed`,
+    );
+  }
 }

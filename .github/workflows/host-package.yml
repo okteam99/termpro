@@ -3,9 +3,14 @@
 # ci.yml(日常 typecheck+test)同样不受影响。
 #
 # matrix:
-#   macos-14      → darwin-arm64(node-pty 用官方 prebuilds,npm ci 自带)
-#   ubuntu-latest → linux-x64(node-pty 无官方 linux prebuilds,npm ci 走 node-gyp 源码编译,
-#                  runner 镜像自带 build-essential/python3,无需额外安装)
+#   macos-14          → darwin-arm64(node-pty 用官方 prebuilds,npm ci 自带)
+#   ubuntu-latest     → linux-x64(node-pty 无官方 linux prebuilds,npm ci 走 node-gyp 源码编译,
+#                       runner 镜像自带 build-essential/python3,无需额外安装)
+#   ubuntu-24.04-arm  → linux-arm64(AC-4/TC-F05:仅要求产物存在性,不要求实机验收;选用
+#                       GitHub 原生 arm64 hosted runner 而非 ubuntu-latest+QEMU 仿真,是因为
+#                       前者能以原生速度跑通同一套「打包+实机验证」步骤而非退化成「只查文件存在」——
+#                       本地已用 Apple Silicon docker `--platform linux/arm64` 复现同一流程验证过
+#                       全绿,风险低于 QEMU 仿真下 node-gyp 源码编译的不确定性)
 #
 # 每个 job:npm ci → 打包 standalone 产物(scripts/package-host.mjs)→ 起真实进程验证
 # (scripts/verify-host-artifact.mjs:token 握手 + host.info-first 门控 + PTY 真实 spawn)
@@ -28,6 +33,8 @@ jobs:
             platform: darwin-arm64
           - os: ubuntu-latest
             platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:

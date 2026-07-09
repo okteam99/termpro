@@ -377,12 +377,14 @@ sequenceDiagram
 - **darwin-arm64(本机实机)**:`node scripts/package-host.mjs --out <dir> --platform darwin-arm64` 打出 428KB 产物(`host.js` + `node_modules/node-pty/{package.json,lib/,build/Release/{pty.node,spawn-helper}}`,native 取自本机 `prebuilds/darwin-arm64`)。`node scripts/verify-host-artifact.mjs --dir <dir>` 实测:握手(token+host.info-first)通过、`pty.spawn` 真实拉起 `/bin/sh`、`echo TERMPRO_SPIKE_OK` 输出经 PTY 真实回传并匹配 —— 终端输出 `VERIFY_OK`。
 - **linux-x64(docker `--platform linux/amd64` qemu 仿真,本机 aarch64)**:先在 `node:20-bookworm`(带 build-essential/python3)容器内 `npm install node-pty@1.1.0 --no-save` 走 node-gyp 源码编译(**关键发现**:node-pty 的 `binding.gyp` 里 `spawn-helper` target 门在 `OS=="mac"` 分支,Linux 完全不编译该二进制;C++ 侧 `pty.cc` 对应 `#if defined(__APPLE__)` 才走 `posix_spawn`+helper 路径,非 mac 分支用普通 `fork()`——故 linux-x64 产物**不含** `spawn-helper` 属预期,非缺失),产出 `build/Release/pty.node`(ELF x86-64)。再用 `package-host.mjs --native-dir <该产物>` 在本机(macOS)组装 linux-x64 产物(纯文件操作,无需交叉编译工具链)。最终验证在**干净的** `node:20-bookworm-slim`(容器内确认 `gcc/g++/make/python3/node-gyp` 均不存在,即无编译工具链)里跑 `verify-host-artifact.mjs`:握手 + `pty.spawn` + echo 真实回传全部通过,终端输出 `VERIFY_OK`——证明产物自包含,目标机无需任何编译工具链。
 - **结论**:D-1 兜底(node≥20 + tar 包部署)不需要触发用户裁决升级;spike 直接产出可用的两平台打包方案,已固化为 CI(`.github/workflows/host-package.yml`)。单文件可执行(SEA/pkg)未验证(PRD/TECH 已定性为非硬需求,判据只要求「darwin-arm64 + linux-x64 实机 node-pty spawn 成功」,已满足,故未消耗额外时间盒去试 SEA/pkg)。
+- **linux-arm64(AC-4/TC-F05 补充:产物存在性验收,不要求实机验收 · 2026-07-10 review-fix 回补)**:本机 Apple Silicon 上 docker `--platform linux/arm64`(node:20-bookworm)原生速度装 node-pty,产出 ELF aarch64 `pty.node`;`package-host.mjs --platform linux-arm64 --native-dir <该产物>` 在本机(macOS)纯文件操作组装产物(与 linux-x64 同一手法)。加分验证(非 AC 硬要求):在**干净的** `node:20-bookworm-slim`(无编译工具链)容器里跑 `verify-host-artifact.mjs` 全绿(`VERIFY_OK`,握手 + `pty.spawn` + echo 真实回传),证明产物自包含、可实机运行,超出 AC-4 对 linux-arm64 仅要求「存在性」的最低判据。CI 侧选用 GitHub 原生 `ubuntu-24.04-arm` hosted runner 复用同一套打包+验证步骤(而非 `ubuntu-latest` + QEMU 仿真只做文件存在性检查),理由:本地已证明该原生 arm64 路径全程可行且无需仿真的不确定性。
 
 ## 变更记录
 | 日期 | 变更 |
 |------|------|
 | 2026-07-09 | v0.1 首版技术方案:基于 PRD v0.3 + 真实代码基线;落定 R3 全部 7 条 advisory;WS 复用 PortLike/attachClient;client Transport 抽象;闭区间版本校验;token 生命周期;打包 spike 门控 |
 | 2026-07-10 | 阶段 F 打包 spike 完成:darwin-arm64 + linux-x64 均实机验证 node-pty 真实 spawn 成功(D-1 未触发);新增 `scripts/package-host.mjs`/`scripts/verify-host-artifact.mjs`/`.github/workflows/host-package.yml`;`package.json` 补 `engines.node>=20`;`project-specs/ARCHITECTURE.md` 措辞校正(「PTY 二进制流」→「PTY 输出流」+ note1 补 WS JSON 文本帧) |
+| 2026-07-10 | review-fix round1(F2):补齐 AC-4/TC-F05 明列但缺失的 linux-arm64 产物 —— 本机 docker arm64 原生装 node-pty + 组装产物 + 干净容器 `VERIFY_OK`(超出「存在性」判据);CI `host-package.yml` matrix 增 `ubuntu-24.04-arm/linux-arm64`(原生 runner,复用既有打包+验证步骤) |
 
 ## 完工自查（RD 实现完逐项打钩）
 
