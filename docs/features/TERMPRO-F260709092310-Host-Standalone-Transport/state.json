@@ -102,15 +102,12 @@
       "duration_minutes": 175
     },
     "review": {
-      "input_satisfied": true,
-      "process_satisfied": true,
-      "output_satisfied": true,
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
       "started_at": "2026-07-09T16:27:37Z",
-      "evidence": {
-        "verdict": "NEEDS_REVISION"
-      },
-      "completed_at": "2026-07-09T16:43:38Z",
-      "auto_commit": "6d460e861183407eaab66957d9fb86c8aecac578",
+      "evidence": {},
+      "auto_commit": "e10fe00f919f9ff6d2494b46f3e2cc68a24817df",
       "artifacts": [],
       "rounds": [
         {
@@ -120,7 +117,23 @@
           "review_commit": "6d460e861183407eaab66957d9fb86c8aecac578",
           "verdict": "NEEDS_REVISION",
           "new_findings_count": 11,
-          "carried_open_count": 0
+          "carried_open_count": 0,
+          "fix_commit": "e10fe00f919f9ff6d2494b46f3e2cc68a24817df",
+          "fix_at": "2026-07-09T16:59:35Z",
+          "addresses_findings": [
+            "F1",
+            "F2",
+            "F3",
+            "F4",
+            "F5"
+          ]
+        },
+        {
+          "round": 2,
+          "review_commit": null,
+          "fix_commit": null,
+          "started_at": "2026-07-09T16:59:35Z",
+          "verdict": null
         }
       ],
       "findings_ledger": [
@@ -212,8 +225,7 @@
           "source": "arch",
           "round_opened": 1
         }
-      ],
-      "duration_minutes": 16
+      ]
     }
   },
   "completed_stages": [
@@ -258,9 +270,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T16:43:38Z",
+  "updated_at": "2026-07-09T16:59:35Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:29fe266bd73187807092eeab03a8604337cb43a5cbfd9268b0ff77b9839740ae",
+  "_state_checksum": "sha256:a0246159cb793a2a51ed8c86a6565e1ddcf7e67da8236e73854ba155daab05c1",
   "legal_next_stages": [
     "test",
     "dev"

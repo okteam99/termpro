@@ -5,93 +5,73 @@ degraded: true
 degraded_mode: config-disabled
 degraded_reason: "localconfig disable_external_review=true(单模型 · 异质评审降级为同模型 exec 自审 · 已 startup WARN)"
 review_via: subagent
+verify_fixes: true
+target_commit: e10fe00f919f9ff6d2494b46f3e2cc68a24817df
 ---
 
-# 代码评审 — TERMPRO-F260709092310 Host Standalone + WS 传输 + 握手
+# 修复验证评审(Round1 · verify-fixes) — TERMPRO-F260709092310 Host Standalone + WS 传输 + 握手
 
-- perspective: external-claude(降级同模型自审)
+- perspective: external-claude(降级同模型自审 · 验证轮)
 - target: code
-- generated_at: "2026-07-10T00:34:00Z"
-- 评审基线: `git diff main...HEAD`(33 files, +6973/-259);typecheck 0 报错;`vitest run` 113 passed(实测)
+- generated_at: "2026-07-10T01:05:00Z"
+- 验证基线: fix commit `e10fe00`(parent `6d460e8`);上轮评审基线 `8570979`
+- 范围锁定: 逐条裁决统一台账 F1–F5 修复 fixed/not-fixed + 只回归审查修复 diff 本身引入的新问题(禁全量重扫)
+- 台账映射: **F3 = 上轮 external CR-1**(token 空值 fail-open · 本 external 认领项);F1/F2/F4/F5 为跨视角台账项
 - files_read:
-  - docs/.../TECH.md
-  - src/host/token.ts
-  - src/host/wsServer.ts
-  - src/host/hostCore.ts
-  - src/host/host.ts
-  - src/shared/versionCompat.ts
-  - src/shared/protocol.ts
-  - src/renderer/services/hostClient.ts
-  - src/host/__tests__/{tokenGate,wsHandshakeGate,wsMalformedInput}.test.ts
-  - src/renderer/services/__tests__/hostClientVersionCheck.test.ts
+  - src/host/token.ts(全)
+  - src/host/watchService.ts(全)
+  - src/host/gitService.ts:147-205
+  - src/host/__tests__/tokenGate.test.ts(diff + 新增用例)
+  - src/host/__tests__/wsTestHarness.ts(pokeUntilFsEvent)
+  - src/host/__tests__/wsRpcParity.test.ts(diff)
+  - src/host/__tests__/wsMultiClientIsolation.test.ts(diff)
+  - .github/workflows/host-package.yml(diff)
+  - docs/.../TC.md(F4 diff)
+- 实测: `vitest run tokenGate + wsRpcParity + wsMultiClientIsolation` → 35 passed;fs.watch 重跑第二轮 17 passed(F1 稳定性复核)
 
-## findings_summary
-- blocker: 0
-- high: 1
-- low: 4
-- info: 1
-- total: 6
+## 逐条裁决
 
-## findings
+### F3(= CR-1)— 空 token(file/fd/stdin)fail-open → auth bypass ✅ FIXED
+- checklist: C3
+- 修复实证: `src/host/token.ts:37-45` 新增 `requireNonEmptyToken`,并在三通道 return 前统一套用 —— `--token-file`(:98)、`--token-fd`(:106)、`--token-stdin`(:113);env 通道原有 `envToken !== ''` 守卫仍在(:84),generated 走 `crypto.randomBytes`(:22)恒非空。
+- 根因是否真闭合: **是**。经 `resolveToken` 的**所有**信道现在都不可能返回 `token===''`,故 host 侧 expected token 恒非空;`verifyToken('', 非空)` 恒 false(:125-131),上轮描述的 `?token=`(空串,非 null,绕过 wsServer 的 `provided===null` 拒绝分支)→ `verifyToken('','')` 通过的 fail-open 链路从源头被切断。
+- 测试实证: `tokenGate.test.ts` 新增 3 空值单测(空白文件 / fd 空 / stdin 空 → 均 `toThrow(/refusing empty token/)`)+ 1 集成断言(非空 host 上客户端 `?token=` 空串被拒 · readyState≠OPEN · 零消息)。本地 35 passed 覆盖。
+- 残留(不阻断 · info): 上轮 suggestion 里「在 `startWsServer` 入口对 `opts.token` 补一道非空断言做纵深」未落地。当前实机入口(host.ts)只经 `resolveToken` 取 token,不可达空值;仅当有直接以 `token:''` 调 `startWsServer` 的旁路调用方才会重现,现无此调用方。属纵深加固建议,非本 finding 未修 —— finding 本身(空源 → fail-open)已 fail-closed。
 
-### CR-1 — 空 token(file/fd/stdin 通道)未拒绝 → 静默 auth bypass
-- checklist: C3(边界/输入校验)
-- severity: high
-- location: `src/host/token.ts:69,82,87,91` + `src/host/wsServer.ts:213` + `src/host/token.ts:101-107`
-- issue: `resolveToken` 只对 **env** 通道做了空值守卫(`envToken !== ''`,token.ts:69);`--token-file`/`--token-fd`/`--token-stdin` 三条通道直接 `.trim()` 返回,**无非空校验**。空/纯空白 token 源 → 解析出 `token=''`。
-- rationale: `verifyToken('', '')` 恒返回 `true`(`sha256('')===sha256('')`,token.ts:103-106);而 upgrade 侧 `url.searchParams.get('token')` 对 `?token=`(空串)返回 `''`(非 `null`,故绕过 wsServer.ts:213 的 `provided===null` 拒绝分支)→ `verifyToken('', '')` 通过。结果:运维一旦把 `--token-file` 指向空/空白文件,端口闸**完全失效**,任意本机进程带 `?token=` 即可接入并 spawn PTY / 读文件。这是安全控制的 fail-open(与 TECH「token 是本机 loopback 端口唯一屏障」的威胁模型直接冲突)。
-- suggestion: `resolveToken` 在**所有**通道 return 前统一断言 `token.trim().length > 0`(建议再加最小长度,如 ≥16),空即 `throw`(fail-closed);并在 `startWsServer` 入口对 `opts.token` 补一道非空断言做纵深。补 T-0xx 覆盖「空 token 文件 → 启动即拒绝」。
+### F1 — fs.watch 集成测试 flakiness(poke 循环)✅ FIXED
+- checklist: C5
+- 根因重判是否成立: **成立**。`fs.watch(path,{recursive:true})` 在 macOS 底层绑 FSEvents,RPC 返回 watchId ≠ 流已开始接收;满负载下「返回后第一次写」可能落进流未就绪的死窗口而**永久丢事件**(不补发)—— 这解释了为何任何固定预算(3000/8000ms)都注定超时,是「丢」不是「慢」。
+- 修复实证: `wsTestHarness.ts:228-268` 新增 `pokeUntilFsEvent`,持续以唯一文件名 poke(防去重)直到命中「流已就绪」窗口收到事件或预算耗尽;正向等待点 T-032/T-033(wsRpcParity.test.ts:164/176)、T-042/T-043(wsMultiClientIsolation.test.ts:135/148)改用之。
+- 回归正确性: watchService 未过滤 dotfile(`watchService.ts:20-28` 裸 `fs.watch` 回调,无 startsWith('.')/ignore),故 `.fs-poke-*` 能触发事件;负向断言未削弱 —— T-042 中 A 先 unwatch 自身 watch、T-043 中 A 从不 watch,故 poke 写入 tmp 不会破坏 `a.fsChanged.length===0`;T-033 unwatch 后的「不再收」窗口不变。
+- 稳定性实证: 两轮独立跑(35 passed + 17 passed)fs.watch 用例全绿。
 
-### CR-2 — WS upgrade 无 Origin 校验(纵深缺失)
-- checklist: C3(认证/权限边界)
-- severity: low
-- location: `src/host/wsServer.ts:203-222`(`httpServer.on('upgrade')`)
-- issue: upgrade 回调只校验 `?token=`,未校验 `Origin` 头。
-- rationale: 真实屏障是 128-bit token 熵(无 token 即被 `socket.destroy()`),故不是可利用漏洞;但浏览器语境下任意本机网页均可发起 `ws://127.0.0.1:<port>` 探测,Origin 白名单是廉价的 DNS-rebinding/CSRF 式探测纵深。
-- suggestion: 若客户端恒为已知 Electron/renderer origin,可对 `req.headers.origin` 做白名单(缺失/不匹配即 destroy);无法枚举则至少记 WARN。属加固项,不阻断合并。
+### F2 — linux-arm64 产物缺失 ✅ FIXED(CI 层可静态核验)
+- checklist: C1/C5
+- 修复实证: `.github/workflows/host-package.yml:36-37` matrix 新增 `ubuntu-24.04-arm → linux-arm64`,采 GitHub 原生 arm64 hosted runner(非 QEMU 仿真),复用同一「打包 + verify-host-artifact 实机验证」步骤;注释回写了本地 Apple-Silicon docker `--platform linux/arm64` 复现结论。
+- 裁决口径: 产物矩阵项已落 workflow(可静态核验);「docker arm64 native VERIFY_OK」实机结论在 commit message,本评审环境无法独立复跑 CI,取 workflow 变更为准 —— 满足 AC-4/TC-F05「产物存在性」判据且超出(改成真实机验证)。
 
-### CR-3 — host.info-first 门控 done-flip 依赖 microtask/TCP 分段时序(脆弱)
-- checklist: C1(实现 vs TECH 一致性 / 状态机健壮性)
-- severity: low
-- location: `src/host/wsServer.ts:129-143`(`postMessage` 内 `queueMicrotask` gate-flip)
-- issue: gate 从 `awaiting-response`→`done` 的翻转靠「host.info 响应发出后下一微任务」完成;是否放行 pipelined 第二帧取决于该帧是否与 host.info 落在同一 data 事件(TCP 分段)。
-- rationale: 安全性正确(`awaiting-response` 期任何帧都 violation → 无泄露,gate 从不提前放行非 host.info);但对 pipelining 客户端的「断开与否」是**非确定性**的(T-010 靠 cork/uncork 人为拼段才稳定复现)。属可维护性/契约清晰度隐患,非安全洞。
-- suggestion: 要么显式声明「握手期不支持 pipelining」为对外契约并在注释固化,要么改为确定性判据(如:awaiting-response 期收到**任何** inbound 帧即 violation,不依赖 microtask 竞争窗口)——当前实现其实已接近该语义,建议去掉对 microtask 时序的隐性依赖表述。
+### F4 — TC test_refs 文件名错指 ×7 ✅ FIXED
+- checklist: C5(TC↔实现映射)
+- 修复实证: `TC.md` T-053…T-059(共 7 条)`file:` 由不存在的 `.github/workflows/host-package-smoke.yml` 改为真实存在的 `.github/workflows/host-package.yml`;已核验 `host-package-smoke.yml` 确不存在(`ls` No such file)。纯文档校正,不涉运行时。
 
-### CR-4 — 自动生成 token 打印至 stdout,若 stdout 被重定向落盘则持久化
-- checklist: C6(可观测性 / 敏感信息)
-- severity: low
-- location: `src/host/host.ts:59-61`(`console.log('[host] token=%s', token)`)
-- issue: 自动生成 token 单行打印到 stdout 供调用方捕获(设计如此),但 TECH 声称「host 侧不落盘」。
-- rationale: 若 host 以 systemd/`>logfile` 方式运行,stdout 被采集,则 128-bit token 明文进入持久日志,与「不落盘」意图相悖。ssh-exec 捕获场景无碍,但部署形态无法约束调用方。
-- suggestion: 文档明确「stdout 严禁重定向到持久日志」;或改为仅在 stdout 为 TTY/pipe 时打印,落盘场景走一次性 fd/`--token-fd` 回传,避免明文入日志。
+### F5 — T-031 parity 缺 git.show/git.changedFiles ✅ FIXED
+- checklist: C5
+- 修复实证: `wsRpcParity.test.ts:118-135` 新增两段 WS-vs-直调等价断言:`git.show{toplevel,ref:'HEAD',path:'package.json'}` vs `gitShow(...)`(并断言 content 非空)、`git.changedFiles{toplevel}` vs `gitChangedFiles(...)`;签名与 `gitService.ts:147/189` 对齐(`{content}` / `{entries,mergeBase}`)。本地实测该 describe 全绿。
 
-### CR-5 — `--token-file` 校验存在 TOCTOU 且跟随符号链接
-- checklist: C3(资源/权限边界)
-- severity: low
-- location: `src/host/token.ts:76`(`fs.statSync`)→ `src/host/token.ts:82`(`fs.readFileSync`)
-- issue: 先 `statSync` 校验 0600 再 `readFileSync` 读取,两步分离(TOCTOU);`statSync` 跟随符号链接。
-- rationale: 同机攻击者若能在校验与读取之间替换该路径,或提供一条指向他控 0600 文件的符号链接,可影响 token 源。需对 token 文件路径有写权限,故实际利用面窄。
-- suggestion: `open()` 后对**同一 fd** `fstatSync` 校验权限再读;并用 `lstat` 拒绝符号链接(或校验 `st.uid === process.getuid()`)。
+## 修复 diff 是否引入新问题
 
-### CR-6 — token 通过但未握手的连接即分配 Client/WatchService
-- checklist: C3(资源清理 / 边界)
-- severity: info
-- location: `src/host/wsServer.ts:224-233`(`connection` → `attachClient`)→ `src/host/hostCore.ts:73-81`
-- issue: `attachClient` 在 host.info 门控通过**之前**即为每条已过 token 的连接建 Client + WatchService,握手超时(10s)前一直驻留。
-- rationale: 有界(受 `HANDSHAKE_TIMEOUT_MS` 约束)且需持有 token,故仅 info 级;但握手前就实例化 per-client 资源,略偏离「门控通过再落资源」的最小暴露原则。
-- suggestion: 可选——把 Client/WatchService 的创建延后到 gate=done(host.info 完成)后再 attach;当前实现可接受,记录备查即可。
+无 blocker / high。仅 info 级观察(均不阻断):
 
----
+### N-1 — pokeUntilFsEvent 遗留 `.fs-poke-*` 文件不清理 · info
+- location: `wsTestHarness.ts:248`
+- 每次 poke 在 dir(临时目录)写唯一文件且不删除,循环命中越晚遗留越多。落在 `os.tmpdir()` 下的测试临时目录,无功能影响,可选在返回前清理或改用 `afterEach` 递归删。
 
-## 逐检查项小结(C1–C6)
+### N-2 — T-038/T-039b 等待预算上调(5000→12000)· info
+- location: `wsRpcParity.test.ts:285`、`wsMultiClientIsolation.test.ts:103`
+- 抗并行负载抖动的超时放宽,提升测试墙钟上限但不改判定语义,非正确性问题;若真实链路需要 12s 才回帧则另有隐患,当前实测远快于此,属余量。
 
-- **C1 实现 vs TECH 一致性**:高度一致。入口分流(host.ts:36)、`wsPortAdapter`→`PortLike`→`attachClient` 复用(wsServer.ts:54/232)、闭区间版本判定(versionCompat.ts:16-31,与 TECH 伪代码 `max(Mc,Mh)≤min(Vc,Vh)` 等价)、HostInfo 追加 `minCompatible`(protocol.ts:33 + hostCore.ts:143)、pty.kill/pty.cwd 归属守卫(hostCore.ts:159-177,实锤 R3 advisory 已落地)均按 TECH 落地。唯一脆弱点见 CR-3。
-- **C2 错误处理**:门控违规/超时/畸形/token 拒绝/不兼容各条失败路径均实现且带 WARN(wsServer.ts:76-80,91,215;versionCompat 结构化 error)。`ws.on('error')`(wsServer.ts:121)兜住 maxPayload 超限冒泡,AC-7 不崩他客户端由 wsMalformedInput.test.ts 6 例覆盖。未见「假设永远成功」的裸路径。
-- **C3 边界条件**:loopback 强制(wsServer.ts:170)、0.0.0.0 拒绝(T-022 实测)、maxPayload=32MiB、env 读后即抹(token.ts:55-59,T-025/T-030 实测未泄露进 PTY)均到位。缺口集中在 token 空值(CR-1,high)、TOCTOU(CR-5)、Origin(CR-2)。
-- **C4 KNOWLEDGE/约束**:host 侧文件(hostCore/wsServer/token/host)**零 Electron import**,远程就绪红线遵守;改契约先改 protocol.ts 亦遵守;`ws` 纯 JS 依赖不引入新 native(bufferutil external 已在冒烟阶段处理)。
-- **C5 测试覆盖**:113 passed 实测通过。AC-1 全方法 WS 冒烟(wsRpcParity)、AC-2 版本矩阵含边界(T-001…007)、AC-3 token 六通道 + 失败告警不阻断(T-014…030)、AC-6 双客户端归属、AC-7 畸形六例均真跑真实 host 进程,非两端 mock。**覆盖缺口**:无「空 token 源」用例(对应 CR-1);无 Origin 用例(CR-2)。
-- **C6 可观测性**:日志含 client label + 原因,token 明文不入 WARN/ERROR 日志(核对全部 logger 行)。唯一敏感项是 stdout 的 `[host] token=`(CR-4,设计内但需部署约束)。
+### N-3 — F3 纵深断言未加(承接上轮 CR-1 suggestion 残留)· info
+- 见 F3 裁决「残留」段:`startWsServer` 入口无 `opts.token` 非空断言。现无可达空值旁路,记录备查,非本轮回归引入的新洞。
 
 ## 结论
-无 blocker。CR-1(high · 空 token 通道 fail-open)建议合并前修复并补测试;CR-2…CR-5(low)为加固/健壮性项,可择机;CR-6(info)记录备查。整体实现与 TECH 高度吻合,归属守卫与 env 抹除等安全要点已真实落地并有集成测试佐证。
+统一台账 F1–F5 **全部 FIXED**:F3(=CR-1 · 本 external 认领的 high)fail-closed 从源头闭合并有单测+集成佐证;F1 根因重判成立、修法正确且两轮实测稳定、负向断言未削弱;F2 CI 矩阵项已落且升级为实机验证;F4/F5 文档与测试校正到位。修复 diff 未引入 blocker/high 新问题,仅 3 项 info 级观察(测试遗留文件 / 超时余量 / 纵深断言),可择机、不阻断合并。

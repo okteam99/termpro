@@ -1,17 +1,18 @@
 ---
 reviewers: [architect, qa, external]
-verdict: NEEDS_REVISION
+verdict: APPROVE
 findings:
-  - {id: F1, severity: MAJOR, status: open, title: "fs.watch 集成测首事件预算 3000ms 满负载下不足(T-032/033/042/043)+ T-038 echo 5s 与同族 12s 不一致,偶发失败污染三绿门", source: qa}
-  - {id: F2, severity: MAJOR, status: open, title: "AC-4/TC-F05 明列的 linux-arm64 产物在打包脚本与 CI 矩阵中完全缺失", source: qa}
-  - {id: F3, severity: MAJOR, status: open, title: "token 空值 fail-open:file/fd/stdin 三通道 trim 后无非空断言,空白 token 源使端口闸恒通过(verifyToken('','')===true)", source: external}
-  - {id: F4, severity: MINOR, status: open, title: "TC frontmatter test_refs 文件名失真(host-package-smoke.yml → 实际 host-package.yml)", source: qa}
-  - {id: F5, severity: MINOR, status: open, title: "WS RPC parity 20 方法测 18:git.show / git.changedFiles 未经 WS 往返", source: qa}
+  - {id: F1, severity: MAJOR, status: fixed, title: "fs.watch 集成测首事件预算 3000ms 满负载下不足(T-032/033/042/043)+ T-038 echo 5s 与同族 12s 不一致,偶发失败污染三绿门", source: qa}
+  - {id: F2, severity: MAJOR, status: fixed, title: "AC-4/TC-F05 明列的 linux-arm64 产物在打包脚本与 CI 矩阵中完全缺失", source: qa}
+  - {id: F3, severity: MAJOR, status: fixed, title: "token 空值 fail-open:file/fd/stdin 三通道 trim 后无非空断言,空白 token 源使端口闸恒通过(verifyToken('','')===true)", source: external}
+  - {id: F4, severity: MINOR, status: fixed, title: "TC frontmatter test_refs 文件名失真(host-package-smoke.yml → 实际 host-package.yml)", source: qa}
+  - {id: F5, severity: MINOR, status: fixed, title: "WS RPC parity 20 方法测 18:git.show / git.changedFiles 未经 WS 往返", source: qa}
   - {id: F6, severity: MINOR, status: deferred, title: "WS upgrade 无 Origin 校验(纵深加固;token 熵仍是真屏障)", source: external}
   - {id: F7, severity: MINOR, status: deferred, title: "认证失败告警越阈后每次失败重复 emit,坏 token 洪泛刷 WARN 日志(建议节流)", source: arch}
   - {id: F8, severity: MINOR, status: deferred, title: "边界缺口组:恰好 32MiB 帧/逐字节慢速 host.info/pong 迟到非丢失/握手风暴", source: qa}
   - {id: F9, severity: MINOR, status: deferred, title: "token 运维面:generated token stdout 可能被日志采集落盘 + token-file TOCTOU/符号链接(归 BL-003 部署流程)", source: external}
   - {id: F10, severity: MINOR, status: rejected, title: "host.info-first 门控安全价值仅协议卫生(非鉴权边界)", source: arch}
+  - {id: F12, severity: NIT, status: deferred, title: "验证轮 info 组:poke 临时文件不清理/T-038 余量备注/startWsServer 入口纵深断言(无可达旁路)", source: external}
   - {id: F11, severity: NIT, status: deferred, title: "门控实现细节组:非数字 id 边缘/done-flip 时序依赖/握手前分配 Client/双 connection 处理器/打包脚本探测面/连接数上限(→BL-003/005)", source: arch}
 ---
 # REVIEW 汇总(Round 1 · 全量评审)
@@ -81,3 +82,19 @@ findings:
 - **F5**:`src/host/__tests__/wsRpcParity.test.ts` T-031(全 RPC 方法表 WS roundtrip)新增 `git.show`(`toplevel/HEAD/package.json`)与 `git.changedFiles`(`toplevel`)两次 RPC 调用,并与 `gitService.ts` 直接调用结果 `toEqual` 比对,补齐 harness 现成、此前 20 方法表里唯二未经 WS 往返验证的两个方法。
 
 **验证门禁(本轮 fix 后独立复跑)**:`npm run typecheck` 0 err;`npx vitest run` 全量**连续 3 轮**,每轮均 39 files / 352 tests 全绿(较 fix 前 348 增加 F3 新增 4 条测试;非隔离跑,针对 F1 root-cause 重判的复现条件专项验证);`TERMPRO_SMOKE=1 npx electron-forge start` 输出 `SMOKE_OK`。三项均在本 worktree 内验证,未夹带 F6-F11 deferred/rejected 项改动。
+
+## Round 2 验证轮(范围锁定 · 逐条裁决 + 修复 diff 回归)
+
+> 修复 commit `e10fe00`。PMO 独立复核:tsc 0 / 全量 vitest 352×3 轮连续绿 / SMOKE_OK;external 验证冷审独立裁决(verify_fixes: true · target_commit e10fe00)。
+
+### 上轮 open finding 裁决
+- **F1 → fixed(根因重判)**:非延迟预算问题——fs.watch 的 FSEvents 流异步启动,全量并行下流启动推迟,紧跟的唯一写落入死窗口事件永久丢失。修法 = harness `pokeUntilFsEvent` 持续 poke 至首事件必达;负向断言未削弱。PMO 复核修法前全量 2 轮各挂 1-2 例、修法后 3 轮全绿;external 独立复测稳定。
+- **F2 → fixed**:linux-arm64 docker 原生编译 + 组装 + 干净 slim 容器 VERIFY_OK(超出 AC-4 存在性判据);CI matrix 增 ubuntu-24.04-arm(原生 runner · 理由留档 TECH)。
+- **F3 → fixed**:requireNonEmptyToken 三通道 fail-closed;+4 测试;expected token 恒非空使 ?token= 空串旁路从源头闭合。
+- **F4/F5 → fixed**:TC 引用×7 校正;T-031 parity 补齐 20/20 方法。
+
+### 修复 diff 回归审查
+新问题仅 3 项 info(poke 临时文件不清理/超时余量备注/入口纵深断言无可达旁路)→ 合并为 F12(NIT · deferred)。无 blocker/high、无回归。
+
+### verdict(Round 2)
+**APPROVE** —— 无 open BLOCKER/MAJOR;deferred(F6-F9/F11/F12)随 ship 入待规划池,rejected(F10)带依据留痕。
