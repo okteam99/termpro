@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "c66b717d36c079cc347bdca4b00c9897e8a81ad8",
   "worktree": {
@@ -66,15 +66,52 @@
       "duration_minutes": 28
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T13:31:48Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "typecheck exit 0 / vitest 39 files 348 tests passed(静默环境5轮连续全绿) / TERMPRO_SMOKE=1 SMOKE_OK / verify-host-artifact darwin-arm64 VERIFY_OK + linux-x64 docker VERIFY_OK"
+      },
+      "completed_at": "2026-07-09T16:27:37Z",
+      "auto_commit": "8570979",
+      "artifacts": [
+        "src/shared/versionCompat.ts",
+        "src/host/token.ts",
+        "src/host/wsServer.ts",
+        "src/host/hostCore.ts",
+        "src/host/host.ts",
+        "src/renderer/services/hostClient.ts",
+        "src/shared/protocol.ts",
+        "src/host/__tests__/tokenGate.test.ts",
+        "src/host/__tests__/wsHandshakeGate.test.ts",
+        "src/host/__tests__/wsMalformedInput.test.ts",
+        "src/host/__tests__/wsMultiClientIsolation.test.ts",
+        "src/host/__tests__/wsRpcParity.test.ts",
+        "src/host/__tests__/wsTestHarness.ts",
+        "src/renderer/services/__tests__/hostClientVersionCheck.test.ts",
+        "src/renderer/services/__tests__/hostClientEmbeddedRegression.test.ts",
+        "scripts/package-host.mjs",
+        "scripts/verify-host-artifact.mjs",
+        ".github/workflows/host-package.yml",
+        "vite.host.config.ts",
+        "vitest.config.ts",
+        "package.json"
+      ],
+      "duration_minutes": 175
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-09T13:31:48Z"
+      "started_at": "2026-07-09T16:27:37Z"
     }
   },
   "completed_stages": [
     "goal",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-07-09T09:38:53Z",
   "stage_review_roles": {
@@ -113,11 +150,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T16:26:24Z",
+  "updated_at": "2026-07-09T16:27:50Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:abebec1333f0a583c7688deff887babd9891eb7f6bb6c357e94dd79732869b69",
+  "_state_checksum": "sha256:1e2538a647dae06facfc5b47a556ad8cb2333a6c4e5945b42991ee6fa7821e33",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": false
