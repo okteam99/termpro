@@ -5,117 +5,109 @@ degraded: true
 degraded_mode: config-disabled
 degraded_reason: "localconfig disable_external_review=true(单模型 · 异质评审降级为同模型 exec 自审 · 已 startup WARN)"
 review_via: subagent
-perspective: "external-claude (degraded · same-model subagent self-review)"
+verify_fixes: true
+target_commit: ea5ddf3ed406bea7142c01132b6eeb50338815fe
+perspective: "external-claude (degraded · same-model subagent self-review · verify round)"
 target: code
-generated_at: "2026-07-10T04:20:00Z"
+round: verify
+prev_commit: c53ec30ffb2bece70e07af3ebf9e5f246c5bd57f
+fix_commit: ea5ddf3ed406bea7142c01132b6eeb50338815fe
+generated_at: "2026-07-10T04:42:00Z"
 model: "claude-opus-4-8"
+gate_independently_reverified:
+  typecheck: "pass (tsc --noEmit, 0 err)"
+  tests: "pass (persistence.test.ts + workspaceRegistry.test.ts · 17/17 绿)"
 files_read:
-  - "docs/features/TERMPRO-F260709092258-Workspace-Registry-Host/TECH.md"
-  - "src/shared/protocol.ts"
-  - "src/host/host.ts"
-  - "src/host/workspaceService.ts"
-  - "src/host/workspaceRegistry.ts"
-  - "src/main/main.ts"
-  - "src/main/appStore.ts"
-  - "src/preload/preload.ts"
-  - "src/renderer/types.d.ts"
-  - "src/renderer/App.tsx"
-  - "src/renderer/services/hostClient.ts"
-  - "src/renderer/state/store.ts"
+  - "docs/features/.../external-cross-review/review-claude-subagent-degraded.md (上轮 6 findings)"
+  - "git show ea5ddf3 (修复 diff 全量)"
   - "src/renderer/state/persistence.ts"
   - "src/renderer/state/workspaceMigration.ts"
-  - "src/renderer/state/workspaceSync.ts"
-  - "src/renderer/components/Sidebar.tsx"
-  - "src/renderer/components/TransientToast.tsx"
+  - "src/host/workspaceRegistry.ts"
+  - "src/host/workspaceService.ts"
+  - "src/renderer/state/__tests__/persistence.test.ts"
   - "src/host/__tests__/workspaceRegistry.test.ts"
-  - "src/host/__tests__/workspaceMultiClient.integration.test.ts"
-  - "src/renderer/state/__tests__/workspaceSync.test.ts"
-  - "src/renderer/state/__tests__/workspaceUpgrade.integration.test.ts"
-findings:
+verdicts:
   - id: CR-1
-    checklist: C2
-    severity: high
-    location: "src/renderer/state/persistence.ts:34-42 + src/renderer/state/store.ts:302-321 + src/renderer/state/persistence.ts:55-61,88-99"
-    issue: "hydrate 期 workspace.list RPC 失败被 catch 吞成空数组 registry=[],v2 分支据此把所有 v2 存档条目当孤儿外键静默丢弃,随后首个 state 变更触发防抖 serialize 把空 workspaces 写回 v2 存档 —— 永久丢失 per-client 视图态(tabs/cwd/filePanel/排序)。"
-    rationale: "persistence.ts:38-40 失败仅 warn 后 registry 保持 [];store.ts:309-310 v2 分支 `if(!entry)continue` 无条件丢孤儿;serialize v2(persistence.ts:88-99)写内存快照 = [],经 subscribe(persistence.ts:55-61)落盘覆盖磁盘 v2 条目。Host 15s RPC 超时(hostClient)/host 重启即可触发,workspace 本体存于 Host 不丢但用户 tab 布局全塌成单默认 tab,无任何提示。TECH 风险表只覆盖『注册表文件被删/损坏(真空)』,未覆盖『host 存活但 list 瞬时失败(假空)』。"
-    suggestion: "区分『list 失败』与『list 真空』:workspace.list reject 时不进入破坏性 v2 hydrate —— 或保持 hydrated=false + 不订阅持久化 + 重试,或以 archive 视图态为准不丢弃(视为未知则保留),关键是禁止把源自失败 fetch 的空列表 serialize 落盘。补一条 list-reject 单测。"
+    prev_severity: high
+    verdict: fixed
+    evidence: "persistence.ts:44,57-66,81-104"
   - id: CR-2
-    checklist: C3
-    severity: low
-    location: "src/host/workspaceRegistry.ts:180-193(enqueueWrite 同步快照)+ :129-137(create rollback)"
-    issue: "并发 mutation 下,失败写的内存回滚无法撤销一个『已在回滚前同步快照』的后续队列写;若该后续写成功,会把被回滚的条目落盘,使盘 ≠ 内存 ≠ 广播快照。"
-    rationale: "enqueueWrite(L181-184)在调用时同步捕获 `this.workspaces` 快照。并发 create A/B(host.ts:117 `void handleRpc` fire-and-forget)时:A 同步 push→snapshotA=[a];B 同步 push→snapshotB=[a,b]。若 writeA([a]) 失败→A catch 回滚内存去 a(L134);但 writeB 的 snapshot 已含 a,writeB 成功则盘=[a,b]。A 已向客户端报失败、内存无 a,而盘上/重启后 a 复活,违反 TECH 自述不变式『广播出去的快照=已落盘状态』。触发需并发 + 写失败,概率低但正是 CR-2 并发序列化机制自身的漏洞。"
-    suggestion: "回滚时同时使已入队但未落盘的写作废/重排队最新真相快照;或改为『每次落盘写当前权威内存』(队列尾读实时内存而非入队时快照)使回滚天然被后续写覆盖。补『并发 create + 首写失败』divergence 单测。"
+    prev_severity: low
+    verdict: fixed
+    evidence: "workspaceRegistry.ts:124-159,163-178,181-202,217-224"
   - id: CR-3
-    checklist: C1
-    severity: low
-    location: "src/host/workspaceRegistry.ts:122-125(create 幂等返回既有,不更新字段)+ src/renderer/state/workspaceMigration.ts:87-89"
-    issue: "workspace.create 的幂等是『存在即返回,不 upsert 字段』;若部分迁移已落一条,后续在 v1 fallback 期做的改名/改根会在下次迁移重跑完成时被静默丢弃。"
-    rationale: "create(L122-125)命中既有 id 直接返回既有 entry,不应用入参 name/root。场景:首启迁移 partial(host 中途重启)落了 A={name:Alpha},v1 fallback 期用户改名 A→AlphaRenamed(写进 v1 存档 name);次启迁移重跑 create({id:A,name:AlphaRenamed}) 命中既有→返回 Alpha,翻 v2 后 hydrate 显示旧名 Alpha。TECH/完工自查称『以 id upsert 幂等』,实为 insert-if-absent,非字段 upsert。触发窄(partial 迁移 + fallback 改名 + 后续成功迁移),仅名/根丢失无崩溃。"
-    suggestion: "明确迁移语义:create 命中既有时若 name/root 不同则更新(真 upsert),或迁移改用 create-then-update 兜住 fallback 期变更;文档纠正『upsert』措辞。"
+    prev_severity: low
+    verdict: fixed
+    evidence: "workspaceRegistry.ts:129-147"
   - id: CR-4
-    checklist: C1
-    severity: low
-    location: "src/host/workspaceService.ts:63-67(remove no-op 仍广播)+ src/host/workspaceRegistry.ts:158-177(update 无同值检测)"
-    issue: "workspace.remove 命中不存在 id(内存 no-op、不写盘)仍调用 broadcast();workspace.update 无『同值→no-op』检测,总是写盘+广播。与 TECH 接口表『不存在→no-op success』『同值→no-op』的语义有偏差。"
-    rationale: "workspaceService.handle remove 分支(L63-67)无论 registry.remove 是否实际删都 broadcast();TECH L153/L154 标注 remove no-op、update 同值 no-op。终态正确,但每次 no-op remove 会向全部客户端推全量快照触发一轮 reconcile,update 同值多一次原子写。属可观测到的多余 churn 而非错误结果。"
-    suggestion: "让 registry.remove/update 返回『是否实际变更』的布尔,service 仅在真变更时 broadcast/落盘;或接受当前行为并同步修订 TECH 措辞。"
+    prev_severity: low
+    verdict: not-fixed
+    reason: "out-of-scope(仅修 F1/F2/F3);service 仍无条件广播"
+    evidence: "workspaceService.ts:57-77"
   - id: CR-5
-    checklist: C3
-    severity: low
-    location: "src/renderer/state/workspaceMigration.ts:86-95(逐条 create 循环,首个 throw 即整体中止)+ src/host/workspaceRegistry.ts:36-50(validName/validRoot)"
-    issue: "单条畸形 v1 workspace(name 空 / root 非绝对路径)会使 workspace.create 确定性抛校验错,导致整个迁移永久卡在 v1 fallback —— 循环遇首个坏条目即 abort,每次启动重试仍在同条上失败,永不翻 v2。"
-    rationale: "runMigration for-loop(L88-89)对逐条 create 直接 await,任一 reject 落 catch 保持 v1;validName/validRoot(L36-50)对畸形输入必抛。畸形是持久性(非瞬时),故重试无效,连续 3 次后仅一次性 toast,之后静默永卡。v1 root 通常源自 pickDirectory(合法绝对路径),触发概率低,但无任何降级/跳过/上报坏条目路径。"
-    suggestion: "迁移对单条失败容错:跳过并记录坏条目(warn 附 id/root)、其余照迁,或在畸形不可迁移时给出可诊断提示而非无限静默重试。"
+    prev_severity: low
+    verdict: not-fixed
+    reason: "out-of-scope;workspaceMigration.ts 未被本次 diff 触及"
+    evidence: "workspaceMigration.ts:88-89,96-113"
   - id: CR-6
-    checklist: C2
-    severity: info
-    location: "src/host/workspaceService.ts:52-78(params 直接 as 强转)+ src/host/workspaceRegistry.ts:35-42(validName)"
-    issue: "WorkspaceService.handle 对 params 只做类型强转不做运行时形状校验;create 缺 name 时 validName(undefined) 会抛原始 TypeError(undefined.trim())而非结构化校验错。"
-    rationale: "L57-58 `params as {...}`;validName(L36)直接 `name.trim()`。当前 tsc 类型安全的本地调用者构造不出此输入,host.ts try/catch 也会兜住不崩,但 M5 远程/多客户端边界是不可信输入面,依赖『调用方守规矩』在远程就绪目标下偏弱。"
-    suggestion: "在 service 边界或 registry 入口加显式参数存在性/类型校验(name/root 必为非空 string),统一抛结构化校验错;为 M5 不可信边界补一条畸形 params 用例。"
+    prev_severity: info
+    verdict: not-fixed
+    reason: "out-of-scope;service 边界仍 params as 强转无运行时校验"
+    evidence: "workspaceService.ts:58,64,70"
+new_findings:
+  - id: NV-1
+    checklist: C6
+    severity: low
+    location: "src/renderer/state/persistence.ts:57-63,70-78"
+    issue: "F1 有限重试耗尽(5 次)后 scheduleRegistryRetry 静默停止调度,但最后设置的 transientNotice 仍是「无法读取 Workspace 注册表,正在重试…」,提示与实际状态不符(已停止重试),此后恢复需用户手动 ⌘R。"
+    rationale: "scheduleRegistryRetry(L71)`if(registryRetries>=MAX)return` 到顶即静默返回,不改提示、不给『已放弃/请重载』终态。用户界面永久停在『正在重试…』占位但后台并无重试。数据安全达成(不 hydrate 成空、不落盘空态),仅 UX 措辞不准 + 无自动兜底。"
+    suggestion: "重试耗尽时把提示改为终态文案(如『无法连接 Host,请 ⌘R 重载窗口重试』),或提供一个可见的手动重试入口。"
 findings_summary:
-  blocker: 0
-  high: 1
-  low: 4
-  info: 1
-  total: 6
+  verified_fixed: 3
+  verified_not_fixed: 3
+  not_fixed_all_out_of_scope: true
+  new_blocker: 0
+  new_high: 0
+  new_low: 1
+  new_info: 0
+  regression_introduced_by_fix: false
 ---
 
-# 详情
+# 验证轮 — 逐条裁决 + 修复 diff 回归
 
-## 概览
+范围锁定:逐条裁决上轮 6 条 finding(fixed/not-fixed)+ 仅回归审查修复 diff(`ea5ddf3`,相对 `c53ec30`)自身引入的新问题。未做全量重扫。修复 commit 自述对应 F1=CR-1 / F2=CR-2 / F3=CR-3。独立复核门禁:`tsc` 0 err、受影响两测试文件 17/17 绿。
 
-按 code 变体 C1–C6 通读了本 Feature(commit `c53ec30`)相对 `d6494c6` 的全部改动 + 相关单/集成测试。整体实现与 TECH 一致度高:host 零 Electron(仅 node builtin)、契约单源(protocol.ts)、CRUD 全走 hostClient.rpc、v1/v2 双模式与迁移标记单源(存档 version)、reconcile 三分支纯函数化并有扎实 P0 契约测试、原子写 + 串行写队列 + 写穿回滚均落地。测试覆盖面广(注册表 12 例含并发/损坏/写失败回滚、双客户端广播集成 INT-001..004、reconcile COORD-001..011、迁移与升级端到端)。
+## 逐条裁决
 
-未发现 blocker;发现 1 条 high(hydrate 期 list 失败的静默视图态丢失)与若干边界/一致性 low。以下详述最重要 3 条。
+### CR-1(high, C2)→ FIXED
+hydrate 期 `workspace.list` 失败不再被当作注册表真空。`persistence.ts:44` 把 `registry` 从 `[]` 改为 `WorkspaceEntry[] | null`,`null` 显式表示「读失败」。`persistence.ts:57-63`:`outcome.mode==='v2' && registry===null` 时**不** `hydrate`、**不**订阅写回、给占位提示并 `scheduleRegistryRetry()` 后 `return`。写回订阅被下沉进 `finishHydrate()`(`persistence.ts:81-104`),只在成功路径启动 —— 这精确切断了上轮的破坏链(空 registry→v2 孤儿全丢→防抖 serialize 落盘空态)。v1 fallback 分支不进该条件,`list` 失败无害照常 hydrate(与既有语义一致)。3 条新回归测试(`persistence.test.ts:70/92/129`)覆盖:失败不丢存档且不落盘空态、重试恢复且存档引用不丢、v1 不受影响 —— 我已独立跑绿。裁决:**fixed**。
 
-## CR-1 (high) — hydrate 期 workspace.list 失败会静默清空并落盘,丢失 per-client 视图态
+### CR-2(low, C3)→ FIXED
+并发写 + 前序写失败回滚不再复活被回滚条目。改法采纳「整条 mutation 原子串行」方向:`create/remove/update` 全体包进 `enqueue(op)`(`workspaceRegistry.ts:124/164/182`),`op` 内才做 校验+改内存+`atomicWrite(this.snapshot())`+失败回滚;`snapshot()`(L205-210)在队列内、改内存之后取,恒与将广播的内存一致。`enqueue`(L217-224)以 `mutationQueue.then(op,op)` 串行、队尾吞错。旧「同步改内存 + 只串行化写盘 + 入队时捕获快照」的时点差破口(后序写落盘含被回滚条目的陈旧快照)已消除。新回归测试(`workspaceRegistry.test.ts` F2 用例:首写 ENOSPC 失败并发,断言 memory=盘=重启后均只含 b、被回滚的 a 不复活)在旧实现下必失败、现绿。裁决:**fixed**。
 
-数据流证据:
-- `persistence.ts:34-42`:`workspace.list` reject 仅 `console.warn`,`registry` 保持初始 `[]`,随后无条件 `hydrate(registry, outcome.archive)`。
-- `store.ts:302-321`:v2 分支以 `regById`(空)判定每个 v2 存档条目为孤儿外键 `if(!entry)continue`,全部丢弃 → `workspaces=[]`,`persistMode='v2'`,`hydrated=true`。
-- `persistence.ts:55-61 + 88-99`:hydrate 后订阅任一 state 变更 → 防抖 `serialize`(v2 去 name/root)写 `workspaces:[]` → `storeSet` 覆盖磁盘 v2 存档里全部 `PersistedWorkspaceV2`(tabs/activeTabId/filePanel/排序)。
+### CR-3(low, C1)→ FIXED
+`create` 由 insert-if-absent 改为真 upsert:`workspaceRegistry.ts:129-147` 命中既有 id 时,字段一致→幂等 no-op 不写盘;字段不同→更新内存并 `atomicWrite`。partial 迁移 + fallback 期改名场景下次迁移重跑会真正落更新。头注释/JSDoc(L4-12、L117-121)已同步纠正措辞。新回归测试(`workspaceRegistry.test.ts` F3 用例:改字段落盘+重启保留、同字段不再写盘)绿。裁决:**fixed**。
 
-后果:host 启动瞬时不可达 / 15s RPC 超时 / host 重启窗口即触发。workspace 本体存于 Host 注册表不丢,但用户的多 tab 布局、每 tab cwd、文件面板展开态全部塌成单默认 tab,且无任何用户可见提示。这与 TECH 风险表覆盖的『注册表文件被删/损坏(真空,模型 A 可接受语义)』不同 —— 那是注册表真空,此处是 host 存活但 list 假空,属未覆盖缺口。建议:list reject 时不进入破坏性 v2 hydrate(保持 hydrated=false + 不启订阅 + 重试,或以存档视图态为准不丢弃),并禁止把源自失败 fetch 的空列表落盘。当前测试无一覆盖 `hostClient.rpc('workspace.list')` reject 路径。
+### CR-4(low, C1)→ NOT-FIXED(超出本次修复范围)
+`workspaceService.ts:57-77` 未改:`remove`/`update` 仍无条件 `broadcast()`,且 create 幂等 no-op 路径(字段一致返回既有、注册表内存未变)service 仍照样广播全量快照。registry 各 mutation 未返回「是否真变更」信号,service 无从条件化。终态仍正确,多余 cross-client churn 依旧。本次 commit 明示只修 F1/F2/F3,未认领 CR-4,属遗留而非回归。
 
-## CR-2 (low) — 并发 mutation 下失败写的回滚与已入队写的快照不一致
+### CR-5(low, C3)→ NOT-FIXED(超出本次修复范围)
+`workspaceMigration.ts` 未被本次 diff 触及(`git show --stat` 无该文件)。`workspaceMigration.ts:88-89` 逐条 `await createWorkspace` 首个 throw 即 `catch`(L96-113)保持 v1;单条畸形 v1 条目(空 name / 非绝对 root)仍确定性抛校验错→整迁移永久卡 v1、每次启动同条再失败、无跳过/降级/坏条目上报。未认领,遗留。
 
-`workspaceRegistry.ts:180-193` 的 `enqueueWrite` 在调用时同步捕获内存快照;`host.ts:117` 是 `void handleRpc` fire-and-forget,并发 create 可达(REG-008/并发 no-lost-update 已证并发路径存在)。当首写失败触发内存回滚(L134)时,一个在回滚前已同步捕获了含该条目快照的后续队列写若成功,会把被回滚条目落盘,造成盘/内存/广播三者分叉、重启后『幽灵 workspace』复活,违反 TECH 自述『广播出去的快照=已落盘状态』不变式。触发需并发 + 写失败双条件,概率低,但正落在 CR-2 并发序列化机制自身的盲区。现有 `test_write_failure_rolls_back_memory` 只测单条串行写失败,未覆盖并发交织。
+### CR-6(info, C2)→ NOT-FIXED(超出本次修复范围)
+`workspaceService.ts:58/64/70` 仍 `params as {...}` 强转,无运行时形状校验。附带说明:F2 重构后 `validName/validRoot` 移入队列内 `op`,畸形 create 现以 rejected promise 抛出(且队尾吞错不会 wedge 后续 mutation),但仍是非结构化原始错误,非 CR-6 期望的边界结构化校验。未认领,遗留。
 
-## CR-3 (low) — create 幂等是 insert-if-absent 而非字段 upsert,partial 迁移 + fallback 改名会丢改名
+## 修复 diff 引入的新问题(回归审查)
 
-`workspaceRegistry.ts:122-125` 命中既有 id 直接返回既有 entry,不应用入参 name/root。若首启迁移 partial(host 中途重启)已落条目,v1 fallback 期用户改名(写进 v1 存档),次启迁移重跑时 create 返回旧名 → 翻 v2 后显示旧名。TECH/完工自查措辞『以 id upsert 幂等』与实现(insert-if-absent)不符。正常单次迁移无此问题;触发窄且仅名/根丢失。
+### NV-1(low, C6)— 重试耗尽后提示停在「正在重试…」终态不实
+见 frontmatter。这是 F1 新增重试逻辑自身引入的 UX 瑕疵:`scheduleRegistryRetry`(`persistence.ts:70-78`)到 5 次上限即静默 `return`,末次提示(`persistence.ts:60`「…正在重试…」)不被更新,而后台已停重试,恢复须手动 ⌘R。数据安全目标达成(不丢存档、不落盘空态),仅提示措辞与「无自动兜底终态」偏弱。非阻断。
 
-## 其余(CR-4/5/6)
+## 已考量并排除(非新问题)
 
-- CR-4:remove no-op / update 同值仍广播+落盘,与 TECH『no-op』语义偏差,产生多余 cross-client churn(终态正确)。
-- CR-5:单条畸形 v1 workspace 会使迁移永久卡 v1(循环首个 throw 即 abort,持久性失败重试无效),无跳过/降级/坏条目上报。
-- CR-6:service 边界 params 无运行时校验,M5 远程不可信输入面偏弱(当前本地类型安全 + try/catch 兜底不崩)。
+- **内存改动由「调用时同步」变为「队列内延迟」**:并发的 `workspace.list` RPC 可能读不到尚未出队执行的 pending create(旧实现同步改内存则读得到)。但 `service.handle` 对每条 mutation 先 `await` 再 `broadcast`(`workspaceService.ts:59-60/65-66/71-75`),`list` 是时点快照,客户端随后必收广播 —— 属可接受的最终一致,无契约破坏。乐观可见窗口反而收窄(仅落盘期,不含入队等待期),严格更优。
+- **重试路径重跑 `runMigration` 的幂等性**:重试仅在 `mode==='v2'` 触发,此时存档必已是 v2(`workspaceMigration.ts:73-80` 对 v2 立即 no-op 返回,无 create/backup/writeArchive 副作用),故多次重试不会重复触发迁移写。安全。
+- **host 零 Electron 红线**:diff 未引入任何 Electron import(`workspaceRegistry.ts` 仍仅 `node:fs/path/crypto`)。合规。
 
-## 未见问题(正向确认)
+## 结论
 
-- host 零 Electron 红线:`workspaceRegistry.ts`/`workspaceService.ts` 仅 `node:fs/path/crypto`,`host.ts` 新增仅 `node:path`,数据目录经 main env 注入(`main.ts:121-125`)—— 合规。
-- 回声 vs 新建即选中的乱序收敛:create 成功 set `activeWorkspaceId=entry.id` + `exists` 去重(`store.ts:351-359`)与 reconcile 按 id 幂等(`workspaceSync.ts`)双路径均『按 id upsert』,COORD-011 已锁,分析正确。
-- 先落盘后广播、失败不广播:`workspaceService.ts:57-77` + INT-004 已证。
-- 迁移期无写回竞态:迁移在 hydrate 前、订阅在 hydrate 后(`persistence.ts:26-61`),迁移期 workspaces 为空无半态可写回 —— 与 TECH 风险缓解一致。
+上轮认领的 3 条(CR-1 high、CR-2/CR-3 low)全部 **fixed** 且各配可回归的新测试(旧实现下会失败),门禁已独立复核三绿。其余 3 条(CR-4/CR-5/CR-6)**not-fixed 但均属本次未认领的遗留 low/info,非回归**。修复 diff 仅引入 1 条新 low(NV-1 提示终态),无 blocker/high、无破坏性回归。建议:CR-1 已闭环可放行;CR-4/CR-5/CR-6 + NV-1 作为后续低优先项跟踪。

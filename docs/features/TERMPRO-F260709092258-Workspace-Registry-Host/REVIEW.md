@@ -1,12 +1,12 @@
 ---
 reviewers: [architect, qa, external]
-verdict: NEEDS_REVISION
+verdict: APPROVE
 findings:
-  - {id: F1, severity: MAJOR, status: open, title: "hydrate 期 workspace.list 失败被当『注册表为空』→ v2 视图态全量孤儿丢弃,可被后续写回永久固化", source: arch}
-  - {id: F2, severity: MAJOR, status: open, title: "并发 mutation + 前序写失败回滚 → 入队时快照把被回滚条目落盘,内存/盘/广播分叉,重启复活", source: qa}
-  - {id: F3, severity: MINOR, status: open, title: "create 幂等为 insert-if-absent 非 upsert,partial 迁移 + v1 fallback 改名在重试后丢失", source: arch}
-  - {id: F4, severity: MINOR, status: open, title: "部分迁移非原子 + fallback 期删除 + 重试成功 → 已删 workspace 复活为默认视图", source: arch}
-  - {id: F5, severity: MINOR, status: open, title: "简洁性:整条 mutation 串行队列比『同步改内存+入队快照+逐 op 回滚』更简且天然规避 F2", source: arch}
+  - {id: F1, severity: MAJOR, status: fixed, title: "hydrate 期 workspace.list 失败被当『注册表为空』→ v2 视图态全量孤儿丢弃,可被后续写回永久固化", source: arch}
+  - {id: F2, severity: MAJOR, status: fixed, title: "并发 mutation + 前序写失败回滚 → 入队时快照把被回滚条目落盘,内存/盘/广播分叉,重启复活", source: qa}
+  - {id: F3, severity: MINOR, status: fixed, title: "create 幂等为 insert-if-absent 非 upsert,partial 迁移 + v1 fallback 改名在重试后丢失", source: arch}
+  - {id: F4, severity: MINOR, status: deferred, title: "部分迁移非原子 + fallback 期删除 + 重试成功 → 已删 workspace 复活为默认视图", source: arch}
+  - {id: F5, severity: MINOR, status: fixed, title: "简洁性:整条 mutation 串行队列比『同步改内存+入队快照+逐 op 回滚』更简且天然规避 F2", source: arch}
   - {id: F6, severity: MINOR, status: deferred, title: "AC-1 备份内容未被测试断言;appStore store:backup-v1 零覆盖", source: qa}
   - {id: F7, severity: MINOR, status: rejected, title: "生产传输粘合层(host.ts dispatch/hostClient 路由)未进测试", source: qa}
   - {id: F8, severity: MINOR, status: deferred, title: "迁移输入健壮性:畸形 v1 存档(非数组/单条坏条目)→ hydrate 崩溃或永卡 v1 无诊断", source: external}
@@ -14,6 +14,7 @@ findings:
   - {id: F10, severity: MINOR, status: deferred, title: "service 边界 params 无运行时形状校验,M5 远程不可信输入面偏弱", source: external}
   - {id: F11, severity: NIT, status: deferred, title: "viewer 窗口注册进广播 senders 但不消费 workspace:changed(无害冗余)", source: arch}
   - {id: F12, severity: NIT, status: rejected, title: "TDD 先后顺序不可从 git 验证(单 squash commit)", source: qa}
+  - {id: F13, severity: MINOR, status: deferred, title: "F1 重试耗尽后提示仍停『正在重试…』与实际(已停止)不符,恢复需手动 ⌘R(修复 diff 引入 · NV-1)", source: external}
 ---
 # REVIEW 汇总(Round 1 · 全量评审)
 
@@ -111,3 +112,21 @@ findings:
 - **修法**:F2 已重写 `create`,同路径改为真 upsert —— 命中既有 id 时:字段一致→幂等 no-op 不写盘;字段不同→更新 name/root 并落盘(同一单元内失败回滚)。
 - **为什么对**:与 TECH「upsert」措辞对齐,修 A3 场景(迁移重试用存档当前 name/root 调 create,fallback 期改名/改根不再被静默回退)。字段一致仍 no-op,不新增 churn,REG-002/008 不受影响。
 - **新增测试**:`test_create_existing_id_with_changed_fields_updates_upsert` —— 同 id 不同字段→更新且重启保留;同 id 同字段→不再触发 `writeFile`。
+
+## Round 2 验证轮(范围锁定 · 逐条裁决 + 修复 diff 回归)
+
+> 修复 commit `ea5ddf3`。PMO 独立回归审查修复 diff + 三绿复核(tsc 0 / vitest 343 / SMOKE_OK);external 验证冷审独立复核(见 external-cross-review/review-claude-subagent-degraded.md · verify_fixes: true)。
+
+### 上轮 open finding 裁决
+- **F1 → fixed**:persistence 以 `WorkspaceEntry[]|null` 区分读失败/真空;v2+失败 → 不 hydrate/不订阅写回/占位+有限重试;写回订阅下沉 finishHydrate 仅成功路径启动,破坏链(空 registry→孤儿全丢→serialize 固化)被结构性切断。3 条新测试独立跑绿。external 裁决 fixed(CR-1)。
+- **F2 → fixed**:create/remove/update 整条 mutation 原子进单一串行队列,快照在队列内取,时点差破口消除;QA probe 固化为回归测试(旧实现必红,现绿)。PMO 提示的微任务序陷阱因「队列外不改内存」结构性规避。external 裁决 fixed(CR-2)。
+- **F3 → fixed**:create 真 upsert(字段一致 no-op / 不同则更新落盘)+ 回归测试。external 裁决 fixed(CR-3)。
+- **F5 → fixed**:F2 采纳其方向,随之消解。
+- **F4 → deferred**:未认领(允许 defer),归「迁移边界语义」组与 F8 同批入待规划池。
+
+### 修复 diff 回归审查
+- 新问题仅 1 条:**F13(NV-1 · MINOR)** 重试耗尽后提示措辞与实际不符(数据安全目标已达成,纯 UX 措辞)→ deferred。
+- 已考量并排除:mutation 内存改动延迟至队列内执行 → workspace.list 乐观可见窗口收窄,最终一致无契约破坏;重试路径重跑 runMigration 对 v2 幂等 no-op;host 零 Electron 红线合规。
+
+### verdict(Round 2)
+**APPROVE** —— 无 open BLOCKER/MAJOR;deferred 项(F4/F6/F8/F9/F10/F11/F13)随 ship 入待规划池,rejected(F7/F12)带依据留痕。
