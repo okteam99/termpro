@@ -13,6 +13,8 @@ ghostty/
 
 # claude code local settings
 .claude/settings.local.json
+# teamwork bootstrap 每 session 部署的宿主 hooks（机器本地基建 · 不入库）
+.claude/hooks/
 # Logs
 logs
 *.log
