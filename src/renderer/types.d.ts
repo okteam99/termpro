@@ -13,6 +13,8 @@ declare global {
       smokeOk(): void;
       storeGet(): Promise<unknown>;
       storeSet(state: unknown): void;
+      /** 迁移前把 v1 存档复制为备份(state.v1-backup.json);失败 reject */
+      backupV1Archive(): Promise<void>;
       setDockBadge(count: number): void;
       focusWindow(): void;
       onUpdateEvent(

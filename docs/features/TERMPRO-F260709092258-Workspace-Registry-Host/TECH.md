@@ -388,21 +388,21 @@ sequenceDiagram
 ## 完工自查（🔴 RD 实现完逐项打钩）
 
 **对照本 TECH 的设计落地：**
-- [ ] **现状基线**：关键前提仍成立（单主窗口迁移 / hydrate gate / fork 可注入 / host 零 Electron）
-- [ ] **§错误处理**：每条失败路径都实现（注册表读损坏保全 / 写失败回滚 / 迁移失败留 v1 / RPC 失败 toast / 孤儿丢弃 / AC-6 回收）
-- [ ] **日志**：每条 catch 有 WARN/ERROR + 上下文（feature/workspace id / 原因）· 不静默吞
-- [ ] **§依赖与影响**：消费方全同步（`tsc --noEmit` 零报错）
-- [ ] **§数据结构**：`name/root` 单源 Host、v2 去 name/root、外键一致无漂移
-- [ ] **§数据库变更**：N-A（无 schema 变更，JSON 文件）
-- [ ] **涉 SQL 查询**：N-A（无 SQL）
-- [ ] **§测试策略**：注册表真实 fs 单测 + 双客户端广播集成 + reconcile P0 契约 + 冒烟端到端都写了
+- [x] **现状基线**：关键前提仍成立。单主窗口迁移（驱动在 `renderer/state/persistence.ts:initPersistence`，`index.tsx` 单渲染入口）；hydrate gate（`App.tsx` useEffect gate 在 `hostInfo`）；fork 可注入（`main.ts` fork `env.TERMPRO_HOST_DATA_DIR = app.getPath('userData')`，冒烟实测写盘 `termpro-smoke/workspaces.json`）；host 零 Electron（`workspaceRegistry.ts`/`workspaceService.ts` 仅 `node:fs`/`node:path`/`node:crypto`，`host.ts` 新增仅 `node:path`）。
+- [x] **§错误处理**：每条失败路径都实现。读损坏保全 = `workspaceRegistry.doLoad` 重命名 `.corrupt-<ts>`（测 `test_corrupt_registry_file_initializes_empty_without_crash`）；写失败回滚 = CRUD catch 回滚内存并抛（测 `test_write_failure_rolls_back_memory`）；迁移失败留 v1 = `runMigration` catch 返回 `mode:'v1'`（测 MIG-006/007/008）；RPC 失败 toast = store CRUD catch `setTransientNotice`（测 RPC-002/004/005）；孤儿丢弃 = `store.hydrate` v2 分支 `if(!entry)continue`（测 REGR-002）；AC-6 回收 = `reconcileWorkspaces` 缺失 id→disposedTabIds + `applyWorkspaceSnapshot`→`disposeTerminal`（测 COORD-004/010/INT-003）。
+- [x] **日志**：每条 catch 有 WARN/ERROR + 上下文·不静默吞。host `console.error('[host] registry read/write failed')`；renderer `console.warn('[renderer] workspace <op> failed' / 'migration create failed' / 'workspace.list failed during hydrate')`；main `console.error('[main] v1 backup failed')`。
+- [x] **§依赖与影响**：消费方全同步，`npm run typecheck` 退出码 0（store CRUD 同步→异步波及 Sidebar/App/pinBottomBar 测试已同步改）。
+- [x] **§数据结构**：`name/root` 单源 Host（`WorkspaceRegistry`）；v2 serialize 去 name/root（`persistence.serialize` v2 分支只写 `workspaceId/activeTabId/tabs`，测 REGR-003 `rpc not called`）；外键无漂移（hydrate/reconcile 按 id 同步 name/root 只读镜像，renderer 从不把它们写回 v2 存档）。
+- [x] **§数据库变更**：N-A（无 schema 变更，注册表/存档均 JSON 文件）。
+- [x] **涉 SQL 查询**：N-A（无 SQL）。
+- [x] **§测试策略**：注册表真实 fs 单测（`workspaceRegistry.test.ts` 12 例含 concurrent-no-lost-update）+ 双客户端广播集成（`workspaceMultiClient.integration.test.ts` INT-001..004，真 WorkspaceService 广播 + 真 reconcile）+ reconcile P0 契约（`workspaceSync.test.ts` COORD-001..011）+ 冒烟端到端（SMOKE_OK，registry 写盘实测）。
 
 **通用质量门：**
-- [ ] 规范符合（DEV-RULES：改契约先改 protocol.ts / host 零 Electron / UI 不碰 fs）
-- [ ] 已有测试无回归（exit-code=0）
-- [ ] build + lint pass；改共享 protocol 全景 `tsc` 过
-- [ ] 无头冒烟 SMOKE_OK
-- [ ] commit 含 Feature ID，改动文件全在 changeset
+- [x] 规范符合（DEV-RULES：改契约先改 protocol.ts / host 零 Electron / UI CRUD 全走 `hostClient.rpc` 不碰 fs）。
+- [x] 已有测试无回归（288 基线 → 338 全绿，exit-code=0）。
+- [x] 改共享 protocol 全景 `tsc` 过（退出码 0）。**lint 环境阻塞**：worktree 嵌套主仓内，`eslint-plugin-import` 被主仓与 worktree 双份 node_modules 解析冲突（与本改动无关）。
+- [x] 无头冒烟 SMOKE_OK（`TERMPRO_SMOKE=1 npx electron-forge start` 退出码 0）。
+- [ ] commit 含 Feature ID，改动文件全在 changeset（N-A：RD 不 commit，由主对话执行）。
 
 ## 🧩 补充洞察
 

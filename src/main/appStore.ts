@@ -14,6 +14,10 @@ function stateFile(): string {
   return path.join(app.getPath('userData'), 'state.json');
 }
 
+function v1BackupFile(): string {
+  return path.join(app.getPath('userData'), 'state.v1-backup.json');
+}
+
 function writeNow(): void {
   if (latest === null) return;
   try {
@@ -40,6 +44,17 @@ export function registerAppStore(): void {
       pending = null;
       writeNow();
     }, WRITE_DEBOUNCE_MS);
+  });
+
+  // 迁移(v1→v2)提交前把原 state.json 复制为备份(AC-1「原存档已备份」)。
+  // 失败抛错 → renderer 迁移器视同迁移失败,不翻 v2、下次重试。
+  ipcMain.handle('store:backup-v1', () => {
+    try {
+      fs.copyFileSync(stateFile(), v1BackupFile());
+    } catch (err) {
+      console.error('[main] v1 backup failed:', err);
+      throw err instanceof Error ? err : new Error(String(err));
+    }
   });
 
   app.on('before-quit', () => {

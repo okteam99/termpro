@@ -32,6 +32,10 @@ contextBridge.exposeInMainWorld('termpro', {
   storeSet(state: unknown): void {
     ipcRenderer.send('store:set', state);
   },
+  /** 迁移前把 v1 存档(state.json)复制为备份;失败 reject → 计入迁移失败 */
+  backupV1Archive(): Promise<void> {
+    return ipcRenderer.invoke('store:backup-v1');
+  },
   setDockBadge(count: number): void {
     ipcRenderer.send('dock:badge', count);
   },
