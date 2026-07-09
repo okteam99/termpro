@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "ui_design",
+  "current_stage": "blueprint",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": null,
   "worktree": {
@@ -51,14 +51,30 @@
       "duration_minutes": 25
     },
     "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T18:28:48Z",
+      "evidence": {
+        "panorama_changed": "false"
+      },
+      "completed_at": "2026-07-09T18:54:10Z",
+      "auto_commit": "9649afe49f7f02dfb14675257c571307c1909f42",
+      "artifacts": [
+        "UI.md"
+      ],
+      "duration_minutes": 25
+    },
+    "blueprint": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-09T18:28:48Z"
+      "started_at": "2026-07-09T18:54:10Z"
     }
   },
   "completed_stages": [
-    "goal"
+    "goal",
+    "ui_design"
   ],
   "created_at": "2026-07-09T18:03:12Z",
   "stage_review_roles": {
@@ -97,14 +113,14 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T18:29:01Z",
+  "updated_at": "2026-07-09T18:54:18Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:979e573aec50880ff00f65a0f8180547988819bbf1dbca8a6ea35ea14aeb5f54",
+  "_state_checksum": "sha256:20a8c38a382d16b71ca24153fad3501361021c465b447e9576053266f0c35358",
   "legal_next_stages": [
-    "panorama_sync",
-    "blueprint"
+    "dev"
   ],
   "execution_hints": {
-    "ui_design_needed": true
+    "ui_design_needed": true,
+    "panorama_changed": false
   }
 }
