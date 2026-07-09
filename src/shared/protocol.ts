@@ -3,6 +3,10 @@
 
 export const PROTOCOL_VERSION = 1;
 
+// 本端能兼容对话的最旧协议版本(闭区间下界)。向后兼容追加不 bump PROTOCOL_VERSION,
+// 仅破坏性变更才上调。缺省(旧 host 不带此字段)按等同 protocolVersion 处理。
+export const PROTOCOL_MIN_COMPATIBLE = 1;
+
 // PTY 输出流控水位(未确认字节数):超过 high 暂停 PTY,低于 low 恢复。
 export const FLOW = {
   highWatermark: 512 * 1024,
@@ -25,6 +29,8 @@ export interface DirEntry {
 export interface HostInfo {
   hostId: string;
   protocolVersion: number;
+  /** 本端能兼容的最旧协议版本;缺省视同 = protocolVersion(向后兼容) */
+  minCompatible?: number;
   platform: string;
   homedir: string;
   shell: string;

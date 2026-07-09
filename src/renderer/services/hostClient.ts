@@ -1,5 +1,9 @@
 // HostService 的渲染层客户端:RPC、事件、PTY 流分发与流控回执。
 // 这是 UI 访问工程数据(fs/pty/git)的唯一通道(README §5)。
+//
+// 传输抽象:Transport 接口两实现 —— MessagePortTransport(嵌入式,默认,行为等价现状)
+// 与 WebSocketTransport(standalone/远程,dev 开关 VITE_TERMPRO_REMOTE_WS)。公共 API
+// (connect/rpc/attachPty/input/resize/ack/onDown/onFsChanged/onSessionEvent/info)签名不变。
 
 import {
   ClientMessage,
@@ -10,6 +14,10 @@ import {
   SessionEvent,
   WorkspaceEntry,
 } from '../../shared/protocol';
+import {
+  checkHostInfoCompatible,
+  ProtocolIncompatibleError,
+} from '../../shared/versionCompat';
 
 export interface PtyListener {
   onData?(data: string, bytes: number): void;
@@ -19,8 +27,52 @@ export interface PtyListener {
 
 const RPC_TIMEOUT_MS = 15_000;
 
-class HostClient {
-  private port: MessagePort | null = null;
+/** 传输契约:嵌入式 MessagePort 与 standalone WebSocket 两实现。 */
+export interface Transport {
+  send(msg: ClientMessage): void;
+  onMessage(cb: (msg: HostMessage) => void): void;
+  onClose(cb: () => void): void;
+  close(): void;
+}
+
+/** 嵌入式:包 Electron MessagePort,行为等价现状(无版本/token 门控)。 */
+export class MessagePortTransport implements Transport {
+  constructor(private port: MessagePort) {}
+  send(msg: ClientMessage): void {
+    this.port.postMessage(msg);
+  }
+  onMessage(cb: (msg: HostMessage) => void): void {
+    this.port.onmessage = (e: MessageEvent) => cb(e.data as HostMessage);
+  }
+  onClose(_cb: () => void): void {
+    // MessagePort 无 close 事件;嵌入式 host 退出经 window 'host:down' 广播(见构造函数)
+  }
+  close(): void {
+    this.port.close();
+  }
+}
+
+/** standalone/远程:包浏览器原生 WebSocket,JSON 文本帧承载既有消息形状。 */
+export class WebSocketTransport implements Transport {
+  constructor(private ws: WebSocket) {}
+  send(msg: ClientMessage): void {
+    this.ws.send(JSON.stringify(msg));
+  }
+  onMessage(cb: (msg: HostMessage) => void): void {
+    this.ws.onmessage = (e: MessageEvent) => {
+      cb(JSON.parse(e.data as string) as HostMessage);
+    };
+  }
+  onClose(cb: () => void): void {
+    this.ws.onclose = () => cb();
+  }
+  close(): void {
+    this.ws.close();
+  }
+}
+
+export class HostClient {
+  private transport: Transport | null = null;
   private connectPromise: Promise<HostInfo> | null = null;
   private seq = 0;
   private pending = new Map<
@@ -96,7 +148,21 @@ class HostClient {
 
   connect(): Promise<HostInfo> {
     if (this.connectPromise) return this.connectPromise;
-    this.connectPromise = new Promise<HostInfo>((resolve, reject) => {
+    // dev 开关:VITE_TERMPRO_REMOTE_WS = 完整 ws://127.0.0.1:<port>?token=… → 走 WS;
+    // 缺省(嵌入式)恒走 MessagePort,分支逻辑不变。
+    const remoteWs = readRemoteWsEnv();
+    this.connectPromise = remoteWs
+      ? this.connectViaWebSocket(remoteWs)
+      : this.connectViaMessagePort();
+    // 失败不缓存,允许重试
+    this.connectPromise.catch(() => {
+      this.connectPromise = null;
+    });
+    return this.connectPromise;
+  }
+
+  private connectViaMessagePort(): Promise<HostInfo> {
+    return new Promise<HostInfo>((resolve, reject) => {
       const timer = setTimeout(() => {
         window.removeEventListener('message', onMsg);
         reject(new Error('host port timeout'));
@@ -105,7 +171,7 @@ class HostClient {
         if (e.data?.t === 'host:port' && e.ports[0]) {
           clearTimeout(timer);
           window.removeEventListener('message', onMsg);
-          this.attach(e.ports[0]);
+          this.attachTransport(new MessagePortTransport(e.ports[0]));
           this.rpc('host.info', undefined).then((info) => {
             this.info = info;
             resolve(info);
@@ -115,19 +181,54 @@ class HostClient {
       window.addEventListener('message', onMsg);
       window.termpro.requestHostPort();
     });
-    // 失败不缓存,允许重试
-    this.connectPromise.catch(() => {
-      this.connectPromise = null;
+  }
+
+  private connectViaWebSocket(url: string): Promise<HostInfo> {
+    return new Promise<HostInfo>((resolve, reject) => {
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(url);
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      const timer = setTimeout(() => {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+        reject(new Error('host ws timeout'));
+      }, 10_000);
+      ws.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('host ws connect failed'));
+      };
+      ws.onopen = () => {
+        clearTimeout(timer);
+        this.attachTransport(new WebSocketTransport(ws));
+        // 首条 RPC 必须是 host.info(host 侧 host.info-first 门控)
+        this.rpc('host.info', undefined).then((info) => {
+          // 版本区间校验(客户端单方判定);不兼容 → 主动断开 + 结构化错误
+          const { compatible, detail } = checkHostInfoCompatible(info);
+          if (!compatible) {
+            this.transport?.close();
+            reject(new ProtocolIncompatibleError(detail));
+            return;
+          }
+          this.info = info;
+          resolve(info);
+        }, reject);
+      };
     });
-    return this.connectPromise;
   }
 
   rpc<M extends RpcMethodName>(
     method: M,
     params: RpcMethods[M]['params'],
   ): Promise<RpcMethods[M]['result']> {
-    const port = this.port;
-    if (!port) return Promise.reject(new Error('host not connected'));
+    const transport = this.transport;
+    if (!transport) return Promise.reject(new Error('host not connected'));
     if (this.down) return Promise.reject(new Error('host process exited'));
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
@@ -146,7 +247,7 @@ class HostClient {
         },
       });
       const msg: ClientMessage = { t: 'rpc:req', id, method, params };
-      port.postMessage(msg);
+      transport.send(msg);
     });
   }
 
@@ -177,12 +278,13 @@ class HostClient {
   }
 
   private post(msg: ClientMessage): void {
-    this.port?.postMessage(msg);
+    this.transport?.send(msg);
   }
 
-  private attach(port: MessagePort): void {
-    this.port = port;
-    port.onmessage = (e) => this.handle(e.data as HostMessage);
+  private attachTransport(transport: Transport): void {
+    this.transport = transport;
+    transport.onMessage((msg) => this.handle(msg));
+    transport.onClose(() => this.markDown());
   }
 
   private handle(msg: HostMessage): void {
@@ -224,6 +326,18 @@ class HostClient {
         this.workspaceListeners.forEach((cb) => cb(msg.workspaces));
         break;
     }
+  }
+}
+
+/** dev 开关读取:VITE_TERMPRO_REMOTE_WS(build-time env),缺失/非 dev 恒空。 */
+function readRemoteWsEnv(): string | undefined {
+  try {
+    const env = (import.meta as unknown as { env?: Record<string, string> })
+      .env;
+    const val = env?.VITE_TERMPRO_REMOTE_WS;
+    return typeof val === 'string' && val.length > 0 ? val : undefined;
+  } catch {
+    return undefined;
   }
 }
 
