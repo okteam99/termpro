@@ -6,6 +6,7 @@ import {
   dialog,
   ipcMain,
   nativeImage,
+  safeStorage,
   utilityProcess,
   clipboard,
   shell,
@@ -24,6 +25,11 @@ import {
 } from './exitConfirmation';
 import { installExternalUrlPolicy } from './externalUrlPolicy';
 import { initUpdater } from './updater';
+import { registerRemoteHostIpc } from './remote/remoteHostIpc';
+import { RemoteHostOrchestrator } from './remote/orchestrator';
+import { CredentialStore, HostConfigStore } from './remote/credentialStore';
+import { resolveBundleDir } from './remote/hostBundle';
+import { SshConnection } from './remote/ssh';
 
 if (started) {
   app.quit();
@@ -92,6 +98,32 @@ function confirmationParentWindow(): BrowserWindow | undefined {
 registerAppStore();
 app.on('before-quit', () => {
   exitLifecycle.handleAppBeforeQuit();
+});
+
+// ---- 远程机 SSH 编排(BL-003)---------------------------------------------
+// main 是 SSH 编排的唯一落点(renderer/host 零 SSH);orchestrator 持有全部
+// 隧道/ssh 连接,before-quit 必须收尾关闭,否则残留本地转发 server 占端口。
+const remoteHostCredentials = new CredentialStore({
+  userDataDir: () => app.getPath('userData'),
+  safeStorage,
+});
+const remoteHostConfigStore = new HostConfigStore({
+  userDataDir: () => app.getPath('userData'),
+});
+const remoteHostOrchestrator = new RemoteHostOrchestrator({
+  connectSsh: SshConnection.connect,
+  credentials: remoteHostCredentials,
+  configStore: remoteHostConfigStore,
+  bundleDir: (arch) =>
+    resolveBundleDir(arch, {
+      resourcesPath: app.isPackaged ? process.resourcesPath : app.getAppPath(),
+      isPackaged: app.isPackaged,
+    }),
+  appVersion: app.getVersion(),
+});
+registerRemoteHostIpc(remoteHostOrchestrator, remoteHostCredentials, remoteHostConfigStore);
+app.on('before-quit', () => {
+  remoteHostOrchestrator.dispose();
 });
 initUpdater({
   confirmInstallWhenIdle: async (version) => {

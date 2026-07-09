@@ -12,9 +12,9 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "blueprint",
+  "current_stage": "dev",
   "merge_target": "yolo/m5-remote-host",
-  "review_base_commit": null,
+  "review_base_commit": "52fd557d3ce2edc2ecdc8c1360b96005562d8a3c",
   "worktree": {
     "strategy": "auto",
     "branch": "feature/termpro-f260709180208-remote-hosts-ssh",
@@ -32,7 +32,8 @@
   "auto_mode": true,
   "yolo": true,
   "concerns": [
-    "2026-07-09T18:18:03Z WARN yolo auto 早问门代决:D-6 部署 bundle 运行时来源=应用 resources 内置全架构产物(ARCH-1 暴露·体积代价数 MB·C 选项 npm 手装保留为释放阀);D-7 token 交接=--token-stdin 注入+端口文件 O_EXCL 0600 回读(PENDING-003 用户已授权范围);PL-CHALLENGE-1 凭据语义按 remedy B 消解(保持用户预研门 D-2 拍板·落 ADR-001+同步上游 4 处台账措辞·不重开已确认决策)"
+    "2026-07-09T18:18:03Z WARN yolo auto 早问门代决:D-6 部署 bundle 运行时来源=应用 resources 内置全架构产物(ARCH-1 暴露·体积代价数 MB·C 选项 npm 手装保留为释放阀);D-7 token 交接=--token-stdin 注入+端口文件 O_EXCL 0600 回读(PENDING-003 用户已授权范围);PL-CHALLENGE-1 凭据语义按 remedy B 消解(保持用户预研门 D-2 拍板·落 ADR-001+同步上游 4 处台账措辞·不重开已确认决策)",
+    "2026-07-09T20:59:17Z WARN dev 阶段本地不可验证项(留 review/test 关注): ① release.yml 三架构 build-host-bundles matrix + needs + if:!cancelled() 需真实 tag 发布才能端到端验证(YAML 已校验合法) ② A0 spike(ssh2 打包后四能力/token-stdin EOF 时序/打包版真实 Origin/main require ws)需真机远程环境 ③ sshLocalhost 集成测在无 sshd 沙箱 it.skip(真机自跑) ④ 13 条 host PTY 测试 posix_spawnp 沙箱失败=预存在基线(非回归·已登记)"
   ],
   "review_round": 0,
   "stage_contracts": {
@@ -66,15 +67,31 @@
       "duration_minutes": 25
     },
     "blueprint": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T18:54:10Z",
+      "evidence": {},
+      "completed_at": "2026-07-09T19:58:33Z",
+      "auto_commit": "52fd557d3ce2edc2ecdc8c1360b96005562d8a3c",
+      "artifacts": [
+        "TC.md",
+        "TECH.md",
+        "TECH-REVIEW.md"
+      ],
+      "duration_minutes": 64
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-09T18:54:10Z"
+      "started_at": "2026-07-09T19:58:33Z"
     }
   },
   "completed_stages": [
     "goal",
-    "ui_design"
+    "ui_design",
+    "blueprint"
   ],
   "created_at": "2026-07-09T18:03:12Z",
   "stage_review_roles": {
@@ -113,11 +130,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T18:54:18Z",
+  "updated_at": "2026-07-09T20:59:17Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:20a8c38a382d16b71ca24153fad3501361021c465b447e9576053266f0c35358",
+  "_state_checksum": "sha256:2eb866f9754dff97a1d35225f63eb6789f2a3ff088344d8493271d76257390a5",
   "legal_next_stages": [
-    "dev"
+    "review"
   ],
   "execution_hints": {
     "ui_design_needed": true,

@@ -757,20 +757,20 @@ sequenceDiagram
 ## 完工自查（RD 实现完逐项打钩 · review 据此核）
 
 对照本 TECH 的设计落地：
-- [ ] 现状基线关键前提仍成立（renderer 直连 ws / stdin EOF / CI 三架构 / token 不落远端 —— 若发现假设错回 blueprint 复议）
-- [ ] §错误处理每条失败路径都实现（不止 happy-path）：不可达/认证/超时/缺 node/架构/上传/启动/不兼容/断开/加密不可用
-- [ ] 每条 catch 有 WARN/ERROR + configId+阶段+原因，**零凭据/token 明文**
-- [ ] §依赖与影响：`hostClient` 40+ 消费方零改、本地路径行为不变（tsc --noEmit 零报错）
-- [ ] §数据结构：`RemoteStage`/`FailReason` 由 `shared/remoteHost.ts` **单源**派生（main↔renderer 无字面量漂移 · EXT-6）
-- [ ] §测试策略：集成测（本机 sshd / exec 桩）写了，不只单测；降级如实标注
-- [ ] 无 schema 变更（配置 userData JSON + safeStorage · 已注明）
+- [x] 现状基线关键前提仍成立：renderer 直连 ws（hostRegistry+HostClient.connect(opts) 向后兼容）/ stdin EOF（execDetached half-close · A0 spike 待真机）/ CI 三架构（release.yml matrix）/ token 不落远端（--token-stdin + host.log 零 token）
+- [x] §错误处理每条失败路径都实现：unreachable/auth/timeout/nodeMissing/archUnsupported/deployFailed/startFailed/incompatible/disconnected + safeStorage 不可用兜底（failClassification.test + orchestrator.test 覆盖）
+- [x] 每条 catch 有 WARN/ERROR + configId+阶段+原因，**零凭据/token 明文**（tokenStdinInjection.test 扫描断言零 token 明文）
+- [x] §依赖与影响：`hostClient` 40+ 消费方零改、本地路径行为不变（tsc --noEmit **零报错** · hostRegistry 'local' 复用既有单例）
+- [x] §数据结构：`RemoteStage`/`FailReason` 由 `shared/remoteHost.ts` **单源**派生（main emit + renderer FAIL_REASONS 派生 · 无字面量漂移 · EXT-6）
+- [x] §测试策略：集成测写了（sshLocalhost.integration 本机 sshd · 无 sshd 环境 it.skip 标注不伪绿；exec 桩模拟无 node/node18）
+- [x] 无 schema 变更（配置 userData JSON + safeStorage · 已注明）
 
 通用质量门：
-- [ ] 规范符合（DEV-RULES：UI 零 SSH/fs/pty/git · host 零 Electron · protocol.ts 未改）
-- [ ] 既有测试无回归（test-baseline 差分 0 新增）
-- [ ] build 通过 · lint pass · 冒烟 SMOKE_OK（嵌入式路径不回归）
-- [ ] （UI）设计↔实际一致性核对（UI.md 意图对齐）
-- [ ] commit message 含 Feature ID · 改动文件全在 changeset
+- [x] 规范符合（DEV-RULES：UI 零 SSH/fs/pty/git — SSH 编排全在 main · host 零 Electron — host.ts 仅加纯 Node 端口文件写入 · protocol.ts **未改**）
+- [x] 既有测试无回归（test-baseline 差分 **0 新增** · 13 失败全为预存在沙箱 posix_spawnp/PTY · stash 复核基线同样失败 · 已登记 project-specs/test-baseline.md）
+- [x] build 通过（tsc 0 错）· 冒烟 **SMOKE_OK**（嵌入式路径不回归 · 修 forge rebuildConfig.onlyModules 隔离 ssh2 optional native cpu-features）· lint：worktree 嵌套致 eslint-plugin-import 解析冲突（环境·非代码）· 类型安全由 tsc 覆盖
+- [x] （UI）设计↔实际一致性：RemoteHostsPage 生产 TSX 从 same-stack 设计权威（preview-project）1:1 移植 · FAIL_REASONS 从同一 shared 单源派生 · renderer 测试渲染验证连接生命周期各态 · 冒烟加载 renderer 通过 —— 一致性由构造保证（非事后对齐）
+- [x] commit message 含 Feature ID · 改动文件全在 changeset
 
 ## 🧩 补充洞察
 

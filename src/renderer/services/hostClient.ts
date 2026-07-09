@@ -146,19 +146,35 @@ export class HostClient {
     this.downListeners.forEach((cb) => cb());
   }
 
-  connect(): Promise<HostInfo> {
+  /**
+   * opts.wsUrl 存在 → 走 connectViaWebSocket(opts.wsUrl)(远程 per-host 客户端 · SSH-6);
+   * 否则现状分支一字不变:dev 开关 VITE_TERMPRO_REMOTE_WS → WS,缺省 → MessagePort。
+   * 🔴 本地单例调用 connect() 不传参,行为零变化(40+ 消费方兼容)。
+   */
+  connect(opts?: { wsUrl?: string }): Promise<HostInfo> {
     if (this.connectPromise) return this.connectPromise;
-    // dev 开关:VITE_TERMPRO_REMOTE_WS = 完整 ws://127.0.0.1:<port>?token=… → 走 WS;
-    // 缺省(嵌入式)恒走 MessagePort,分支逻辑不变。
-    const remoteWs = readRemoteWsEnv();
-    this.connectPromise = remoteWs
-      ? this.connectViaWebSocket(remoteWs)
+    const wsUrl = opts?.wsUrl ?? readRemoteWsEnv();
+    this.connectPromise = wsUrl
+      ? this.connectViaWebSocket(wsUrl)
       : this.connectViaMessagePort();
     // 失败不缓存,允许重试
     this.connectPromise.catch(() => {
       this.connectPromise = null;
     });
     return this.connectPromise;
+  }
+
+  /**
+   * 关闭 transport 并清空握手态(hostRegistry.drop 用 · 远程客户端下线)。
+   * 🔴 transport.close() 会触发 onClose→markDown()(down=true 生效);此处随即复位,
+   * 否则同一实例(理论上)重新 connect() 后,新 transport 打通的 rpc() 仍会被旧 down 态
+   * 误判为「host 已退出」而拒绝(与「dispose 后重连」的调用方期望不符)。
+   */
+  dispose(): void {
+    this.transport?.close();
+    this.transport = null;
+    this.connectPromise = null;
+    this.down = false;
   }
 
   private connectViaMessagePort(): Promise<HostInfo> {

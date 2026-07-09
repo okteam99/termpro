@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseVersionArg } from './parseVersionArg';
+import { REMOTE_HOST_CHANNELS } from '../shared/remoteHost';
+import type {
+  RemoteEvent,
+  RemoteHostConfig,
+  RemoteHostConfigInput,
+  TestResult,
+} from '../shared/remoteHost';
 
 // 壳层 API:仅暴露与「本地 OS / 窗口」相关的能力。
 // 一切工程数据(fs/pty/git)走 HostService 协议,不经过这里。
@@ -111,6 +118,40 @@ contextBridge.exposeInMainWorld('termpro', {
   /** 发起原生拖出:把本地文件/目录拖到 Finder 等(OS 默认=复制) */
   startFileDrag(path: string): void {
     ipcRenderer.send('file:start-drag', path);
+  },
+  // 远程机管理与连接编排(BL-003)· 通道名单源 = shared/remoteHost.ts REMOTE_HOST_CHANNELS。
+  // 🔴 无 get-secret 通道:加密敏感值只经 save 单向进 main(AC-3)。
+  remoteHost: {
+    list(): Promise<RemoteHostConfig[]> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.list);
+    },
+    save(payload: {
+      config: RemoteHostConfigInput;
+      password?: string;
+      passphrase?: string;
+    }): Promise<RemoteHostConfig> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.save, payload);
+    },
+    delete(payload: { id: string }): Promise<void> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.delete, payload);
+    },
+    test(payload: { id: string }): Promise<TestResult> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.test, payload);
+    },
+    connect(payload: { id: string }): void {
+      ipcRenderer.send(REMOTE_HOST_CHANNELS.connect, payload);
+    },
+    disconnect(payload: { id: string }): void {
+      ipcRenderer.send(REMOTE_HOST_CHANNELS.disconnect, payload);
+    },
+    /** 订阅远程机连接生命周期事件,返回退订函数 */
+    onEvent(callback: (e: RemoteEvent) => void): () => void {
+      const listener = (_e: unknown, payload: RemoteEvent) => callback(payload);
+      ipcRenderer.on(REMOTE_HOST_CHANNELS.event, listener);
+      return () => {
+        ipcRenderer.removeListener(REMOTE_HOST_CHANNELS.event, listener);
+      };
+    },
   },
 });
 

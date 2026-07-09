@@ -47,6 +47,16 @@ function mockTermpro(overrides: { version?: string; devChannel?: boolean } = {})
       showItemInFolder: vi.fn(),
       openInBrowser: vi.fn(),
       onViewerAddTab: vi.fn(noop),
+      // BL-003:RemoteHostsPage 挂载时读取(list/onEvent),其余方法按需 mock
+      remoteHost: {
+        list: vi.fn().mockResolvedValue([]),
+        save: vi.fn(),
+        delete: vi.fn(),
+        test: vi.fn(),
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        onEvent: vi.fn(() => noop),
+      },
     },
     writable: true,
     configurable: true,
@@ -73,9 +83,9 @@ describe('settingsEntry_renders_avatar_placeholder_and_settings_label', () => {
   });
 });
 
-// --- T-004: toggles menu with exactly one About item (AC-2) ---
-describe('settingsEntry_toggles_menu_with_exactly_one_about_item', () => {
-  it('shows one About menuitem on click and hides on second click', () => {
+// --- T-004: toggles menu with Remote Hosts + About items (AC-2 · BL-003 adds Remote Hosts) ---
+describe('settingsEntry_toggles_menu_with_remote_hosts_and_about_items', () => {
+  it('shows Remote Hosts + About menuitems on click and hides on second click', () => {
     mockTermpro();
     render(<SettingsEntry />);
 
@@ -89,8 +99,9 @@ describe('settingsEntry_toggles_menu_with_exactly_one_about_item', () => {
     const menu = screen.getByRole('menu');
     expect(menu).toBeInTheDocument();
     const menuItems = screen.getAllByRole('menuitem');
-    expect(menuItems).toHaveLength(1);
-    expect(menuItems[0]).toHaveTextContent('About');
+    expect(menuItems).toHaveLength(2);
+    expect(menuItems[0]).toHaveTextContent('Remote Hosts');
+    expect(menuItems[1]).toHaveTextContent('About');
 
     // Second click: close (toggle)
     fireEvent.click(entryBtn);
@@ -165,7 +176,7 @@ describe('settingsEntry_about_click_opens_modal_and_closes_menu', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
     // Click About
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     // Modal is open
     expect(screen.getByText('TermPro')).toBeInTheDocument();
@@ -182,7 +193,7 @@ describe('settingsEntry_no_menu_behind_open_about_modal', () => {
     render(<SettingsEntry />);
 
     fireEvent.click(screen.getByTitle('Settings'));
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     // Modal is open, menu is gone
     expect(screen.queryByRole('menu')).toBeNull();
@@ -198,7 +209,7 @@ describe('aboutModal_shows_version_from_bridge', () => {
 
     // Open menu → click About
     fireEvent.click(screen.getByTitle('Settings'));
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     expect(screen.getByText('版本 0.3.12')).toBeInTheDocument();
   });
@@ -211,7 +222,7 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
     render(<SettingsEntry />);
 
     fireEvent.click(screen.getByTitle('Settings'));
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     expect(screen.getByText('版本未知')).toBeInTheDocument();
   });
@@ -220,7 +231,7 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
     // No mockTermpro() — afterEach deletes window.termpro so it is absent here.
     render(<SettingsEntry />);
     fireEvent.click(screen.getByTitle('Settings'));
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     expect(screen.getByText('版本未知')).toBeInTheDocument();
   });
@@ -238,7 +249,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     entryBtn.focus();
 
     fireEvent.click(entryBtn);
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     // Modal open
     const closeBtn = screen.getByTitle('关闭');
@@ -260,7 +271,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     entryBtn.focus();
 
     fireEvent.click(entryBtn);
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
     expect(screen.getByText('TermPro')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -277,7 +288,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     entryBtn.focus();
 
     fireEvent.click(entryBtn);
-    fireEvent.click(screen.getByRole('menuitem'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     const backdrop = document.querySelector('.about-backdrop')!;
     expect(backdrop).toBeInTheDocument();
@@ -287,6 +298,62 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     expect(screen.queryByText('TermPro')).toBeNull();
     // Focus restored to the Settings entry
     expect(document.activeElement).toBe(entryBtn);
+  });
+});
+
+// --- BL-003: Remote Hosts menu item opens RemoteHostsPage, closes menu, restores focus ---
+describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
+  it('clicking Remote Hosts opens the modal and closes the menu (mutually exclusive with About)', async () => {
+    mockTermpro();
+    render(<SettingsEntry />);
+
+    fireEvent.click(screen.getByTitle('Settings'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
+
+    // Modal open, menu closed, About modal absent
+    expect(screen.getByText('远程机')).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByText('TermPro')).toBeNull();
+
+    // list() called on mount (async effect)
+    await Promise.resolve();
+    expect(window.termpro.remoteHost.list).toHaveBeenCalled();
+  });
+
+  it('closes via close button, Esc, and backdrop, restoring focus each time (AC-6 parity)', () => {
+    mockTermpro();
+    const { unmount } = render(<SettingsEntry />);
+    const entryBtn = screen.getByTitle('Settings');
+
+    // close button
+    entryBtn.focus();
+    fireEvent.click(entryBtn);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
+    fireEvent.click(screen.getByTitle('关闭'));
+    expect(screen.queryByText('远程机')).toBeNull();
+    expect(document.activeElement).toBe(entryBtn);
+
+    // Esc
+    entryBtn.focus();
+    fireEvent.click(entryBtn);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByText('远程机')).toBeNull();
+    expect(document.activeElement).toBe(entryBtn);
+
+    // backdrop
+    entryBtn.focus();
+    fireEvent.click(entryBtn);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
+    const backdrop = document.querySelector('.remote-hosts__backdrop')!;
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.mouseDown(backdrop);
+    expect(screen.queryByText('远程机')).toBeNull();
+    expect(document.activeElement).toBe(entryBtn);
+
+    unmount();
   });
 });
 
