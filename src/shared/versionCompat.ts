@@ -1,0 +1,84 @@
+// 协议版本区间兼容判定(客户端单方判定 · 闭区间重叠)。
+// 每个端点声明自己能讲的闭区间 [minCompatible, protocolVersion];协商版本 =
+// min(Vc, Vh)(新端向旧端降级),兼容 ⇔ 该协商版本同时落在双方闭区间内。
+// 纯函数,无 IO,放 shared 便于两端与测试复用(TECH §数据结构 · QA-R3-2)。
+
+import { HostInfo, PROTOCOL_MIN_COMPATIBLE, PROTOCOL_VERSION } from './protocol';
+
+/**
+ * 闭区间重叠判定。
+ * @param clientVersion  Vc 客户端 protocolVersion
+ * @param clientMin      Mc 客户端 minCompatible
+ * @param hostVersion    Vh host protocolVersion
+ * @param hostMin        Mh host minCompatible
+ * @returns 协商版本 min(Vc,Vh) 是否同时落在双方闭区间内
+ */
+export function isProtocolCompatible(
+  clientVersion: number,
+  clientMin: number,
+  hostVersion: number,
+  hostMin: number,
+): boolean {
+  const negotiated = Math.min(clientVersion, hostVersion);
+  // negotiated ≤ Vc 且 ≤ Vh 恒成立,故成员判定只剩下界;
+  // 等价于 max(Mc, Mh) ≤ min(Vc, Vh)。
+  return (
+    clientMin <= negotiated &&
+    negotiated <= clientVersion &&
+    hostMin <= negotiated &&
+    negotiated <= hostVersion
+  );
+}
+
+/** host.info 缺省 minCompatible 时回落到 protocolVersion(TC-A02 / T-007)。 */
+export function resolveHostMinCompatible(info: HostInfo): number {
+  return info.minCompatible ?? info.protocolVersion;
+}
+
+export interface ProtocolIncompatibleDetail {
+  code: 'PROTOCOL_INCOMPATIBLE';
+  client: { v: number; min: number };
+  host: { v: number; min: number };
+}
+
+/** 构造含双方四数的结构化不兼容错误(TC-A01 · 不兼容分支)。 */
+export function buildIncompatibleDetail(
+  clientVersion: number,
+  clientMin: number,
+  hostVersion: number,
+  hostMin: number,
+): ProtocolIncompatibleDetail {
+  return {
+    code: 'PROTOCOL_INCOMPATIBLE',
+    client: { v: clientVersion, min: clientMin },
+    host: { v: hostVersion, min: hostMin },
+  };
+}
+
+/** 客户端侧:用本端常量对某个 host.info 判定兼容性。 */
+export function checkHostInfoCompatible(info: HostInfo): {
+  compatible: boolean;
+  detail: ProtocolIncompatibleDetail;
+} {
+  const Vc = PROTOCOL_VERSION;
+  const Mc = PROTOCOL_MIN_COMPATIBLE;
+  const Vh = info.protocolVersion;
+  const Mh = resolveHostMinCompatible(info);
+  return {
+    compatible: isProtocolCompatible(Vc, Mc, Vh, Mh),
+    detail: buildIncompatibleDetail(Vc, Mc, Vh, Mh),
+  };
+}
+
+/** 不兼容时抛出的 Error(携带结构化 detail 供 UI/日志消费)。 */
+export class ProtocolIncompatibleError extends Error {
+  readonly detail: ProtocolIncompatibleDetail;
+  constructor(detail: ProtocolIncompatibleDetail) {
+    super(
+      `PROTOCOL_INCOMPATIBLE: client v${detail.client.v}(min ${detail.client.min}) ` +
+        `vs host v${detail.host.v}(min ${detail.host.min})`,
+    );
+    this.name = 'ProtocolIncompatibleError';
+    this.detail = detail;
+  }
+}
