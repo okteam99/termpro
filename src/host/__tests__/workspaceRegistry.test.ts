@@ -182,4 +182,63 @@ describe('WorkspaceRegistry CRUD / 持久化 / 幂等 / 并发', () => {
       /not found/,
     );
   });
+
+  // F2 回归:QA probe 固化。整条 mutation 串行队列后,并发写 + 前序写失败回滚
+  // 不再让后序写落盘含被回滚条目的陈旧快照(内存/盘/广播一致,失败条目不复活)。
+  it('test_concurrent_create_first_write_fails_no_stale_snapshot_no_revive (F2)', async () => {
+    const dir = await freshDir();
+    const reg = new WorkspaceRegistry(dir);
+    await reg.load();
+
+    // 首个落盘失败(a),其后一个成功(b);两笔并发入队,串行执行
+    const spy = vi
+      .spyOn(nodeFs, 'writeFile')
+      .mockRejectedValueOnce(new Error('ENOSPC'));
+
+    const results = await Promise.allSettled([
+      reg.create({ id: 'a', name: 'a', root: '/a' }),
+      reg.create({ id: 'b', name: 'b', root: '/b' }),
+    ]);
+    spy.mockRestore();
+
+    // a 写失败被拒、b 成功(唯一「成功操作」)
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'fulfilled']);
+
+    // 内存 = 广播用的 list():只含 b,不含被回滚的 a
+    expect(reg.list().map((w) => w.id)).toEqual(['b']);
+    // 盘面同样只含 b(后序写不再落陈旧快照 [a,b])
+    const onDisk = JSON.parse(
+      await readFile(join(dir, 'workspaces.json'), 'utf8'),
+    );
+    expect(onDisk.workspaces.map((w: { id: string }) => w.id)).toEqual(['b']);
+
+    // 重启(重新实例化读盘):被回滚的 a 不复活
+    const reg2 = new WorkspaceRegistry(dir);
+    await reg2.load();
+    expect(reg2.list().map((w) => w.id)).toEqual(['b']);
+  });
+
+  // F3 回归:命中既有 id 且字段不同 → 真 upsert(更新落盘),而非 insert-if-absent。
+  it('test_create_existing_id_with_changed_fields_updates_upsert (F3)', async () => {
+    const dir = await freshDir();
+    const reg = new WorkspaceRegistry(dir);
+    await reg.load();
+    await reg.create({ id: 'w1', name: 'A', root: '/a' });
+
+    const updated = await reg.create({ id: 'w1', name: 'A2', root: '/a2' });
+    expect(updated).toEqual({ id: 'w1', name: 'A2', root: '/a2' });
+    expect(reg.list()).toEqual([{ id: 'w1', name: 'A2', root: '/a2' }]);
+
+    // 落盘且重启保留更新后的字段
+    const reg2 = new WorkspaceRegistry(dir);
+    await reg2.load();
+    expect(reg2.list()).toEqual([{ id: 'w1', name: 'A2', root: '/a2' }]);
+
+    // 字段一致 → 幂等 no-op,不额外写盘
+    const spy = vi.spyOn(nodeFs, 'writeFile');
+    const same = await reg.create({ id: 'w1', name: 'A2', root: '/a2' });
+    expect(same).toEqual({ id: 'w1', name: 'A2', root: '/a2' });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });

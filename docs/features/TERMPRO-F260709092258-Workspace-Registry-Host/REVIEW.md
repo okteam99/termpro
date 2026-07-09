@@ -88,3 +88,26 @@ findings:
 
 ## verdict
 **NEEDS_REVISION** —— open MAJOR ×2(F1/F2)。其余 advisory(deferred/rejected 已裁决留痕)。
+
+## 修复说明(Round1 fix)
+
+> RD 修复轮。改动仅限 F1/F2/F3,未触 deferred/rejected 项。门禁三绿:`tsc --noEmit` 0 err · `vitest run` 343/343(新增 5)· `TERMPRO_SMOKE=1 electron-forge start` → SMOKE_OK。frontmatter status 未改(留验证轮裁决)。
+
+### F1(MAJOR)· fixed
+- **修法**:`persistence.ts` 把 `workspace.list` 结果用 `WorkspaceEntry[] | null` 表达 —— `null` = 读失败,`[]` = 读成功且真空。仅当 `outcome.mode === 'v2' && registry === null`(v2 hydrate 依赖注册表、且这次没读到)才走降级:**不 hydrate、不启动防抖写回订阅**,设占位提示(App 停在「连接 Host…」未 hydrate 态),并有限自动重试(`REGISTRY_RETRY_MS=800` × `REGISTRY_MAX_RETRIES=5`,耗尽停占位待 ⌘R)。把「hydrate + 接广播 + 启动写回订阅」抽成 `finishHydrate`,**写回订阅只在此启动**,从结构上保证降级路径不会固化空态。
+- **为什么对**:区分了「读失败」与「注册表真空」两种语义 —— 前者数据仍在盘上(不丢弃存档外键、不落盘空态,可重试恢复),后者才允许孤儿丢弃(AC-5)。v1 fallback(`outcome.mode==='v1'`)不依赖注册表,list 失败无害,照常 hydrate,行为不变。
+- **新增测试**(`src/renderer/state/__tests__/persistence.test.ts`):
+  - `test_hydrate_v2_with_list_failure_does_not_drop_workspaces_or_persist_empty` —— list reject → 未 hydrate(hydrated=false)、`storeSet` 零调用(不落盘空态)、`onWorkspaceChanged` 未订阅、给占位提示。
+  - `recovers workspaces from registry on a later successful retry` —— 首次失败降级、重试成功后按注册表 name/root + 存档视图态恢复两条 workspace(证明存档引用未丢弃)。
+  - `v1 fallback is unaffected by list failure` —— v1 存档 + list 失败仍照常 hydrate、persistMode=v1、订阅正常。
+
+### F2(MAJOR)· fixed · 采纳方向 (a)(= F5)
+- **选型理由**:采纳 **(a) 整条 mutation 串行队列**(A5/F5 方向)而非 (b) 校正写。理由:(a) 从根上消除破口 —— 旧设计「同步改内存 + 只串行化写盘 + 入队时捕获快照」的时点差(后序写入队时快照含尚未回滚的前序条目)是 F2 唯一成因;把「校验 + 改内存 + 落盘 + 失败回滚」作为**一个原子单元**进单一串行队列(队列外绝不改内存)后,任意 mutation 运行时内存恒为同步一致的单源,后到 mutation 必等前一条整体完成(含回滚)才跑,不存在读到「回滚前内存」的窗口,`remove` 的 idx 回滚也因串行而位置稳定。(b) 需再引入一笔纠正写与其失败处理,复杂度更高且仍保留时点差结构。(a) 同时消解 F5(简洁性)与 A2 指出的 remove 脆弱回滚。吞吐:mutation 记录数个位~十位、写盘本就串行,整条串行无实际吞吐损失。
+- **改动文件**:`src/host/workspaceRegistry.ts` —— `writeQueue`→`mutationQueue`;新增 `enqueue<T>(op)`(整条 mutation 入队,队尾吞错防连累)+ `snapshot()`(队列内取当前内存);`create/remove/update` 三个方法体整体包进 `this.enqueue(async () => {...})`;删除旧 `enqueueWrite`(入队时捕获快照)。文件头并发注释同步重写。
+- **为什么对**:不变式「广播快照 = 已落盘状态」在任意交错下成立 —— 成功时内存(broadcast 源)与盘在同一单元内一致,失败时同单元内回滚后再抛(不广播)。「重启后列表 = 最后一次成功操作结果」成立 —— 被回滚条目从不进入任何后续写的快照。
+- **新增测试**(`src/host/__tests__/workspaceRegistry.test.ts`):`test_concurrent_create_first_write_fails_no_stale_snapshot_no_revive` —— 并发 create a(注入 `writeFile` 首写 ENOSPC 失败)+ b(成功),断言 `[rejected, fulfilled]`、内存=盘=`['b']`、重启后 a 不复活。现有 `test_concurrent_creates_serialize_no_lost_update`、`test_write_failure_rolls_back_memory`、REG-002/008、INT-004 继续绿。
+
+### F3(MINOR)· fixed(低成本顺手)
+- **修法**:F2 已重写 `create`,同路径改为真 upsert —— 命中既有 id 时:字段一致→幂等 no-op 不写盘;字段不同→更新 name/root 并落盘(同一单元内失败回滚)。
+- **为什么对**:与 TECH「upsert」措辞对齐,修 A3 场景(迁移重试用存档当前 name/root 调 create,fallback 期改名/改根不再被静默回退)。字段一致仍 no-op,不新增 churn,REG-002/008 不受影响。
+- **新增测试**:`test_create_existing_id_with_changed_fields_updates_upsert` —— 同 id 不同字段→更新且重启保留;同 id 同字段→不再触发 `writeFile`。

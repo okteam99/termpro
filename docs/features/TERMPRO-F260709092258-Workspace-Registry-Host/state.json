@@ -104,10 +104,126 @@
       "duration_minutes": 50
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-07-09T14:22:20Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T14:22:20Z",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "completed_at": "2026-07-09T16:19:08Z",
+      "auto_commit": "e6a8e286edebbd8bf9a66ce66e1e8ce21969e2a4",
+      "artifacts": [],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-07-09T14:22:20Z",
+          "completed_at": "2026-07-09T16:19:08Z",
+          "review_commit": "e6a8e286edebbd8bf9a66ce66e1e8ce21969e2a4",
+          "verdict": "NEEDS_REVISION",
+          "new_findings_count": 12,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "hydrate 期 workspace.list 失败被当『注册表为空』→ v2 视图态全量孤儿丢弃,可被后续写回永久固化",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F2",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "并发 mutation + 前序写失败回滚 → 入队时快照把被回滚条目落盘,内存/盘/广播分叉,重启复活",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F3",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "create 幂等为 insert-if-absent 非 upsert,partial 迁移 + v1 fallback 改名在重试后丢失",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F4",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "部分迁移非原子 + fallback 期删除 + 重试成功 → 已删 workspace 复活为默认视图",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F5",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "简洁性:整条 mutation 串行队列比『同步改内存+入队快照+逐 op 回滚』更简且天然规避 F2",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F6",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "AC-1 备份内容未被测试断言;appStore store:backup-v1 零覆盖",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F7",
+          "severity": "MINOR",
+          "status": "rejected",
+          "title": "生产传输粘合层(host.ts dispatch/hostClient 路由)未进测试",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F8",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "迁移输入健壮性:畸形 v1 存档(非数组/单条坏条目)→ hydrate 崩溃或永卡 v1 无诊断",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F9",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "remove no-op/update 同值仍广播+写盘,与 TECH no-op 语义偏差(多余 churn)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F10",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "service 边界 params 无运行时形状校验,M5 远程不可信输入面偏弱",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F11",
+          "severity": "NIT",
+          "status": "deferred",
+          "title": "viewer 窗口注册进广播 senders 但不消费 workspace:changed(无害冗余)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F12",
+          "severity": "NIT",
+          "status": "rejected",
+          "title": "TDD 先后顺序不可从 git 验证(单 squash commit)",
+          "source": "qa",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 116
     }
   },
   "completed_stages": [
@@ -152,9 +268,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T14:22:27Z",
+  "updated_at": "2026-07-09T16:19:08Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:d097a82c1e3f371d702af7341de2f6c078cf666ebf7c07b9a9e18ada8add0a32",
+  "_state_checksum": "sha256:a79f8951428863801ae362868c163573b14bc77fba6c9a8a9e22030a78e6e794",
   "legal_next_stages": [
     "test",
     "dev"

@@ -1,12 +1,15 @@
 // Workspace 注册表(纯 Node,零 Electron import — README §5 远程就绪)。
 // 数据目录经构造参数注入(非 app.getPath),保证零 Electron 且单测可用临时目录。
 //
-// 并发正确性(external CR-2):
-//   - 内存数组是唯一真相:load() 一次读盘进内存,之后 CRUD 只同步读写内存(无 await 竞态窗口)。
-//   - 每次 mutation 先同步 upsert 内存(后到的 RPC 立即看到前一条结果,杜绝丢更新),
-//     再把「写盘」推入 promise 链串行队列(writeQueue),队尾串行落盘。
+// 并发正确性(F2/F5 收敛):
+//   - 内存数组是唯一真相:load() 一次读盘进内存,之后只在串行队列内读写。
+//   - 每条 mutation(校验 + 改内存 + 落盘 + 失败回滚)作为一个原子单元进单一串行队列
+//     (mutationQueue),队列外绝不改内存。后到的 mutation 必等前一条整体完成后才跑,
+//     天然看到前一条结果(杜绝丢更新),且「内存 / 盘 / 广播」不会在队列边界外分叉。
+//     这消除了旧「同步改内存 + 只串行化写盘 + 入队时捕获快照」下的时点差破口:
+//     并发写 + 前序写失败回滚时,后序写不再落盘含被回滚条目的陈旧快照。
 //   - 原子写:写唯一临时名(pid+seq)→ fsync → rename(rename 原子;临时名带 pid+seq 防并发互相覆盖)。
-//   - 写失败先回滚内存再抛(保证「广播出去的快照 = 已落盘状态」)。
+//   - 写失败在同一单元内先回滚内存再抛,保证「广播出去的快照 = 已落盘状态」在任意交错下成立。
 
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
@@ -53,7 +56,8 @@ export class WorkspaceRegistry {
   private readonly filePath: string;
   private workspaces: WorkspaceEntry[] = [];
   private loadPromise: Promise<void> | null = null;
-  private writeQueue: Promise<void> = Promise.resolve();
+  // 整条 mutation 的串行队列(改内存 + 落盘 + 回滚 都排这里)
+  private mutationQueue: Promise<void> = Promise.resolve();
   private writeSeq = 0;
 
   constructor(private readonly dataDir: string) {
@@ -111,84 +115,111 @@ export class WorkspaceRegistry {
   }
 
   /**
-   * 新建/迁移写入。幂等:id 已存在→返回既有(不重复插入,不改字段)。
-   * 省略 id 时生成 randomUUID。写盘失败→回滚内存并抛。
+   * 新建/迁移写入(整条 mutation 串行,见文件头)。
+   * - id 已存在且 name/root 一致 → 幂等 no-op,返回既有(不写盘)。
+   * - id 已存在但字段不同 → upsert:更新 name/root 并落盘(F3:迁移重试保留 fallback 期改名/改根)。
+   * - id 不存在 → 追加。省略 id 时生成 randomUUID。写盘失败 → 回滚内存并抛。
    */
   async create(input: { id?: string; name: string; root: string }): Promise<WorkspaceEntry> {
-    const name = validName(input.name);
-    const root = validRoot(input.root);
-    const id = input.id && input.id.length > 0 ? input.id : randomUUID();
+    return this.enqueue(async () => {
+      const name = validName(input.name);
+      const root = validRoot(input.root);
+      const id = input.id && input.id.length > 0 ? input.id : randomUUID();
 
-    const existing = this.workspaces.find((w) => w.id === id);
-    if (existing) {
-      // 幂等:迁移重跑 / 回声。返回既有,不写盘(内存未变)。
-      return { ...existing };
-    }
+      const idx = this.workspaces.findIndex((w) => w.id === id);
+      if (idx >= 0) {
+        const existing = this.workspaces[idx];
+        // 幂等:字段一致(迁移重跑 / 回声)→ 内存未变,不写盘
+        if (existing.name === name && existing.root === root) {
+          return { ...existing };
+        }
+        // upsert:字段不同 → 更新落盘
+        const next: WorkspaceEntry = { id, name, root };
+        this.workspaces[idx] = next;
+        try {
+          await this.atomicWrite(this.snapshot());
+        } catch (err) {
+          this.workspaces[idx] = existing; // 回滚
+          console.error('[host] registry write failed:', err);
+          throw err;
+        }
+        return { ...next };
+      }
 
-    const entry: WorkspaceEntry = { id, name, root };
-    this.workspaces.push(entry); // 同步改内存(唯一真相)
-    try {
-      await this.enqueueWrite();
-    } catch (err) {
-      // 写穿失败:回滚内存(移除刚加的),再抛
-      this.workspaces = this.workspaces.filter((w) => w.id !== id);
-      console.error('[host] registry write failed:', err);
-      throw err;
-    }
-    return { ...entry };
+      const entry: WorkspaceEntry = { id, name, root };
+      this.workspaces.push(entry);
+      try {
+        await this.atomicWrite(this.snapshot());
+      } catch (err) {
+        this.workspaces = this.workspaces.filter((w) => w.id !== id); // 回滚新增
+        console.error('[host] registry write failed:', err);
+        throw err;
+      }
+      return { ...entry };
+    });
   }
 
   /** 删除。幂等:不存在→no-op success。写盘失败→回滚内存并抛。 */
   async remove(id: string): Promise<void> {
-    const idx = this.workspaces.findIndex((w) => w.id === id);
-    if (idx < 0) return; // 幂等 no-op(不写盘)
+    return this.enqueue(async () => {
+      const idx = this.workspaces.findIndex((w) => w.id === id);
+      if (idx < 0) return; // 幂等 no-op(不写盘)
 
-    const [removed] = this.workspaces.splice(idx, 1); // 同步改内存
-    try {
-      await this.enqueueWrite();
-    } catch (err) {
-      // 回滚:把删掉的放回原位置
-      this.workspaces.splice(idx, 0, removed);
-      console.error('[host] registry write failed:', err);
-      throw err;
-    }
+      const [removed] = this.workspaces.splice(idx, 1);
+      try {
+        await this.atomicWrite(this.snapshot());
+      } catch (err) {
+        // 串行队列内回滚,期间无并发 mutation 改动数组,idx 位置稳定
+        this.workspaces.splice(idx, 0, removed);
+        console.error('[host] registry write failed:', err);
+        throw err;
+      }
+    });
   }
 
   /** 改名/改根。不存在→抛错。写盘失败→回滚内存并抛。 */
   async update(id: string, patch: { name?: string; root?: string }): Promise<WorkspaceEntry> {
-    const idx = this.workspaces.findIndex((w) => w.id === id);
-    if (idx < 0) {
-      throw new Error(`workspace not found: ${id}`);
-    }
-    const prev = this.workspaces[idx];
-    const next: WorkspaceEntry = { ...prev };
-    if (patch.name !== undefined) next.name = validName(patch.name);
-    if (patch.root !== undefined) next.root = validRoot(patch.root);
+    return this.enqueue(async () => {
+      const idx = this.workspaces.findIndex((w) => w.id === id);
+      if (idx < 0) {
+        throw new Error(`workspace not found: ${id}`);
+      }
+      const prev = this.workspaces[idx];
+      const next: WorkspaceEntry = { ...prev };
+      if (patch.name !== undefined) next.name = validName(patch.name);
+      if (patch.root !== undefined) next.root = validRoot(patch.root);
 
-    this.workspaces[idx] = next; // 同步改内存
-    try {
-      await this.enqueueWrite();
-    } catch (err) {
-      this.workspaces[idx] = prev; // 回滚
-      console.error('[host] registry write failed:', err);
-      throw err;
-    }
-    return { ...next };
+      this.workspaces[idx] = next;
+      try {
+        await this.atomicWrite(this.snapshot());
+      } catch (err) {
+        this.workspaces[idx] = prev; // 回滚
+        console.error('[host] registry write failed:', err);
+        throw err;
+      }
+      return { ...next };
+    });
   }
 
-  /** 把当前内存快照的落盘推入串行写队列,返回本次写的 promise */
-  private enqueueWrite(): Promise<void> {
-    const snapshot: RegistryFile = {
+  /** 当前内存的落盘快照(在串行队列内取,恒与将广播的内存一致) */
+  private snapshot(): RegistryFile {
+    return {
       version: REGISTRY_FILE_VERSION,
       workspaces: this.workspaces.map((w) => ({ ...w })),
     };
-    const run = this.writeQueue.then(
-      () => this.atomicWrite(snapshot),
-      // 前一次写失败不应连累后续写:失败也继续本次写
-      () => this.atomicWrite(snapshot),
+  }
+
+  /**
+   * 把整条 mutation 串进单一队列:前一条整体完成(含落盘/回滚)后才跑下一条。
+   * 队列尾吞错,避免一次失败 reject 掉所有未来 mutation;调用方仍从返回的 promise
+   * 拿到本次结果/异常。
+   */
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.mutationQueue.then(op, op);
+    this.mutationQueue = run.then(
+      () => undefined,
+      () => undefined,
     );
-    // 队列尾吞掉错误,避免一次失败 reject 掉所有未来写;调用方仍从 run 拿到本次结果
-    this.writeQueue = run.catch(() => undefined);
     return run;
   }
 
