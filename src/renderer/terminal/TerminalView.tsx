@@ -7,6 +7,7 @@ import {
   getOrCreateTerminal,
 } from './terminalRegistry';
 import { wireWebglAtlasResync } from './webglAtlasResync';
+import { disposeWebglAddon } from './webglContextRelease';
 import '@xterm/xterm/css/xterm.css';
 
 // 创建并挂载 WebGL 渲染器到实例。图集分页合并会让 GPU 纹理页因 version 门控碰撞而漏传,
@@ -18,8 +19,17 @@ function mountWebgl(inst: TermInstance): void {
   try {
     const webgl = new WebglAddon();
     webgl.onContextLoss(() => {
-      webgl.dispose();
-      if (inst.webgl === webgl) inst.webgl = null;
+      disposeWebglAddon(webgl);
+      if (inst.webgl !== webgl) return;
+      inst.webgl = null;
+      // 自愈:context 丢失多为瞬时 GPU 压力(超限强杀/GPU 进程重启),稍候重挂 WebGL,
+      // 不再静默降级 DOM 渲染直到下次切 tab。仍失败时 mountWebgl 自身兜底 DOM。
+      setTimeout(() => {
+        const el = inst.term.element;
+        if (!inst.webgl && !inst.disposed && el?.isConnected && el.offsetWidth > 0) {
+          mountWebgl(inst);
+        }
+      }, 1000);
     });
     inst.term.loadAddon(webgl);
     inst.webgl = webgl;
@@ -36,8 +46,10 @@ function mountWebgl(inst: TermInstance): void {
 // 重建:dispose 旧 addon(renderer.dispose 会 removeTerminalFromCache)→ 同步新建挂载。
 // 全程在同一微任务内完成,renderService 原子换渲染器,不经 DOM 回退、无闪屏。
 function remountWebgl(inst: TermInstance): void {
-  inst.webgl?.dispose();
-  inst.webgl = null;
+  if (inst.webgl) {
+    disposeWebglAddon(inst.webgl);
+    inst.webgl = null;
+  }
   mountWebgl(inst);
 }
 
@@ -73,14 +85,14 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
   }, [tabId, cwd]);
 
   // 激活态:WebGL 渲染器只挂可见终端(每页 WebGL context 数量有限,
-  // 后台 tab 退回 DOM 渲染照常写入 buffer)
+  // 后台 tab 退回 DOM 渲染照常写入 buffer)。
+  // 释放统一放 cleanup:失活、tab 切换、unmount(切 workspace)三条路径全覆盖,
+  // 维持全应用任意时刻 ≤1 个活 WebGL context 的不变量。unmount 路径曾缺释放 →
+  // 游离终端的 context 累积超 Chrome 每页上限 → 最老(=可见)context 被强杀 →
+  // 偶现内容区黑屏/冻结残帧且 resize 无效。
   useEffect(() => {
+    if (!active) return;
     const inst = getOrCreateTerminal(tabId);
-    if (!active) {
-      inst.webgl?.dispose();
-      inst.webgl = null;
-      return;
-    }
     if (!inst.webgl) {
       mountWebgl(inst);
     }
@@ -88,23 +100,30 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
     inst.term.focus();
 
     const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
-    });
-    ro.observe(el);
-    // DPR 变化(窗口跨 retina/非-retina 屏拖拽、改显示缩放)会让 WebGL 字形图集按旧
-    // 像素比烘焙、取字坐标却按新比算 → 错位乱码。重建 WebGL 让图集按新 DPR 重烘焙、
-    // 纹理全量重传,并重新 fit。
-    const stopDpr = watchDevicePixelRatio(() => {
-      if (inst.webgl) remountWebgl(inst);
-      if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
-      // DPR 变致 cell 尺寸改变但行列数未变时不发 onResize,手动刷新固定面板度量
-      inst.barPin.refresh();
-    });
+    let ro: ResizeObserver | null = null;
+    let stopDpr: (() => void) | null = null;
+    if (el) {
+      ro = new ResizeObserver(() => {
+        if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
+      });
+      ro.observe(el);
+      // DPR 变化(窗口跨 retina/非-retina 屏拖拽、改显示缩放)会让 WebGL 字形图集按旧
+      // 像素比烘焙、取字坐标却按新比算 → 错位乱码。重建 WebGL 让图集按新 DPR 重烘焙、
+      // 纹理全量重传,并重新 fit。
+      stopDpr = watchDevicePixelRatio(() => {
+        if (inst.webgl) remountWebgl(inst);
+        if (el.offsetWidth > 0 && el.offsetHeight > 0) inst.fit.fit();
+        // DPR 变致 cell 尺寸改变但行列数未变时不发 onResize,手动刷新固定面板度量
+        inst.barPin.refresh();
+      });
+    }
     return () => {
-      ro.disconnect();
-      stopDpr();
+      ro?.disconnect();
+      stopDpr?.();
+      if (inst.webgl) {
+        disposeWebglAddon(inst.webgl);
+        inst.webgl = null;
+      }
     };
   }, [active, tabId]);
 
