@@ -18,7 +18,7 @@
 | Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
 |-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
 | BL-001 | Workspace 注册表驻留 Host（本地先行） | P0 | workspace.* 协议 + Host 侧注册表持久化 + renderer 按 host 发现 + 存档 v1→v2 迁移 | ① 增删改经协议落 Host 注册表跨重启存活 ② 旧存档无损迁移（幂等+备份回退） ③ 多客户端列表与变更推送一致 | 无 | 待开始 | - | - | WS-01 |
-| BL-002 | Host standalone + WebSocket + 协议握手 | P0 | host 独立入口（loopback+token）+ WS 传输 + 版本握手 + 单文件打包（node-pty 矩阵） | ① standalone 经 WS 服务完整协议冒烟通过 ② 不兼容连接被拒且 UI 明示 ③ 产物在 darwin-arm64 与 linux-x64 实机可运行 | 无 | 进行中 | RD 技术方案 | TERMPRO-F260709092310 | WS-01 |
+| BL-002 | Host standalone + WebSocket + 协议握手 | P0 | host 独立入口（loopback+token）+ WS 传输 + 版本握手 + 单文件打包（node-pty 矩阵） | ① standalone 经 WS 服务完整协议冒烟通过 ② 不兼容连接被拒且 UI 明示 ③ 产物在 darwin-arm64 与 linux-x64 实机可运行 | 无 | ✅ 已交付 | - | TERMPRO-F260709092310 | WS-01 |
 
 > ✅ 完成条件：Wave 1 全部 Feature「已完成」后进入 Wave 2（⚠️ 两者同改 protocol.ts，分区块追加、先合先赢）
 
