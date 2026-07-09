@@ -2,9 +2,15 @@
 tech_feature_id: TERMPRO-F260709180208-Remote-Hosts-SSH
 review_stage: blueprint
 review_rounds: 2
-reviewers: [architect, external]
+reviewers: [qa, architect, external]
 verdict: APPROVE
 reviews:
+  - role: qa
+    execution: subagent
+    round_1_verdict: APPROVE
+    round_2_verdict: APPROVE
+    scope: "TC 作者 + TECH 可测性把关：AC↔test 覆盖(verify-ac 全绿 14/14)、residency 决策表守门断言(T-032~037 含兄弟不误杀/livelock 消解)、DI 接缝可测性(connectSsh 注入/shouldAlert 纯函数)、安全 AC 全可执行断言(无人工检查项)"
+    doc: TC.md
   - role: architect
     execution: subagent
     round_1_verdict: NEEDS_REVISION
