@@ -5,6 +5,9 @@
   "description": "Terminal-first workbench for running many AI coding agents in parallel — agent-agnostic, macOS.",
   "main": ".vite/build/main.js",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",

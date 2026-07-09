@@ -297,20 +297,20 @@ sequenceDiagram
 
 | TC 用例 | 测试方法名 | 状态 |
 |---------|-----------|------|
-| 区间兼容:v1 双端 / 客户端超前(2,1)vs(1,1)兼容 / 弃旧(2,2)vs(1,1)不兼容 / minCompatible 缺省 | versionCompat.* | ☐ |
-| 不兼容错误含双方四数 | versionCompat.incompatibleError | ☐ |
-| TC-T4 env token 读后 process.env 被 delete(spawn 前) | token.envErasedBeforeSpawn | ☐ |
-| token 常量时间校验(sha256+timingSafeEqual);禁 argv 明文 | token.constantTime / token.rejectArgv | ☐ |
-| host.info-first:首条非 host.info → 断开 | wsGate.firstMustBeHostInfo | ☐ |
-| 握手 10s 超时 → 断开回收 | wsGate.handshakeTimeout | ☐ |
-| 畸形帧(非 JSON/未知 t/超 maxPayload)host 不崩、他客户端无感 | wsGate.malformedIsolated | ☐ |
-| 失败告警:窗内 10 次失败 emit WARN 不阻断 | wsGate.authFailAlert | ☐ |
-| TC-K1/K2 pty.kill 跨客户端被拒(归属校验) | wsOwnership.killNotOwner | ☐ |
-| TC-K3 pty.cwd 跨客户端被拒 | wsOwnership.cwdNotOwner | ☐ |
-| AC-6 两客户端 sessionId + watchId 归属隔离 | wsMultiClient.isolation | ☐ |
-| AC-1 全方法 WS 冒烟含 fs.watch 推送 | wsSmoke.allMethods | ☐ |
-| 心跳 pong 超时 → terminate → 回收 | wsHeartbeat.reclaim | ☐ |
-| AC-5 嵌入式 SMOKE_OK 零回归 | (CI 冒烟) | ☐ |
+| 区间兼容:v1 双端 / 客户端超前(2,1)vs(1,1)兼容 / 弃旧(2,2)vs(1,1)不兼容 / minCompatible 缺省 | versionCompat.* | ☑ |
+| 不兼容错误含双方四数 | versionCompat.incompatibleError | ☑ |
+| TC-T4 env token 读后 process.env 被 delete(spawn 前) | token.envErasedBeforeSpawn | ☑ |
+| token 常量时间校验(sha256+timingSafeEqual);禁 argv 明文 | token.constantTime / token.rejectArgv | ☑ |
+| host.info-first:首条非 host.info → 断开 | wsGate.firstMustBeHostInfo | ☑ |
+| 握手 10s 超时 → 断开回收 | wsGate.handshakeTimeout | ☑ |
+| 畸形帧(非 JSON/未知 t/超 maxPayload)host 不崩、他客户端无感 | wsGate.malformedIsolated | ☑ |
+| 失败告警:窗内 10 次失败 emit WARN 不阻断 | wsGate.authFailAlert | ☑ |
+| TC-K1/K2 pty.kill 跨客户端被拒(归属校验) | wsOwnership.killNotOwner | ☑ |
+| TC-K3 pty.cwd 跨客户端被拒 | wsOwnership.cwdNotOwner | ☑ |
+| AC-6 两客户端 sessionId + watchId 归属隔离 | wsMultiClient.isolation | ☑ |
+| AC-1 全方法 WS 冒烟含 fs.watch 推送 | wsSmoke.allMethods | ☑ |
+| 心跳 pong 超时 → terminate → 回收 | wsHeartbeat.reclaim | ☑ |
+| AC-5 嵌入式 SMOKE_OK 零回归 | (CI 冒烟) | ☑ |
 
 ### 实现步骤（分阶段 · 每阶段一 commit · 三绿才进)
 
@@ -318,36 +318,36 @@ sequenceDiagram
 
 | # | 步骤 | 类型 | 验证 | 状态 |
 |---|------|------|------|------|
-| 1 | 写区间兼容失败测试(四数矩阵) | 🔴 Red | 测试失败 | ☐ |
-| 2 | protocol.ts 加 `PROTOCOL_MIN_COMPATIBLE` + `HostInfo.minCompatible` + 区间纯函数 | 🟢 Green | 测试通过 + tsc | ☐ |
-| 3 | host.ts host.info 返回 minCompatible;hostClient 校验并主动断开 | 🟢 Green | 单测 + tsc | ☐ |
+| 1 | 写区间兼容失败测试(四数矩阵) | 🔴 Red | 测试失败 | ☑ |
+| 2 | protocol.ts 加 `PROTOCOL_MIN_COMPATIBLE` + `HostInfo.minCompatible` + 区间纯函数 | 🟢 Green | 测试通过 + tsc | ☑ |
+| 3 | host.ts host.info 返回 minCompatible;hostClient 校验并主动断开 | 🟢 Green | 单测 + tsc | ☑ |
 
 **阶段 B — 归属校验补齐(小而独立,先修再上 WS)**
 
-| 4 | 写 pty.kill/pty.cwd 跨客户端被拒测试 | 🔴 Red | 失败 | ☐ |
-| 5 | host.ts 两 handler 加 `client.sessions.has` 守卫 | 🟢 Green | 通过 | ☐ |
+| 4 | 写 pty.kill/pty.cwd 跨客户端被拒测试 | 🔴 Red | 失败 | ☑ |
+| 5 | host.ts 两 handler 加 `client.sessions.has` 守卫 | 🟢 Green | 通过 | ☑ |
 
 **阶段 C — token 模块**
 
-| 6 | 写 token 生成/常量时间校验/env 读后即抹测试 | 🔴 Red | 失败 | ☐ |
-| 7 | 实现 token.ts(来源解析 + 生成 + `delete process.env` + sha256 timingSafeEqual) | 🟢 Green | 通过 | ☐ |
+| 6 | 写 token 生成/常量时间校验/env 读后即抹测试 | 🔴 Red | 失败 | ☑ |
+| 7 | 实现 token.ts(来源解析 + 生成 + `delete process.env` + sha256 timingSafeEqual) | 🟢 Green | 通过 | ☑ |
 
 **阶段 D — WS 传输 host 侧**
 
-| 8 | 写门控/超时/畸形/失败告警测试 | 🔴 Red | 失败 | ☐ |
-| 9 | 实现 wsServer.ts(loopback 强制 / token 闸 / 门控 / 心跳 / maxPayload / wsPortAdapter) | 🟢 Green | 通过 | ☐ |
-| 10 | host.ts 入口 `--listen` 分流接 wsServer;打印固定日志行 | 🟢 Green | 起真实 host grep listening 行 | ☐ |
+| 8 | 写门控/超时/畸形/失败告警测试 | 🔴 Red | 失败 | ☑ |
+| 9 | 实现 wsServer.ts(loopback 强制 / token 闸 / 门控 / 心跳 / maxPayload / wsPortAdapter) | 🟢 Green | 通过 | ☑ |
+| 10 | host.ts 入口 `--listen` 分流接 wsServer;打印固定日志行 | 🟢 Green | 起真实 host grep listening 行 | ☑ |
 
 **阶段 E — client 传输抽象 + WS 实现 + 集成冒烟**
 
-| 11 | 抽 Transport 接口 + MessagePortTransport(等价重构) | 🔵 Refactor | 嵌入式 SMOKE_OK 不变 | ☐ |
-| 12 | WebSocketTransport + connect 分流(VITE_TERMPRO_REMOTE_WS) | 🟢 Green | tsc | ☐ |
-| 13 | 集成测:起真实 standalone host,AC-1 全方法 + AC-6 双客户端 + AC-7 畸形 | 🟢 Green | 集成全绿 | ☐ |
+| 11 | 抽 Transport 接口 + MessagePortTransport(等价重构) | 🔵 Refactor | 嵌入式 SMOKE_OK 不变 | ☑ |
+| 12 | WebSocketTransport + connect 分流(VITE_TERMPRO_REMOTE_WS) | 🟢 Green | tsc | ☑ |
+| 13 | 集成测:起真实 standalone host,AC-1 全方法 + AC-6 双客户端 + AC-7 畸形 | 🟢 Green | 集成全绿 | ☑ |
 
 **阶段 F — 打包 spike(门控 · 独立分阶段 · 见 D-1)+ CI + 文档**
 
-| 14 | 打包 spike(时间盒 ≤2 工作日,枚举方案) | spike | darwin-arm64 + linux-x64 实机 node-pty spawn | ☐ |
-| 15 | host-package.yml 独立 job(不阻塞 release.yml);ARCHITECTURE 措辞校正;engines>=20 | 🟢 Green | CI 绿且 macOS 发版 gate 不受影响 | ☐ |
+| 14 | 打包 spike(时间盒 ≤2 工作日,枚举方案) | spike | darwin-arm64 + linux-x64 实机 node-pty spawn | ☑ |
+| 15 | host-package.yml 独立 job(不阻塞 release.yml);ARCHITECTURE 措辞校正;engines>=20 | 🟢 Green | CI 绿且 macOS 发版 gate 不受影响 | ☑ |
 
 > 阶段 A–E 交付 AC-1/2/3/5/6/7,**不依赖** F;阶段 F(AC-4)独立验收,spike 结论回写本 TECH 并通知 BL-003。
 
@@ -370,29 +370,38 @@ sequenceDiagram
 |------|------|
 | **D-1**(条件项 · spike 触发):单文件打包被证明不可行 | 兜底 A) 远程机要求 **node≥20 + tar 包部署**(node≥20 亦是 linux fs.watch 递归下限)。**失败判据(可枚举不可主观)**:① 时间盒 **≤2 个工作日**;② 穷举方案集 **{Node SEA · esbuild/vite bundle + node-pty prebuilds 显式解包 · pkg 类工具}**;③ 任一目标平台(darwin-arm64 / linux-x64)仍无法从产物加载 node-pty `.node` / exec `spawn-helper` 即判失败。🔴 **时间盒耗尽即判失败,不因方案未试完而顺延**(PL-R3-1)。判失败 → D-1 升级为用户裁决(A 兜底 / B 继续攻延期)。在此之前 AC-4 按「spike 结论产物」验收,不阻塞其余 AC 合并 |
 
+**D-1 spike 结论(2026-07-10 · 未耗尽时间盒即出结果 · D-1 未触发,不需用户裁决)**:
+
+采用穷举集第二项方案 —— **vite bundle(`scripts/package-host.mjs`)+ node-pty 原生二进制显式解包 + tar 包**,判据①②③全部满足且两目标平台均**成功**:
+
+- **darwin-arm64(本机实机)**:`node scripts/package-host.mjs --out <dir> --platform darwin-arm64` 打出 428KB 产物(`host.js` + `node_modules/node-pty/{package.json,lib/,build/Release/{pty.node,spawn-helper}}`,native 取自本机 `prebuilds/darwin-arm64`)。`node scripts/verify-host-artifact.mjs --dir <dir>` 实测:握手(token+host.info-first)通过、`pty.spawn` 真实拉起 `/bin/sh`、`echo TERMPRO_SPIKE_OK` 输出经 PTY 真实回传并匹配 —— 终端输出 `VERIFY_OK`。
+- **linux-x64(docker `--platform linux/amd64` qemu 仿真,本机 aarch64)**:先在 `node:20-bookworm`(带 build-essential/python3)容器内 `npm install node-pty@1.1.0 --no-save` 走 node-gyp 源码编译(**关键发现**:node-pty 的 `binding.gyp` 里 `spawn-helper` target 门在 `OS=="mac"` 分支,Linux 完全不编译该二进制;C++ 侧 `pty.cc` 对应 `#if defined(__APPLE__)` 才走 `posix_spawn`+helper 路径,非 mac 分支用普通 `fork()`——故 linux-x64 产物**不含** `spawn-helper` 属预期,非缺失),产出 `build/Release/pty.node`(ELF x86-64)。再用 `package-host.mjs --native-dir <该产物>` 在本机(macOS)组装 linux-x64 产物(纯文件操作,无需交叉编译工具链)。最终验证在**干净的** `node:20-bookworm-slim`(容器内确认 `gcc/g++/make/python3/node-gyp` 均不存在,即无编译工具链)里跑 `verify-host-artifact.mjs`:握手 + `pty.spawn` + echo 真实回传全部通过,终端输出 `VERIFY_OK`——证明产物自包含,目标机无需任何编译工具链。
+- **结论**:D-1 兜底(node≥20 + tar 包部署)不需要触发用户裁决升级;spike 直接产出可用的两平台打包方案,已固化为 CI(`.github/workflows/host-package.yml`)。单文件可执行(SEA/pkg)未验证(PRD/TECH 已定性为非硬需求,判据只要求「darwin-arm64 + linux-x64 实机 node-pty spawn 成功」,已满足,故未消耗额外时间盒去试 SEA/pkg)。
+
 ## 变更记录
 | 日期 | 变更 |
 |------|------|
 | 2026-07-09 | v0.1 首版技术方案:基于 PRD v0.3 + 真实代码基线;落定 R3 全部 7 条 advisory;WS 复用 PortLike/attachClient;client Transport 抽象;闭区间版本校验;token 生命周期;打包 spike 门控 |
+| 2026-07-10 | 阶段 F 打包 spike 完成:darwin-arm64 + linux-x64 均实机验证 node-pty 真实 spawn 成功(D-1 未触发);新增 `scripts/package-host.mjs`/`scripts/verify-host-artifact.mjs`/`.github/workflows/host-package.yml`;`package.json` 补 `engines.node>=20`;`project-specs/ARCHITECTURE.md` 措辞校正(「PTY 二进制流」→「PTY 输出流」+ note1 补 WS JSON 文本帧) |
 
 ## 完工自查（RD 实现完逐项打钩）
 
 **对照本 TECH 的设计落地:**
-- [ ] **现状基线**:pty.kill/pty.cwd 缺归属校验、ptyPool env 继承等前提在实现时仍成立(变则回 blueprint)
-- [ ] **§错误处理**:token 拒绝/门控违规/超时/不兼容/畸形/静默断连每条失败路径都实现(非只跑 happy-path)
-- [ ] **错误有 WARN/ERROR 日志**:每条 catch 带 WARN/ERROR + 上下文;**token 明文绝不入日志**;不静默吞
-- [ ] **§依赖与影响**:`tsc --noEmit` 零报错(HostInfo 加字段的 18 处消费方 + hostClient API 不变)
-- [ ] **§数据结构**:HostInfo.minCompatible 两端一致;无 DB 变更
-- [ ] **§测试策略**:集成测(真实 standalone host)写了 —— AC-1 全方法 + AC-6 双客户端 + AC-7 畸形,不靠两端 mock
-- [ ] **安全**:token ≥128-bit / 常量时间比较 / env 读后即抹 / loopback 强制 / 禁 argv 明文
-- [ ] **AC-5 零回归**:嵌入式 SMOKE_OK;门控/token/版本逻辑未侵入 MessagePort 路径
+- [x] **现状基线**:pty.kill/pty.cwd 缺归属校验、ptyPool env 继承等前提在实现时仍成立(变则回 blueprint)
+- [x] **§错误处理**:token 拒绝/门控违规/超时/不兼容/畸形/静默断连每条失败路径都实现(非只跑 happy-path)
+- [x] **错误有 WARN/ERROR 日志**:每条 catch 带 WARN/ERROR + 上下文;**token 明文绝不入日志**;不静默吞
+- [x] **§依赖与影响**:`tsc --noEmit` 零报错(HostInfo 加字段的 18 处消费方 + hostClient API 不变)
+- [x] **§数据结构**:HostInfo.minCompatible 两端一致;无 DB 变更
+- [x] **§测试策略**:集成测(真实 standalone host)写了 —— AC-1 全方法 + AC-6 双客户端 + AC-7 畸形,不靠两端 mock
+- [x] **安全**:token ≥128-bit / 常量时间比较 / env 读后即抹 / loopback 强制 / 禁 argv 明文
+- [x] **AC-5 零回归**:嵌入式 SMOKE_OK;门控/token/版本逻辑未侵入 MessagePort 路径
 
 **通用质量门:**
-- [ ] 规范符合(DEV-RULES:改契约先改 protocol.ts / host 零 Electron import / UI 不碰 fs/pty/git)
-- [ ] 已有测试无回归(exit-code=0)
-- [ ] build 通过 · lint pass · 改共享基建(protocol.ts)则全景编译过
-- [ ] (无新 UI)
-- [ ] commit message 含 Feature ID;改动文件全在 changeset 内
+- [x] 规范符合(DEV-RULES:改契约先改 protocol.ts / host 零 Electron import / UI 不碰 fs/pty/git)
+- [x] 已有测试无回归(exit-code=0)
+- [x] build 通过 · lint pass · 改共享基建(protocol.ts)则全景编译过
+- [x] (无新 UI)
+- [x] commit message 含 Feature ID;改动文件全在 changeset 内
 
 ## 🧩 补充洞察
 

@@ -31,7 +31,9 @@
   },
   "auto_mode": false,
   "yolo": false,
-  "concerns": [],
+  "concerns": [
+    "2026-07-09T16:26:24Z WARN dev 门禁观察:全量 vitest 在两 worktree 并行重负载(子代理评审+测试同时跑)时出现过 2 次单测偶发失败(348 中 1 例,未捕获到具体用例);静默环境连续 5 轮全绿。疑时序敏感 WS 用例对 CPU 争用敏感,review 阶段请关注 wsRpcParity/握手超时类用例的时序余量"
+  ],
   "review_round": 0,
   "stage_contracts": {
     "goal": {
@@ -111,9 +113,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T13:32:47Z",
-  "updated_by": "pmo",
-  "_state_checksum": "sha256:47a0719298660629972b2d8010c5dad7db3cf1e1903fb28427034f85a722c123",
+  "updated_at": "2026-07-09T16:26:24Z",
+  "updated_by": "add-concern",
+  "_state_checksum": "sha256:abebec1333f0a583c7688deff887babd9891eb7f6bb6c357e94dd79732869b69",
   "legal_next_stages": [
     "review"
   ],

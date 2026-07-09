@@ -34,9 +34,9 @@ graph TD
   main <-->|MessageChannelMain port1| Host
   preload -->|port2 window.postMessage 转移| renderer
 
-  renderer -- "HostService 协议\nRPC + 事件推送 + PTY 二进制流（含流控）" --- Host
+  renderer -- "HostService 协议\nRPC + 事件推送 + PTY 输出流（含流控）" --- Host
 
-  note1["本地传输：MessagePort\n远程传输：SSH 隧道 + WebSocket（M5）"]
+  note1["本地传输：MessagePort\n远程传输：SSH 隧道 + WebSocket（M5，JSON 文本帧承载同一套消息形状）"]
 ```
 
 ---
@@ -46,7 +46,7 @@ graph TD
 | # | 规则 | 说明 |
 |---|------|------|
 | 1 | **Host 零 Electron 依赖** | 本地跑在 `utilityProcess`；远程跑在 ssh 拉起的独立 node 进程；OS 通知/Dock 角标留在壳层，由 host 事件驱动 |
-| 2 | **一套协议三类消息** | RPC（请求/响应）、事件推送、PTY 二进制流；流控（credit/pause-resume）是协议一部分，本地与远程共用同一机制 |
+| 2 | **一套协议三类消息** | RPC（请求/响应）、事件推送、PTY 输出流；流控（credit/pause-resume）是协议一部分，本地与远程共用同一机制 |
 | 3 | **路径全为 `(hostId, path)`** | UI 中不存在裸本地路径；文件树/读写/watch 全走 host；API 粗粒度（readdir 一次返回带 git 状态的完整条目；watcher 事件 host 侧去抖合并） |
 | 4 | **git/gh 在 host 侧执行** | UI 只收结构化结果；Monaco 读写与 diff 内容同样经 fs 服务获取，远程自动可用 |
 | 5 | **会话状态机驻留 host** | host 对 PTY 字节流做轻量扫描（OSC 133/BEL/备屏）+ `pty.process` 轮询；UI 断开时会话与状态照常运行；host 维护输出环形缓冲，重连回放屏幕 |
