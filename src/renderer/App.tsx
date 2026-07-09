@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
 import { PaneHandle } from './components/PaneHandle';
+import { TransientToast } from './components/TransientToast';
 import TerminalView from './terminal/TerminalView';
 import type { TermCallbacks } from './terminal/terminalRegistry';
 import type { HostInfo } from '../shared/protocol';
@@ -63,7 +64,7 @@ export default function App() {
   useEffect(() => {
     if (!hostInfo || !hydrated || !window.termpro.smoke) return;
     const s = useAppStore.getState();
-    if (s.workspaces.length === 0) s.addWorkspace(hostInfo.homedir);
+    if (s.workspaces.length === 0) void s.addWorkspace(hostInfo.homedir);
   }, [hostInfo, hydrated]);
 
   // 主工作区分支名:启动、workspace 集合变化、窗口聚焦时刷新
@@ -168,6 +169,7 @@ export default function App() {
       </div>
       <PaneHandle side="right" />
       <FilePanel />
+      <TransientToast />
     </div>
   );
 }

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { type PersistedState, useAppStore } from '../store';
+import { type PersistedStateV1, useAppStore } from '../store';
 
-function persisted(ui: PersistedState['ui']): PersistedState {
+function persisted(ui: PersistedStateV1['ui']): PersistedStateV1 {
   return { version: 1, activeWorkspaceId: null, workspaces: [], ui };
 }
 
@@ -21,13 +21,13 @@ describe('pinBottomBar 设置', () => {
 
   it('hydrate 恢复 ui.pinBottomBar=true', () => {
     useAppStore.setState({ pinBottomBar: false });
-    useAppStore.getState().hydrate(persisted({ pinBottomBar: true }));
+    useAppStore.getState().hydrate([], persisted({ pinBottomBar: true }));
     expect(useAppStore.getState().pinBottomBar).toBe(true);
   });
 
   it('hydrate 时 ui 无 pinBottomBar 字段 → 回退默认 false', () => {
     useAppStore.setState({ pinBottomBar: true }); // 先置脏
-    useAppStore.getState().hydrate(persisted({ sidebarWidth: 200 }));
+    useAppStore.getState().hydrate([], persisted({ sidebarWidth: 200 }));
     expect(useAppStore.getState().pinBottomBar).toBe(false);
   });
 });

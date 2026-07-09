@@ -3,6 +3,7 @@
 // 远程模式(M5):同一份代码改为监听 WebSocket,协议不变。
 
 import os from 'node:os';
+import path from 'node:path';
 import {
   ClientMessage,
   HostMessage,
@@ -11,6 +12,7 @@ import {
   SpawnOptions,
 } from '../shared/protocol';
 import { PtyPool } from './ptyPool';
+import { WorkspaceService } from './workspaceService';
 import {
   copyInto,
   homeDir,
@@ -68,6 +70,16 @@ const pool = new PtyPool();
 const clients = new Map<number, Client>();
 let clientSeq = 0;
 
+// Workspace 注册表:数据目录经壳层(main)注入 env,不调 app.getPath(零 Electron)。
+// 未注入时兜底到 homedir 下的隐藏目录(dev/edge;正常 local 由 main 注入 userData)。
+const hostDataDir =
+  process.env.TERMPRO_HOST_DATA_DIR || path.join(os.homedir(), '.termpro-host');
+const workspaces = new WorkspaceService(hostDataDir);
+// 启动即预读注册表进内存(RPC 到达前完成;handle 内亦 await load 幂等兜底)
+void workspaces.load().catch((err) =>
+  console.error('[host] registry initial load failed:', err),
+);
+
 parentPort.on('message', (e) => {
   const data = e.data as { t?: string } | undefined;
   if (data?.t === 'client' && e.ports[0]) {
@@ -95,6 +107,8 @@ function attachClient(port: PortLike): void {
     sessions: new Set(),
   };
   clients.set(id, client);
+  // 注册到 workspace 服务:注册表变更广播会推给该客户端
+  workspaces.addClient(id, send);
 
   port.on('message', (e) => {
     const msg = e.data as ClientMessage;
@@ -127,6 +141,7 @@ function attachClient(port: PortLike): void {
     for (const sid of client.sessions) pool.kill(sid);
     client.watches.dispose();
     clients.delete(id);
+    workspaces.removeClient(id);
     console.log(
       '[host] client %d detached (sessions cleaned: %d, clients left: %d)',
       id,
@@ -239,6 +254,13 @@ async function handleRpc(
         result = await gitChangedFiles(p.toplevel, p.baseRef);
         break;
       }
+      case 'workspace.list':
+      case 'workspace.create':
+      case 'workspace.remove':
+      case 'workspace.update':
+        // 服务内部:mutate 注册表 → 落盘 → 向全部客户端广播 workspace:changed
+        result = await workspaces.handle(msg.method, msg.params);
+        break;
       default:
         throw new Error(`unknown rpc method: ${String(msg.method)}`);
     }

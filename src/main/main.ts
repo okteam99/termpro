@@ -118,6 +118,12 @@ function ensureHost(): Electron.UtilityProcess {
   if (hostProc) return hostProc;
   hostProc = utilityProcess.fork(path.join(__dirname, 'host.js'), [], {
     serviceName: 'termpro-host',
+    // Workspace 注册表数据目录:local 模式 = userData(host 视其为不透明「本机注册表目录」,
+    // 不知晓 Electron 路径 API,保持零 Electron / 远程就绪)
+    env: {
+      ...process.env,
+      TERMPRO_HOST_DATA_DIR: app.getPath('userData'),
+    },
   });
   hostProc.on('exit', (code) => {
     console.error(`[main] host exited with code ${code}`);
