@@ -177,19 +177,56 @@ tests:
     covers_ac: [AC-5]
     level: component
     priority: P1
+  - id: BL004-U-snapshot-scope-local
+    file: src/renderer/state/__tests__/workspaceSnapshotScope.test.ts
+    function: "applyWorkspaceSnapshot(本机快照) 不删远程 ws · 远程 active 不被抢回本机"
+    covers_ac: [AC-2, AC-6]
+    level: unit
+    priority: P0
+  - id: BL004-U-snapshot-scope-remote
+    file: src/renderer/state/__tests__/workspaceSnapshotScope.test.ts
+    function: "远程 per-host onWorkspaceChanged(该 configId 快照) 只协调该机 ws · 不动本机 · 本机 active 不变"
+    covers_ac: [AC-4, AC-6]
+    level: unit
+    priority: P0
+  - id: BL004-U-create-nohost-reject
+    file: src/renderer/state/__tests__/remoteCreateScope.test.ts
+    function: "目标远程机不在 registry(drop/断线) → create 拒绝+提示 · 不落本机注册表"
+    covers_ac: [AC-4]
+    level: unit
+    priority: P0
+  - id: BL004-U-serialize-v1-noremote
+    file: src/renderer/state/__tests__/serializeRemoteScope.test.ts
+    function: "persistMode=v1 fallback serialize 不含远程 ws(hostId!=local 不写 v1 存档)"
+    covers_ac: [AC-6]
+    level: unit
+    priority: P0
+  - id: BL004-U-v1-remote-crud-reject
+    file: src/renderer/state/__tests__/serializeRemoteScope.test.ts
+    function: "v1 fallback 下远程 CRUD 拒绝 · 不落本机"
+    covers_ac: [AC-6]
+    level: unit
+    priority: P0
+  - id: BL004-U-session-lifecycle
+    file: src/renderer/terminal/__tests__/sessionRouteCompositeKey.test.ts
+    function: "远程 host ready 后 session:event 路由该机 tab(复合键) · host drop 后不再路由"
+    covers_ac: [AC-5, AC-6]
+    level: unit
+    priority: P1
 ---
 
 # TC.md — BL-004 机器分组 Sidebar + 添加项目流程（WS-01-S4）
 
 > 权威 AC 源 = `PRD.md` v0.3（AC-1~AC-11）· UI 呈现映射 = `UI.md`。本文件是 QA 契约单源，
 > RD 实现前先读此文件对齐测试形状；`function` 列 = 目标 `describe/it` 名（RD 可微调措辞，
-> 但 `covers_ac` 绑定不可漂移）。共 28 条 · 13 unit / 12 component / 3 integration。
+> 但 `covers_ac` 绑定不可漂移）。共 **35 条** · 21 unit / 11 component / 3 integration
+> （29 首版 + 6 blueprint 评审补测 E2/E3/E4/E5，见 §1b）。
 
 ## 0. 测试分层与手段（哪些 AC 靠 unit、哪些靠集成 / 真机）
 
 | 层 | 手段 | 覆盖 AC | 说明 |
 |----|------|---------|------|
-| **unit** | 纯逻辑 · mock `hostClient`/`hostRegistry`/`window.termpro` | AC-7（forWorkspace 键解析）· AC-6（复合键路由 + 本机基线 + sessionEvents 等价）· AC-2（`formatTabBadge`）· AC-9（host 侧 params 校验）· AC-11（回落 reducer）· AC-5（grep 门禁扫源码） | 不渲染 DOM · 直接断言函数契约 |
+| **unit** | 纯逻辑 · mock `hostClient`/`hostRegistry`/`window.termpro` | AC-7（forWorkspace 键解析）· AC-6（复合键路由 + 本机基线 + sessionEvents 等价 + §1b 快照/serialize 作用域）· AC-2（`formatTabBadge`）· AC-9（host 侧 params 校验）· AC-11（回落 reducer）· AC-5（grep 门禁扫源码 + session 生命周期）· AC-4（§1b create 落点/远程快照作用域） | 不渲染 DOM · 直接断言函数契约。§1b 6 条数据模型作用域缺口全在此层 |
 | **component** | `@testing-library/react` render（jsdom）· mock `hostRegistry` + `window.termpro.remoteHost` 内存假桥 | AC-1 / AC-2 / AC-3 / AC-4 / AC-8 / AC-10 / D-7 远程文件禁用 | 复刻 `RemoteHostsPage.test.tsx` 的 `vi.hoisted` + 内存假桥模式 |
 | **integration** | 多模块接线 · **注入 per-host client 桩** 到 `hostRegistry` · 驱动 store + terminalRegistry + sessionEvents | AC-5（终端/fs/git 路由全链路） | 沙箱无真机 sshd · 用桩替 WebSocket；断言 RPC 落在**远程桩** vs **本地桩** |
 | **manual / 真机 spike**（不入 CI） | 发版前真机 sshd 连一台机跑终端/浏览目录/建 workspace | AC-4 真机建 workspace · AC-5 真链路 | 承接 BL-003 同类 concern（PRD §开工前必须想清 ❓）· 记入发版 checklist · **非自动化** |
@@ -304,18 +341,24 @@ And 对每一个消费点断言：localStub 上**零调用**该 ws 的 RPC（不
 > ③ FilePanel（fs.readdir/watch/unwatch + git.info/status/worktrees）④ App.tsx 分支刷新（git.info）
 > ⑤ sessionEvents 订阅（(hostId,sessionId) 复合键）。
 
-**静态门禁（unit · 扫源码）** —— `BL004-U-grepgate`
+**静态门禁（unit · 扫源码）** —— `BL004-U-grepgate`（E1 · pattern 与豁免清单**与 TECH 门禁脚本严格对齐**）
 
 ```gherkin
 Given 扫描 src/renderer/**/*.{ts,tsx}（排除 __tests__）
-When 匹配裸成员消费 /\bhostClient\./ 与 `import { hostClient }`
-Then 命中文件集 ⊆ 豁免清单
+  And 先剥离注释行（// 行注释 + /* */ 块注释）—— 注释里的 hostClient 提及不算消费（防假阳）
+When 匹配词边界 /\bhostClient\b/（**非** `\bhostClient\.`）
+  # 用词边界而非要求紧跟 `.`：抓 App.tsx 折行消费（App.tsx:76 `hostClient` 独占一行，下一行才 `.rpc(...)`），
+  # `\bhostClient\.` 会漏掉这种折行写法(TC 首版 pattern 的缺陷)。
+Then 命中文件集 ⊆ 豁免清单（allowlist 写进测试常量 · 差集非空即 fail · 报文件+行号）
 ```
-豁免清单（ARCH-10 · D-7 · 写进测试常量，任何新增裸消费即红）：
+豁免清单（= TECH 门禁脚本同一份常量 · 任何新增非豁免文件的裸消费即红）：
 - `services/hostClient.ts`（定义本身）
 - `services/hostRegistry.ts`（内部持有 'local' 单例）
 - `components/viewer/*`（FileView / MarkdownPreview / DiffPanel / FilesWindow / ViewerWindow / DirListing —— 独立查看器窗口 · 各持本窗口单例 · D-7 出范围）
-- `components/FilePanel.tsx` 中**仅** `openViewerWindow` 入口的本地保留（D-7）——门禁需精确到「非 openViewerWindow 的 fs/git 消费必须走注入 deps」；实现上 FilePanel 的 fs/git 经 `makeHostDeps(client)` 注入，故 FilePanel 内不应再有裸 `hostClient.readdir/git` 调用，只余 viewer 窗口入口。
+- `**/__tests__/*`（测试文件本身用 hostClient 桩，不算生产消费）
+- **4 处仅注释提及的文件**（剥离注释后应零命中，仍列入 allowlist 作显式认可，与 TECH 对齐）：`state/remoteHostStore.ts` · `filepanel/core.ts` · `filepanel/types.ts` · `filepanel/deps.ts`
+  - ⚠️ `filepanel/deps.ts` 是关键校验点：改造前 `makeHostDeps()` 裸包 hostClient（deps.ts:4~49 十余处消费）；改造后须 `makeHostDeps(client)` 参数化注入 per-host client，deps.ts 内 hostClient 只应余注释。若门禁在 deps.ts 剥离注释后**仍命中** → RD 未完成参数化迁移（真缺口，不该被 allowlist 掩盖）。故断言此文件「剥离注释后零命中」比「在 allowlist 里」更强——TC 要求 deps.ts 走**剥离注释后零命中**校验，不靠 allowlist 兜底。
+- `components/FilePanel.tsx`：**仅** `openViewerWindow` 入口的本地保留（D-7）；其余 fs/git 经注入 deps。
 
 > ⚠️ FileView/MarkdownPreview/DiffPanel **不在**迁移清单——只在查看器窗口跑，随 D-7 保持本地。
 
@@ -407,6 +450,76 @@ Then activeWorkspaceId 回落空态（null）· 不困在死 host workspace
 
 ---
 
+## 1b. 数据模型作用域缺口（blueprint 两路评审补测 · E2/E3/E4/E5）
+
+> 这 6 条是首版 28 test **测不出的真缺口**——它们不在 UI 呈现面，而在 store 快照协调 / 持久化 serialize / create 落点的**作用域**。RD 在修 TECH（WorkspaceState.hostId 贯穿 + 作用域化 applyWorkspaceSnapshot/serialize/create）。缺口的破坏性：R-3「本机加一个项目就清空所有远程机分组」。
+
+### E2/A1 · 快照协调对称非干扰（P0 · 最关键）—— `BL004-U-snapshot-scope-local` / `BL004-U-snapshot-scope-remote`
+
+现状缺口：`applyWorkspaceSnapshot`（store.ts:436）对**全量** `s.workspaces` 跑 `reconcileWorkspaces(全量, snapshot)`。本机 `workspace:changed` 广播只含本机 ws（hostId='local'），会把不在快照里的**所有远程 ws 当孤儿删掉**。
+
+```gherkin
+# 本机快照不误删远程（BL004-U-snapshot-scope-local）
+Given store 含 [L1,L2(local), R1(cfg-1), R2(cfg-2)]，activeWorkspaceId=R1（远程 active）
+  And persistMode='v2'
+When applyWorkspaceSnapshot(本机快照 = [L1,L2] · 只含 hostId='local' 的 ws)
+Then store 仍含 R1、R2（远程 ws hostId=configId **不被删**）
+  And activeWorkspaceId 仍 = R1（远程 active **不被抢回**本机）
+  And 只对本机 ws 子集做协调（L1/L2 的增删改生效，远程子集原样保留）
+
+# 远程 per-host 快照不误动本机（BL004-U-snapshot-scope-remote · 对称）
+Given store 含 [L1(local·active), R1,R2(cfg-1), R3(cfg-2)]
+When 收到 cfg-1 的 onWorkspaceChanged 快照 = [R1]（R2 在 cfg-1 上被删）
+Then 只协调 cfg-1 子集：R2 被删、R1 保留
+  And 本机 ws L1 **不动** · cfg-2 的 R3 **不动** · activeWorkspaceId 仍 = L1（本机 active 不变）
+```
+> 断言口径：按 `w.hostId` 分区，reconcile 只作用于「与快照同 host」的子集；跨 host 子集是**恒等**（对象引用不变更佳，至少内容不变）。
+
+### E4 · create 不落本机（P0）—— `BL004-U-create-nohost-reject`
+
+现状缺口：远程 create 若 forHostId 未命中（该机已 drop / 断线），不得静默回落本机 hostClient 写入。
+
+```gherkin
+Given 目标机 cfg-1 已从 hostRegistry drop（断线 / 删除）
+  And 用户在 cfg-1 组下发起 workspace.create
+When 路由 hostRegistry.forWorkspace({hostId:'cfg-1'}) 未命中
+Then 拒绝创建（抛错 / 返回失败）+ 用户提示（transientNotice 或错误态）
+  And **不**回落本机 hostClient（expect(localStub.rpc).not.toHaveBeenCalledWith('workspace.create', ...)）
+  And 本机注册表快照前后不变（不产生一条 hostId 错配的孤儿本机 ws）
+```
+
+### E3 · v1 fallback 不持久化远程 ws（P0）—— `BL004-U-serialize-v1-noremote` / `BL004-U-v1-remote-crud-reject`
+
+现状缺口：`serialize`（persistence.ts:118 v1 分支 / :134 v2 分支）map **全量** `s.workspaces`，未按 hostId 过滤。D-6 已要 v2 过滤远程；**v1 fallback 路径同样漏**——远程 ws 写进 v1 存档后，下次启动 `runMigration` 会拿它逐条 `workspace.create` 在**本机**重建（远程项目变成假本机项目）。
+
+```gherkin
+# v1 serialize 过滤远程（BL004-U-serialize-v1-noremote）
+Given persistMode='v1'（迁移失败 fallback）
+  And store.workspaces = [L1,L2(local), R1(cfg-1)]
+When serialize(state)
+Then 返回 version:1 存档 · workspaces 只含 L1、L2（hostId!=='local' 的 R1 **不写入**）
+  And （对照）v2 分支同样过滤——两条分支都不得把远程 ws 落盘
+
+# v1 fallback 远程 CRUD 拒绝（BL004-U-v1-remote-crud-reject）
+Given persistMode='v1'（单机 fallback · Host 无第二客户端权威）
+When 在 v1 模式下对远程 ws 发起 create/remove/rename
+Then 拒绝 / 不落本机（v1 本地全功能路径只作用本机 ws · 远程需 v2 + 该机 client）
+```
+> 关联：`applyWorkspaceSnapshot` v1 直接 return（store.ts:434）已隔离广播；E3 补的是 serialize 落盘侧与 v1 CRUD 侧的同类隔离。
+
+### E5 · 远程 session 生命周期路由（P1）—— `BL004-U-session-lifecycle`
+
+```gherkin
+Given cfg-1 host ready · 其上 tab T_r 持 sessionId='s1'（复合键 (cfg-1,'s1')）
+When cfg-1 host 推 session:event(hostId='cfg-1', sessionId='s1')
+Then 路由到 T_r（findTabByHostSession('cfg-1','s1') === T_r）· 更新其 activity/通知
+When cfg-1 被 hostRegistry.drop（断线）
+Then 后续 (cfg-1,'s1') 事件**不再路由**到任何 tab（该 host 会话监听已随 drop 解绑 · 无悬挂订阅）
+  And 本机 (local,*) 会话路由完全不受影响
+```
+
+---
+
 ## 2. 桩 / Mock 基础设施（RD 复用）
 
 - **hostRegistry mock**：复刻 `RemoteHostsPage.test.tsx` 的 `vi.hoisted` —— `{ local: () => localStub, getOrCreateRemote: () => remoteStub, forWorkspace: (ws) => ws.hostId==='local' ? localStub : remoteStub, drop }`。两桩各自独立 `rpc: vi.fn()`，AC-5 靠「落在哪个桩」判路由。
@@ -420,3 +533,4 @@ Then activeWorkspaceId 回落空态（null）· 不困在死 host workspace
 | 日期 | 变更 |
 |------|------|
 | 2026-07-10 | 首版：28 条 TC 覆盖 AC-1~AC-11 · unit/component/integration 三层 + 真机 spike 划出 CI |
+| 2026-07-10 | blueprint 两路评审补测 +6（§1b）：E2 快照对称非干扰(本机快照不删远程/远程快照不动本机)·E4 create 不落本机·E3 v1 fallback serialize 过滤远程 + v1 远程 CRUD 拒绝·E5 session 生命周期路由(drop 后不再路由)；E1 grep 门禁 pattern 改 `\bhostClient\b` 词边界 + 剥离注释 + deps.ts 零命中校验，与 TECH 脚本对齐。共 35 条(29 首版 + 6) |

@@ -38,7 +38,7 @@
 1. **`hostRegistry` 无 `forWorkspace`**：现只有 `local()` / `getOrCreateRemote()` / `drop()`。路由原语缺失。
 2. **`WorkspaceState` 无 `hostId`**：`src/renderer/state/store.ts:50-58` 只有 `id/name/root/branch/tabs/activeTabId`。**路由前提不存在**（QA-3/ARCH-2）。`buildDefaultWorkspace`（L213）、`reconcileWorkspaces`（workspaceSync.ts:47-56）合成视图均无 hostId。
 3. **53 处裸 `hostClient.` 直接消费**（`grep -rn 'hostClient\.' src/renderer` 除 __tests__ = 53 · 详见迁移清单）。全部走本地单例（单 host 假设）。
-   - 🔴 **grep 门禁陷阱（本方案实测发现）**：`App.tsx:76-77` 的 `git.info` 刷新循环里 `hostClient` 标识符**独占一行**（L76 `hostClient` / L77 `.rpc('git.info',…)` 折行），`grep 'hostClient\.'` **匹配不到**它，却把 `workspaceMigration.ts:18` 的**注释**误计入。故 53 = 52 真实代码 + 1 注释（migration L18），另有 1 个折行消费（App git.info）被 `hostClient\.` 漏网。**门禁必须用词边界 `\bhostClient\b`（见门禁脚本），不能用 `hostClient\.`**，否则漏迁 App 分支刷新 = 远程 workspace 分支恒读本机 git（AC-5 缺口）。
+   - 🔴 **grep 门禁陷阱（本方案实测发现·决定门禁形态）**：`App.tsx:76-77` 的 `git.info` 刷新循环里 `hostClient` 标识符**独占一行**（L76 `hostClient` / L77 `.rpc('git.info',…)` 折行），`grep 'hostClient\.'` **匹配不到**它；而 `\bhostClient\b` 抓到折行却**误红 4 处注释**（remoteHostStore/core/deps/types）。两种使用点 grep 都有坑 → **门禁改判 import 集**（`import { hostClient }` 单行·免疫折行与注释）+ tsc 背靠（详见 §迁移清单「覆盖门禁」）。漏此点 = 远程 workspace 分支恒读本机 git（AC-5 缺口）。
 4. **会话路由是全局单键**：`terminalRegistry.ts:190` `findTabBySessionId(sessionId)` 全局遍历 `sessionId===` 匹配；`sessionEvents.ts:44` 只 `hostClient.onSessionEvent` 订阅本地单例。sessionId 由各机 `ptyPool` 本地计数器生成（per-host 唯一，非全局唯一）→ 本机 + 远程可能撞同名 id 串 tab（ARCH-9）。
 5. **持久化 hydrate 只认本机**：`persistence.ts:46` `workspace.list` on 本地单例；`serialize()`（L106-142）v2 分支全量写 `s.workspaces`——**若远程 workspace 也进 store.workspaces，会被 serialize 一并写入 v2 存档**，重启后成孤儿外键被 `hydrate`（store.ts:310）静默丢弃。故 serialize **必须过滤 `hostId!=='local'`**（D-6/ARCH-2 blueprint 强制项）。
 6. **FilePanel deps 单 host 固化**：`useFilePanel.ts:30-31` 在 controller 懒创建时 `deps: makeHostDeps()` 固定一次；`deps.ts` 全部包 `hostClient`。切 workspace（含切到远程机）不重建 controller → deps 底层 client 不会换。
@@ -79,25 +79,43 @@ flowchart LR
   Disconnect[断线: drop 该 host workspaces + active 回落本机首个] --> store
 ```
 
-#### 路由原语 `hostRegistry.forWorkspace(ws)`（D-1/AC-5/AC-7）
+#### 路由原语 `hostRegistry.forWorkspace(ws)` + `forHostId(hostId)`（D-1/AC-5/AC-7 · 修 E4/A5）
+
+两个原语，**按「是否用户主动写操作」分流兜底策略**：
 
 ```ts
 // src/renderer/services/hostRegistry.ts 新增
+
 /**
- * 按 workspace 运行时 hostId 选 HostClient（唯一路由入口 · AC-7 权威键 = map 键）。
- * hostId='local' → 既有单例（零回归）；configId → 远程 client。
+ * 消费路由（终端/fs/git/展示读）。hostId='local' → 既有单例（零回归）；configId → 远程 client。
+ * 🔴 未命中（远程 client 缺失）→ 兜底 local 但**无条件 WARN**（AC-5 正防静默误路由，
+ *    log 出 hostId 供排查）。此路径只在断线瞬间竞态可达，且活跃 RPC 已被断线态门控拦在前。
  * 🔴 不做 host.info.hostId 二次解析（D-2 撤销双源）。
  */
 forWorkspace(ws: { hostId: string }): HostClient {
-  return this.clients.get(ws.hostId) ?? this.local();
+  const c = this.clients.get(ws.hostId);
+  if (!c) {
+    if (ws.hostId !== 'local') {
+      console.warn(`[hostRegistry] forWorkspace miss hostId=${ws.hostId} → fallback local（疑断线竞态）`);
+    }
+    return this.local();
+  }
+  return c;
+}
+
+/**
+ * 写操作定向路由（workspace.create 落哪台机 · 用户主动流程 · 不经断线门控）。
+ * 🔴 未命中 → 返回 null（**绝不兜底 local**）。create 路径拿到 null 必须拒绝创建 + 提示
+ *    「目标机器已断开」，否则会把远程建仓静默落本机（写误路由 · E4）。
+ */
+forHostId(hostId: string): HostClient | null {
+  return this.clients.get(hostId) ?? null;
 }
 ```
 
-**`?? this.local()` 兜底不变式**（🔴 关键 · 防「静默走错 host 读本地路径」）：远程 client 只在其 workspace 存在于 store 期间注册（发现—断线同生命周期 · 见下）。兜底 local 仅在**断线瞬间的竞态**可达，而此刻面板已进断线态（D-8/AC-11）且不发任何 host RPC。故：
-- **展示型只读**（`info?.homedir` tildify）：兜底 local 无害（路径照常显示）。
-- **活跃 RPC**（终端/fs/git）：断线态门控在 `forWorkspace` 之前拦住，不会走到错 host。
-
-（若 blueprint 认为兜底 local 仍有「错 host」隐患，替代方案：`forWorkspace` 返回 `HostClient | null`，null 由调用方落断线态。当前取「local 兜底 + 断线门控」以简化 32 处调用点签名，风险登记 §风险与缓解 R-2。）
+**兜底策略分流（回应 review E4/A5 + 待决 D-A）**：
+- **消费/展示读**（`forWorkspace` · 32 处 A 类）：未命中兜底 local + **WARN**。此路径只在断线竞态可达，活跃 RPC（终端/fs/git）已被断线态（D-8/AC-11）门控拦在 `forWorkspace` 之前；展示读（homedir tildify）兜底 local 无害。WARN 保证不静默。
+- **写操作**（`forHostId` · workspace.create）：用户主动流程、不经断线门控 → **未命中即拒绝**（null → 提示 + 不建），绝不 local 兜底写。
 
 #### 数据模型：`WorkspaceState.hostId`（D-6/AC-7 · QA-3/ARCH-2）
 
@@ -121,9 +139,13 @@ forWorkspace(ws: { hostId: string }): HostClient {
 
 **改动点**：
 - `buildDefaultWorkspace(entry, hostId='local')`（store.ts:213）新增第二参，默认 `'local'`（本机调用零改）。
-- `reconcileWorkspaces`（workspaceSync.ts:47-56）合成默认视图处补 `hostId`——**该函数须改为按 host 作用域调用**（见「远程发现」），合成时注入对应 hostId。
+- `reconcileWorkspaces`（workspaceSync.ts:25-66）**签名加 `scopeHostId: string` 形参 + 作用域安全语义**（修 review E6/E2 · 见下「作用域隔离」）：合成默认视图注入 `hostId=scopeHostId`；作用域外 ws（`hostId!==scopeHostId`）**原位透传不动**；active 复位仅当被删的 active **属本作用域**。措辞更正：**并非「复用同一算法不变」**——WorkspaceState 新增必填 `hostId` 已强制改合成分支 + 引入作用域形参（原设计的「不变」表述失实）。
 - hydrate（store.ts:270-334）：v1/v2 两分支合成的 workspace 一律 `hostId='local'`（存档只含本机 ws）。
-- serialize（persistence.ts:131-141）v2 分支：`s.workspaces.filter(w => w.hostId === 'local').map(...)`。**🔴 D-6/ARCH-2 blueprint 强制项**。
+- serialize（persistence.ts）**v1 与 v2 两分支都过滤** `filter(w => w.hostId === 'local')`（修 review E3）：
+  - v2 分支（persistence.ts:131-141）：`workspaces: s.workspaces.filter(w=>w.hostId==='local').map(...)`。
+  - **v1 fallback 分支（persistence.ts:114-127）同样过滤**——否则远程 ws 带 name/root 写进 v1 存档，下次 `runMigration` 逐条 `workspace.create` 在**本机重建**（污染 + 孤儿）。
+  - `activeWorkspaceId` 若指向被过滤掉的远程 ws → coerce 到首个本机 ws（`s.workspaces.filter(hostId==='local')[0]?.id ?? null`）。
+  - **🔴 D-6/ARCH-2 blueprint 强制项**（v1+v2 双分支）。
 
 #### PersistedWorkspaceV2（用途：本地存档 · persistence.ts / store.ts:79）
 **零改**。构造上只含本机 ws（serialize 已过滤），hydrate 回填一律 `hostId='local'`。无需新增持久化字段（这正是「远程不持久化」的落点）。
@@ -133,10 +155,11 @@ forWorkspace(ws: { hostId: string }): HostClient {
 | 字段 | 类型 | 必填 | 备注 |
 |------|------|------|------|
 | （既有全部字段）| … | - | 不变 |
-| **client** | **HostClient** | **是（新增）** | spawn 时绑定 = `forWorkspace(ws)`·本机= local 单例（零回归）|
-| **hostId** | **string** | **是（新增）** | 复合键路由用（(hostId,sessionId)）|
+| **client** | **HostClient** | 是（新增·spawn 前可空）| `ensureSession(tabId,cwd,hostId)` 时绑定 = `forWorkspace(ws)`·本机= local 单例（零回归）|
+| **hostId** | **string** | 是（新增·spawn 前可空）| 复合键路由用（(hostId,sessionId)）|
 
-- `getOrCreateTerminal(tabId, client, hostId)` 或延后到 `ensureSession(tabId, cwd, hostId)` 绑定（见迁移清单）。tab 生命周期内 host 不变（一个 tab 属一个 ws 属一台机），绑定稳定。
+- 绑定时机 = `ensureSession(tabId, cwd, hostId)`（非 `getOrCreateTerminal`）。tab 生命周期内 host 不变（一个 tab 属一个 ws 属一台机），绑定稳定。
+- 🔴 **FsLinkProvider 在 `getOrCreateTerminal` 构造，早于 spawn 绑定**（修 A6）→ 不能构造注入 client，须闭包 `()=>inst.client` call-time 读（spawn 前 inst.client 未定时链接解析走本机/兜底，spawn 后随终端 host）。
 
 #### remoteHost tab 徽标字段（用途：Sidebar 视图态 · UI.md）
 UI.md 定义 `ws.tabCount`/`ws.tabRunning`（数字·向后兼容旧 `ws.sessions` 字符串）。**数据源 = 本客户端在该 ws 的 tab（`ws.tabs`）**：`tabCount = ws.tabs.length`、`tabRunning = ws.tabs.filter(t=>t.activity==='running').length`。**纯派生·不新增存储字段**。渲染用 `formatTabBadge()` 显式处理 `0`（`.sidebar-machine-sessions--zero` 灰态·防 falsy 吞 0 · UI.md）。
@@ -163,8 +186,8 @@ UI.md 定义 `ws.tabCount`/`ws.tabRunning`（数字·向后兼容旧 `ws.session
 | # | 文件:行 | 现状调用 | 迁移目标 | 备注 |
 |---|---------|----------|----------|------|
 | A1-A9 | `terminal/terminalRegistry.ts:111,134,141,146,155,165,168,172,214` | pty.spawn/kill/attachPty/ack/input/resize/spawnCwd homedir | `inst.client.*`（spawn 时 `inst.client=forWorkspace(ws)`）| 终端 PTY·`ensureSession(tabId,cwd,hostId)` 绑定 |
-| A10-A12 | `terminal/terminalLinks.ts:281,297,316` | pty.cwd / fs.stat / info.homedir | `FsLinkProvider` 持 client（构造注入 = 该终端 host）| 链接解析随终端 host |
-| A13-A22 | `filepanel/deps.ts:10,17,21,25,29,33,37,41,45,49` | platform/ptyCwd/gitInfo/gitWorktrees/gitStatus/readdir/realpath/watch/unwatch/onFsChanged | `makeHostDeps(resolveClient)` · 每方法 `resolveClient().rpc(...)` | 🔴 见「FilePanel per-host 注入」·**call-time 解析**（切 ws 即换 host·不重建 controller）|
+| A10-A12 | `terminal/terminalLinks.ts:281,297,316` | pty.cwd / fs.stat / info.homedir | `FsLinkProvider` **持闭包 `() => inst.client`**（修 A6）| 🔴 **不能构造注入 client**——`FsLinkProvider` 在 `getOrCreateTerminal` 构造，早于 `ensureSession` 绑定 `inst.client`；构造期 client 尚未定 → 用 `()=>inst.client` 闭包 call-time 读 |
+| A13-A22 | `filepanel/deps.ts:10,17,21,25,29,33,37,41,45,49` | platform/ptyCwd/gitInfo/gitWorktrees/gitStatus/readdir/realpath/watch/unwatch/onFsChanged | `makeHostDeps(resolveClient)` · 每方法 `resolveClient().rpc(...)` | 🔴 **call-time 解析**（切 ws 即换 host·不重建 controller）。⚠️ **`platform`（deps.ts:10）是构造期值读取非方法**（修 A4）——须改 **getter** `get platform(){return resolveClient().info?.platform ?? null}` 或消费点 call-time 读，否则远程机路径风格恒按本机 |
 | A23-A24 | `components/FilePanel.tsx:211,294` | info.homedir（tildify）/ fs.move·fs.copy | `forWorkspace(workspace).*` | fs.move/copy 走该 ws host（远程内部移动正确·跨 host Finder 拖入见 §错误处理 E-3）|
 | A25 | `App.tsx:76-77` | git.info 刷新循环 | `for w of workspaces: forWorkspace(w).rpc('git.info',{cwd:w.root})` | 🔴 折行·`hostClient\.` 漏网点·远程 ws 分支经该机 git |
 | A26-A28 | `state/store.ts:347,392,416` | workspace.create/remove/update | create→选机 host（`forHostId(targetHostId)`）·remove/update→`forWorkspace(ws)` | 见「添加流程」+「远程 ws CRUD」|
@@ -181,39 +204,45 @@ UI.md 定义 `ws.tabCount`/`ws.tabRunning`（数字·向后兼容旧 `ws.session
 | B4 | `state/persistence.ts:46` | workspace.list（hydrate）| `hostRegistry.local().rpc('workspace.list',…)` | 🔴 hydrate 只发现本机 ws（D-6·远程实时发现，不走持久化路径）|
 | B5 | `state/persistence.ts:93` | onWorkspaceChanged（本机注册表广播）| `hostRegistry.local().onWorkspaceChanged(…)` | 本机注册表协调（`applyWorkspaceSnapshot` 已限 hostId='local' 作用域·见下）|
 
-> B4/B5 后：`applyWorkspaceSnapshot`（store.ts:432）收到的是**本机**快照，须只协调 `hostId==='local'` 的 workspace（`reconcileWorkspaces` 传入 `local.filter(hostId==='local')` 子集 + 合成的补 `hostId='local'`），**不误删远程 ws**。远程 ws 的协调走独立 per-host 订阅（见「远程发现」）。
+> B4/B5 后：`applyWorkspaceSnapshot`（store.ts:432）收到的是**本机**快照，只协调 `hostId==='local'` 子集——**具体三步机制见下「🔴 作用域隔离机制」（修 review BLOCKER A1/E2）**，不再是「传子集 reconcile」的笼统表述。
 
 #### C 类 — 豁免保留本地单例（不改·D-7 出范围）
 
 | # | 文件:行 | 说明 |
 |---|---------|------|
 | C1-C16 | `viewer/DiffPanel.tsx:86`·`viewer/DirListing.tsx:29,58,76`·`viewer/FileView.tsx:85,197`·`viewer/FilesWindow.tsx:66,70,141`·`viewer/MarkdownPreview.tsx:287,384,393`·`viewer/ViewerWindow.tsx:40,44,51,90` | **独立查看器/文件窗口**（各自 BrowserWindow · 本窗口 hostRegistry 无远程 client · BL-003 E8 token 只推主窗口）· D-7 出范围 · 保留本地单例 |
-| — | `services/hostRegistry.ts:7` | `import { hostClient }` seed 'local' 键——豁免锚点（非 `hostClient.` 消费）|
-| — | `state/workspaceMigration.ts:18` | **注释**（非消费·`hostClient\.` 误计）·顺手更新措辞不影响运行 |
+| — | `services/hostRegistry.ts` | `import { hostClient }` seed 'local' 键——豁免锚点（唯一合法 importer）|
+
+> ⚠️ **注释假阳已随「import 集门禁」消解**：`remoteHostStore.ts:7` / `filepanel/core.ts:1` / `filepanel/deps.ts:1` / `filepanel/types.ts:5` / `workspaceMigration.ts:18` 只是**注释里提到 hostClient**（无 `import`），import 集门禁天然不计入（修 review E1）。这些注释可顺手更新措辞但不影响门禁。
 
 > ⚠️ **FileView / MarkdownPreview / DiffPanel（文件内容/Diff 渲染）不在迁移清单**——只在独立查看器窗口跑·随 D-7 出范围·保持本地（远程点击走「远程文件禁用 UX」）。
 
-#### grep 覆盖门禁（可执行 · CI/本地）
+#### 覆盖门禁（可执行 · CI/本地 · 修 review E1 门禁自伤）
+
+> 🔴 **门禁口径 = 导入语句集，不是使用点**。理由链：
+> - `hostClient\.` **漏** `App.tsx:76` 折行消费（`hostClient` 独占一行·无 `.`）。
+> - `\bhostClient\b` 抓到折行，但**误红 4 处注释**（`remoteHostStore.ts:7` / `filepanel/core.ts:1` / `filepanel/deps.ts:1` / `filepanel/types.ts:5`，其中 types.ts:5 用 `/**` 连简单剥注释脚本都漏）→ 诱导 dev 退回 `hostClient\.` 重新漏 App:76。
+> - **改用 import 集**：任何消费方（含折行使用）**必须在文件顶部 `import { hostClient }`**（单行·永不折行·注释里不会出现 `import`）。文件不 import 就用不了 → 残留 `hostClient.x` 被 `tsc`「cannot find name」直接拦。**import 集 + tsc = 完备覆盖**，且天然免疫折行与注释两个陷阱。
 
 ```sh
-# 无残留裸 hostClient 直接消费（除豁免：hostRegistry.ts / viewer/* / hostClient.ts 自身 / __tests__）
-# 🔴 用词边界 \bhostClient\b（非 hostClient\.）——否则漏 App.tsx:76 折行消费
-RESID=$(grep -rn '\bhostClient\b' src/renderer \
-  | grep -v '__tests__' \
-  | grep -v 'services/hostClient.ts' \
-  | grep -v 'services/hostRegistry.ts' \
-  | grep -v 'components/viewer/' \
-  | grep -v 'state/workspaceMigration.ts' )   # 注释豁免（或直接改注释后去掉本行）
-if [ -n "$RESID" ]; then echo "❌ 残留裸 hostClient 消费:"; echo "$RESID"; exit 1; fi
-echo "✅ 无残留裸 hostClient 消费（全部经 hostRegistry）"
+# 主门禁：无非豁免文件 import hostClient（唯一合法 importer = 豁免集）
+IMPORTERS=$(grep -rlE "import[^;]*\bhostClient\b" src/renderer --include='*.ts' --include='*.tsx' \
+  | grep -vE '__tests__|services/hostClient\.ts|services/hostRegistry\.ts|components/viewer/')
+if [ -n "$IMPORTERS" ]; then echo "❌ 非豁免文件仍 import hostClient:"; echo "$IMPORTERS"; exit 1; fi
+echo "✅ 无残留 hostClient importer（全部经 hostRegistry）"
+# 背靠门禁：tsc -b 零报错（残留 hostClient.x 而未 import → 编译失败）
 ```
+
+**豁免集（唯一合法 importer）**：`services/hostClient.ts`（定义）· `services/hostRegistry.ts`（seed 'local'）· `components/viewer/*`（D-7 出范围）· `__tests__`。
+**TC 对齐（修 TC/TECH pattern 矛盾）**：TC.md `BL004-U-grepgate`（TC.md:311）现写 `\bhostClient\.` —— 须与本门禁统一为 **import 集 ⊆ 豁免集** 为**权威判定**（`\bhostClient\.` 成员 grep 因漏折行**不得作唯一门禁**）；TC 断言「命中 importer 集 ⊆ 豁免清单」与本脚本一致。注释豁免问题随之消失（注释无 import）。QA 补 TC 时按此校准。
 
 ### 会话路由复合键 `(hostId, sessionId)`（D-9/AC-2 · ARCH-9）
 
 - **`terminalRegistry.findTabBySessionId` → `findTab(hostId, sessionId)`**（terminalRegistry.ts:190）：遍历 registry，命中 `inst.hostId===hostId && inst.sessionId===sessionId`。sessionId 仅 per-host 唯一（各机 ptyPool 本地计数器），复合键防本机+远程同名 id 串 tab。
-- **`sessionEvents` per-host 订阅**（sessionEvents.ts:40-160）：现 `hostClient.onSessionEvent` 单订阅 → 改为遍历 `hostRegistry` 各 client `client.onSessionEvent((sid,ev)=>route(hostId, sid, ev))`。
-  - 新远程 host `ready` 时**追加订阅**该 client；host `drop`/断线时**退订**（保存 unsub 句柄 Map<hostId, ()=>void>）。
-  - 事件处理内 `findTab(hostId, sid)` 取 tabId；其余策略逻辑（quietGate/通知/角标）不变（AC-6：本机路径行为等价 · QA-15）。
+- **per-host 订阅（拆两处·同一 router · 修 E5）**：sessionEvents.ts 抽出 `routeSessionEvent(hostId, sid, ev)`（承载现 40-160 的全部策略逻辑）。
+  - **本机订阅**：`initSessionEvents()` 内 `hostRegistry.local().onSessionEvent((sid,ev)=>routeSessionEvent('local', sid, ev))`（生命周期同现状·随 app）。
+  - **远程订阅**：**不在 sessionEvents 模块级 init**，而由 `remoteWorkspaceSync` 的 ready 编排追加（见「远程发现」步骤 5·与 workspace.list/onWorkspaceChanged 同生命周期·host `drop`/断线一次性退订·unsub 句柄 Map<hostId>）。避免「谁在 host 连上时挂 session 订阅」职责悬空。
+  - 事件处理内 `findTab(hostId, sid)` 取 tabId；其余策略（quietGate/通知/角标）不变（AC-6：本机路径行为等价 · QA-15）。
   - homedir（L59 label）：按 event 归属 ws 的 host 取（`forWorkspace(ws).info?.homedir`）。
 - **徽标（AC-2/D-9）**：= 本客户端在该 ws 的活跃 tab 数（`ws.tabs`·hostId-aware）·零协议改。首连远程机徽标可为 0（本客户端尚未在该机起会话·可接受）。主机侧既存会话枚举归 BL-005。
 
@@ -231,19 +260,48 @@ M=0（AC-10）：只渲染本机组头（同一组渲染代码路径·非特判�
 **组件结构**（UI.md · 向后兼容 prop 扩展）：`Sidebar` → `MachineGroup`（组头 + `renderRuntimeStatus(machine.runtime)` 连接态）→ `MachineWorkspaceRow`（ws 行 + `formatTabBadge()`）。`machine.workspaces===null` = 未连接分支。
 **连接入口**：组头「连接」→ 复用 BL-003 `window.termpro.remoteHost.connect(configId)`；main emit `verifying{tunnel}` → renderer `hostRegistry.getOrCreateRemote(configId, wsUrl).connect({wsUrl})`（BL-003 既有编排）→ `ready` 后触发「远程发现」。
 
+### 🔴 作用域隔离机制（修 review BLOCKER A1/E2 · 你自标 R-3）
+
+**问题**：`applyWorkspaceSnapshot`（store.ts:432）现 `set({workspaces})` 整体替换 `s.workspaces`。若只把「本机子集 + 本机快照」喂 `reconcileWorkspaces` 并整体写回 → **远程 ws 从数组丢弃**（触发条件 = 任一本机 workspace 增删改 · 多机下「本机新建一个项目」即清空所有远程机分组）；且 active=远程 ws 时本机快照走 reconcile 会把焦点抢回本机。同理远程 per-host `onWorkspaceChanged` 若整体替换会清空本机 ws。
+
+**机制：filter-in → 作用域 reconcile → 按原位次 merge-back → active 加 hostId 守卫**。两条协调路径对称，各只动自己作用域：
+
+```
+协调(prev: WorkspaceState[], active, snapshot, scopeHostId):
+  ① inScope   = prev.filter(w => w.hostId === scopeHostId)          // 只吃本作用域
+     outScope  = prev.filter(w => w.hostId !== scopeHostId)          // 作用域外原样留存
+  ② { workspaces: reconciled, activeWorkspaceId: nextActive, disposedTabIds }
+       = reconcileWorkspaces(inScope, active, snapshot, scopeHostId)  // 合成补 hostId=scopeHostId
+  ③ merge-back：把 reconciled 按 prev 原位次填回 inScope 的槽位，outScope 原位透传
+     （保留跨作用域的数组视觉顺序 · 新增追加各自作用域末尾）
+  ④ active 守卫：仅当**原 active 属本作用域且被本作用域快照删除**时才用 nextActive；
+     否则 active 不变（active=远程 ws 时本机快照协调**跳过** active 回落 · 反之亦然）
+  → set({ workspaces: merged, activeWorkspaceId })；disposedTabIds 交 store disposeTerminal
+```
+
+- `applyWorkspaceSnapshot(snapshot)`：`scopeHostId='local'`（B4/B5 后收本机快照）。
+- `setHostWorkspaces(configId, entries)`：`scopeHostId=configId`（远程 per-host 快照）。
+- `reconcileWorkspaces` 本身改**作用域安全**（签名加 `scopeHostId`）：作用域外透传 + active 复位仅当被删 active 属本作用域（把 ④ 内聚进纯函数，store 侧只做 filter-in/merge-back 或全交纯函数——二选一，建议纯函数承载全部以便单测「不越界」）。
+
 ### 远程 workspace 发现 + CRUD（AC-2/AC-4）
 
-**发现（连接即拉）**：新增服务（建议 `src/renderer/services/remoteWorkspaceSync.ts`），host `ready` 后：
+**发现（连接即拉）**：新增服务 `src/renderer/services/remoteWorkspaceSync.ts`，host `ready` 后**一处编排**（含 E5 会话订阅同生命周期）：
 1. `const client = hostRegistry.getOrCreateRemote(configId, wsUrl)`（已 connect）
 2. `const { workspaces } = await client.rpc('workspace.list', undefined)`
-3. 注入 store：新 action `setHostWorkspaces(hostId, entries)`——**按 host 作用域** reconcile（复用 `reconcileWorkspaces` 但只对该 hostId 子集：`local.filter(w=>w.hostId===hostId)` 输入，合成补 `hostId=configId`），保留该机已存 tabs。**不触碰本机/其他机 ws**。
-4. `client.onWorkspaceChanged(ws => setHostWorkspaces(configId, ws))`（该机注册表变更实时协调·作用域该机）·保存 unsub。
+3. `store.setHostWorkspaces(configId, workspaces)`（作用域隔离机制 · 合成补 `hostId=configId` · 保留该机已存 tabs · 不触碰本机/他机）
+4. `client.onWorkspaceChanged(ws => store.setHostWorkspaces(configId, ws))`（该机注册表实时协调）→ 存 unsub
+5. **（E5）** `client.onSessionEvent((sid,ev) => routeSessionEvent(configId, sid, ev))` → 存 unsub —— **会话订阅并入本 ready 编排**（与 workspace 订阅同生命周期 · host `drop`/断线一次性退订全部），不散落在 sessionEvents 模块级 init。
+- **断线/drop**：退订 4/5 全部 unsub + `store.dropHostWorkspaces(configId)`（见断线回落）+ `hostRegistry.drop(configId)`。
 
-**远程 workspace 不持久化**：`setHostWorkspaces` 注入的 ws `hostId=configId` → serialize 过滤不写 v2（D-6）。
+**远程 workspace 不持久化**：`setHostWorkspaces` 注入 ws `hostId=configId` → serialize（v1+v2）过滤不写盘（D-6）。
 
 **CRUD 路由**（store.ts:336/366/404）：
-- `addWorkspace(root, targetHostId='local')`：`hostRegistry.forHostId(targetHostId).rpc('workspace.create',{name,root})`。本机 `targetHostId='local'`（默认·零改·仍走 v2 持久化路径）；远程 → 注入 `hostId=configId`（视图态·不持久化）。
-- `removeWorkspace(id)` / `renameWorkspace(id,name)`：先按 id 找 ws 取 `ws.hostId` → `forWorkspace(ws).rpc('workspace.remove'|'workspace.update',…)`。远程改动经该机注册表广播回 `onWorkspaceChanged` 幂等协调。
+- `addWorkspace(root, targetHostId='local')`：
+  - **v1 fallback（persistMode==='v1'）**：`targetHostId!=='local'` → **拒绝 + transientNotice「远程操作在本地回退模式下不可用」**（修 E3 · v1 不路由远程）；本机照旧本地同步。
+  - **v2**：`const client = hostRegistry.forHostId(targetHostId)`；**`client===null` → 拒绝 + 提示「目标机器已断开」不建仓**（修 E4 · 绝不兜底 local 写）；否则 `client.rpc('workspace.create',{name,root})`。本机 `'local'`（默认·零改·走 v2 持久化）；远程注入 `hostId=configId`（视图态·不持久化，回声 `onWorkspaceChanged` 幂等协调）。
+- `removeWorkspace(id)` / `renameWorkspace(id,name)`：
+  - **v1 fallback**：ws.hostId 恒 'local'（远程 ws 不入 v1 store）→ 本地同步照旧；防御性：`ws.hostId!=='local'` 断言不可达。
+  - **v2**：按 id 找 ws 取 `ws.hostId` → `forWorkspace(ws).rpc('workspace.remove'|'workspace.update',…)`。远程改动经该机广播回 `onWorkspaceChanged` 幂等协调。
 
 ### 添加项目流程（D-4/AC-3/AC-4）
 
@@ -298,8 +356,10 @@ active workspace `hostId!=='local'` 时，FilePanel 三入口（`FilePanel.tsx:4
 | E-3 跨 host Finder 拖入远程 FilePanel | 本地 src 路径 + 远程 destDir（`FilePanel.tsx:294` fs.copy）| 远程 host `fs.copy` 读本地 src → ENOENT·**catch 已存在**（L296 console.error）·补 transientNotice「跨机器拖拽暂不支持」·不崩 | WARN | 不重试（确定性拒绝）|
 | E-4 断线时 active 为远程 ws | disconnected 事件 | `dropHostWorkspaces` + 回落本机首个（无则空态）· 面板断线态 | WARN | — |
 | E-5 workspace params 非法（AC-9）| 缺字段/类型错/空串 | host 侧 throw → RPC error · 不落盘 · renderer transientNotice | WARN | — |
-| E-6 远程 client 未连即被消费 | forWorkspace 兜底 local 竞态 | 断线门控在前拦截·活跃 RPC 不达（见路由原语不变式）| WARN（若观测到）| — |
+| E-6 远程 client 未连即被**读**消费 | forWorkspace 兜底 local 竞态 | 兜底 local + **无条件 WARN**（log hostId）· 活跃 RPC 已被断线门控拦在前·展示读无害 | **WARN（恒打）** | — |
 | E-7 远程 pty.spawn 失败 | 远程 host 忙/资源不足 | 既有 `ensureSession` catch（terminalRegistry.ts:173）在终端内写红字·不静默死 tab | WARN | 关 tab 重开 |
+| E-8 create 目标机已断开 | add 流程 `forHostId(target)===null`（修 E4）| **拒绝创建 + 提示「目标机器已断开」·绝不兜底 local 写**（防远程建仓静默落本机）| WARN | 重连后重试 |
+| E-9 v1 fallback 下发起远程操作 | persistMode==='v1' 且 targetHostId!=='local'（修 E3）| **拒绝 + 提示「远程操作在本地回退模式下不可用」**（v1 不路由远程·防污染 v1 存档）| WARN | 迁移成功转 v2 后可用 |
 
 🔴 无静默吞异常：每条 catch 带 WARN + feature id + configId/workspaceId 上下文。
 
@@ -310,8 +370,10 @@ active workspace `hostId!=='local'` 时，FilePanel 三入口（`FilePanel.tsx:4
 
 | 被改内部接口 | 消费方 | 同步改动 | 兼容 |
 |-------------|--------|----------|------|
-| `WorkspaceState`（+hostId）| store.ts / workspaceSync.ts / Sidebar / TabBar / App / FilePanel | 合成处补 hostId（默认 'local'）| 兼容（默认值）|
-| `makeHostDeps()`→`makeHostDeps(resolveClient)` | useFilePanel.ts:31（唯一调用）+ deps 测试 | 传 resolver | 破坏（唯一内部调用·同 PR 改）|
+| `hostRegistry` 加 `forWorkspace`/`forHostId` | 全 A 类消费点 + add 流程 | 新增方法（`forHostId` 返回 `HostClient\|null`）| 兼容（纯新增）|
+| `WorkspaceState`（+hostId 必填）| store.ts / workspaceSync.ts / Sidebar / TabBar / App / FilePanel | 合成处补 hostId（默认 'local'）| 兼容（默认值·但必填强制改所有合成分支）|
+| `reconcileWorkspaces(+scopeHostId)` 作用域安全（修 E6）| workspaceSync.ts:25 + store.ts `applyWorkspaceSnapshot`(432) + 新 `setHostWorkspaces` | 传 scopeHostId·作用域外透传·active 守卫 | 破坏（唯一纯函数·同 PR 改 + 单测「不越界」）|
+| `makeHostDeps()`→`makeHostDeps(resolveClient)` + `platform` 改 getter（A4）| useFilePanel.ts:31（唯一调用）+ deps 测试 | 传 resolver·platform 消费点 call-time | 破坏（唯一内部调用·同 PR 改）|
 | `findTabBySessionId`→`findTab(hostId,sid)` | sessionEvents.ts:45（唯一调用）| 传 hostId | 破坏（同 PR 改）|
 | `ensureSession(tabId,cwd)`→`(+hostId)` | TerminalView.tsx:84（唯一调用）| 传 activeWs.hostId | 破坏（同 PR 改）|
 | `addWorkspace(root)`→`(+targetHostId?)` | Sidebar handleAdd / 冒烟 App.tsx:67 | 默认 'local'（可不改）| 兼容（默认值）|
@@ -327,19 +389,57 @@ active workspace `hostId!=='local'` 时，FilePanel 三入口（`FilePanel.tsx:4
 - **路由变更**：无（桌面单窗口·无 react-router）。
 - **样式**：既有深色 tokens（`--bg`/`--accent`/`--green`/`--amber`/`--red`·UI.md·`project-specs/UI-RULES.md` 为空模板占位·不新增颜色变量）。
 
+### 改动文件清单
+
+```
+src/renderer/
+├── services/
+│   ├── hostRegistry.ts          # +forWorkspace(读·兜底local+WARN) +forHostId(写·null不兜底)
+│   └── remoteWorkspaceSync.ts   # 🆕 远程 ready 编排:workspace.list+onWorkspaceChanged+session订阅(同生命周期·drop退订)
+├── state/
+│   ├── store.ts                 # WorkspaceState+hostId·addWorkspace(+targetHostId)·remove/rename按host路由·+setHostWorkspaces/+dropHostWorkspaces·applyWorkspaceSnapshot 作用域隔离(scopeHostId='local')·v1 CRUD 拒远程
+│   ├── workspaceSync.ts         # reconcileWorkspaces(+scopeHostId 作用域安全:域外透传+active守卫)
+│   └── persistence.ts           # B类→local()·serialize v1+v2 双分支 filter(hostId==='local')+active coerce
+├── terminal/
+│   ├── terminalRegistry.ts      # TermInstance+client/hostId·ensureSession(+hostId)绑定·findTab(hostId,sid)复合键·9处→inst.client
+│   ├── TerminalView.tsx         # ensureSession 传 activeWs.hostId
+│   └── terminalLinks.ts         # FsLinkProvider 闭包 ()=>inst.client(A6)·3处→client
+├── filepanel/
+│   └── deps.ts                  # makeHostDeps(resolveClient)·platform 改 getter(A4)·10处 call-time 解析
+├── components/
+│   ├── Sidebar.tsx              # 平铺→机器分组(MachineGroup/MachineWorkspaceRow)·选机器添加·tildify per-host homedir
+│   ├── MachineGroup.tsx         # 🆕 组头(runtime 连接态·复用 CONNECT_STAGE_LABEL)+未连接分支
+│   ├── MachineWorkspaceRow.tsx  # 🆕 ws 行 + formatTabBadge()(0 灰态)
+│   ├── AddWorkspaceModal.tsx    # 🆕/改 选机器步骤 + 远程目录浏览器(fs.readdir over host·加载/空/错误态)
+│   ├── FilePanel.tsx            # 远程禁用 affordance(aria-disabled+提示)·fs.move/copy+homedir→forWorkspace
+│   ├── TabBar.tsx               # tabPathLabel per-host homedir
+│   └── App.tsx                  # bootstrap→local()·git.info 循环 per-workspace forWorkspace(w)
+└── (viewer/* 不改 — D-7 出范围·豁免)
+src/host/
+└── workspaceService.ts          # create/update/remove params 运行时校验(AC-9)·非法 throw 不落盘
+```
+> `src/shared/protocol.ts` **零改**（新增 UI 组件命名以 dev 落地为准·上表为建议）。
+
 ---
 
 ## TDD 开发计划
 
 ### 测试策略
 - **单元测（可 mock·注入 per-host client 桩）**：
-  - `hostRegistry.forWorkspace`：'local'→单例、configId→对应 client、未知→兜底 local。
-  - `WorkspaceState.hostId`：buildDefaultWorkspace 默认 'local'、reconcile 按 host 作用域不越界。
-  - `serialize` 过滤 `hostId!=='local'`（远程 ws 不入 v2·**差分基线本机零回归关键测**）。
+  - `hostRegistry.forWorkspace`：'local'→单例、configId→对应 client、未知非 local→兜底 local **且 WARN 被调**；`forHostId`：'local'/configId→client、未知→**null**（不兜底）。
+  - `WorkspaceState.hostId`：buildDefaultWorkspace 默认 'local'。
+  - 🔴 **作用域隔离（修 BLOCKER A1/E2·最关键）**：
+    - 本机快照协调（`applyWorkspaceSnapshot`）：多机场景「本机新增一个 ws」→ **远程 ws 全部原位保留**（不被清空）· 远程 ws 数组位次不变。
+    - active=远程 ws 时本机快照到达 → **active 不被抢回本机**（active hostId 守卫）。
+    - 远程 `setHostWorkspaces(configId, …)` → **本机 ws + 其他 configId ws 全不动**。
+    - active=远程 ws 且该远程快照删除它 → active 回落该作用域 nextActive（属本作用域才复位）。
+  - `serialize` **v1 与 v2 双分支**都过滤 `hostId!=='local'`（远程 ws 不入任一存档·防 v1 迁移重建·**差分基线本机零回归关键测**）+ activeWorkspaceId coerce。
+  - `addWorkspace`：v2 `forHostId(target)===null` → **拒绝不建仓·无本机写**（E4）；v1 fallback + 远程 target → 拒绝（E3）。
   - `findTab(hostId,sid)` 复合键：本机+远程同名 sessionId 不串 tab。
   - `sessionEvents` per-host 路由 + 本机路径行为等价（AC-6/QA-15：注入本机 client 桩·断言通知/角标序列与迁移前一致）。
   - host `workspaceService` params 校验（AC-9）：合法通过 / 非法 throw 不落盘。
-  - `setHostWorkspaces`/`dropHostWorkspaces` 作用域正确（不触碰他机/本机）。
+  - `dropHostWorkspaces` 作用域正确（只删该 host·active 属该 host 回落本机首个·退订）。
+- **静态门禁**：import 集 ⊆ 豁免集（修 E1·折行/注释免疫）+ `tsc -b` 零报错。
 - **集成测（真实 workspaceService·非 mock）**：`workspaceMultiClient.integration.test.ts` 既有——扩「远程 client 桩 + 本机单例」双 host 路由正确性（同一 workspaceService 实例被两 client 消费的隔离）。
 - **契约/端到端**：远程目录浏览 + 全链路依赖真实 SSH——沙箱无真机 sshd → **注入 per-host client 桩**（`connect`/`rpc` mock 返回远程形状）· **发版前真机 spike**（承接 BL-003 同类 concern）。
 - **基线失败集**：`project-specs/test-baseline.md` 差分「0 新增」。🔴 **本机零回归差分基线**：迁移前跑一遍本机路径 host 调用序列快照，迁移后断言等价（AC-6 硬门）。
@@ -358,11 +458,11 @@ active workspace `hostId!=='local'` 时，FilePanel 三入口（`FilePanel.tsx:4
 ### 实现步骤（每阶段一 commit·三绿门禁：tsc + vitest + 冒烟）
 | # | 步骤 | 类型 | 验证 |
 |---|------|------|------|
-| 1 | `WorkspaceState.hostId` + `forWorkspace` + serialize 过滤 · 单测 | Red→Green | vitest·本机零回归差分 |
-| 2 | A 类迁移（terminal/terminalLinks/deps/FilePanel/App/store/Sidebar/TabBar）+ B 类（App/persistence）+ grep 门禁 | Green | tsc + 门禁脚本 + 冒烟 |
-| 3 | (hostId,sessionId) 复合键 + sessionEvents per-host 订阅 · 单测 | Red→Green | vitest（本机等价 QA-15）|
-| 4 | 远程发现 `setHostWorkspaces`/`dropHostWorkspaces` + Sidebar 机器分组 + 断线回落 | Green | vitest + 冒烟 |
-| 5 | 添加流程（选机器 + 远程目录浏览器）+ 远程文件禁用 UX | Green | 冒烟 |
+| 1 | `WorkspaceState.hostId` + `forWorkspace`/`forHostId` + `reconcileWorkspaces(+scopeHostId)` 作用域安全 + serialize **v1+v2 双过滤** · 单测（含作用域隔离 4 条）| Red→Green | vitest·本机零回归差分 |
+| 2 | A 类迁移（terminal/terminalLinks 闭包/deps+platform getter/FilePanel/App/store/Sidebar/TabBar）+ B 类（App/persistence）+ **import 集门禁** | Green | tsc + 门禁脚本 + 冒烟 |
+| 3 | (hostId,sessionId) 复合键 + `routeSessionEvent` 抽取 + 本机订阅 · 单测 | Red→Green | vitest（本机等价 QA-15）|
+| 4 | `remoteWorkspaceSync`（ready 编排：workspace.list + onWorkspaceChanged + **session 订阅并入**）+ `setHostWorkspaces`（作用域机制）/`dropHostWorkspaces` + Sidebar 机器分组 + 断线回落 | Green | vitest + 冒烟 |
+| 5 | 添加流程（选机器 + 远程目录浏览器 + `forHostId` null 拒绝 + v1 拒绝）+ 远程文件禁用 UX | Green | 冒烟 |
 | 6 | host workspace params 校验（AC-9）· 单测 | Red→Green | vitest（host）|
 
 ---
@@ -371,9 +471,9 @@ active workspace `hostId!=='local'` 时，FilePanel 三入口（`FilePanel.tsx:4
 
 | 风险 | 严重度 | 缓解 / 兜底 |
 |------|--------|-----------|
-| R-1 迁移面大（32 A 类）漏迁 → 远程走错本机 host（静默 ENOENT/读本机 git）| high | 🔴 grep 门禁用 `\bhostClient\b`（含折行）+ `tsc -b` 零报错口径 + 本机零回归差分基线 + AC-5 逐项清单 review |
-| R-2 `forWorkspace` 兜底 local 掩盖「远程 client 缺失」竞态 | med | 断线态门控在活跃 RPC 前拦（不变式）· 展示型只读兜底无害 · 若 blueprint 要求更严 → 改返回 `null` + 调用方落断线态（登记待决 D-A）|
-| R-3 remoteWorkspaceSync 与本机 `applyWorkspaceSnapshot` 作用域交叉误删 | high | 两条协调路径严格按 hostId 作用域：本机订阅只协调 `hostId==='local'` 子集，远程 per-host 订阅只协调 `hostId===configId` 子集·单测覆盖「不越界」 |
+| R-1 迁移面大（32 A 类）漏迁 → 远程走错本机 host（静默 ENOENT/读本机 git）| high | 🔴 **import 集门禁**（importer ⊆ 豁免·折行/注释免疫·修 E1）+ `tsc -b` 零报错口径 + 本机零回归差分基线 + AC-5 逐项清单 review |
+| R-2 `forWorkspace` 兜底 local 掩盖「client 缺失」误路由 | med | **已按写/读分流消解（修 E4）**：写操作走 `forHostId`→null→拒绝不兜底；读走 `forWorkspace`→兜底 local **恒 WARN**（不静默）· 活跃 RPC 已被断线门控拦前 |
+| R-3 两条协调路径作用域交叉误删（本机快照清空远程 ws / 远程快照清空本机）| high | **已给可落地机制（修 BLOCKER A1/E2）**：filter-in→作用域 reconcile→原位 merge-back→active hostId 守卫（见「作用域隔离机制」）· 单测 4 条「不越界 + 不抢 active」覆盖 |
 | R-4 沙箱无真机 sshd → 远程路由/目录浏览器只桩测 | med | 注入 per-host client 桩覆盖路由正确性 + **发版前真机 spike**（承接 BL-003）|
 | R-5 FilePanel deps 固化（controller 单建）切远程机不换 host | med | `makeHostDeps(resolveClient)` call-time 解析（不重建 controller·A13-A22）· 单测切 ws 换 host |
 | R-6 sessionEvents per-host 订阅/退订生命周期泄漏 | low | unsub 句柄 Map<hostId>·host drop/断线即退订·冒烟观测无重复通知 |
@@ -381,20 +481,23 @@ active workspace `hostId!=='local'` 时，FilePanel 三入口（`FilePanel.tsx:4
 ## 待决策
 | 问题 | 建议 |
 |------|------|
-| D-A `forWorkspace` 未知 hostId：兜底 local vs 返回 null | 建议**兜底 local + 断线门控**（简化 32 调用点签名·风险 R-2 已缓解）；若 architect 判「静默错 host」不可接受 → 改 null·调用方落断线态 |
+| ~~D-A `forWorkspace` 未知 hostId 兜底~~（**已决 · review E4**）| **按写/读分流**：写（create）用 `forHostId`→null→拒绝不兜底；读（终端/fs/git/展示）用 `forWorkspace`→兜底 local + 恒 WARN。不再单一策略 |
 | D-B 远程 `fs.move/copy`（A24）跨 host Finder 拖入 | 建议 v1 **确定性拒绝 + 提示**（E-3）·不做跨机复制（属文件传输·出范围）|
 
 ## 变更记录
 | 日期 | 变更 |
 |------|------|
 | 2026-07-10 | v0.1 首版 TECH（据 PRD v0.3 + PRD-REVIEW + UI.md + BL-003 资产 + 53 消费点真实 grep）|
+| 2026-07-10 | v0.2 两路冷审收敛（architect + external·1 BLOCKER + 3 high + 3 minor/low 全采纳）：① BLOCKER A1/E2 作用域隔离给可落地机制（filter-in→reconcile+scopeHostId→merge-back→active 守卫）；② E4/A5 定义 `forHostId`→null 写不兜底 + `forWorkspace` 读兜底恒 WARN；③ E3 serialize v1 分支同过滤 + v1 CRUD 拒远程；④ E1 门禁改 import 集（折行/注释免疫）+ TC 对齐；⑤ A4 deps platform getter；⑥ A6 FsLinkProvider 闭包；⑦ E5 session 订阅并入 remoteWorkspaceSync；⑧ E6 reconcile 签名入影响面 |
 
 ## 完工自查（RD 实现完逐项打钩）
 - [ ] **现状基线**：forWorkspace 前提①~④仍成立（hostRegistry configId 键 / RPC per-client 复用 / 远程不持久化回避孤儿 / 'local' 等价单例）
-- [ ] **§错误处理**：E-1~E-7 每条失败路径实现（非只 happy-path）· 尤其 E-3 跨 host 拖入、E-4 断线回落
+- [ ] **作用域隔离（BLOCKER）**：本机快照不清远程 ws · 远程快照不清本机 · active hostId 守卫不抢焦点 · merge-back 保位次 —— 单测 4 条全绿
+- [ ] **写/读兜底分流**：`forHostId`→null→create 拒绝无本机写（E4）· `forWorkspace` 兜底 local 恒 WARN（E6）
+- [ ] **§错误处理**：E-1~E-9 每条失败路径实现（非只 happy-path）· 尤其 E-3 跨 host 拖入、E-4 断线回落、E-8 create 目标断开、E-9 v1 远程拒绝
 - [ ] **错误有 WARN/ERROR 日志**：每条 catch 带 feature id + configId/workspaceId·不静默吞
-- [ ] **§依赖与影响**：内部接口消费方全同步（`tsc -b` 零报错）+ **grep 门禁 `\bhostClient\b` 零残留**（含 App:76 折行）
-- [ ] **§数据结构**：WorkspaceState.hostId 贯穿路由·serialize 过滤 `!=='local'`·hydrate 只本机
+- [ ] **§依赖与影响**：内部接口消费方全同步（`tsc -b` 零报错）+ **import 集门禁零残留**（importer ⊆ 豁免·含 App:76 折行·免疫注释）
+- [ ] **§数据结构**：WorkspaceState.hostId 贯穿路由·serialize **v1+v2 双分支**过滤 `!=='local'`·hydrate 只本机·activeWorkspaceId coerce
 - [ ] **无 schema 变更**：protocol.ts 零改·workspaces.json/v2 存档 schema 不变（已注明）
 - [ ] **§测试策略**：本机零回归差分基线 + 远程路由桩测 + host params 校验测都写了
 - [ ] 本机路径 host 调用序列与改造前等价（AC-6·差分 0 新增）
