@@ -12,9 +12,9 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "blueprint",
+  "current_stage": "review",
   "merge_target": "yolo/m5-remote-host",
-  "review_base_commit": null,
+  "review_base_commit": "67f0bd4",
   "worktree": {
     "strategy": "auto",
     "branch": "feature/termpro-f260710042746-reconnect-continuity",
@@ -69,15 +69,65 @@
       "duration_minutes": 19
     },
     "blueprint": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T05:22:55Z",
+      "evidence": {},
+      "completed_at": "2026-07-10T06:39:42Z",
+      "auto_commit": "67f0bd4",
+      "artifacts": [
+        "TC.md",
+        "TECH.md",
+        "TECH-REVIEW.md",
+        "external-cross-review/blueprint-claude-subagent-degraded.md"
+      ],
+      "duration_minutes": 76
+    },
+    "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T06:39:42Z",
+      "evidence": {
+        "dev_diff_clean": true,
+        "test_exit_code": 1,
+        "test_stdout": " Test Files  6 failed | 82 passed | 1 skipped (89)\n      Tests  32 failed | 722 passed | 1 skipped (755) | 32 失败全 posix_spawnp 沙箱基线(test-baseline diff new=[]) · 0 断言失败 · tsc 0 error · SMOKE_OK",
+        "current_failures": "src/host/__tests__/ptyPoolDetach.test.ts,src/host/__tests__/reconnectContinuity.integration.test.ts,src/host/__tests__/tokenGate.test.ts,src/host/__tests__/wsHandshakeGate.test.ts,src/host/__tests__/wsMultiClientIsolation.test.ts,src/host/__tests__/wsRpcParity.test.ts"
+      },
+      "completed_at": "2026-07-10T07:23:12Z",
+      "auto_commit": "0c3315d",
+      "artifacts": [
+        "src/shared/protocol.ts",
+        "src/host/ringBuffer.ts",
+        "src/host/ptyPool.ts",
+        "src/host/sessionTracker.ts",
+        "src/host/hostCore.ts",
+        "src/host/host.ts",
+        "src/renderer/services/reconnectController.ts",
+        "src/renderer/services/reconnectBackoff.ts",
+        "src/renderer/services/heartbeat.ts",
+        "src/renderer/services/hostClient.ts",
+        "src/renderer/terminal/terminalRegistry.ts",
+        "src/renderer/components/Sidebar.tsx",
+        "src/renderer/components/MachineGroup.tsx",
+        "src/main/remote/ssh.ts",
+        "src/main/remote/residency.ts"
+      ],
+      "duration_minutes": 43
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T05:22:55Z"
+      "started_at": "2026-07-10T07:23:12Z"
     }
   },
   "completed_stages": [
     "goal",
-    "ui_design"
+    "ui_design",
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-07-10T04:29:00Z",
   "stage_review_roles": {
@@ -116,14 +166,16 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T05:23:14Z",
+  "updated_at": "2026-07-10T07:23:29Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:4662814cb06f48c0df0ccd1f771030cea86d5ddfa73db201ef9e74ba51a6ea61",
+  "_state_checksum": "sha256:913bc8a35053816d902b1c023436707c14849db341d46b23bfe69c412f0fd873",
   "legal_next_stages": [
+    "test",
     "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
-    "panorama_changed": false
+    "panorama_changed": false,
+    "test_baseline_excluded": 6
   }
 }
