@@ -55,7 +55,7 @@ features:
     current_state: "ptyPool 有流控无 scrollback 缓冲；host.ts 端口 close 即 kill 该客户端全部会话（本地语义，与远程『UI 断开会话存活』相悖，需按 host 形态分语义）；sessionTracker 状态机已驻留 host 侧"
     flow_type: feature
     dependencies: [WS-01-S2, WS-01-S3]
-    status: planned
+    status: delivered
 
 launch_order:
   - WS-01-S1
