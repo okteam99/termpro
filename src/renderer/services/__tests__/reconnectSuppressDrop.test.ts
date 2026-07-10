@@ -99,12 +99,12 @@ describe('transient_disconnect_suppresses_full_drop_keeps_terminal_and_workspace
     expect(stopSync).toHaveBeenCalledWith('cfg-2');
   });
 
-  it('握手成功 onReady → 清 reconnecting + readopt 收养(横幅消失)', async () => {
+  it('握手成功 onReconnected(reconnect promise resolve)→ 清 reconnecting + readopt 收养(横幅消失)', async () => {
     const { controller, readopt, stopSync } = makeDeps();
     controller.onDisconnected('cfg-1');
     expect(useRemoteHostRuntimeStore.getState().isReconnecting('cfg-1')).toBe(true);
 
-    controller.onReady('cfg-1');
+    controller.onReconnected('cfg-1');
 
     expect(useRemoteHostRuntimeStore.getState().isReconnecting('cfg-1')).toBe(false);
     expect(readopt).toHaveBeenCalledWith('cfg-1'); // 收养回放对账

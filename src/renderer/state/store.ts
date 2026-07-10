@@ -30,6 +30,8 @@ export interface TabState {
   customName?: string;
   processName?: string;
   exited?: boolean;
+  /** 会话退出码(AC-12·断线期跑完/本地退出);TabBar 渲染「exit N」。exited 时才有意义。 */
+  exitCode?: number;
   filePanel?: TabFilePanelState;
   // ---- 会话状态(运行时,host 状态机驱动,不持久化)----
   activity?: 'idle' | 'running';

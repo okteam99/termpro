@@ -1,8 +1,14 @@
 // 断线重连编排单源(BL-005 · CR-1/ARCH-B-1)。职责:
 // 心跳/断线判定 → 🔴 同步先占 reconnecting 态 → disconnect-first(disconnect→connect·复位 main
 // stage ready→disconnected·否则 connect() 在 ready 是 no-op·隧道永不重建)→ 收 verifying{tunnel}
-// 由 Sidebar.beginHandshake 走 client.reconnect(单一 owner)→ 握手成功 onReady:readoptHost 收养 +
-// session.list 对账 + 清 reconnecting;失败退避;超预算 → 亲自 stopRemoteWorkspaceSync(drop 唯一出口·D-13)。
+// 由 Sidebar.beginHandshake 走 client.reconnect(单一 owner)→ 🔴 **reconnect promise resolve**
+// (ws 真 open 后)驱动 onReconnected:readoptHost 收养 + session.list 对账 + 清 reconnecting;失败退避;
+// 超预算 → 亲自 stopRemoteWorkspaceSync(drop 唯一出口·D-13)。
+//
+// 🔴 A1(review-fix):readopt **不能**由 main 的 `ready` stage 事件驱动——claim 快路径 main 同步连发
+// verifying+ready·两条 IPC 早于 beginHandshake 的新 ws 打开(onopen 需一次隧道 RTT)入队·此刻
+// transport=null → session.attach 同步 reject → 收养静默中止 → 终端冻结。故 onReconnected 唯一调用方 =
+// beginHandshake 的 `client.reconnect().then`(保证 transport 就绪)·main 'ready' 事件不再触发收养。
 //
 // 🔴 自发 disconnected 再入守卫(CR-1 ③):disconnect-first 会让 main 自发广播 disconnected;
 //   已 reconnecting 则直接忽略(防 loop)。
@@ -38,8 +44,12 @@ export interface ReconnectController {
   onDisconnected(configId: string): void;
   /** 一次重连尝试失败(main emit failed / 握手 catch)→ 退避重试或超预算判定。 */
   onAttemptFailed(configId: string): void;
-  /** 握手成功(stage→ready)→ readopt 收养 + 清 reconnecting(仅当之前在 reconnecting)。 */
-  onReady(configId: string): void;
+  /**
+   * 握手成功(client.reconnect() 的 promise resolve·🔴 ws 真 open 后)→ readopt 收养 + 清 reconnecting
+   * (仅当之前在 reconnecting;初次连接 wasReconnecting=false 为廉价 no-op)。
+   * 命名从 onReady 改为 onReconnected 以钉死语义:由 **reconnect 完成**而非 main stage 事件驱动(A1)。
+   */
+  onReconnected(configId: string): void;
   /** 用户「立即重试」:复位退避 + 立即再试一次。 */
   manualRetry(configId: string): void;
   /** 当前是否正编排该 configId 的重连(测试/调用方查询)。 */
@@ -117,11 +127,12 @@ export function createReconnectController(
       );
     },
 
-    onReady(configId: string): void {
+    onReconnected(configId: string): void {
       const wasReconnecting = deps.isReconnecting(configId);
       cleanup(configId);
       if (wasReconnecting) {
-        // 收养回放 + session.list 对账(横幅由 reconnecting 清除驱动消失)
+        // 收养回放 + session.list 对账(横幅由 reconnecting 清除驱动消失)。
+        // 🔴 由 client.reconnect() resolve 驱动 → 此刻 transport 已就绪·session.attach 不会 reject(A1)。
         void deps.readopt(configId);
       }
     },
