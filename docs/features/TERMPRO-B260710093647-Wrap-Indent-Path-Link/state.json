@@ -6,7 +6,7 @@
   "artifact_root": "docs/features/TERMPRO-B260710093647-Wrap-Indent-Path-Link",
   "host": null,
   "host_history": [],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "2f702d4",
   "worktree": {
@@ -59,15 +59,167 @@
       "duration_minutes": 10
     },
     "review": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T10:23:20Z",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "completed_at": "2026-07-10T12:23:32Z",
+      "auto_commit": "0d09fb9",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md",
+        "external-cross-review/review-codex.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-07-10T10:23:20Z",
+          "completed_at": "2026-07-10T12:23:32Z",
+          "review_commit": "0d09fb9",
+          "verdict": "APPROVE",
+          "new_findings_count": 15,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "Q1",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "LinkHighlighter parts 分段高亮零测试覆盖",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "Q2",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "gutter 字符(│/⎿)白名单分支无用例执行",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "Q3",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "tail 守卫(候选后同行杂字符)镜像分支无用例",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "Q4",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "MAX_JOIN_PARTS=6 上限边界未测试",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "Q5",
+          "severity": "NIT",
+          "status": "rejected",
+          "title": "拼接候选中夹 URL 未直接测试",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "Q6",
+          "severity": "NIT",
+          "status": "rejected",
+          "title": "软折行+悬挂缩进组合未测试",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "Q7",
+          "severity": "NIT",
+          "status": "rejected",
+          "title": "fake stat 尾斜杠归一可能掩盖真实差异",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "A1",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "高亮热路径 join stat 放大(容量)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "A2",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "join 不叠加 spanning 需注释说明",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "A3",
+          "severity": "NIT",
+          "status": "rejected",
+          "title": ":line:col 断在 wrap 缝隙丢列号(既有解析限制)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "A4",
+          "severity": "NIT",
+          "status": "rejected",
+          "title": "tail 允许尾随空格理论可桥接双绝对路径",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "A5",
+          "severity": "MINOR",
+          "status": "deferred",
+          "title": "rowSegments 段尾宽字符 decoration 短 1 列(既有)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "E1",
+          "severity": "MAJOR",
+          "status": "rejected",
+          "title": "resize 后硬折行 join 失效退化半截(降级为既有限制记录)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "E2",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "续段不含斜杠(basename 内折行)不构成候选 → 不拼接",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "E3",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "拼接落空时重叠后缀链串行 stat 放大(降级 MINOR · 已加固)",
+          "source": "external",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 120
+    },
+    "test": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T10:23:20Z"
+      "started_at": "2026-07-10T12:23:32Z"
     }
   },
   "completed_stages": [
     "diagnose",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-07-10T09:48:30Z",
   "stage_review_roles": {
@@ -84,12 +236,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T10:23:26Z",
+  "updated_at": "2026-07-10T12:23:39Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:e0f8913db245d247ae528f64de16c1248f61dce7322ae41cd8b1509316df1cb3",
+  "_state_checksum": "sha256:a5e15b0464245faeeefd4e4ddf4eb3bda280559d43fbcfd6deaed516617ce38d",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "pm_acceptance"
   ],
   "execution_hints": {}
 }
