@@ -34,6 +34,51 @@ export interface HostInfo {
   platform: string;
   homedir: string;
   shell: string;
+  /**
+   * 能力位(向后兼容追加·BL-005)。含 'session.resume' 表示支持 session.list/attach
+   * (断线重连回放收养)。旧 host 省略(undefined)→ renderer 判为不支持 → 重连退化 new spawn。
+   * 🔴 稳定信号 = 字段存在性,非错误文案匹配(QA-14)。standalone host 填,embedded 省略。
+   */
+  capabilities?: string[];
+}
+
+/**
+ * 会话状态快照(session.list 返回元素 · BL-005)。tracker「当前态」——
+ * 🔴 不含未读计数 / 离散 bell·notify 累积(sessionTracker emit-and-forget·M-1/ARCH-5)。
+ */
+export interface SessionSnapshot {
+  sessionId: string;
+  /** spawn cwd(AC-3 重建 tab 用) */
+  cwd: string;
+  /** 最近前台进程名(pty.process);exited 后取退出前最后已知值 */
+  title: string;
+  /** live = 运行中;exited = 断开期跑完/崩溃的保留态(AC-12) */
+  status: 'live' | 'exited';
+  /** tracker 当前态(AC-5 徽标对账) */
+  state: 'idle' | 'running';
+  quiet: boolean;
+  altscreen: boolean;
+  /** status='exited' 时的退出码;live 为 null */
+  exitCode: number | null;
+}
+
+/**
+ * session.attach 返回(重连收养回放 · BL-005)。
+ * 🔴 nextOffset = 回放后的绝对字节偏移(renderer 据此更新 renderedBytes·不自算 byteLength·EXT-B-5)。
+ */
+export interface SessionAttachResult {
+  /** false = 该 sessionId 已不存在(被逐/从未有)→ renderer 退化 new spawn(AC-11 幂等收养 miss) */
+  found: boolean;
+  /** true = renderer 须先 term.reset() 清屏再写 data(gap 超缓冲/重建 tab);false = 增量补屏 */
+  full: boolean;
+  /** data 首字节的绝对偏移 */
+  baseOffset: number;
+  /** 回放载荷(gap 或整缓冲;UTF-8 安全边界切片) */
+  data: string;
+  /** 回放后的绝对偏移(= baseOffset + 本次 data 字节数);renderer 用它更新 renderedBytes */
+  nextOffset: number;
+  /** 收养即返当前快照(AC-5 对账,省一次 list) */
+  snapshot: SessionSnapshot;
 }
 
 export interface GitInfo {
@@ -148,6 +193,22 @@ export interface RpcMethods {
   'workspace.update': {
     params: { id: string; name?: string; root?: string };
     result: WorkspaceEntry;
+  };
+  // ---- 断线重连回放收养(BL-005 · 向后兼容追加 · 不 bump PROTOCOL_VERSION)----
+  /**
+   * 列出该 host 现存会话(含 exited 保留态)+ 状态快照。token 闸后单租户全可见
+   * (AC-8:连上机器即见全部会话是特性)。旧 host 无此方法 → unknown rpc 稳定错误 →
+   * renderer catch 退化 new spawn(双保险:能力位 capabilities + catch)。
+   */
+  'session.list': { params: undefined; result: { sessions: SessionSnapshot[] } };
+  /**
+   * 重连收养既有会话:换 send + 回放缓冲 + resize 对账 + last-attach-wins 所有权转移。
+   * resumeOffset = renderer 报的「已渲染绝对字节偏移」(非 host ack 计数·防双写·ARCH-B-4)。
+   * found=false → 该 sessionId 已不存在,renderer 退化 new spawn(AC-11)。
+   */
+  'session.attach': {
+    params: { sessionId: string; resumeOffset: number; cols: number; rows: number };
+    result: SessionAttachResult;
   };
 }
 
