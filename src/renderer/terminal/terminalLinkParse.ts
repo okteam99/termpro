@@ -23,8 +23,8 @@ const FILE_URL_RE = /file:\/\/\S+/g;
 const PATH_RE =
   /((?:~|\.{1,2})?\/[\w.@%+-]+(?:\/[\w.@%+-]+)*\/?|(?<![\w/.~-])[\w.@%+-]+(?:\/[\w.@%+-]+)+\/?)(?::\d+(?::\d+)?)?/g;
 
-/** 去掉尾部标点(保留 :line:col 数字后缀) */
-function trimTrailingPunct(s: string): string {
+/** 去掉尾部标点(保留 :line:col 数字后缀);跨缩进拼接的派生续接段复用 */
+export function trimTrailingPunct(s: string): string {
   let out = s;
   while (out && /[)\]}>.,;:'"`!?]$/.test(out) && !/:\d+$/.test(out)) {
     out = out.slice(0, -1);

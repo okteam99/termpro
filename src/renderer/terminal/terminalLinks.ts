@@ -15,6 +15,7 @@ import {
   extractCandidates,
   fileUrlToPath,
   stripLineCol,
+  trimTrailingPunct,
 } from './terminalLinkParse';
 
 const STAT_CACHE_MS = 5_000;
@@ -178,28 +179,50 @@ function rowSegments(
   return segs;
 }
 
-/** 跨缩进拼接链最多候选数(限 stat RPC 次数;缝隙拼接每链最多试 MAX-1 次) */
+/** 跨缩进拼接链最多段数(限 stat RPC 次数;缝隙拼接每链最多试 MAX-1 次) */
 const MAX_JOIN_PARTS = 6;
+
+/** 每条逻辑行 join 尝试的 stat 预算(REVIEW E3:拼接落空时重叠后缀链最坏
+ *  O(链²) 次 stat;statCache 亦缓存 miss,此处再给确定性上限) */
+const MAX_JOIN_STATS_PER_LINE = 12;
+
+/** 续接段字符 run:与 PATH_RE 主体字符集一致 + 斜杠,可带 :行(:列) 后缀 */
+const CONT_RUN_RE = /^[\w.@%+/-]+(?::\d+(?::\d+)?)?/;
 
 /**
  * Ink/Claude Code 等 TUI 硬折行时给续行加「悬挂缩进」(前导空格,可带 gutter
- * 竖线),路径在缝隙处被 extractCandidates 切成两个候选。判定 c1→c2 是否构成
- * 这种「跨缝相邻」:c1 贴其物理行行尾(其后同该行内只有空白),c2 在紧邻的下一
- * 物理行,行首到 c2 之间只有空白/gutter(空格、│、⎿)。
+ * 竖线),路径在缝隙处被截断。从上一段末尾 prevEnd 找下一物理行的续接段:
+ * - 上一段之后到行尾只能是空白(候选后有杂字符 → 不续);
+ * - 紧邻下一物理行行首只跳过空白/gutter(空格、│、⎿);
+ * - 其后取路径字符 run(尾部标点修剪)。
+ * 续接段**不要求是独立候选**(REVIEW E2:basename 内折行的续段不含斜杠,
+ * 不会被 extractCandidates 收录,但仍是合法续接)。
  */
-function adjacentAcrossIndent(
+function continuationPiece(
   ll: LogicalLine,
-  c1: { start: number; end: number },
-  c2: { start: number; end: number },
-): boolean {
-  const r1 = ll.pos[c1.end - 1]?.row;
-  const r2 = ll.pos[c2.start]?.row;
-  if (r1 === undefined || r2 !== r1 + 1) return false;
-  let rowBreak = c1.end;
-  while (rowBreak < c2.start && ll.pos[rowBreak].row === r1) rowBreak++;
-  const tail = ll.text.slice(c1.end, rowBreak); // c1 之后到行尾
-  const head = ll.text.slice(rowBreak, c2.start); // 续行行首到 c2
-  return /^ *$/.test(tail) && /^[ │⎿]*$/.test(head);
+  prevEnd: number,
+): { start: number; end: number } | null {
+  const r1 = ll.pos[prevEnd - 1]?.row;
+  if (r1 === undefined) return null;
+  let j = prevEnd;
+  while (j < ll.text.length && ll.pos[j].row === r1) {
+    if (ll.text[j] !== ' ') return null;
+    j++;
+  }
+  if (j >= ll.text.length || ll.pos[j].row !== r1 + 1) return null;
+  while (
+    j < ll.text.length &&
+    ll.pos[j].row === r1 + 1 &&
+    /[ │⎿]/.test(ll.text[j])
+  ) {
+    j++;
+  }
+  if (j >= ll.text.length || ll.pos[j].row !== r1 + 1) return null;
+  const m = CONT_RUN_RE.exec(ll.text.slice(j));
+  if (!m) return null;
+  const run = trimTrailingPunct(m[0]);
+  if (!run) return null;
+  return { start: j, end: j + run.length };
 }
 
 /** 逻辑行内已命中的 fs 链接(hover 与常驻高亮共用;跨缩进拼接时多段) */
@@ -395,28 +418,35 @@ export class FsLinkProvider implements ILinkProvider {
 
   /**
    * 跨缩进拼接(BUG-TERMPRO-B260710093647-001):从候选 i 起沿「贴行尾 + 续行
-   * 缩进候选」链尽量延伸,按最长优先 stat 拼接文本(不含缝隙字符)。
-   * 命中 → 合并为一条链接(consumed 个候选被吞掉);落空 → null(调用方回退
-   * 单候选解析,前缀目录命中仍照旧成链)。stat 是最终 oracle:只有拼出的完整
-   * 路径真实存在才成链,无关缩进行不会误拼。
+   * 缩进续接段」链尽量延伸(续接段从文本派生 · 可不含斜杠 · REVIEW E2),
+   * 按最长优先 stat 拼接文本(不含缝隙字符)。
+   * 命中 → 合并为一条链接(返回 endIdx 供调用方吞掉链覆盖区间内的候选);
+   * 落空 → null(调用方回退单候选解析,前缀目录命中仍照旧成链)。stat 是最终
+   * oracle:只有拼出的完整路径真实存在才成链,无关缩进行不会误拼。
+   * join 只对拼接整段做 exact 解析,不叠加 resolveCandidateSpanning 的
+   * 前缀/后缀修剪(混合形态与 Ink 一致缩进的渲染相悖 · REVIEW A2)。
    */
   private async resolveJoinedAcrossIndent(
     ll: LogicalLine,
     cands: ReturnType<typeof extractCandidates>,
     i: number,
-  ): Promise<{ link: ResolvedFsLink; consumed: number } | null> {
-    const chain = [cands[i]];
-    for (let j = i + 1; j < cands.length && chain.length < MAX_JOIN_PARTS; j++) {
-      if (!adjacentAcrossIndent(ll, chain[chain.length - 1], cands[j])) break;
-      chain.push(cands[j]);
+    budget: { left: number },
+  ): Promise<{ link: ResolvedFsLink; endIdx: number } | null> {
+    const chain: Array<[number, number]> = [[cands[i].start, cands[i].end]];
+    while (chain.length < MAX_JOIN_PARTS) {
+      const piece = continuationPiece(ll, chain[chain.length - 1][1]);
+      if (!piece) break;
+      chain.push([piece.start, piece.end]);
     }
     for (let n = chain.length; n >= 2; n--) {
-      const parts = chain
-        .slice(0, n)
-        .map((c): [number, number] => [c.start, c.end]);
+      if (budget.left <= 0) return null;
+      budget.left--;
+      const parts = chain.slice(0, n);
       const text = parts.map(([s, e]) => ll.text.slice(s, e)).join('');
       const hit = await this.resolveCandidateText(text);
-      if (hit) return { link: { ...hit, parts, text }, consumed: n };
+      if (hit) {
+        return { link: { ...hit, parts, text }, endIdx: parts[n - 1][1] };
+      }
     }
     return null;
   }
@@ -427,11 +457,13 @@ export class FsLinkProvider implements ILinkProvider {
     cands: ReturnType<typeof extractCandidates>,
   ): Promise<ResolvedFsLink[]> {
     const out: ResolvedFsLink[] = [];
+    const budget = { left: MAX_JOIN_STATS_PER_LINE };
     for (let i = 0; i < cands.length; i++) {
-      const joined = await this.resolveJoinedAcrossIndent(ll, cands, i);
+      const joined = await this.resolveJoinedAcrossIndent(ll, cands, i, budget);
       if (joined) {
         out.push(joined.link);
-        i += joined.consumed - 1;
+        // 吞掉链覆盖区间内的全部候选(含派生续接段恰好也是候选的情形)
+        while (i + 1 < cands.length && cands[i + 1].start < joined.endIdx) i++;
         continue;
       }
       const hit = await this.resolveCandidateSpanning(ll, cands[i]);

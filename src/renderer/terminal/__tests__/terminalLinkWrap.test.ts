@@ -126,6 +126,86 @@ describe('wrapped path links', () => {
     expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } });
   });
 
+  // REVIEW Q2:gutter 白名单(│/⎿)真被执行 · 且 gutter 字符不得混入链接 text
+  it('gutter chars (│/⎿) in the gap: join still works, gutter stays out of link text', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/';
+    const tail = 'ios/docs/features/IOS-scaffold';
+    const full = dir + tail;
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir;
+    const line2 = '│ ⎿ ' + tail; // 两个 gutter 字符一起钉住白名单字符集
+    statExisting({ [full]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe(full); // 不含 │/⎿/空格
+    expect(links[0].range).toMatchObject({
+      start: { x: 11, y: 1 },
+      end: { x: 4 + tail.length, y: 2 },
+    });
+  });
+
+  // REVIEW Q3:候选贴行尾判定的镜像分支 —— 候选后同行还有杂字符(tail 非空白)
+  // 时不得跨行拼接(即便拼接路径真实存在 · 决定性断言)
+  it('non-blank char between candidate and row edge: no join even if joined path exists', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps'; // 29 chars · 无尾斜杠
+    const tail = 'ios/docs/thing';
+    const line1 = 'x'.repeat(cols - dir.length - 2) + ' ' + dir + ')'; // ')' 铺满行尾
+    expect(line1.length).toBe(cols);
+    const line2 = '    ' + tail;
+    statExisting({ [dir]: 'dir', [dir + tail]: 'dir' }); // 拼接路径也存在 · 仍不该拼
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe(dir); // tail 守卫生效 · 只有前缀成链
+    expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } });
+  });
+
+  // REVIEW E2:basename 内折行 —— 续段不含斜杠 · 不构成独立候选 · 仍须拼接
+  it('continuation without slash (wrap inside basename): still joined', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/';
+    const tail = 'IOS-scaffold'; // 无斜杠
+    const full = dir + tail;
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir;
+    const line2 = '    ' + tail;
+    statExisting({ [full]: 'dir', [dir.replace(/\/$/, '')]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    for (const y of [1, 2]) {
+      const links = await provide(term, y);
+      expect(links).toHaveLength(1);
+      expect(links[0].text).toBe(full); // 整条压过真实前缀目录
+      expect(links[0].range).toMatchObject({
+        start: { x: 11, y: 1 },
+        end: { x: 4 + tail.length, y: 2 },
+      });
+    }
+  });
+
+  // REVIEW E2 配套:无斜杠续段带尾随标点(引号等) · 修剪后拼接
+  it('slash-less continuation with trailing punct: punct trimmed from joined text', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/';
+    const tail = 'IOS-scaffold';
+    const full = dir + tail;
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir;
+    const line2 = "    IOS-scaffold' --label ok"; // 尾引号来自 shell 引参
+    statExisting({ [full]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe(full); // 引号不入链接
+    expect(links[0].range).toMatchObject({
+      start: { x: 11, y: 1 },
+      end: { x: 4 + tail.length, y: 2 },
+    });
+  });
+
   it('3-row chain with indent on each continuation: single link spans all rows', async () => {
     const cols = 30;
     const c1 = '/home/u/wrap3/aaaaaaaa/bb'; // 25 chars
