@@ -16,7 +16,10 @@ import path from 'node:path';
 // ssh2(BL-003 SSH-5):main 侧 vite.main.config.ts 已 external,同理需搬运
 // (纯 JS,copyModuleWithDeps 只递归 package.json#dependencies,天然跳过
 // cpu-features/nan 等 optionalDependencies)。
-const EXTERNAL_MODULES = ['node-pty', 'ssh2'];
+// ws(R2-3):main 侧 external(probeHostInfo),打包产物必须携带,否则
+// 安装版启动即 "Cannot find module 'ws'"(host 侧是 bundle 进 host.js 的,
+// 不依赖此搬运)。ws 无硬依赖,搬运即单目录。
+const EXTERNAL_MODULES = ['node-pty', 'ssh2', 'ws'];
 
 // BL-003 SSH-5:CI 三架构预编译的 host standalone 部署产物(darwin-arm64/
 // linux-x64/linux-arm64),由 release.yml 在 `npm run make` 前落到这里,

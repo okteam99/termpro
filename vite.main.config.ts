@@ -7,9 +7,10 @@ import { defineConfig } from 'vite';
 // 依赖强行 bundle 导致构建期报错;external 后运行时从 node_modules 原样加载
 // (随 forge.config.ts EXTERNAL_MODULES 递归搬运,同 node-pty 既有范式)。
 //
-// 'ws'(R2-3): probeHostInfo 在 main 侧首次 import——它已在 host 侧 external
-// (vite.host.config.ts),这里补齐 main 侧同口径,避免打包器处理其
-// bufferutil/utf-8-validate 可选加速依赖。
+// 'ws'(R2-3): probeHostInfo 在 main 侧首次 import。external 后运行时从
+// node_modules 加载,故必须列入 forge.config.ts EXTERNAL_MODULES 随包搬运
+// (host 侧不同:vite.host.config.ts 未 external ws,直接 bundle 进 host.js)。
+// bufferutil/utf-8-validate 是 ws 的可选加速件,保持 external 免被误 bundle。
 export default defineConfig({
   build: {
     rollupOptions: {
