@@ -88,9 +88,20 @@ function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
-function isEnoent(err: unknown): boolean {
-  const code = (err as NodeJS.ErrnoException | undefined)?.code;
-  return code === 'ENOENT' || code === ('NO_SUCH_FILE' as unknown);
+/** ssh2 SFTP 状态码(SFTP.js STATUS_CODE.NO_SUCH_FILE;err.code 是数字,非字符串)。 */
+const SFTP_NO_SUCH_FILE = 2;
+
+/**
+ * 🔴 首连必挂修复:ssh2 的 SFTP 错误 `err.code = errorCode` 是【数字】状态码
+ * (NO_SUCH_FILE = 2),message 是 sftp-server 原话(OpenSSH 为 "No such file")。
+ * 此前只比对字符串 'ENOENT'/'NO_SUCH_FILE',真实远端的「文件不存在」永远不被
+ * 识别 → sftpReadFile 对全新机器上必然缺失的 .ready/host.port 抛错而非返回 null
+ * → 首连 100% 「内部错误 No such file」。字符串 'ENOENT' 分支保留(本地 fs 语义
+ * 的桩/未来实现)。
+ */
+export function isEnoent(err: unknown): boolean {
+  const code = (err as { code?: string | number } | undefined)?.code;
+  return code === 'ENOENT' || code === SFTP_NO_SUCH_FILE;
 }
 
 /**
