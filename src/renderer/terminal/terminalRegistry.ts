@@ -1,12 +1,16 @@
 // 终端实例注册表:Terminal 对象以 tabId 为键、跨 React 挂载周期存活,
 // 切换 tab 不丢 scrollback、不断会话。
+// BL-004:终端消费改经 hostRegistry.forWorkspace(ws) per-host 路由——每个 TermInstance
+// 在 spawn 时绑定 client/hostId(tab 生命周期内 host 不变),会话反查改 (hostId,sessionId)
+// 复合键(sessionId 仅 per-host 唯一,本机+远程可能撞同名 id)。
 
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import type { WebglAddon } from '@xterm/addon-webgl';
-import { hostClient } from '../services/hostClient';
+import type { HostClient } from '../services/hostClient';
+import { hostRegistry } from '../services/hostRegistry';
 import { recordOutput } from '../services/quietGate';
 import {
   createOscLinkHandler,
@@ -39,6 +43,10 @@ export interface TermInstance {
   /** spawn 时的 cwd:链接相对路径解析的兜底 */
   spawnCwd: string;
   callbacks: TermCallbacks;
+  /** spawn 时绑定 = hostRegistry.forWorkspace(ws);本机 = 既有单例(零回归)。spawn 前为 null。 */
+  client: HostClient | null;
+  /** spawn 时绑定的路由 host id('local'|configId)。spawn 前为 null。会话复合键路由用。 */
+  hostId: string | null;
 }
 
 const registry = new Map<string, TermInstance>();
@@ -97,8 +105,15 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     disposed: false,
     spawnCwd: '',
     callbacks: {},
+    client: null,
+    hostId: null,
   };
   inst.barPin.setEnabled(pinBottomBarEnabled);
+
+  // FsLinkProvider 在此构造,早于 ensureSession 绑定 inst.client(A6)——不能构造期注入
+  // client,须用闭包 call-time 读:spawn 前 inst.client 为 null,兜底本机单例解析链接
+  // (未 spawn 的终端里点链接按本机路径找,合理默认);spawn 后随该终端绑定的 host。
+  const getClient = (): HostClient => inst.client ?? hostRegistry.local();
 
   // 网页链接 → 系统默认浏览器。不要使用 xterm WebLinksAddon 的默认
   // window.open 路径,否则 Electron/宿主可能弹确认框或开内置窗口。
@@ -108,7 +123,8 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     tabId,
     term,
     () => inst.sessionId,
-    () => inst.spawnCwd || (hostClient.info?.homedir ?? '/'),
+    () => inst.spawnCwd || (getClient().info?.homedir ?? '/'),
+    getClient,
   );
   term.registerLinkProvider(linkProvider);
   // 可视区链接常驻蓝色高亮
@@ -125,25 +141,36 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   return inst;
 }
 
-export async function ensureSession(tabId: string, cwd: string): Promise<void> {
+/**
+ * spawn 会话。`hostId` = 该 tab 所属 workspace 的路由键('local'|configId)——
+ * tab 生命周期内 host 不变(一个 tab 属一个 ws 属一台机),绑定一次即稳定。
+ */
+export async function ensureSession(
+  tabId: string,
+  cwd: string,
+  hostId: string,
+): Promise<void> {
   const inst = getOrCreateTerminal(tabId);
   if (inst.sessionId || inst.spawning) return;
   inst.spawning = true;
   inst.spawnCwd = cwd;
+  inst.hostId = hostId;
+  const client = hostRegistry.forWorkspace({ hostId });
+  inst.client = client;
   try {
-    const { sessionId } = await hostClient.rpc('pty.spawn', {
+    const { sessionId } = await client.rpc('pty.spawn', {
       cwd,
       cols: inst.term.cols,
       rows: inst.term.rows,
     });
     // spawn 期间 tab 可能已被关闭:立即回收会话,避免 PTY 进程泄漏
     if (inst.disposed) {
-      void hostClient.rpc('pty.kill', { sessionId }).catch(() => undefined);
+      void client.rpc('pty.kill', { sessionId }).catch(() => undefined);
       return;
     }
     inst.sessionId = sessionId;
 
-    hostClient.attachPty(sessionId, {
+    client.attachPty(sessionId, {
       onData: (data, bytes) => {
         if (!inst.firstData) {
           inst.firstData = true;
@@ -152,7 +179,7 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
         // 记本 tab 最近输出时刻(前后台 tab 均触发)→ quiet 提示门控判「离开后是否有新增」
         recordOutput(tabId);
         // write 回调 = 数据已被解析消费 → 回执流控
-        inst.term.write(data, () => hostClient.ack(sessionId, bytes));
+        inst.term.write(data, () => client.ack(sessionId, bytes));
       },
       onExit: (exitCode) => {
         inst.sessionId = null;
@@ -162,14 +189,14 @@ export async function ensureSession(tabId: string, cwd: string): Promise<void> {
     });
 
     inst.term.onData((d) => {
-      if (inst.sessionId) hostClient.input(inst.sessionId, d);
+      if (inst.sessionId) client.input(inst.sessionId, d);
     });
     inst.term.onResize(({ cols, rows }) => {
-      if (inst.sessionId) hostClient.resize(inst.sessionId, cols, rows);
+      if (inst.sessionId) client.resize(inst.sessionId, cols, rows);
     });
     // spawn 进行期间 fit 可能已改变终端尺寸(onResize 当时未注册),
     // 主动同步一次当前尺寸,避免 TUI 以 80x24 启动
-    hostClient.resize(sessionId, inst.term.cols, inst.term.rows);
+    client.resize(sessionId, inst.term.cols, inst.term.rows);
   } catch (err) {
     // 失败必须在终端里说话,不许无声死 tab
     const message = err instanceof Error ? err.message : String(err);
@@ -186,10 +213,14 @@ export function getSessionId(tabId: string): string | null {
   return registry.get(tabId)?.sessionId ?? null;
 }
 
-/** 反查:sessionId → tabId(会话事件路由用) */
-export function findTabBySessionId(sessionId: string): string | null {
+/**
+ * 反查:(hostId, sessionId) 复合键 → tabId(会话事件路由用)。
+ * sessionId 仅 per-host 唯一(各机 ptyPool 本地计数器),单键反查会让本机 + 远程的
+ * 同名 sessionId 串 tab(ARCH-9)——复合键防串号。
+ */
+export function findTab(hostId: string, sessionId: string): string | null {
   for (const [tabId, inst] of registry) {
-    if (inst.sessionId === sessionId) return tabId;
+    if (inst.hostId === hostId && inst.sessionId === sessionId) return tabId;
   }
   return null;
 }
@@ -210,8 +241,8 @@ export function disposeTerminal(tabId: string): void {
   const inst = registry.get(tabId);
   if (!inst) return;
   inst.disposed = true;
-  if (inst.sessionId) {
-    void hostClient.rpc('pty.kill', { sessionId: inst.sessionId }).catch(() => {
+  if (inst.sessionId && inst.client) {
+    void inst.client.rpc('pty.kill', { sessionId: inst.sessionId }).catch(() => {
       /* host 可能已回收 */
     });
   }

@@ -1,12 +1,14 @@
 import type { ILink, Terminal } from '@xterm/xterm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HostClient } from '../../services/hostClient';
 
-// hostClient mock — only the FsLinkProvider end-to-end test (T-006) hits it;
+// fake host client — only the FsLinkProvider end-to-end test (T-006) hits it;
 // the openTarget routing tests stay synchronous on window.termpro.
+// BL-004: FsLinkProvider no longer imports the hostClient singleton — it takes
+// a getClient() closure (call-time, bound post-spawn to the routed host). Tests
+// inject a fake client directly instead of mocking the services/hostClient module.
 const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
-vi.mock('../../services/hostClient', () => ({
-  hostClient: { rpc, info: { homedir: '/home/u' } },
-}));
+const fakeClient = { rpc, info: { homedir: '/home/u' } } as unknown as HostClient;
 
 type Mod = typeof import('../terminalLinks');
 type RegisterFilePanelLocateHandler =
@@ -145,6 +147,7 @@ describe('terminal link activation routes by kind', () => {
       term,
       () => null,
       () => '/repo',
+      () => fakeClient,
     );
 
     const links = await new Promise<ILink[] | undefined>((resolve) => {

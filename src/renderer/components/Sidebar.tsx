@@ -1,10 +1,24 @@
 import './Sidebar.css';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppStore, tildify } from '../state/store';
-import { hostClient } from '../services/hostClient';
+import type { WorkspaceState } from '../state/store';
+import { hostRegistry } from '../services/hostRegistry';
+import {
+  startRemoteWorkspaceSync,
+  stopRemoteWorkspaceSync,
+} from '../services/remoteWorkspaceSync';
+import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
+import type { RemoteHostConfig } from '../../shared/remoteHost';
+import { ProtocolIncompatibleError } from '../../shared/versionCompat';
 import { RenameModal } from './RenameModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SettingsEntry } from './SettingsEntry';
+import { AddWorkspaceModal } from './AddWorkspaceModal';
+import { MachineGroup, type MachineInfo } from './MachineGroup';
+import type { MachineWorkspaceRowData } from './MachineWorkspaceRow';
+
+/** 断线两段式回落(D-8/AC-11)的 panel 阶段时长:UI 先亮断线态,再确定性折叠组头。 */
+const DISCONNECT_PANEL_MS = 900;
 
 /** Small pencil icon 12×12 */
 function PencilIcon() {
@@ -117,36 +131,176 @@ function UpdatePill() {
   );
 }
 
+/** ws → MachineWorkspaceRow 的展示态(per-host homedir tildify + 会话徽标源 = 本客户端 tabs)。 */
+function toRowData(
+  ws: WorkspaceState,
+  activeWorkspaceId: string | null,
+  disconnectedPanel: boolean,
+): MachineWorkspaceRowData {
+  const homedir = hostRegistry.forWorkspace(ws).info?.homedir ?? undefined;
+  const tildified = tildify(ws.root, homedir);
+  const meta = ws.branch ? `⎇ ${ws.branch} · ${tildified}` : tildified;
+  const tabRunning = ws.tabs.filter((t) => t.activity === 'running').length;
+  return {
+    id: ws.id,
+    name: ws.name,
+    meta,
+    active: ws.id === activeWorkspaceId,
+    tabCount: ws.tabs.length,
+    tabRunning,
+    disconnectedPanel,
+  };
+}
+
 export function Sidebar() {
   const workspaces = useAppStore((s) => s.workspaces);
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
-  const addWorkspace = useAppStore((s) => s.addWorkspace);
   const removeWorkspace = useAppStore((s) => s.removeWorkspace);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const renameWorkspace = useAppStore((s) => s.renameWorkspace);
   const moveWorkspace = useAppStore((s) => s.moveWorkspace);
   const notifications = useAppStore((s) => s.notifications);
-  const creatingWorkspace = useAppStore((s) => s.creatingWorkspace);
+
+  const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
+  const applyRuntimeEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
-  const homedir = hostClient.info?.homedir ?? undefined;
-
   // Modal state: null = closed, string = workspace id being renamed
   const [editingId, setEditingId] = useState<string | null>(null);
   const [ncOpen, setNcOpen] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
   const bellRef = useRef<HTMLButtonElement>(null);
 
-  // Track the id of the workspace currently being dragged
+  // Track the id of the workspace currently being dragged (本机组内拖拽排序)
   const draggingWsId = useRef<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  async function handleAdd() {
-    // 等待期防重复提交:in-flight 时忽略(store 亦有 guard 兜底)
-    if (creatingWorkspace) return;
-    const path = await window.termpro.pickDirectory();
-    if (path) await addWorkspace(path);
+  const [remoteConfigs, setRemoteConfigs] = useState<RemoteHostConfig[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    window.termpro.remoteHost.list().then((list) => {
+      if (alive) setRemoteConfigs(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Sidebar 常驻挂载(不像 RemoteHostsPage 弹层那样按需挂卸)。组头「连接」入口(AC-8)不能只
+  // 依赖「远程机」管理页恰好同时开着才走得通握手——本效果独立转发 main 的连接生命周期事件到
+  // runtime store,并在 verifying{tunnel} 时完成同一套握手编排(镜像 RemoteHostsPage.tsx 的
+  // beginHandshake 核心路径:connect(wsUrl)→ 冒烟 → 本地合成 ready 态,main 侧协议本身不推
+  // 'ready',由 renderer 握手成功后写入)。
+  // 🔴 与 RemoteHostsPage 重合挂载时不会重复连接:hostRegistry.getOrCreateRemote 对已存在的
+  // client 直接返回同一实例,HostClient.connect() 内部靠 connectPromise 缓存去重(两处调用
+  // 落在同一个 promise 上)。本效果不复制 RemoteHostsPage 的 E6"断开在途"过滤——Sidebar 无独立
+  // 「断开」入口,该竞态只在用户同时打开 RemoteHostsPage 手动断开时才可能出现;若后续复用面扩大,
+  // 建议把握手编排整体收敛进 remoteWorkspaceSync.ts 单源消解本处重复。
+  const handshakingRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    function beginHandshake(configId: string, tunnel: { localPort: number; token: string }) {
+      if (handshakingRef.current.has(configId)) return;
+      handshakingRef.current.add(configId);
+      const wsUrl = `ws://127.0.0.1:${tunnel.localPort}?token=${encodeURIComponent(tunnel.token)}`;
+      const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
+      client
+        .connect({ wsUrl })
+        .then(async () => {
+          try {
+            await client.rpc('fs.readdir', { path: client.info?.homedir ?? '/' });
+          } catch {
+            // 冒烟失败不阻断 ready —— 握手(host.info + 版本兼容)已是核心判据
+          }
+          applyRuntimeEvent({ configId, stage: 'ready' });
+        })
+        .catch((err: unknown) => {
+          applyRuntimeEvent({
+            configId,
+            stage: 'failed',
+            reason: err instanceof ProtocolIncompatibleError ? 'incompatible' : 'internal',
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          handshakingRef.current.delete(configId);
+        });
+    }
+
+    return window.termpro.remoteHost.onEvent((e) => {
+      applyRuntimeEvent(e);
+      if (e.stage === 'verifying' && e.tunnel) beginHandshake(e.configId, e.tunnel);
+    });
+  }, [applyRuntimeEvent]);
+
+  // 观测到某 configId ready → 该机 workspace 发现编排(TECH §远程 workspace 发现 · E5 会话订阅
+  // 同生命周期)。与「谁完成了握手」解耦——不论是本组件的 beginHandshake 还是 RemoteHostsPage
+  // 完成的握手,只要 runtime 落到 ready 就触发一次,重入由 remoteWorkspaceSync 内部去重。
+  const syncedHosts = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const [configId, evt] of Object.entries(runtimeMap)) {
+      if (evt.stage === 'ready' && !syncedHosts.current.has(configId)) {
+        syncedHosts.current.add(configId);
+        void startRemoteWorkspaceSync(configId, '');
+      } else if (evt.stage !== 'ready') {
+        syncedHosts.current.delete(configId);
+      }
+    }
+  }, [runtimeMap]);
+
+  // 断线两段式回落(D-8/AC-11):panel 阶段(0-900ms,红点 + 该机活跃 ws 行内"已断开"标签,
+  // 期间锁定其它 workspace 行点击)→ folded 阶段(组头折叠回未连接态外观,仍标"已断开"区别于
+  // 从未连接的灰态)。纯 UI 呈现节奏,不依赖 store 是否已 dropHostWorkspaces(该 action 落地前后
+  // 折叠时序均正确——workspaces:null 由本组件直接计算,不取决于 store 数组内容)。
+  const [panelHosts, setPanelHosts] = useState<Record<string, boolean>>({});
+  const panelTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const prevStages = useRef<Record<string, string | undefined>>({});
+
+  useEffect(() => {
+    for (const [configId, evt] of Object.entries(runtimeMap)) {
+      const prev = prevStages.current[configId];
+      if (evt.stage === 'disconnected' && prev !== 'disconnected') {
+        setPanelHosts((s) => ({ ...s, [configId]: true }));
+        clearTimeout(panelTimers.current[configId]);
+        panelTimers.current[configId] = setTimeout(() => {
+          setPanelHosts((s) => {
+            if (!s[configId]) return s;
+            const next = { ...s };
+            delete next[configId];
+            return next;
+          });
+          // folded 阶段:退订该机订阅 + 清 store 该 host 全部 workspace(含 active 回落本机首个)
+          // + drop client(E-4/D-8 三步同一原子操作)
+          stopRemoteWorkspaceSync(configId);
+        }, DISCONNECT_PANEL_MS);
+      } else if (evt.stage !== 'disconnected' && prev === 'disconnected') {
+        clearTimeout(panelTimers.current[configId]);
+        setPanelHosts((s) => {
+          if (!s[configId]) return s;
+          const next = { ...s };
+          delete next[configId];
+          return next;
+        });
+      }
+      prevStages.current[configId] = evt.stage;
+    }
+  }, [runtimeMap]);
+
+  useEffect(
+    () => () => {
+      Object.values(panelTimers.current).forEach(clearTimeout);
+    },
+    [],
+  );
+
+  // panel 阶段内点击其它 workspace 行不响应(等待确定性回落完成,防止用户在瞬间半路打断)
+  const selectionLocked = Object.values(panelHosts).some(Boolean);
+
+  function handleAdd() {
+    setAddModalOpen(true);
   }
 
   function handleRemove(e: React.MouseEvent, id: string, name: string) {
@@ -169,7 +323,16 @@ export function Sidebar() {
     setEditingId(null);
   }
 
-  // --- Drag handlers ---
+  function handleConnectMachine(id: string) {
+    window.termpro.remoteHost.connect({ id });
+  }
+
+  function handleSelectWorkspace(_machine: MachineInfo, ws: MachineWorkspaceRowData) {
+    if (selectionLocked) return;
+    setActiveWorkspace(ws.id);
+  }
+
+  // --- Drag handlers(仅本机组内重排;远程组无拖拽,与设计一致)---
 
   function handleDragStart(e: React.DragEvent<HTMLDivElement>, wsId: string) {
     draggingWsId.current = wsId;
@@ -186,6 +349,7 @@ export function Sidebar() {
 
   function handleDragOver(
     e: React.DragEvent<HTMLDivElement>,
+    localWorkspaces: WorkspaceState[],
     targetWsId: string,
     targetIndex: number,
   ) {
@@ -195,18 +359,17 @@ export function Sidebar() {
 
     const rect = e.currentTarget.getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
-    // If pointer is above midpoint → insert at targetIndex; otherwise at targetIndex + 1
     const insertIndex = e.clientY < midY ? targetIndex : targetIndex + 1;
 
-    const srcIndex = workspaces.findIndex((w) => w.id === srcId);
+    const srcIndex = localWorkspaces.findIndex((w) => w.id === srcId);
     if (srcIndex < 0) return;
 
-    // Compute effective destination after removing src from array
-    // Only call if the position actually changes
     let dest = insertIndex;
     if (srcIndex < insertIndex) dest = insertIndex - 1;
     if (dest === srcIndex) return;
 
+    // 本机组内重排:local 子集内下标即目标全局下标(本机 workspace 在 bootstrap/hydrate 时
+    // 先于任何远程发现写入 store,常态下连续排在数组前部;跨 host 交叉重排非本 Feature 范围)。
     moveWorkspace(srcId, dest < 0 ? 0 : dest);
   }
 
@@ -214,6 +377,72 @@ export function Sidebar() {
   const editingWorkspace = editingId
     ? workspaces.find((w) => w.id === editingId) ?? null
     : null;
+
+  const localWorkspaces = workspaces.filter((w) => w.hostId === 'local');
+
+  const localMachine: MachineInfo = {
+    id: 'local',
+    kind: 'local',
+    label: '本机',
+    workspaces: localWorkspaces.map((w) => toRowData(w, activeWorkspaceId, false)),
+  };
+
+  const remoteMachines: MachineInfo[] = remoteConfigs.map((cfg) => {
+    const runtime = runtimeMap[cfg.id];
+    const inPanel = !!panelHosts[cfg.id];
+    const wsForHost = workspaces.filter((w) => w.hostId === cfg.id);
+    const addr = `${cfg.username}@${cfg.host}`;
+
+    if (runtime?.stage === 'ready') {
+      return {
+        id: cfg.id,
+        kind: 'remote',
+        alias: cfg.alias,
+        addr,
+        status: 'connected',
+        workspaces: wsForHost.map((w) => toRowData(w, activeWorkspaceId, false)),
+      };
+    }
+
+    if (runtime?.stage === 'disconnected') {
+      if (inPanel) {
+        return {
+          id: cfg.id,
+          kind: 'remote',
+          alias: cfg.alias,
+          addr,
+          status: 'lost',
+          foldedLost: false,
+          workspaces: wsForHost.map((w) =>
+            toRowData(w, activeWorkspaceId, w.id === activeWorkspaceId),
+          ),
+        };
+      }
+      return {
+        id: cfg.id,
+        kind: 'remote',
+        alias: cfg.alias,
+        addr,
+        status: 'lost',
+        foldedLost: true,
+        emptyLabel: '已断开 · 点击重连',
+        workspaces: null,
+      };
+    }
+
+    // 未连接(从未连接过)或连接生命周期进行中/失败(AC-8 由 runtime 驱动组头呈现)
+    return {
+      id: cfg.id,
+      kind: 'remote',
+      alias: cfg.alias,
+      addr,
+      status: 'disconnected',
+      runtime,
+      workspaces: null,
+    };
+  });
+
+  const machines = [localMachine, ...remoteMachines];
 
   return (
     <aside className="sidebar">
@@ -236,7 +465,6 @@ export function Sidebar() {
           className="sidebar-add-btn"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onClick={handleAdd}
-          disabled={creatingWorkspace}
           title="Add workspace"
         >
           +
@@ -246,66 +474,75 @@ export function Sidebar() {
       {/* Notification center dropdown — anchored to sidebar */}
       <NotificationCenter open={ncOpen} onClose={() => setNcOpen(false)} />
 
-      {/* 工作区列表 */}
+      {/* 机器分组列表(AC-1):本机组恒置顶恒显 · M 个远程机组(未连接=别名+连接入口不展开) */}
       <div className="sidebar-list">
-        {workspaces.length === 0 ? (
-          <div className="sidebar-empty">
-            <span className="sidebar-empty-text">No workspaces</span>
-            <button
-              className="sidebar-add-ws-btn"
-              onClick={handleAdd}
-              disabled={creatingWorkspace}
-            >
-              Add Workspace
-            </button>
-          </div>
-        ) : (
-          workspaces.map((ws, idx) => {
-            const isActive = ws.id === activeWorkspaceId;
-            const isDragging = ws.id === draggingId;
-            const tildifiedPath = tildify(ws.root, homedir);
-            const metaLine = ws.branch
-              ? `⎇ ${ws.branch} · ${tildifiedPath}`
-              : tildifiedPath;
-
-            const attention = ws.tabs.filter((t) => t.waiting || t.unseenDone).length;
-
-            return (
-              <div
-                key={ws.id}
-                draggable
-                className={`sidebar-item${isActive ? ' sidebar-item--active' : ''}${isDragging ? ' sidebar-item--dragging' : ''}`}
-                onClick={() => setActiveWorkspace(ws.id)}
-                onDragStart={(e) => handleDragStart(e, ws.id)}
-                onDragEnd={handleDragEnd}
-                onDragOver={(e) => handleDragOver(e, ws.id, idx)}
-              >
-                <div className="sidebar-item-name-row">
-                  <span className="sidebar-item-name">{ws.name}</span>
-                  <button
-                    className="sidebar-edit-btn no-drag"
-                    style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                    onClick={(e) => openRenameModal(e, ws.id)}
-                    title="Rename workspace"
-                  >
-                    <PencilIcon />
-                  </button>
+        {machines.map((machine) =>
+          machine.kind === 'local' ? (
+            machine.workspaces && machine.workspaces.length > 0 ? (
+              <div key={machine.id} className="sidebar-machine-group" data-testid="machine-group" data-machine-id="local">
+                <div className="sidebar-machine-header">
+                  <span className="sidebar-machine-label">{machine.label}</span>
                 </div>
-                <span className="sidebar-item-meta">{metaLine}</span>
-                <button
-                  className="sidebar-remove-btn"
-                  style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                  onClick={(e) => handleRemove(e, ws.id, ws.name)}
-                  title="Remove workspace"
-                >
-                  &times;
-                </button>
-                {attention > 0 && (
-                  <span className="sidebar-attention-pill">{attention}</span>
-                )}
+                {machine.workspaces.map((row, idx) => {
+                  const ws = localWorkspaces[idx];
+                  const isDragging = ws.id === draggingId;
+                  return (
+                    <div
+                      key={ws.id}
+                      draggable
+                      className={`sidebar-item${row.active ? ' sidebar-item--active' : ''}${isDragging ? ' sidebar-item--dragging' : ''}`}
+                      onClick={() => handleSelectWorkspace(machine, row)}
+                      onDragStart={(e) => handleDragStart(e, ws.id)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleDragOver(e, localWorkspaces, ws.id, idx)}
+                    >
+                      <div className="sidebar-item-name-row">
+                        <span className="sidebar-item-name">{ws.name}</span>
+                        <button
+                          className="sidebar-edit-btn no-drag"
+                          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                          onClick={(e) => openRenameModal(e, ws.id)}
+                          title="Rename workspace"
+                        >
+                          <PencilIcon />
+                        </button>
+                      </div>
+                      <span className="sidebar-item-meta">{row.meta}</span>
+                      <button
+                        className="sidebar-remove-btn"
+                        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                        onClick={(e) => handleRemove(e, ws.id, ws.name)}
+                        title="Remove workspace"
+                      >
+                        &times;
+                      </button>
+                      {(() => {
+                        const attention = ws.tabs.filter((t) => t.waiting || t.unseenDone).length;
+                        return attention > 0 ? (
+                          <span className="sidebar-attention-pill">{attention}</span>
+                        ) : null;
+                      })()}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })
+            ) : (
+              <div key={machine.id} className="sidebar-empty" data-testid="machine-group" data-machine-id="local">
+                <span className="sidebar-empty-text">No workspaces</span>
+                <button className="sidebar-add-ws-btn" onClick={handleAdd}>
+                  Add Workspace
+                </button>
+              </div>
+            )
+          ) : (
+            <MachineGroup
+              key={machine.id}
+              machine={machine}
+              onConnect={handleConnectMachine}
+              onRetry={handleConnectMachine}
+              onSelectWorkspace={handleSelectWorkspace}
+            />
+          ),
         )}
       </div>
 
@@ -324,6 +561,9 @@ export function Sidebar() {
           onClose={handleModalClose}
         />
       )}
+
+      {/* 添加项目 modal(D-4/AC-3/AC-4):选机器(本机置顶+已连接远程机)→ 本机对话框 / 远程目录浏览器 */}
+      {addModalOpen && <AddWorkspaceModal onClose={() => setAddModalOpen(false)} />}
     </aside>
   );
 }

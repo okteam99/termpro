@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { hostClient } from './services/hostClient';
+import { hostRegistry } from './services/hostRegistry';
 import { selectActiveWorkspace, useAppStore } from './state/store';
 import { initPersistence } from './state/persistence';
 import { initSessionEvents } from './services/sessionEvents';
@@ -46,8 +46,8 @@ export default function App() {
   const filePanelWidth = useAppStore((s) => s.filePanelWidth);
 
   useEffect(() => {
-    hostClient.connect().then(setHostInfo, (e) => setError(String(e)));
-    return hostClient.onDown(() =>
+    hostRegistry.local().connect().then(setHostInfo, (e) => setError(String(e)));
+    return hostRegistry.local().onDown(() =>
       setError('Host 进程已退出,⌘R 重载窗口可恢复'),
     );
   }, []);
@@ -72,8 +72,10 @@ export default function App() {
   useEffect(() => {
     if (!hydrated) return;
     const refresh = () => {
+      // 远程 workspace 经该机 git(A25 · forWorkspace 按 ws.hostId 路由,零回归本机路径)
       for (const w of useAppStore.getState().workspaces) {
-        hostClient
+        hostRegistry
+          .forWorkspace(w)
           .rpc('git.info', { cwd: w.root })
           .then((info) =>
             useAppStore
@@ -155,6 +157,7 @@ export default function App() {
               key={tab.id}
               tabId={tab.id}
               cwd={tab.cwd}
+              hostId={activeWs.hostId}
               active={tab.id === activeWs.activeTabId}
               callbacks={callbacksFor(tab.id)}
             />

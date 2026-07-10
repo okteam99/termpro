@@ -15,12 +15,20 @@ vi.mock('../../terminal/terminalRegistry', () => ({
 import { useAppStore } from '../store';
 import type { WorkspaceState } from '../store';
 import { disposeTerminal } from '../../terminal/terminalRegistry';
+import { hostRegistry } from '../../services/hostRegistry';
 
-function ws(id: string, name: string, root: string, tabIds: string[]): WorkspaceState {
+function ws(
+  id: string,
+  name: string,
+  root: string,
+  tabIds: string[],
+  hostId = 'local',
+): WorkspaceState {
   return {
     id,
     name,
     root,
+    hostId,
     tabs: tabIds.map((t) => ({ id: t, title: t, cwd: root })),
     activeTabId: tabIds[0] ?? null,
   };
@@ -120,5 +128,29 @@ describe('workspace CRUD 等待确认 + 防重复提交(AC-2)', () => {
     expect(disposeTerminal).toHaveBeenCalledWith('pty-1');
     expect(s.workspaces.map((w) => w.id)).toEqual(['w2']);
     expect(s.activeWorkspaceId).toBe('w2');
+  });
+
+  it('created workspace defaults to hostId=local (write path forHostId)', async () => {
+    rpc.mockResolvedValueOnce({ id: 'srv-1', name: 'proj', root: '/tmp/proj' });
+    await useAppStore.getState().addWorkspace('/tmp/proj');
+    expect(useAppStore.getState().workspaces[0].hostId).toBe('local');
+  });
+
+  it('BL004-U-create-nohost-reject: unknown targetHostId (forHostId miss) rejects without RPC, no local write', async () => {
+    await useAppStore.getState().addWorkspace('/tmp/proj', 'cfg-ghost');
+    const s = useAppStore.getState();
+    expect(s.workspaces).toHaveLength(0);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(s.transientNotice).toBeTruthy();
+    expect(s.creatingWorkspace).toBe(false);
+  });
+
+  it('remove/rename route through hostRegistry.forWorkspace(ws) keyed by ws.hostId', async () => {
+    const forWorkspaceSpy = vi.spyOn(hostRegistry, 'forWorkspace');
+    useAppStore.setState({ workspaces: [ws('w1', 'old', '/a', ['t1'])] });
+    rpc.mockResolvedValueOnce({ id: 'w1', name: 'new', root: '/a' });
+    await useAppStore.getState().renameWorkspace('w1', 'new');
+    expect(forWorkspaceSpy).toHaveBeenCalledWith(expect.objectContaining({ hostId: 'local' }));
+    forWorkspaceSpy.mockRestore();
   });
 });

@@ -1,0 +1,159 @@
+// @vitest-environment jsdom
+/// <reference types="@testing-library/jest-dom" />
+// BL-004 · AC-3/AC-4:添加项目 - 远程目录浏览器加载/空/错误态 + 确认创建落该远程机组
+// (非本机 client)。hostRegistry 全 mock;store 用真实 useAppStore(addWorkspace 内部按
+// targetHostId 走 hostRegistry.forHostId 路由,是 AC-4"未落本地 client"断言的真实生产路径)。
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import * as matchers from '@testing-library/jest-dom/matchers';
+
+expect.extend(matchers);
+
+const { hostRegistryMock, localClient, remoteClient } = vi.hoisted(() => {
+  const localClient = {
+    info: { hostId: 'local', protocolVersion: 1, platform: 'darwin', homedir: '/Users/liam', shell: '/bin/zsh' },
+    rpc: vi.fn(async () => ({})),
+  };
+  const remoteClient = {
+    info: { hostId: 'x', protocolVersion: 1, platform: 'linux', homedir: '/home/liam', shell: '/bin/bash' },
+    rpc: vi.fn(),
+  };
+  const hostRegistryMock = {
+    local: vi.fn(() => localClient),
+    getOrCreateRemote: vi.fn(() => remoteClient),
+    drop: vi.fn(),
+    forWorkspace: vi.fn((ws: { hostId: string }) => (ws.hostId === 'local' ? localClient : remoteClient)),
+    forHostId: vi.fn((id: string) => (id === 'local' ? localClient : remoteClient)),
+  };
+  return { hostRegistryMock, localClient, remoteClient };
+});
+
+vi.mock('../../services/hostRegistry', () => ({ hostRegistry: hostRegistryMock }));
+
+import { AddWorkspaceModal } from '../AddWorkspaceModal';
+import { useAppStore } from '../../state/store';
+import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
+
+function installTermpro() {
+  Object.defineProperty(window, 'termpro', {
+    value: {
+      platform: 'darwin',
+      pickDirectory: vi.fn(async () => null),
+      remoteHost: {
+        list: vi.fn(async () => [
+          {
+            id: 'cfg-1',
+            alias: 'mini-pc',
+            host: '192.168.1.40',
+            port: 22,
+            username: 'liam',
+            authType: 'key',
+            createdAt: Date.now(),
+          },
+        ]),
+        save: vi.fn(),
+        delete: vi.fn(),
+        test: vi.fn(),
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        onEvent: vi.fn(() => () => undefined),
+      },
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
+beforeEach(() => {
+  useAppStore.setState({
+    workspaces: [],
+    activeWorkspaceId: null,
+    persistMode: 'v2',
+    creatingWorkspace: false,
+  });
+  useRemoteHostRuntimeStore.setState({ runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } } });
+  installTermpro();
+  localClient.rpc.mockClear();
+  remoteClient.rpc.mockReset();
+});
+
+afterEach(() => {
+  cleanup();
+  delete (window as unknown as Record<string, unknown>).termpro;
+});
+
+describe('AC-3 · 远程目录浏览器加载态', () => {
+  it('fs.readdir 未落定期间显示转圈 +「正在读取目录…」· 创建按钮禁用', async () => {
+    let resolveReaddir: (v: { entries: never[] }) => void = () => undefined;
+    remoteClient.rpc.mockImplementation(
+      () => new Promise((resolve) => { resolveReaddir = resolve; }),
+    );
+
+    render(<AddWorkspaceModal onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('mini-pc'));
+
+    expect(await screen.findByText('正在读取目录…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /上创建项目/ })).toBeDisabled();
+
+    resolveReaddir({ entries: [] });
+    await waitFor(() => expect(screen.getByText('(空目录)')).toBeInTheDocument());
+  });
+});
+
+describe('AC-3 · 远程空目录态', () => {
+  it('readdir resolve 空数组 → 渲染"(空目录)",非错误块', async () => {
+    remoteClient.rpc.mockResolvedValue({ entries: [] });
+
+    render(<AddWorkspaceModal onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('mini-pc'));
+
+    expect(await screen.findByText('(空目录)')).toBeInTheDocument();
+    expect(screen.queryByText(/EACCES/)).not.toBeInTheDocument();
+  });
+});
+
+describe('AC-3 · 远程目录 EACCES 错误态', () => {
+  it('readdir reject → 渲染错误块(含 EACCES 文案)+ 重试按钮 · 创建按钮禁用', async () => {
+    remoteClient.rpc.mockRejectedValue(
+      new Error("EACCES: permission denied, scandir '/home/liam/.config'"),
+    );
+
+    render(<AddWorkspaceModal onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('mini-pc'));
+
+    expect(await screen.findByText(/EACCES/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+    expect(screen.queryByText('(空目录)')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /上创建项目/ })).toBeDisabled();
+  });
+});
+
+describe('AC-4 · 确认创建落该远程机组', () => {
+  it('workspace.create 调用落在远程 client · 本地 client 未被调用 · 创建后关闭 modal', async () => {
+    remoteClient.rpc.mockImplementation(async (method: string) => {
+      if (method === 'fs.readdir') return { entries: [] };
+      if (method === 'workspace.create') {
+        return { id: 'srv-ae', name: 'liam', root: '/home/liam' };
+      }
+      return {};
+    });
+
+    const onClose = vi.fn();
+    render(<AddWorkspaceModal onClose={onClose} />);
+    fireEvent.click(await screen.findByText('mini-pc'));
+    await screen.findByText('(空目录)');
+
+    fireEvent.click(screen.getByRole('button', { name: /上创建项目/ }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(remoteClient.rpc).toHaveBeenCalledWith(
+      'workspace.create',
+      expect.objectContaining({ root: '/home/liam' }),
+    );
+    expect(localClient.rpc).not.toHaveBeenCalledWith('workspace.create', expect.anything());
+
+    // 新 workspace 带 hostId=cfg-1 入该机组视图态(非持久化 · D-6),不落本机
+    const created = useAppStore.getState().workspaces.find((w) => w.id === 'srv-ae');
+    expect(created?.hostId).toBe('cfg-1');
+  });
+});

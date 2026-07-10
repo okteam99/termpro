@@ -5,11 +5,12 @@
 // 两者都应把跨行路径识别成一条完整链接;且回退不得误伤「恰好铺满行尾的完整路径 + 无关下一行」。
 import { Terminal } from '@xterm/xterm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HostClient } from '../../services/hostClient';
 
+// BL-004: FsLinkProvider takes a getClient() closure instead of importing the
+// hostClient singleton — inject a fake client directly (see terminalRegistry.ts).
 const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
-vi.mock('../../services/hostClient', () => ({
-  hostClient: { rpc, info: { homedir: '/home/u' } },
-}));
+const fakeClient = { rpc, info: { homedir: '/home/u' } } as unknown as HostClient;
 type Mod = typeof import('../terminalLinks');
 let FsLinkProvider: Mod['FsLinkProvider'];
 
@@ -23,7 +24,7 @@ function statExisting(existing: Record<string, 'file' | 'dir'>) {
 }
 
 async function provide(term: Terminal, y: number) {
-  const p = new FsLinkProvider('t', term, () => null, () => '/home/u');
+  const p = new FsLinkProvider('t', term, () => null, () => '/home/u', () => fakeClient);
   return new Promise<{ text: string; range: unknown }[]>((res) =>
     p.provideLinks(y, (links) => res((links ?? []).map((l) => ({ text: l.text, range: l.range })))),
   );

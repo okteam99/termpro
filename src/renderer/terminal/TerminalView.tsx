@@ -56,11 +56,13 @@ function remountWebgl(inst: TermInstance): void {
 interface Props {
   tabId: string;
   cwd: string;
+  /** 该 tab 所属 workspace 的路由 host('local'|configId)——spawn 时绑定,决定终端连哪台机 */
+  hostId: string;
   active: boolean;
   callbacks?: TermCallbacks;
 }
 
-export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
+export default function TerminalView({ tabId, cwd, hostId, active, callbacks }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 回调随渲染刷新(store action 引用可能变化)
@@ -81,8 +83,8 @@ export default function TerminalView({ tabId, cwd, active, callbacks }: Props) {
     } else if (inst.term.element && inst.term.element.parentElement !== el) {
       el.appendChild(inst.term.element);
     }
-    void ensureSession(tabId, cwd);
-  }, [tabId, cwd]);
+    void ensureSession(tabId, cwd, hostId);
+  }, [tabId, cwd, hostId]);
 
   // 激活态:WebGL 渲染器只挂可见终端(每页 WebGL context 数量有限,
   // 后台 tab 退回 DOM 渲染照常写入 buffer)。

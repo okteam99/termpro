@@ -20,6 +20,7 @@ function seed(): void {
         id: 'ws1',
         name: 'WS',
         root: '/r',
+        hostId: 'local',
         tabs: [tab('t1'), tab('t2')],
         activeTabId: 't2',
       },
@@ -89,11 +90,12 @@ describe('切工作区使其 active tab 可见 = 查看(external review · mediu
   function seedMulti(): void {
     useAppStore.setState({
       workspaces: [
-        { id: 'wsA', name: 'A', root: '/a', tabs: [tab('a1')], activeTabId: 'a1' },
+        { id: 'wsA', name: 'A', root: '/a', hostId: 'local', tabs: [tab('a1')], activeTabId: 'a1' },
         {
           id: 'wsB',
           name: 'B',
           root: '/b',
+          hostId: 'local',
           tabs: [tab('b1'), tab('b2')],
           activeTabId: 'b1',
         },

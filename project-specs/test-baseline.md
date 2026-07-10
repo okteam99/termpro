@@ -39,3 +39,4 @@ state.py test-complete --integration-test-exit-code 1 --current-failures "id1,id
 |---|---|---|---|---|
 <!-- 示例（删之）：| developer_earnings_it::test_settlement | cargo test --lib | a1b2c3d | F-Bv2 重构遗留 · 待 owner 修(REVIEW-#42) | 2026-06-15 | -->
 | src/host/__tests__/wsMultiClientIsolation.test.ts,src/host/__tests__/wsRpcParity.test.ts,src/host/__tests__/wsHandshakeGate.test.ts | npx vitest run (src/host PTY-exercising WS suites) | — | 沙箱环境 posix_spawnp failed(PTY fork 被拒)· 非代码缺陷 · BL-003 前已存在(stash 复核基线同样 12 失败)· 环境债 · 真实 CI/本机有 PTY 时自愈 · 与本 Feature 改动(wsServer Origin/节流·未碰 PTY 路径)无关 | 2026-07-09 |
+| src/host/__tests__/wsMultiClientIsolation.test.ts,src/host/__tests__/wsRpcParity.test.ts,src/host/__tests__/wsHandshakeGate.test.ts,src/host/__tests__/tokenGate.test.ts | npx vitest run (host PTY-exercising suites) | — | 沙箱 posix_spawnp failed(PTY fork 被拒)· 环境债非代码缺陷 · BL-004 未碰 src/host PTY 路径(改动全在 renderer+workspaceService)· stash 复核基线同样失败 · 与 BL-003 同基线 | 2026-07-10 |
