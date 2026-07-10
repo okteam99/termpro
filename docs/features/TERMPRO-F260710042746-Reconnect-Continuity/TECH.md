@@ -62,8 +62,9 @@
  renderer                         main(SSH隧道)           host(standalone)
    │ app层心跳超时(≤T秒·AC-13)          │                      │ 会话续跑·旁路流控·环形缓冲填充(AC-1)
    │─ 判定断线 → 横幅+退避(AC-6/13) ────│                      │ 若此间退出:onExit→exited态保留(AC-12)
-   │─ remoteHost.connect(configId) ──▶│ 重建隧道(新localPort/token)
-   │                                   │─ emit verifying{tunnel} ▶│
+   │─ disconnect(configId) ───────────▶│ 🔴 ready→disconnected(放弃旧死session·ARCH-B-1)
+   │─ connect(configId) ──────────────▶│ claim复用存活host+storedToken(freshDeploy才新token·EXT-B-2)
+   │                                   │─ emit verifying{tunnel:新localPort,storedToken} ▶│
    │◀── verifying{tunnel} ─────────────│                      │
    │─ hostClient.reconnect({wsUrl}) ──────────(新ws)──────────▶│ token闸(AC-8)
    │─ session.list ────────────────────────────────────────▶│ 返回快照[]（含exited+退出码）
@@ -79,8 +80,8 @@
 | 字段 | 类型 | 现状 | 变更 | 备注 |
 |------|------|------|------|------|
 | id | string | 有 | - | per-host 唯一 |
-| pty | pty.IPty | 有 | - | exited 后仍持引用（已死，仅取 pid=null） |
-| unacked / paused | number/bool | 有 | 语义收窄 | **仅 attached 时驱动 pause**；detached 恒不 pause |
+| pty | pty.IPty | 有 | - | exited 后仍持引用；🔴 node-pty `pty.pid` 退出后**仍返旧值**（不变 null）→ `pid()`/`pty.cwd` 对 `status==='exited'` **显式返 null**（勿对死 pid 调 processCwd·EXT-B-6） |
+| unacked / paused | number/bool | 有 | 语义收窄 | pause 判据 gate 到 attached：`if(attached && !paused && unacked>high) pause`。🔴 **detach() 时**：`paused=false; proc.resume()`（解断开瞬间已 paused 的会话·否则无 ack 永不 resume·子进程整段憋停·击穿 AC-1·ARCH-B-3）+ `unacked=0`；🔴 **reattach() 时** `unacked=0`（回放全新记账起点·免新 owner 一挂上就 >高水位立即二次 pause） |
 | send | fn | 有 | 可换绑 | reattach 换目标；detach 时置 noop sink |
 | scanner / tracker | 对象 | 有 | tracker 加快照 | 见 SessionTracker 快照 |
 | **mode** | `'embedded'\|'standalone'` | 新增 | host 形态注入（D-1） | embedded 不分配 ring / onExit 立即 delete（零回归） |
@@ -97,7 +98,7 @@
 |------|------|------|
 | capacityBytes | number | 默认 `TERMPRO_SESSION_RING_BYTES`（256×1024）· env 可注入 |
 | length / startOffset | number | `startOffset = absoluteOffset - length`（缓冲内最旧字节的绝对偏移） |
-| push(data) | void | 追加；超容量按**字节从头驱逐**，驱逐点**对齐 UTF-8 码点边界**（不切多字节序列·QA-6） |
+| push(data) | void | 追加；超容量按**字节从头驱逐**，驱逐点**对齐 UTF-8 码点边界**（无状态·看高位 bit·不切多字节码点·QA-6）。🔴 **不解析 CSI/OSC 转义语法**（ring 只存字节·跨 chunk 转义态拿不到·有状态 parser 是 YAGNI）——转义序列完整性靠 gap 超缓冲 `full=true` 回退清屏 + `proc.resize` 逼重绘兜底（ARCH-B-7/QA-B-3） |
 | sliceFrom(offset) | `{data, baseOffset, full}` | offset ≥ startOffset → 增量切片(full=false)；offset < startOffset(被挤出/新建tab) → **整缓冲 + full=true**（renderer 清屏全量） |
 
 #### SessionSnapshot（协议 DTO · session.list 返回元素 · 用途：Response）
@@ -121,7 +122,8 @@
 |------|------|------|------|
 | found | boolean | 是 | false = 该 sessionId 已不存在（被逐出/从未有）→ renderer 退化 new spawn（AC-11 幂等收养 miss 分支） |
 | full | boolean | 是 | true = renderer 须先 `term.reset()` 清屏再写 data（gap 超缓冲/重建 tab）；false = 增量补屏 |
-| baseOffset | number | 是 | data 首字节的绝对偏移（renderer 据此更新 renderedBytes） |
+| baseOffset | number | 是 | data 首字节的绝对偏移 |
+| nextOffset | number | 是 | 🔴 **data 末字节后的绝对偏移**（= host 切片时的 absoluteOffset）。renderer 回放后**权威赋值** `renderedBytes = nextOffset`·**不自算** `baseOffset + byteLength(data)`（renderer 无 Buffer·`TextEncoder().encode` 须逐字节等于 host 切片偏移·跨运行时脆弱 → 直接给终点消 EXT-B-5） |
 | data | string | 是 | 回放载荷（gap 或整缓冲；安全边界切片） |
 | snapshot | SessionSnapshot | 是 | 收养即返当前快照（AC-5 对账，省一次 list） |
 
@@ -139,7 +141,12 @@
 | 重连收养既有会话（换 send·回放·resize 对账） | `session.attach` | `{ sessionId: string; resumeOffset: number; cols: number; rows: number }` | `SessionAttachResult` |
 
 - `session.list`：hostCore 遍历 `pool` 全部会话（live+exited）产出快照数组。**token 闸后单租户全可见**（AC-8：连上机器即见全部会话是特性）。
-- `session.attach`：hostCore 校验 token 已过（ws 层）→ `pool.reattach(sessionId, newSend, {cols,rows,resumeOffset})` → **所有权转移**（从旧 owner Set 移除 sid，加入本 client Set，last-attach-wins·AC-14）→ 返回回放切片 + 快照。**原子**：reattach 内同步换 send 后再算切片，新 onData 走新 send，无 gap/overlap。
+- `session.attach`：hostCore 校验 token 已过（ws 层）→ `pool.reattach(sessionId, newSend, {cols,rows,resumeOffset})` → **所有权转移**（从旧 owner Set 移除 sid，加入本 client Set，last-attach-wins·AC-14）→ 返回回放切片 + `nextOffset` + 快照。
+  - 🔴 **reattach 三不变式（ARCH-B-5·单线程原子性靠它撑·任一破即 overlap/乱序）**：
+    ① **全程同步禁 await**：`ring.sliceFrom` 算切片 + `session.send=newSend` 换绑必须同一 tick 完成。中间插 await → onData 能在 swap 与 slice 之间跑 → 同批字节既进 ring 切片又作 live pty:data 发新 owner = 重复。
+    ② **转移即从旧 owner `client.sessions` 摘除 sid**：否则旧连接稍后 close 时 `hostCore:125` 回收（standalone→detach）会**误动已转移会话**（把新 owner 输出转进 ring 不回屏·楔死）。
+    ③ **renderer 回放-then-append 顺序**：收到 attach 的 `rpc:res` 先写回放切片·再让 live `pty:data` append（靠 host 先发 rpc:res 后发 pty:data 的 wire 序 + hostClient `bufferedData` 微任务排空成立；闪断路径旧 `ptyListener`（键=同 sessionId）reconnect 后仍在·尤须显式声明此序·不可默认实现者知晓）。
+  - exited 分支（`status==='exited'`·pty 已死）：reattach **跳过 `proc.resize` + 流控记账**（死 pty resize 会抛·纯回放最终 scrollback·ARCH-B-6）。
 - **向后兼容**：`host.info` 加 `capabilities`（可选）。renderer 重连前查 `info.capabilities?.includes('session.resume')`；缺失 → 跳过 list/attach 直接 new spawn（BL-003/004 旧 host 零破坏）。即便未查能力位而误调 session.list，旧 host 走 `hostCore:264 unknown rpc method` → `rpc:res ok:false` 稳定错误码，renderer catch 后退化 new spawn（双保险）。
 
 ### 错误处理 / 异常路径
@@ -154,6 +161,9 @@
 | 双 spawn 防护 | 心跳假死 ~30s 窗口内重连早于旧连接 reap | renderer 记 sessionId → 先 `session.attach`；**found=true 收养**（不 new spawn）；found=false 才 new spawn（AC-11） | **WARN**（found=false 退化 new spawn 时记 sid） | 幂等 |
 | 截断切坏序列 | ring 驱逐点 / 回放切片点落在多字节 UTF-8 / CSI / OSC 中段 | 驱逐点前移到下一 UTF-8 码点边界；增量切片起点 = renderer 报的 chunk 边界偏移（天然干净）；不确定（altscreen/中段）→ full 回退清屏 | **WARN**（切片点调整时） | - |
 | 收养后 resize 错行 | 断开期终端尺寸变化 → 回放按旧尺寸错行 | attach 携当前 cols/rows → reattach 内 `proc.resize` 对账 → 逼 TUI 重绘（QA-12/ARCH-8） | **DEBUG** | 幂等 |
+| exited 会话 attach resize 抛异常 | `status==='exited'`（pty 已死）无脑走 reattach→`proc.resize` | reattach 对 exited **跳过 `proc.resize` + 流控记账**（死进程无重绘意义·纯回放最终 scrollback·ARCH-B-6） | **DEBUG** | 幂等 |
+| detach 时会话已 paused | 断开瞬间 `unacked` 顶在高水位·`paused===true`（重输出 build 合盖那刻概率不低） | detach 内 `paused=false; proc.resume(); unacked=0`（无 renderer → 无 ack → ack 是唯一 resume 路径·否则整段憋停·「续跑」是假的·ARCH-B-3） | **DEBUG** | - |
+| 重连 claim 探测瞬时失败 | 网络刚从抖动恢复（正是 claim 探测最易假阴性时刻）·单次 `probeHostInfo` miss | claim 路径 probe **有界重试**（`TERMPRO_CLAIM_PROBE_RETRIES` 默 3·短退避·env 可注入）·瞬时失败**不立即** reapThenDeploy——tag-match+alive 的**自证属本 configId 的活 host**·单探 miss 不该 kill（否则连同断线期跑完的 build 一并销毁·威胁北极星·EXT-B-2） | **WARN**（configId + 重试次数） | 重试 N 次后仍失败才 reap |
 | host 进程重启 | standalone host 自身重启 | 内存态全失（exited/ring 不持久·Out-of-Scope）→ session.list 空 → renderer 全 new spawn（优雅降级，非崩溃） | **WARN**（list 空但本地有 sessionId 记录时） | new spawn |
 
 > 🔴 不静默吞：每条 catch 均有 WARN（可恢复/预期）；host 内部意外（reattach 目标已 delete 等竞态）ERROR + sid 上下文。
@@ -170,6 +180,9 @@
 | `HostInfo.capabilities?` | `src/renderer/services/versionCompat.ts` | **不参与**版本兼容判定（只读能力位，不影响 checkHostInfoCompatible） | 兼容 |
 | ptyPool `Session`/spawn | `src/host/hostCore.ts`（pool 构造传 mode·close 回调分叉 kill/detach） | 改接线 | 内部 |
 | stopRemoteWorkspaceSync 时机 | `src/renderer/components/Sidebar.tsx:298-326`（disconnected 不立即 drop） | 改接线（reconnecting 拦截） | 内部 |
+| 🔴 verifying{tunnel} 握手 owner | `src/renderer/components/Sidebar.tsx:240-273 beginHandshake`（+ RemoteHostsPage 同款）现调 `client.connect({wsUrl})`——重连时 connectPromise 陈旧早返·与 reconnectController 争抢同一 verifying 事件（ARCH-B-2/EXT-B-1·硬门④ call site） | 改调 `client.reconnect({wsUrl})`（单一入口·初次 connectPromise=null 时复位 no-op 等价 connect） | 内部 |
+| 🔴 重连续存依赖 residency claim | `src/main/remote/residency.ts:177 resolveResidency`（claim 探测单次无重试·`:81` 失败落 reapThenDeploy kill） | claim probe 加有界重试（可能落 BL-003 residency·BL-005 以其为地基须点名设门·EXT-B-2） | 内部 |
+| main 侧断线感知时延（纵深防御） | `src/main/remote/ssh.ts:110 client.connect`（只设 `readyTimeout`·无 keepalive·冻结 TCP 不主动探活） | 加 `keepaliveInterval`/`keepaliveCountMax`（env 可注入·让 main 也较快 emit disconnected·**不替代** disconnect-first·心跳仍是权威 fast 信号） | 内部 |
 
 - **跨子项目方向**：单仓库桌面 app，无跨子项目。provider(host)/consumer(renderer) 同 PR；协议追加先落 shared，两端 `tsc -b` 校验。
 - **破坏性契约变更**：无。全追加。**本机零回归口径** = embedded 会话 mode='embedded'：不分配 ring / close 仍 kill / onExit 立即 delete / 不进 session.list（AC-2）。
@@ -177,16 +190,43 @@
 ### 前端技术方案
 
 - **组件/服务结构**（新增 · 修改）：
-  - 🆕 `src/renderer/services/reconnectController.ts`：断线重连编排单源。订阅 remoteHost `disconnected` 事件 → 状态机 `reconnecting`；驱动 `window.termpro.remoteHost.connect({id})` 重建隧道 → 收到 `verifying{tunnel}` → `hostClient.reconnect({wsUrl})` → 成功后 `terminalRegistry.readoptHost(configId)` + `session.list` 对账 + 横幅消失；失败退避；超预算 → `stopRemoteWorkspaceSync`（确定断线）。指数退避 + 手动重试 + 预算（env 可注入）纯逻辑抽 `reconnectBackoff.ts` 便于单测。
-  - 🔧 `hostClient.ts`：加 `reconnect(opts)`（复位 down + connectPromise + close 旧 transport + 重开 + **保 per-host 结构**，区别 dispose）；加 app 层心跳（remote client·`heartbeatIntervalMs`/`heartbeatTimeoutMs` env 可注入·周期 host.info 探活·超时→ onClose 分叉）；`markDown` 分叉（`reconnectable` 标志：local=终结·remote=触发重连非终结）。
-  - 🔧 `terminalRegistry.ts`：`TermInstance` 加 `renderedBytes`（write 回调后累加，= 已渲染绝对偏移）；加 `readoptHost(configId)`：对该 host 全部持 sessionId 的 inst → `session.attach(sid, renderedBytes, cols, rows)` → full 则 `term.reset()` 后写 data·否则增量 write → 更新 renderedBytes；found=false → 走 ensureSession new spawn（幂等收养）。onExit 对 standalone：显「已完成」徽标但**不 dispose**（会话在 host 仍 exited 可回放）。
+  - 🆕 `src/renderer/services/reconnectController.ts`：断线重连编排单源。app 层心跳/`disconnected` 判定断线 → 状态机 `reconnecting` → 🔴 **disconnect-first（ARCH-B-1·重连触发链的关键）**：先 `await window.termpro.remoteHost.disconnect(configId)`（orchestrator.disconnect:276 closeSessionTransport + stage `ready→disconnected` + emit disconnected·放弃旧死 session）·**再** `window.termpro.remoteHost.connect(configId)`（`disconnected→connecting` 合法）——**否则 connect() 在 ready 态是 no-op**（orchestrator:257 `ACTIVE_STAGES` 含 `ready`·心跳检测的断线 main 侧还没感知·隧道永不重建·verifying 永不 emit·重连卡死）→ 收 `verifying{tunnel}` → `hostClient.reconnect({wsUrl})` → 成功后 `terminalRegistry.readoptHost(configId)` + `session.list` 对账 + 横幅消失；失败退避；超预算 → `stopRemoteWorkspaceSync`（确定断线）。指数退避 base/cap + 手动重试 + **重连预算**均 env 可注入·纯逻辑抽 `reconnectBackoff.ts`（构造注入·免挂钟等 30s/2min·QA-B-10）。
+    - 🔴 **纵深防御（非替代 disconnect-first）**：给 ssh2 加 `keepaliveInterval`/`keepaliveCountMax`（env 注入）让冻结 TCP 下 main 也能较快 emit disconnected；但合盖场景 onclose/ssh close 可数分钟·心跳仍是权威 fast 信号·disconnect-first 是 main stage 复位的确定手段。
+    - 🔴 **reconnecting 非锁定态（EXT-B-4）**：重连期（预算 ~2min）**不长持 selectionLock**——用户可自由切 workspace / 切 tab。现 `Sidebar.tsx:336 selectionLocked` 仅 panel 900ms 短窗生效·reconnecting **不顺延**该锁（否则长达 2 分钟冻结整个 sidebar = 严重 UX 回归）。BL-004 workspace 作用域隔离不回归（stop 仍 per-configId）·风险只在时序与锁。
+  - 🔧 `hostClient.ts`：加 `reconnect(opts)`（复位 down + connectPromise + close 旧 transport + 重开 + **保 per-host 结构**，区别 dispose）·🔴 加**并发再入守卫**（手动「立即重试」+ 退避循环可能同时触发 reconnect·in-flight 复用同一 promise·beginHandshake 现有 `handshakingRef` 只护自己·护不到 reconnectController 的调用·ARCH-B-2）；加 app 层心跳（remote client·`heartbeatIntervalMs`/`heartbeatTimeoutMs` env 可注入·周期 host.info 探活·超时→ onClose 分叉·🔴 **心跳走 transport 注入 seam**便于单测 TC-026/027·免整成 integration·QA-B-8）；`markDown` 分叉（`reconnectable` 标志：local=终结·remote=触发重连非终结）。
+  - 🔴 **verifying→握手单一 owner（ARCH-B-2/EXT-B-1·硬门④ call site 收敛）**：`Sidebar.beginHandshake:247`（+ RemoteHostsPage 同款）**改调 `client.reconnect({wsUrl})`** 而非 `connect({wsUrl})`。理由：重连时 main re-emit `verifying{tunnel}`·两个独立订阅者（reconnectController + beginHandshake）争抢·beginHandshake 走 `connect()` 命中陈旧 connectPromise（`hostClient.ts:155`）→ 原样返回旧 resolved promise → 新 ws 不开 → 假 ready 污染 UI。`reconnect()` 复位后开新 ws·对初次连接等价（connectPromise=null·复位是 no-op）→ **单一入口兼容初次/重连**·消双订阅。
+  - 🔧 `terminalRegistry.ts`：`TermInstance` 加 `renderedBytes`（🔴 **在 `onData` 里同步累加·`term.write` 之前/同刻·非 write 回调·ARCH-B-4**——游标须是「已接收」高水位而非「已渲染」：xterm write 异步解析·若 attach 时写队列还有在途未回调 chunk·write-回调式 renderedBytes 偏小 → host 回放 `[resumeOffset, absoluteOffset)` 覆盖队列待写字节 = 双写；`ack` 仍留 write 回调·背压语义不变·与游标**解耦**·resumeOffset 恒 ≥ renderer 已纳入字节·双写不可能）；加 `readoptHost(configId)` 两路径：
+    - **路径①闪断（inst 存活·GO-006）**：对该 host 全部持 sessionId 的 inst → `session.attach(sid, renderedBytes, cols, rows)` → full 则 `term.reset()` 后写 data·否则增量 write → 🔴 `renderedBytes = result.nextOffset`（权威·不自算 byteLength·EXT-B-5）；found=false → ensureSession new spawn（幂等收养 miss）。
+    - **路径②重建（D-4 第二路径·EXT-B-3）**：`session.list` 有、本地无 inst（tab 已关 / BL-004 已 disposeTerminal）→ 据快照 `{cwd,title,state}` **重建 tab** + `session.attach(resumeOffset=0)` **full 全量回放**。否则 AC-4「发现」退化为「只重连已知实例」（此路径 AC-15 suppress-drop 常态下潜伏·但须显式实现·非静默缺失）。
+    - onExit 对 standalone：显「已完成」徽标但**不 dispose**（会话在 host 仍 exited 可回放）。
   - 🔧 `remoteWorkspaceSync.ts` / `Sidebar.tsx`：`disconnected` 事件不再无条件 900ms→`stopRemoteWorkspaceSync`；改由 reconnectController 决策——**瞬时**→ reconnecting 态（保 workspace + 保活终端 + 保 client）·**确定**（超预算/机器删除）→ 才 `stopRemoteWorkspaceSync`（AC-15/D-13）。
 - **状态管理**：reconnecting 态入 `remoteHostStore`（runtime[configId].stage 扩 `'reconnecting'`，或旁挂 reconnect 子态）；横幅/Sidebar 组件订阅呈现。终端实例态在 terminalRegistry（跨挂载存活·GO-006）。
 - **样式/UI**：复用 UI.md 设计——`.add-ws__reconnect-banner`（+`--failed` 变体）、`MachineGroup` `status==='reconnecting'` 黄点脉冲、`MachineWorkspaceRow` `reconnectingPanel`、`.tab-dot--exited`（AC-12 已完成态）、`.rc-frozen`/`.rc-gap-divider`。加法扩展，既有页零回归。
 
 ### 流程图（收养/回放/对账时序）
 
-见 PRD §业务流程图（sequenceDiagram 已画全链路）。关键不变式：**reconnect() 复位 connectPromise 是新 ws 能打开的前提**；**resumeOffset = renderer renderedBytes（非 host ack 计数）是不双写的前提**；**reattach 换 send 先于算回放切片是不丢字节的前提**。
+关键不变式：**disconnect-first 复位 main stage 是 connect() 不 no-op 的前提**；**reconnect() 复位 connectPromise 是新 ws 能打开的前提**；**resumeOffset = renderer renderedBytes（onData 同步累加·非 write 回调·非 host ack 计数）是不双写的前提**；**reattach 换 send 先于算回放切片是不丢字节的前提**。
+
+🔴 **补 main 侧 stage 复位时序（PRD sequenceDiagram 缺此段·ARCH-B-1）**——心跳检测的断线经 disconnect-first 才驱得动重连：
+
+```mermaid
+sequenceDiagram
+  participant R as Renderer(reconnectController)
+  participant M as main(orchestrator)
+  participant H as 远程 Host(standalone)
+  R->>R: app 层心跳超时 → markDown(remote·非终结) → reconnecting
+  R->>M: disconnect(configId)  %% 🔴 放弃旧死 session
+  M->>M: closeSessionTransport + stage ready→disconnected + emit disconnected
+  R->>M: connect(configId)     %% disconnected→connecting 合法(不 no-op)
+  M->>M: resolveResidency → claim(复用存活 host + storedToken·探测有界重试·EXT-B-2)
+  M-->>R: verifying{tunnel:新localPort, token: storedToken}
+  R->>H: hostClient.reconnect({wsUrl})  %% 复位 connectPromise·单一 owner(beginHandshake 亦改 reconnect)
+  R->>H: session.list / session.attach(resumeOffset=renderedBytes, cols, rows)
+  H-->>R: {found,full,baseOffset,nextOffset,data,snapshot}
+  R->>R: 回放切片 → renderedBytes=nextOffset → 对账徽标 → 横幅消失
+```
+
+全链路（含 host 续跑/exited）见 PRD §业务流程图。
 
 ---
 
@@ -200,9 +240,10 @@
   - 重连退避：指数退避 + 手动重试复位 + 超预算判定确定断线（`reconnectBackoff.test.ts`）。
   - hostClient reconnect：复位 down+connectPromise+保 per-host 结构 / markDown 本地终结 vs 远程触发重连分叉（`hostClientReconnect.test.ts`·mock transport 无 PTY）。
   - 瞬时 vs 确定 drop：瞬时不 dropHostWorkspaces/disposeTerminal·确定才 drop（`reconnectSuppressDrop.test.ts`·按 GO-017 mock terminalRegistry + 直驱 store）。
-  - app 层心跳：超时有界 T 内判断线 + 周期 env 可注入（`heartbeatDetect.test.ts`）。
-- **集成测（真 hostCore + 真 ws + 真 node-pty·wsTestHarness）**：AC-1/3/4/8/9/11/12/14 端到端（断开→续跑→exited 保留→重连 session.list→attach 收养→增量/全量回放→对账→last-attach-wins）。新增 `reconnectContinuity.integration.test.ts`；embedded 零回归 + exited 寿命在 `ptyPoolDetach.test.ts`（直驱 PtyPool）。
-- **契约/端到端**：协议追加 → session.list/attach 真跑（集成测即契约验证·真 ws 帧）。旧 host 兼容退化在 hostClientReconnect 单测（capabilities 缺失 → 不调 list）。
+  - app 层心跳：超时有界 T 内判断线 + 周期 env 可注入（`heartbeatDetect.test.ts`·心跳走 transport 注入 seam·非 integration·QA-B-8）。
+  - 🔴 **terminalRegistry readoptHost 渲染层（🆕 `src/renderer/terminal/__tests__/terminalRegistryReadopt.test.ts`·QA-B-1·北极星级双写的渲染半侧）**：test-double xterm 记录写入 → 断言（a）full=true 才 `term.reset()`·full=false **不** reset；（b）`renderedBytes` 前进量 === host `bytes`（喂 `bytes≠data.length` 的 **CJK/emoji** chunk·验证按 bytes 累加不用 length·resumeOffset 恒 ≥ 已纳入字节·**重连不重复渲染已有字节**）；（c）`renderedBytes = nextOffset` 权威赋值；（d）found=false 才 new spawn；（e）快照对账徽标（running→idle·exited 完成✓）；（f）路径②：session.list 有本地无 inst → 重建 tab full 回放。
+- **集成测（真 hostCore + 真 ws + 真 node-pty·wsTestHarness）**：AC-1/3/4/8/9/11/12/14 端到端。🔴 **按层拆（QA-B-1）**：host 集成测只断言**协议/回放字节**（gap / baseOffset===resumeOffset / nextOffset / snapshot 值 / last-attach-wins 转移）·**渲染断言移上面 readoptHost 渲染层单测**（TestClient 非 xterm·观测不到 reset/renderedBytes/徽标）。🔴 harness 加 `mode` 选项（`startTestHost({mode})`·AC-1/12 需 standalone·TC-003 需 embedded·现 `createHostCore()` 无入参·QA-B-8）。新增 `reconnectContinuity.integration.test.ts`；embedded 零回归 + exited 寿命 + **exited 逐出选择**（cap 满混合 live/exited → 逐最旧 exited·live 全存活·QA-B-4）在 `ptyPoolDetach.test.ts`（直驱 PtyPool）。
+- **契约/端到端**：协议追加 → session.list/attach 真跑（集成测即契约验证·真 ws 帧）。🔴 旧 host 兼容退化在 `hostClientReconnect` 单测（`capabilities` 缺失 → **不调 list/attach·直接 new spawn**·QA-B-5）+ 集成断言旧 core 收未知 method 回 `ok:false`（双保险）。🔴 **residency claim 重试**在 `src/main/remote/__tests__/residency.test.ts`（瞬时 probe 失败 + tag-match+alive host → 重试后 claim·**不 reap**·EXT-B-2）。
 - **AC-13 真机 defer**：合盖/断网/切网真机时序（隧道断恢复边界·30s 假死窗）沙箱测不了 → 列 **发版前真机 spike**（manual）；有界时延用注入快心跳做**单元/集成断言**兜底。
 - **基线失败集**：`reconnectContinuity.integration.test.ts` / `ptyPoolDetach.test.ts` 因真 PTY 在沙箱 `posix_spawnp failed`（同 GO / test-baseline BL-003/004 基线）→ dev 阶段登记 `project-specs/test-baseline.md`，test gate 差分「0 新增」。纯单测（ring/backoff/tracker/hostClient/suppress/heartbeat）沙箱可绿。
 
@@ -226,8 +267,8 @@
 | 12 | host.ts 形态注入（createHostCore(mode)·standalone 填 capabilities） | 🟢 | 冒烟绿 | ☐ |
 | 13 | 集成测：断开续跑/session.list/attach 收养/增量回放/exited/last-attach-wins | 🔴🟢 | reconnectContinuity 绿（沙箱登记基线） | ☐ |
 | 14 | hostClient reconnect() + markDown 分叉 + app 心跳 | 🔴🟢 | hostClientReconnect/heartbeat 单测绿 | ☐ |
-| 15 | terminalRegistry renderedBytes + readoptHost 幂等收养 | 🔴🟢 | 绿 | ☐ |
-| 16 | reconnectController + backoff + 瞬时/确定 drop 抑制 | 🔴🟢 | backoff/suppress 单测绿 | ☐ |
+| 15 | terminalRegistry renderedBytes（onData 同步累加）+ readoptHost（路径①闪断 / 路径②重建 tab）+ 渲染层单测（reset-vs-增量·bytes 记账·徽标·QA-B-1） | 🔴🟢 | terminalRegistryReadopt 绿 | ☐ |
+| 16 | reconnectController（**disconnect-first→connect**·ARCH-B-1）+ backoff + 瞬时/确定 drop 抑制 + Sidebar beginHandshake 改 `reconnect()`（单一 owner·ARCH-B-2）；residency claim 探测有界重试（EXT-B-2）；ssh keepalive（纵深） | 🔴🟢 | backoff/suppress/residency 单测绿 | ☐ |
 | 17 | UI 接线（横幅/MachineGroup reconnecting/tab-dot--exited）+ 冒烟 | 🟢 | SMOKE_OK | ☐ |
 | 18 | verify-ac + 全套件差分 gate + opus 评审收尾 | — | 三绿 | ☐ |
 
@@ -237,26 +278,29 @@
 
 | 风险 | 严重度 | 缓解 / 兜底 |
 |------|--------|-----------|
-| 增量回放游标错位致双写/花屏 | high | 游标权威 = renderer renderedBytes（write 回调后累加·chunk 边界天然干净）；gap 超缓冲→full 清屏兜底；集成测断言「本地已有内容不重复」 |
-| 断开期 proc 仍被憋停（旁路流控漏网） | high | detached 时 `paused` 永不置 true·集成测断言 close 后 `pool.pid` 存活且输出持续入 ring |
+| 增量回放游标错位致双写/花屏 | high | 游标权威 = renderer renderedBytes（🔴 **onData 同步累加·非 write 回调·ARCH-B-4**·免在途写队列致游标滞后）；`SessionAttachResult.nextOffset` 权威推进·renderer 不自算 byteLength（EXT-B-5）；gap 超缓冲→full 清屏兜底；🔴 **渲染层单测**断言不双写（含 CJK bytes≠chars·QA-B-1）·非仅 host 契约侧 |
+| 断开期 proc 仍被憋停（旁路流控漏网） | high | detached 时 pause 判据 gate 到 attached；🔴 **detach 内解已 paused 会话**（`paused=false; proc.resume(); unacked=0`·ARCH-B-3·断开瞬间已 paused 亦续跑）；集成测**先灌 >512KiB 打到 paused 再 detach**·断言 detach 后 paused===false 且 ring 字节持续增长（QA-B-2 行为断言·非白盒读私有 paused） |
+| 重连 claim 瞬时探测失败 reap 掉存活 host | high | claim 探测有界重试（EXT-B-2·`TERMPRO_CLAIM_PROBE_RETRIES` 默 3）·tag-match+alive 的活 host 单探 miss 不 kill；claim 复用 storedToken（**非**新 token·仅 freshDeploy 新 token）；测「瞬时失败→重试后仍 claim·不 reap」 |
 | exited 会话内存泄漏（无时间回收） | med | 字节上限（每 session 有界）+ 会话数上限（溢出先逐最旧 exited·再拒新建）+ 手动 kill 出口 |
 | last-attach-wins 转移竞态（旧 owner 残留输出） | med | 所有权转移原子（hostCore `sessionOwners` map O(1) 移旧加新）；reattach 换 send 先于算切片；集成测断言旧 owner input 被拒 + 输出去新 owner |
 | 30s 假死窗双 spawn | med | renderer 记 sessionId·先 attach·found 命中即收养（AC-11 幂等） |
 | 合盖/断网真机时序不可测 | med | 注入快心跳做有界时延单元/集成断言 + 发版前真机 spike（manual 门禁） |
 | Sidebar disconnected→drop 接线改动碰 BL-004 回归 | med | AC-15 测断言瞬时不 drop、确定才 drop；保 BL-004 既有 full-drop 路径（仅前移触发判据） |
 | altscreen 全屏 TUI 字节回放只能近似 | low | 收养后 proc.resize 逼重绘（ARCH-8/QA-12）；无法完美是已知取舍 |
+| 多端并发 spawn 触顶逐早完成 exited | low | exited 逐出排序键 = **exit 时间**（最近完成的最后逐·保北极星）。单窗口断开期无新 spawn → 无逐出压力 → 深夜 build 稳留至早晨。**已知有界取舍**：多端（多窗口/未来 mobile）同 standalone host 狂 spawn 触顶时·可能逐掉早完成的长任务 exited（单窗口不受影响·ARCH-B-8） |
 
 ## 待决策
 | 问题 | 建议 |
 |------|------|
 | 会话数上限默认值 | 建议 64（standalone 单机·env `TERMPRO_MAX_SESSIONS` 可注入）；blueprint 评审可调 |
-| 会话数溢出「先逐最旧 exited 再拒新建」vs「纯拒新建」 | 建议**先逐最旧 exited**（finished 会话逐出安全·避免 exited 堆满永久 wedge）·绝不逐 live（QA-7）。此为 H-1「计数驱逐」与 D-9「拒新建不杀运行」的调和·请评审确认忠实 |
+| 会话数溢出「先逐最旧 exited 再拒新建」vs「纯拒新建」 | 建议**先逐最旧 exited**（finished 会话逐出安全·避免 exited 堆满永久 wedge）·🔴 **排序键 = exit 时间**（最近完成的最后逐·Map 迭代序=插入序≠完成序·须显式按 exit 时间·ARCH-B-8·保北极星）·绝不逐 live（QA-7）。此为 H-1「计数驱逐」与 D-9「拒新建不杀运行」的调和·请评审确认忠实 |
 | 心跳周期默认值 | 建议 interval 5s + timeout 5s（T≈10s·AC-13 上界）·env 可注入 |
 
 ## 变更记录
 | 日期 | 变更 |
 |------|------|
 | 2026-07-10 | v0.1 首版（据 PRD v0.4 · 8 硬门逐条落 · grounded 真实行号） |
+| 2026-07-10 | v0.2 blueprint 三视角冷审收口（ARCH-B/QA-B/EXT-B 全 NEEDS_REVISION→修订·核心方案不变）：**HIGH** disconnect-first 复位 main stage（ARCH-B-1）· verifying 单一 owner beginHandshake→reconnect + 并发再入守卫（ARCH-B-2/EXT-B-1）· detach 解已 paused 会话 + reattach unacked 复位（ARCH-B-3）· 游标 onData 同步累加 + `nextOffset`（ARCH-B-4/EXT-B-5）· residency claim 有界重试复用 storedToken（EXT-B-2）· readoptHost 渲染层测 + 按层拆从句（QA-B-1）· AC-1 行为断言（QA-B-2）。**MED** reattach 三不变式（ARCH-B-5）· exited attach 跳 resize（ARCH-B-6）· D-4 重建 tab 路径（EXT-B-3）· reconnecting 非锁定（EXT-B-4）· exited 逐出/兼容退化/AC-14 否定断言/exitCode 双源/注入 seam（QA-B-4~9）。**LOW** TC-008 收窄 UTF-8（ARCH-B-7/QA-B-3）· exited 逐出排序键=exit 时间（ARCH-B-8）· exited pid()=null（EXT-B-6）· 安全信任边界明写（EXT-B-8）· backoff env 注入（QA-B-10） |
 
 ## 完工自查（RD 实现完逐项打钩）
 
@@ -281,3 +325,5 @@
 - **renderedBytes 与 host absoluteOffset 同单位是隐性契约**：两者都 = `Buffer.byteLength(pty:data.data)` 累加（host 发出侧 ptyPool.ts:86·renderer 消费侧 pty:data.bytes 字段）。dev 阶段勿把 renderer 的「字符数」当字节数（xterm write 的是字符串·但 bytes 字段是 host 算好的字节数·必须用 bytes 累加不用 data.length）。否则 CJK/emoji 场景游标偏移错位。
 - **exited 会话仍占 (hostId,sessionId) 复合键**：AC-5 徽标对账时 `tabRunning` 归零但 session 仍在 list（status=exited）——UI.md §补充洞察已点明「别把 tabRunning 和 session 是否存在混为一谈」。dev 留意 formatTabBadge 据 running 计数去「· running」后缀·exited 仍要在 list 里打「已完成」徽标。
 - **GO-028 per-host 四面同步**：本 Feature reconnect 复用既有 client（不 drop 不重建）→ 数据模型/路由/持久化/会话四面本就绑定 configId·reconnect 保 per-host 结构即维持四面不变（区别 dispose 会破四面）。这是「reconnect ≠ dispose」的深层理由。
+- **exitCode 双源歧义（QA-B-7·别接错线）**：`sessionTracker` 的 cmd-done exitCode（`sessionTracker.ts:97`·OSC133 D）= **最近一条命令**退出码；`SessionSnapshot.exitCode`（AC-12「✓ exit N」徽标）= **进程/会话**退出码（`ptyPool` onExit `:95` 的 exitCode）。二者同名不同源——AC-12 徽标须取 **onExit 进程退出码**·**不**从 `tracker.snapshot().exitCode` 取（否则显最近命令退出码而非 build/进程退出码）。
+- **安全信任边界（EXT-B-8·非 blocker·明写让运维知爆炸半径）**：攻击面 = `wsServer` loopback bind（`:204`）+ token 闸（`:252`·128-bit 熵·缺失/错误同路径 socket.destroy 零信息）。因 D-9 砍时间型 reap → 会话及其**可认领窗随 host 进程存活无上界**；last-attach-wins 转移对旧 owner **静默无通知**（AC-14）→ token 一旦泄露 = **不可察觉**的会话 I/O 接管。缓解单支撑 = token 保密 + standalone 单租户假设（`host.ts:89` 已防驻留态 token 落盘）。
