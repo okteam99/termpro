@@ -73,6 +73,7 @@ const KNOWN_ROUTES = [
   '/workspace/add-workspace',
   '/settings/remote-hosts',
   '/sidebar/machine-groups',
+  '/session/reconnect-continuity',
 ];
 
 const DEFAULT_ROUTE = '/workspace/add-workspace';
@@ -90,6 +91,7 @@ const DEVBAR_ROUTES = [
   { path: '/workspace/add-workspace', label: 'Add Workspace' },
   { path: '/settings/remote-hosts', label: 'Remote Hosts' },
   { path: '/sidebar/machine-groups', label: 'Sidebar · Machine Groups' },
+  { path: '/session/reconnect-continuity', label: 'Session · Reconnect' },
 ];
 
 function PreviewDevBar({ currentPath, onNavigate, statePresets, activeStateKey, onSelectState }) {
@@ -209,6 +211,10 @@ function Sidebar({
  * machine.foldedLost(可选 · D-8/AC-11):true = 断线后折叠回未连接态外观(隐藏 workspace 列表·
  * 显示 emptyLabel + 重连入口),区别于旧有「lost 仅整体变灰但仍展开」的呈现(该呈现继续保留·
  * 供未设置 foldedLost 的既有场景使用,零回归)。
+ *
+ * machine.status === 'reconnecting'(可选 · BL-005 AC-15):瞬时断线保活态 —— 区别于 'lost'(确定断线·
+ * BL-004 full drop 边界)。组头黄点脉冲 + 「重连中…」而非红点/「已断开」·workspace 列表**照常展开**
+ * (非 foldedLost·会话仍在远端跑·非消失)。
  */
 function MachineGroup({ machine, onConnect, onRetry, onSelectWorkspace }) {
   const isRemote = machine.kind === 'remote';
@@ -260,6 +266,12 @@ function MachineGroup({ machine, onConnect, onRetry, onSelectWorkspace }) {
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'connecting' && (
           <span className="sidebar-machine-connecting">连接中…</span>
         )}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'reconnecting' && (
+          <span className="sidebar-machine-status sidebar-machine-status--active">
+            <span className="add-ws__spinner add-ws__spinner--sm" />
+            重连中…
+          </span>
+        )}
       </div>
       {showWorkspaces ? (
         machine.workspaces.map((ws, i) => (
@@ -294,12 +306,14 @@ function formatTabBadge(ws) {
   return null;
 }
 
+/** ws.reconnectingPanel(可选 · BL-005 AC-15):瞬时断线保活态,复用同一条目视觉家族但标签是「重连中」
+ *  (琥珀色·区别于「已断开」的红色·D-13 与 BL-004 full-drop 的关键区分——保活非移除)。 */
 function MachineWorkspaceRow({ ws, onClick }) {
   const badge = formatTabBadge(ws);
   const classes = [
     'sidebar-item',
     ws.active ? 'sidebar-item--active' : '',
-    ws.disconnectedPanel ? 'sidebar-item--disconnected' : '',
+    (ws.disconnectedPanel || ws.reconnectingPanel) ? 'sidebar-item--disconnected' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -307,6 +321,9 @@ function MachineWorkspaceRow({ ws, onClick }) {
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{ws.name}</span>
         {ws.disconnectedPanel && <span className="sidebar-item-lost-tag">已断开</span>}
+        {ws.reconnectingPanel && (
+          <span className="sidebar-item-lost-tag sidebar-item-lost-tag--reconnecting">重连中</span>
+        )}
       </div>
       <div className="sidebar-item-meta">
         <span className="sidebar-item-meta-row">
@@ -2184,6 +2201,264 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
   );
 }
 
+// ---- G. /session/reconnect-continuity(BL-005:断线重连与会话连续性)----
+
+const RECONNECT_STATE_PRESETS = [
+  { key: 'live', label: '在线基线' },
+  { key: 'disconnected', label: '断线 · T 秒内' },
+  { key: 'reconnecting', label: '重连握手中' },
+  { key: 'reconnected-running', label: '重连成功 · 仍在跑' },
+  { key: 'reconnected-completed', label: '断开期已完成' },
+  { key: 'retry-failed', label: '重连失败' },
+];
+
+const RC_LOCAL_WORKSPACES = [
+  { name: 'TermPro', meta: 'main · ~/apps/okok/TermPro', tabCount: 1, tabRunning: 0 },
+];
+
+const RC_DEFAULT_TABS = [
+  { id: 'build', title: 'aon-edge · build', primary: true },
+  { id: 'agent', title: 'aon-edge · agent', primary: false },
+];
+
+/** 断开前已知的终端快照(6 态共用「历史部分」·冻结态只展示这段·重连后在其后追加,AC-3 增量回放)。 */
+const RC_SNAPSHOT_LINES = [
+  { prefix: '12:04:01', value: 'Compiling src/edge/inference.py' },
+  { prefix: '12:04:03', value: 'Compiling src/edge/config.yaml' },
+  { prefix: '12:04:05', value: 'Running unit tests (42/58)…' },
+  { prefix: '12:04:07', value: 'Running unit tests (55/58)…' },
+  { prefix: '12:04:09', value: 'Running unit tests (58/58) ✓' },
+];
+
+const RC_LIVE_STREAM_LINE = { prefix: '12:04:11', value: 'Bundling assets (2/6)…', streaming: true };
+
+const RC_RESUME_RUNNING_LINES = [
+  { prefix: '12:09:12', value: 'Bundling assets (5/6)…' },
+  { prefix: '12:09:16', value: 'Starting dev server…', streaming: true },
+];
+
+const RC_COMPLETED_LINES = [
+  { prefix: '12:11:02', value: 'Bundling assets (6/6)…' },
+  { prefix: '12:11:05', value: '✓ build succeeded in 3m12s', tone: 'success' },
+  { prefix: '12:11:05', value: 'process exited (code 0)', tone: 'exit' },
+];
+
+/** 终端条目按态拼装:disconnected/reconnecting/retry-failed 三态**冻结在断开前快照**(断开期无新输出可见 ·
+ * 与「远端仍在跑但本地画面暂停」的叙事一致);reconnected-* 两态在快照后接**补回断开期 gap** 的分隔行(AC-3)。 */
+function buildRcEntries(devState) {
+  const snapshot = RC_SNAPSHOT_LINES.map((l) => ({ type: 'line', ...l }));
+  if (devState === 'live') {
+    return [...snapshot, { type: 'line', ...RC_LIVE_STREAM_LINE }];
+  }
+  if (devState === 'reconnected-running') {
+    return [
+      ...snapshot,
+      { type: 'divider', label: '补回断开期间 128 行' },
+      ...RC_RESUME_RUNNING_LINES.map((l) => ({ type: 'line', ...l })),
+    ];
+  }
+  if (devState === 'reconnected-completed') {
+    return [
+      ...snapshot,
+      { type: 'divider', label: '补回断开期间 214 行' },
+      ...RC_COMPLETED_LINES.map((l) => ({ type: 'line', ...l })),
+    ];
+  }
+  // disconnected / reconnecting / retry-failed:冻结在断开前快照,无新增
+  return snapshot;
+}
+
+/** Sidebar 机器分组按态拼装:reconnecting = AC-15 瞬时断线保活(黄点·workspace 打「重连中」·不折叠);
+ * retry-failed = 逼近 BL-004 full-drop 边界(红点 lost·仍展示为可重连,非真的从 Sidebar 消失)。 */
+function buildRcMachines(devState) {
+  const minipcStatus = devState === 'retry-failed'
+    ? 'lost'
+    : (devState === 'disconnected' || devState === 'reconnecting')
+      ? 'reconnecting'
+      : 'connected';
+
+  const ws = {
+    name: 'aon-edge',
+    meta: 'dev · ~/apps/aon-edge',
+    tabCount: 2,
+    tabRunning: devState === 'reconnected-completed' ? 0 : 1,
+    active: true,
+  };
+  if (devState === 'disconnected' || devState === 'reconnecting') {
+    ws.reconnectingPanel = true;
+  }
+
+  return [
+    { id: 'local', kind: 'local', label: '本机', workspaces: RC_LOCAL_WORKSPACES.map((w) => ({ ...w })) },
+    {
+      id: 'mini-pc', kind: 'remote', alias: 'mini-pc', addr: 'liam@192.168.1.40',
+      status: minipcStatus,
+      workspaces: [ws],
+    },
+  ];
+}
+
+/** 断开前已知态(running)在未对账前维持不变(AC-5 对账只在重连收敛后发生)·reconnected-completed 才翻新态。 */
+function rcTabMeta(devState) {
+  if (devState === 'reconnected-completed') {
+    return { dotClass: 'tab-dot--exited', exitTag: '✓ exit 0' };
+  }
+  return { dotClass: 'tab-dot--running', exitTag: null };
+}
+
+const RC_REMOTE_FILE_SCENARIO = {
+  mode: 'worktree',
+  root: '~/apps/aon-edge',
+  hint: 'mini-pc · liam@192.168.1.40',
+  rows: SIDEBAR_MG_REMOTE_FILES,
+};
+
+function ReconnectTabBar({ devState, tabs, onCloseTab }) {
+  const { dotClass, exitTag } = rcTabMeta(devState);
+  return (
+    <div className="tabbar" aria-label="Tabs">
+      <div className="tabbar-tabs">
+        {tabs.map((t) => (
+          <div key={t.id} className={`tabbar-tab${t.primary ? ' tabbar-tab--active' : ''}`}>
+            <span className={`tab-dot ${t.primary ? dotClass : 'tab-dot--idle'}`} />
+            <span className="tab-icon">▱</span>
+            <span className="tabbar-tab-title">{t.title}</span>
+            {t.primary && <span className="tabbar-tab-host">mini-pc</span>}
+            {t.primary && exitTag && (
+              <span className="tab-exit-tag" data-ac="AC-12">{exitTag}</span>
+            )}
+            <button
+              className="tabbar-close-btn tabbar-close-btn--always"
+              title="Close tab"
+              onClick={() => onCloseTab(t.id)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="tabbar-drag-strip" />
+    </div>
+  );
+}
+
+/** 重连横幅:disconnected(自动重连倒计时 + 手动立即重试)/ reconnecting(隧道重建中 · spinner)/
+ * retry-failed(失败态 · 重试 + 查看远程机)三态各自的真实可点交互(AC-6/AC-10/AC-13)。 */
+function ReconnectBanner({ devState, manualRetrying, onManualRetry, onViewHost }) {
+  if (devState === 'disconnected') {
+    return (
+      <div className="add-ws__reconnect-banner" role="status" data-ac="AC-6 AC-13 AC-15">
+        <span>与 mini-pc 的连接已断开 · 正在重连…(第 2 次 · 4s 后重试)</span>
+        <button className="add-ws__reconnect-btn" onClick={onManualRetry} disabled={manualRetrying}>
+          {manualRetrying ? '重试中…' : '立即重试'}
+        </button>
+      </div>
+    );
+  }
+  if (devState === 'reconnecting') {
+    return (
+      <div className="add-ws__reconnect-banner" role="status" data-ac="AC-6 AC-10">
+        <span className="add-ws__spinner add-ws__spinner--sm" />
+        <span>正在重建隧道 → mini-pc…</span>
+      </div>
+    );
+  }
+  if (devState === 'retry-failed') {
+    return (
+      <div className="add-ws__reconnect-banner add-ws__reconnect-banner--failed" role="status" data-ac="AC-6">
+        <span>重连失败 · 已重试 5 次</span>
+        <div className="rc-banner-actions">
+          <button className="add-ws__reconnect-btn" onClick={onManualRetry} disabled={manualRetrying}>
+            {manualRetrying ? '重试中…' : '重试'}
+          </button>
+          <button className="add-ws__reconnect-btn" onClick={onViewHost}>查看远程机</button>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+function ReconnectContinuityPage({ currentPath, onNavigate }) {
+  const [devState, setDevState] = useState('live');
+  const [tabs, setTabs] = useState(RC_DEFAULT_TABS);
+  const [manualRetrying, setManualRetrying] = useState(false);
+
+  useEffect(() => {
+    setTabs(RC_DEFAULT_TABS);
+    setManualRetrying(false);
+  }, [devState]);
+
+  function closeTab(id) {
+    setTabs((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  function handleManualRetry() {
+    setManualRetrying(true);
+    setTimeout(() => setManualRetrying(false), 900);
+  }
+
+  const machines = useMemo(() => buildRcMachines(devState), [devState]);
+  const entries = useMemo(() => buildRcEntries(devState), [devState]);
+  const frozen = devState === 'disconnected' || devState === 'reconnecting' || devState === 'retry-failed';
+
+  return (
+    <PreviewPage
+      currentPath={currentPath}
+      onNavigate={onNavigate}
+      statePresets={RECONNECT_STATE_PRESETS}
+      activeStateKey={devState}
+      onSelectState={setDevState}
+    >
+      <div className="app-shell">
+        <div data-ac="AC-15" style={{ display: 'contents' }}>
+          <Sidebar
+            machines={machines}
+            onAddWorkspace={() => onNavigate('/workspace/add-workspace')}
+            onOpenRemoteHosts={() => onNavigate('/settings/remote-hosts')}
+          />
+        </div>
+        <div className="pane-handle" />
+        <main className="main-column">
+          <ReconnectTabBar devState={devState} tabs={tabs} onCloseTab={closeTab} />
+          <div className="terminal-area">
+            <div className="add-ws__terminal-wrap">
+              <div className="terminal-host" aria-label="Terminal">
+                <ReconnectBanner
+                  devState={devState}
+                  manualRetrying={manualRetrying}
+                  onManualRetry={handleManualRetry}
+                  onViewHost={() => onNavigate('/settings/remote-hosts')}
+                />
+                {frozen && (
+                  <div className="rc-frozen-note" role="status">● 远端进程仍在运行 · 本地画面已暂停</div>
+                )}
+                <div className={`terminal-screen${frozen ? ' rc-frozen' : ''}`} data-ac="AC-1 AC-3">
+                  {entries.map((e, i) => (
+                    e.type === 'divider' ? (
+                      <div className="rc-gap-divider" key={`d-${i}`}>— {e.label} —</div>
+                    ) : (
+                      <div className={`terminal-line${e.tone ? ` terminal-line--${e.tone}` : ''}`} key={`l-${i}`}>
+                        <span className="terminal-prefix">{e.prefix}</span>
+                        <span>
+                          {e.value}
+                          {e.streaming && !frozen && <span className="rc-cursor">▍</span>}
+                        </span>
+                      </div>
+                    )
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <div className="pane-handle" />
+        <FilePanel scenario={RC_REMOTE_FILE_SCENARIO} remote />
+      </div>
+    </PreviewPage>
+  );
+}
+
 function App() {
   const [path, setPath] = useState(() => normalizeInitialPath(window.location.pathname));
   const [scenarioKey, setScenarioKey] = useState('worktree');
@@ -2224,6 +2499,10 @@ function App() {
 
   if (path === '/sidebar/machine-groups') {
     return <SidebarMachineGroupsPage currentPath={path} onNavigate={navigate} />;
+  }
+
+  if (path === '/session/reconnect-continuity') {
+    return <ReconnectContinuityPage currentPath={path} onNavigate={navigate} />;
   }
 
   const scenario = scenarios[scenarioKey];
