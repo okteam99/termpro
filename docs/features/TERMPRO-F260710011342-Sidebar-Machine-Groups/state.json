@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": "a373ee8e213ae4c20b6d53e8520e3de053ece987",
   "worktree": {
@@ -81,16 +81,37 @@
       "duration_minutes": 45
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T03:20:19Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "\n Test Files  46 passed (46)\n      Tests  404 passed (404)\n   Start at  11:54:21\n   Duration  2.70s (transform 2.34s, setup 0ms, collect 6.07s, tests 3.40s, environment 16.35s, prepare 4.37s)"
+      },
+      "completed_at": "2026-07-10T03:54:32Z",
+      "auto_commit": "0585e9c428034f09251091800402bee487b93387",
+      "artifacts": [
+        "src/renderer/services/hostRegistry.ts",
+        "src/renderer/state/store.ts",
+        "src/renderer/state/workspaceSync.ts",
+        "src/renderer/components/Sidebar.tsx",
+        "src/renderer/services/remoteWorkspaceSync.ts"
+      ],
+      "duration_minutes": 34
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T03:20:19Z"
+      "started_at": "2026-07-10T03:54:32Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-07-10T01:15:04Z",
   "stage_review_roles": {
@@ -129,11 +150,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T03:20:28Z",
+  "updated_at": "2026-07-10T03:54:44Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:84425955de20d389763a288b862e3528c0ac658472bef2ac31a4d2860f470103",
+  "_state_checksum": "sha256:3621180a5bef167ca2669aa168563608d94766679a28969b12c3c20dd90c7222",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
