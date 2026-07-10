@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { startTestHost, TestClient, TestHost, waitFor, delay } from './wsTestHarness';
+import { startTestHost, TestClient, TestHost, waitFor, delay, describePty } from './wsTestHarness';
 
 const SMALL_CAP = 512 * 1024;
 
@@ -39,7 +39,7 @@ async function newClient(): Promise<TestClient> {
   return c;
 }
 
-describe('AC-7 畸形输入 host 不崩、他客户端无感', () => {
+describePty('AC-7 畸形输入 host 不崩、他客户端无感', () => {
   it('T-047 非 JSON 帧 → host 不崩,A 断开,B 不受影响', async () => {
     host = await startTestHost();
     const a = await newClient();

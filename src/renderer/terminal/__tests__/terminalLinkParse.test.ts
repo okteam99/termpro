@@ -18,6 +18,18 @@ describe('extractCandidates', () => {
     ]);
   });
 
+  it('http(s) URL 遇全角/CJK 字符即停(不吞中文/全角标点·仅 http 类)', () => {
+    // 全角括号(半/全角形式区)紧贴 URL — 不再吞进链接
+    expect(texts('见 https://github.com/okteam99/termpro/pull/18（yolo）')).toEqual([
+      'https://github.com/okteam99/termpro/pull/18',
+    ]);
+    // 汉字 / CJK 标点紧贴 URL
+    expect(texts('https://example.com中文标点。')).toEqual(['https://example.com']);
+    expect(texts('https://example.com、逗号')).toEqual(['https://example.com']);
+    // 正常 ASCII URL(query / fragment / percent)不受影响
+    expect(texts('https://a.b/c?x=1#f%20g')).toEqual(['https://a.b/c?x=1#f%20g']);
+  });
+
   it('绝对 / ~ / ./ ../ / 相对路径', () => {
     expect(texts('open /usr/local/bin/zig now')).toEqual(['/usr/local/bin/zig']);
     expect(texts('cfg ~/apps/okok/aifriend ok')).toEqual(['~/apps/okok/aifriend']);

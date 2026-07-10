@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import { FLOW } from '../../shared/protocol';
 import { PtyPool } from '../ptyPool';
 import { RingBuffer } from '../ringBuffer';
-import { waitFor, delay } from './wsTestHarness';
+import { waitFor, delay, describePty } from './wsTestHarness';
 
 const CWD = os.tmpdir();
 // 3MB 纯净字节流(命令回显极短,可忽略);attached-无 ack 会在 ~512KiB 处 pause。
@@ -20,7 +20,7 @@ afterEach(() => {
   pool = null;
 });
 
-describe('PtyPool detach / exited / cap (BL-005)', () => {
+describePty('PtyPool detach / exited / cap (BL-005)', () => {
   // T-002: detached_session_bypasses_flowcontrol_proc_not_paused_ring_fills (AC-1)
   it('灌满打到 paused → detach 复活续跑 · ring 持续增长 · pid 存活(AC-1·ARCH-B-3)', async () => {
     pool = new PtyPool('standalone');

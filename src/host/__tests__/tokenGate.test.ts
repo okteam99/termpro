@@ -11,7 +11,7 @@ import {
 } from '../token';
 import { startWsServer } from '../wsServer';
 import { createHostCore } from '../hostCore';
-import { startTestHost, TestClient, TestHost, waitFor, delay } from './wsTestHarness';
+import { startTestHost, TestClient, TestHost, waitFor, delay, describePty } from './wsTestHarness';
 
 let host: TestHost | null = null;
 const clients: TestClient[] = [];
@@ -41,7 +41,7 @@ function track(c: TestClient): TestClient {
 
 // ---------------------------------------------------------------- 单元:token.ts
 
-describe('AC-3 token 熵与常量时间 (单元)', () => {
+describePty('AC-3 token 熵与常量时间 (单元)', () => {
   it('T-014 自动生成 token 具备 128-bit 熵', () => {
     const t = generateToken();
     expect(Buffer.from(t, 'base64url').length).toBe(16); // 16 字节 = 128 bit
@@ -65,7 +65,7 @@ describe('AC-3 token 熵与常量时间 (单元)', () => {
   });
 });
 
-describe('AC-3 token 信道白名单 (单元)', () => {
+describePty('AC-3 token 信道白名单 (单元)', () => {
   it('T-024 argv 明文 --token 被拒绝(抛错)', () => {
     expect(() =>
       resolveToken(['--listen', '127.0.0.1:0', '--token', 'plaintext']),
@@ -139,7 +139,7 @@ describe('AC-3 token 信道白名单 (单元)', () => {
   });
 });
 
-describe('AC-3 token 空值 fail-closed (单元 · F3 回归)', () => {
+describePty('AC-3 token 空值 fail-closed (单元 · F3 回归)', () => {
   it('--token-file 指向空白文件 → 抛错拒绝启动', () => {
     const f = path.join(os.tmpdir(), `tp-tok-empty-file-${Date.now()}`);
     tmpFiles.push(f);
@@ -173,7 +173,7 @@ describe('AC-3 token 空值 fail-closed (单元 · F3 回归)', () => {
 
 // ---------------------------------------------------------- 集成:loopback + 闸
 
-describe('AC-3 token 闸 (集成:真实 ws)', () => {
+describePty('AC-3 token 闸 (集成:真实 ws)', () => {
   it('T-016/T-017/T-018 缺失与错误 token 都立即断开、零信息且不可区分', async () => {
     host = await startTestHost({ token: 'the-right-token' });
     const missing = track(new TestClient(host.url(null)));

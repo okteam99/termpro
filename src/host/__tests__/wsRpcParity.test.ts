@@ -11,8 +11,7 @@ import {
   TestHost,
   waitFor,
   delay,
-  pokeUntilFsEvent,
-} from './wsTestHarness';
+  pokeUntilFsEvent, describePty } from './wsTestHarness';
 import { homeDir, listDir, readBinaryFile } from '../fsService';
 import { gitInfo, gitStatus, gitShow, gitChangedFiles } from '../gitService';
 import { FLOW } from '../../shared/protocol';
@@ -50,7 +49,7 @@ async function connected(): Promise<TestClient> {
   return c;
 }
 
-describe('AC-1 全 RPC 方法表 WS roundtrip (T-031)', () => {
+describePty('AC-1 全 RPC 方法表 WS roundtrip (T-031)', () => {
   it('全部方法经 WS 返回良构结果,关键项与直接服务调用等价', async () => {
     host = await startTestHost();
     const c = await connected();
@@ -154,7 +153,7 @@ describe('AC-1 全 RPC 方法表 WS roundtrip (T-031)', () => {
   });
 });
 
-describe('AC-1 fs.watch 经 WS 推送 (T-032/T-033)', () => {
+describePty('AC-1 fs.watch 经 WS 推送 (T-032/T-033)', () => {
   it('T-032 目录变更经同一 WS 推 fs:changed 且仅一次(去抖)', async () => {
     host = await startTestHost();
     const c = await connected();
@@ -186,7 +185,7 @@ describe('AC-1 fs.watch 经 WS 推送 (T-032/T-033)', () => {
   });
 });
 
-describe('AC-1 PTY 全生命周期与流控经 WS (T-034/T-035)', () => {
+describePty('AC-1 PTY 全生命周期与流控经 WS (T-034/T-035)', () => {
   it('T-034 spawn→input→resize→kill 的 data/exit 语义正确', async () => {
     host = await startTestHost();
     const c = await connected();
@@ -239,7 +238,7 @@ describe('AC-1 PTY 全生命周期与流控经 WS (T-034/T-035)', () => {
   });
 });
 
-describe('AC-1 git 与二进制读经 WS 等价 (T-036/T-037)', () => {
+describePty('AC-1 git 与二进制读经 WS 等价 (T-036/T-037)', () => {
   it('T-036 git.info/git.status 与直接调用一致', async () => {
     host = await startTestHost();
     const c = await connected();
@@ -269,7 +268,7 @@ describe('AC-1 git 与二进制读经 WS 等价 (T-036/T-037)', () => {
   });
 });
 
-describe('AC-1 WS 线格式为 JSON 文本帧 (T-038)', () => {
+describePty('AC-1 WS 线格式为 JSON 文本帧 (T-038)', () => {
   it('往返(含 pty:data)全部为 text frame,无 binary frame', async () => {
     host = await startTestHost();
     const c = await connected();

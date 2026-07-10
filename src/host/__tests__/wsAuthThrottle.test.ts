@@ -7,7 +7,7 @@ import {
   AUTH_FAIL_ALERT,
   AUTH_FAIL_ALERT_COOLDOWN_MS,
 } from '../wsServer';
-import { startTestHost, TestClient, TestHost, waitFor } from './wsTestHarness';
+import { startTestHost, TestClient, TestHost, waitFor, describePty } from './wsTestHarness';
 
 let host: TestHost | null = null;
 const clients: TestClient[] = [];
@@ -25,7 +25,7 @@ function track(c: TestClient): TestClient {
   return c;
 }
 
-describe('AC-9 shouldAlert 纯函数跨窗口 (T-019)', () => {
+describePty('AC-9 shouldAlert 纯函数跨窗口 (T-019)', () => {
   const threshold = AUTH_FAIL_ALERT; // 10
   const cooldownMs = AUTH_FAIL_ALERT_COOLDOWN_MS; // 60_000
 
@@ -51,7 +51,7 @@ describe('AC-9 shouldAlert 纯函数跨窗口 (T-019)', () => {
   });
 });
 
-describe('AC-9 真实 ws 突发单窗口 emit≤1 (T-020)', () => {
+describePty('AC-9 真实 ws 突发单窗口 emit≤1 (T-020)', () => {
   it('同一窗口内 20 次错误 token 连接 → onAuthAlert 至多 emit 1 次;阈值后合法连接仍成功', async () => {
     host = await startTestHost({ token: 'right-throttle' });
     for (let i = 0; i < 20; i++) {

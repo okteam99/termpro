@@ -1,7 +1,7 @@
 // AC-2 host.info-first 门控(仅 WS)+ AC-5 嵌入式路径不受门控。
 // 真实 host 核心 + 真实 ws 服务端/客户端。
 import { describe, it, expect, afterEach } from 'vitest';
-import { startTestHost, TestClient, TestHost, waitFor } from './wsTestHarness';
+import { startTestHost, TestClient, TestHost, waitFor, describePty } from './wsTestHarness';
 import { createHostCore, PortLike } from '../hostCore';
 
 let host: TestHost | null = null;
@@ -20,7 +20,7 @@ function track(c: TestClient): TestClient {
   return c;
 }
 
-describe('AC-2 host.info-first 门控', () => {
+describePty('AC-2 host.info-first 门控', () => {
   it('T-008 首条即 host.info → 正常放行,无额外往返', async () => {
     host = await startTestHost();
     const c = track(new TestClient(host.url()));
@@ -96,7 +96,7 @@ describe('AC-2 host.info-first 门控', () => {
   });
 });
 
-describe('AC-5 嵌入式 MessagePort 路径不受门控 (T-013)', () => {
+describePty('AC-5 嵌入式 MessagePort 路径不受门控 (T-013)', () => {
   it('嵌入式路径首条非 host.info(直接 pty.spawn)仍正常处理,不断开', async () => {
     // 用普通 PortLike 直接接入 hostCore(模拟嵌入式),证明门控只在 WS 适配器层
     const core = createHostCore();

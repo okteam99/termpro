@@ -12,7 +12,12 @@ export interface LinkCandidate {
   kind: 'web' | 'fs';
 }
 
-const HTTP_RE = /https?:\/\/\S+/g;
+// http(s) URL 主体:非空白 **且非全角/CJK 字符**——终端里 URL 后紧跟中文/全角标点(如
+// `https://…/pull/18（yolo…`)时,`\S+` 会把全角字符也吞进链接,导致可点范围越界。
+// 排除区段:CJK 标点(　-〿)、假名(぀-ヿ)、CJK 统一表意含扩展 A(㐀-鿿)、
+// 谚文(가-힯)、CJK 兼容表意(豈-﫿)、半/全角形式(＀-￯)。仅作用于 http 类 URL。
+const HTTP_RE =
+  /https?:\/\/[^\s　-〿぀-ヿ㐀-鿿가-힯豈-﫿＀-￯]+/g;
 const FILE_URL_RE = /file:\/\/\S+/g;
 // 绝对(/、~/、./、../)或含至少一个斜杠的相对路径,可带 :行(:列) 后缀
 const PATH_RE =

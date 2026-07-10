@@ -10,8 +10,7 @@ import {
   TestHost,
   waitFor,
   delay,
-  pokeUntilFsEvent,
-} from './wsTestHarness';
+  pokeUntilFsEvent, describePty } from './wsTestHarness';
 
 let host: TestHost | null = null;
 const clients: TestClient[] = [];
@@ -55,7 +54,7 @@ async function spawn(c: TestClient, cwd = tmp): Promise<string> {
   return sessionId;
 }
 
-describe('AC-6 会话归属越权(控制消息)', () => {
+describePty('AC-6 会话归属越权(控制消息)', () => {
   it('T-039 pty:input 越权被忽略(sessionB 不受影响)', async () => {
     host = await startTestHost();
     const a = await newClient();
@@ -87,7 +86,7 @@ describe('AC-6 会话归属越权(控制消息)', () => {
   });
 });
 
-describe('AC-6 pty.kill / pty.cwd 越权(安全回归门 T-041 / T-041b)', () => {
+describePty('AC-6 pty.kill / pty.cwd 越权(安全回归门 T-041 / T-041b)', () => {
   it('T-041 pty.kill RPC 越权被拒绝:A 无法杀死 B 的会话', async () => {
     host = await startTestHost();
     const a = await newClient();
@@ -120,7 +119,7 @@ describe('AC-6 pty.kill / pty.cwd 越权(安全回归门 T-041 / T-041b)', () =>
   });
 });
 
-describe('AC-6 watchId 归属与 fs:changed 路由', () => {
+describePty('AC-6 watchId 归属与 fs:changed 路由', () => {
   it('T-042 fs.unwatch 越权:A 动不了 B 的 watcher(B 仍收推送)', async () => {
     host = await startTestHost();
     const a = await newClient();
@@ -152,7 +151,7 @@ describe('AC-6 watchId 归属与 fs:changed 路由', () => {
   });
 });
 
-describe('AC-6 断连回收只涉及自身', () => {
+describePty('AC-6 断连回收只涉及自身', () => {
   it('T-044 clean 断开:只回收 A 的会话,B 不受影响', async () => {
     host = await startTestHost();
     const a = await newClient();
@@ -186,7 +185,7 @@ describe('AC-6 断连回收只涉及自身', () => {
   });
 });
 
-describe('AC-6 并发交错帧不串扰 (T-046)', () => {
+describePty('AC-6 并发交错帧不串扰 (T-046)', () => {
   it('A、B 近乎同时交错操作各自会话,路由不错乱', async () => {
     host = await startTestHost();
     const a = await newClient();

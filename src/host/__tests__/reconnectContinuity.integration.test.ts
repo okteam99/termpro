@@ -12,7 +12,7 @@ import type {
   SessionAttachResult,
   SessionSnapshot,
 } from '../../shared/protocol';
-import { startTestHost, TestClient, waitFor, delay, TestHost } from './wsTestHarness';
+import { startTestHost, TestClient, waitFor, delay, TestHost, describePty } from './wsTestHarness';
 
 const CWD = os.tmpdir();
 
@@ -56,7 +56,7 @@ afterEach(async () => {
   delete process.env.TERMPRO_MAX_SESSIONS;
 });
 
-describe('Reconnect continuity (BL-005 · host 协议侧)', () => {
+describePty('Reconnect continuity (BL-005 · host 协议侧)', () => {
   // T-001: standalone_session_survives_client_disconnect_proc_keeps_running (AC-1)
   it('断开期会话续跑:不 kill · 断开期字节可经重连 attach 回放', async () => {
     host = await startTestHost({ mode: 'standalone' });

@@ -5,9 +5,45 @@
 import { WebSocket } from 'ws';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as pty from 'node-pty';
+import { describe } from 'vitest';
 import { createHostCore, HostCore } from '../hostCore';
 import { startWsServer, WsServerHandle } from '../wsServer';
 import type { ClientMessage, HostMessage } from '../../shared/protocol';
+
+/**
+ * PTY 环境探测(BL-005 发版加固)。某些环境在 **node 测试上下文**下 fork 不了 node-pty
+ * (`posix_spawnp failed`)——本地沙箱、GitHub `macos-14` runner 均如此;而真实 electron app
+ * 运行时(不同 ABI/上下文)PTY 正常。这些真-pty 集成测在此类环境无法跑,但**不是代码缺陷**。
+ * 探测一次:能 spawn + kill 一个 pty → 可用;否则整套真-pty 套件用 `describePty` **自动跳过**
+ * (Linux CI / 真机照跑全覆盖 · release 冒烟仍以真 electron+PTY 验证 · 免 test-baseline 人肉差分)。
+ */
+function probePtyAvailable(): boolean {
+  try {
+    const shell =
+      process.env.SHELL || (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
+    const p = pty.spawn(shell, [], {
+      name: 'xterm-color',
+      cols: 80,
+      rows: 24,
+      cwd: process.cwd(),
+      env: process.env as Record<string, string>,
+    });
+    p.kill();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 本环境能否 fork PTY(真-pty 集成测的运行前提)。 */
+export const ptyAvailable: boolean = probePtyAvailable();
+
+/**
+ * `describe` 包装:PTY 不可用(沙箱 / macOS CI runner)时整套件 **skip**(不算失败);
+ * 可用(Linux CI / 真机)时照跑。真-pty 套件一律用它替代裸 `describe`。
+ */
+export const describePty = ptyAvailable ? describe : describe.skip;
 
 export interface TestHostOptions {
   token?: string;
