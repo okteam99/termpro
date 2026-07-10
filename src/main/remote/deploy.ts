@@ -64,14 +64,21 @@ type LockOutcome = 'acquired' | 'waitForPeer';
  * age=Infinity(无限陈旧)→ 误判 A 的锁陈旧 → break-and-reacquire 删掉 A 正持有的
  * 锁 + A 在传的 tmp 产物 → 互斥被击穿,双双部署。
  *
- * 修复两点:
- *   ① mkdir 与 meta 写入合并进单条 exec(单次网络往返内,由远端 shell 本地
- *      完成,竞态窗口从「两次网络往返间隔」收窄到「本地 shell 执行耗时」量级);
- *   ② 即便如此仍有极小残余窗口:「meta 缺失」不再判定为无限陈旧,而是判定为
- *      age=0(刚创建,处于宽限期)→ 只会走「等待」分支,绝不会误删活跃锁。
- *      代价是若持锁方在 mkdir 后、写 meta 前真的崩溃,该锁需等到*下一次*连接
- *      尝试(此时 meta 已通过①正常写入、可被判定为真陈旧)才会被回收——
- *      有界(受 waitForReady 超时保护 · deployFailed 可重试),不会永久 wedge。
+ * 修复①:mkdir 与 meta 写入合并进单条 exec(单次网络往返内,由远端 shell 本地
+ * 完成,竞态窗口从「两次网络往返间隔」收窄到「本地 shell 执行耗时」量级)。
+ *
+ * 🔴 R1 修复(architect verify 发现①仍留一条窄边):即便合并成单条命令,`mkdir`
+ * 与其后的 `printf` 之间仍有极小窗口——若持锁方恰在此窗口内 SSH 断开/进程被杀,
+ * 会留下**存在但无 meta.json 的锁目录**。此前版本把「meta 缺失」恒判 age=0
+ * (刚创建 · 见上一版注释),这类残留锁会被**永远**判定为「刚创建」而不会陈旧
+ * ——`tryMkdirWithMeta` 的 mkdir 因 EEXIST 短路,printf 段永不会被再次执行去
+ * 补写 meta,该 appVersion 首装因此永久 wedge(需人工 rm)。
+ *
+ * 修复②:meta 缺失时不再恒判 age=0,退化读**锁目录 mtime**作为创建时间的近似
+ * (mkdir 建目录的那一刻就已经设好 mtime,不依赖 meta 写入成功与否)。超过
+ * staleMs 仍按 break-and-reacquire 处理,不会永久 wedge。mtime 也读不到(极端
+ *情形,如目录在检查瞬间被其他进程删除)才退化回 age=0(与此前行为一致,不
+ * 更差)。
  */
 async function acquireLock(
   ssh: SshConnectionLike,
@@ -87,10 +94,10 @@ async function acquireLock(
     return 'acquired';
   }
 
-  // EEXIST:读锁 {ts} 判陈旧。meta 缺失 → age=0(宽限期,见上),不是无限陈旧。
+  // EEXIST:读锁 {ts} 判陈旧;meta 缺失 → 退化读锁目录 mtime(R1),而非恒判刚创建。
   const metaBuf = await ssh.sftpReadFile(meta);
   const ts = parseLockTs(metaBuf);
-  const age = ts === null ? 0 : now() - ts;
+  const age = ts !== null ? now() - ts : await ageFromDirMtime(ssh, dir, now);
 
   if (age <= staleMs) {
     return 'waitForPeer';
@@ -105,6 +112,26 @@ async function acquireLock(
   }
   // 重取仍失败(另一 flow 抢先重取)→ 按正常等待处理
   return 'waitForPeer';
+}
+
+/**
+ * meta.json 缺失时的陈旧判定兜底(R1):读锁目录 mtime(mkdir 建目录时即设好,
+ * 与 meta 写入是否成功无关)当作锁创建时间的近似。跨平台 stat:GNU(Linux)用
+ * `-c %Y`,BSD/macOS 用 `-f %m`,取到即为 epoch 秒。两者都失败(极端情形,如
+ * 目录在检查瞬间被删)→ 退化 age=0(与此前「meta 缺失即视为刚创建」行为一致,
+ * 不比修复前更差——只是不再是唯一路径)。
+ */
+async function ageFromDirMtime(
+  ssh: SshConnectionLike,
+  dir: string,
+  now: () => number,
+): Promise<number> {
+  const res = await ssh.exec(`stat -c %Y "${dir}" 2>/dev/null || stat -f %m "${dir}" 2>/dev/null`);
+  const mtimeSec = Number(res.stdout.trim());
+  if (!Number.isFinite(mtimeSec) || res.stdout.trim().length === 0) {
+    return 0;
+  }
+  return now() - mtimeSec * 1000;
 }
 
 /** mkdir + 写 meta 合一命令(单次网络往返,见上方 acquireLock 文档)。 */

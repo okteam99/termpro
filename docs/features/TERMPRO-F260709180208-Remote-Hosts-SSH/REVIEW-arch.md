@@ -7,6 +7,11 @@ model: opus
 verdict: REQUEST_CHANGES
 open_blockers: 1
 open_majors: 3
+verify_commit: "36cdb0a"
+verify_verdict: APPROVE
+verify_open_blockers: 0
+verify_open_majors: 0
+verify_residuals: ["R1 MINOR meta-less 锁永久 wedge", "R2 观察 disconnect 强制超时窄竞态", "R3 观察 打包 Origin 实证"]
 -->
 
 # BL-003 远程机管理与 SSH 连接编排 · Architect 代码评审
@@ -140,3 +145,29 @@ QA 报「AC-6(P0) 运行时零覆盖」与本评审两条独立发现同源，�
 | A11 | NIT | waitForReady 用 Date.now 非注入 now |
 | A12 | NIT | decideResidency docstring 滞后 + void prefixes 死代码 |
 | A13 | NIT | execDetached token-EOF 时序（A0 spike 未勾） |
+
+---
+
+## VERIFY 复核（fix 轮 · commit 36cdb0a）
+
+**范围**：只验前述 A1–A14 是否有效消解 + 是否引入新问题（不重开全面评审）。逐条回读真实 diff，
+并在本 worktree 跑 `vitest run src/main/remote src/host/__tests__/portFile.test.ts RemoteHostsPage.test.tsx`
+→ **102 passed · 1 skipped（sshd 集成环境门），本机复跑与门禁 539 passed 一致**。
+
+### 逐条处置核验
+| id | 修复 | 复核结论 |
+|----|------|---------|
+| A1 (BLOCKER) | `deployBundle` 取锁前 `mkdir -p "${dataDir}/bundle"`（`deploy.ts:176`），锁 mkdir 仍非递归保原子 | **RESOLVED**。deploy.test.ts:203 有状态桩复现「父目录不存在 → lock mkdir ENOENT 落 EXISTS」并断言 `mkdir -p` 序号早于取锁（`:252-253`）——无 fix 必红。首装 happy-path 真通。 |
+| A2 (MAJOR) | `SshConnectionLike.onClose`（`ssh.ts:274-277` client close+error）→ orchestrator `wireSshDisconnectWatcher`（连接成功后即挂 `:492`）汇入 `handleTransportDown`（`:416-424` 守 stage∈{ready,verifying}，关本地资源+emit disconnected） | **RESOLVED**。本地 server 与 ssh 层双入口收口；intentional close 因 failSession 先转 stage 天然幂等；runTest 不挂 onClose 故无 test 误触。旧/新 ssh 无跨代误杀（旧 ssh 在 disconnect 时已 close）。 |
+| A3 (MAJOR) | renderer 握手改由 `onEvent` 回调**逐条事件**驱动：`e.stage==='verifying'&&e.tunnel → beginHandshake`（`RemoteHostsPage.tsx`），不再采样被 React 批处理覆盖的当前 stage | **RESOLVED**。verifying 事件到达即同步发起 `connect({wsUrl})`+`fs.readdir` 冒烟，不受同栈 ready 覆盖影响 → AC-6 端到端确定执行、per-host client 确定建立。附 `abandonedRef` 过滤在途 disconnect 后残余事件（防 UI 复活/重握手）。RemoteHostsPage.test.tsx 21 测覆盖。 |
+| A4 (MAJOR) | 拆 `connectInflight`（仅 connect 去重）+ `mutex`（connect/test 串行）双表；身份守卫 delete；connect 命中在途 test 会 `priorMutex.then(runConnect)` 真进编排 | **RESOLVED**。connect 不再被 test 静默吞；guard delete 不误删他人槽位；并发 connect 仍复用同一 Promise。disconnect 改 `Promise.race([pending, sleep(5s)])` 有界（E9），不长阻塞 IPC。 |
+| A14/A5 相关 | A14：`ok&&compatible===false→incompatible`；`!ok→startFailed`（`orchestrator.ts:630-649`）。A5：`mkdir&&printf meta` 合并单 exec + 缺 meta 判 age=0 宽限 + 去通配 rm | **RESOLVED**（A14）：orchestrator.test.ts:399/419 两支真测试驱动，闭合 QA AC-6 P0。A5 见下残留 R1。 |
+| A6/A7/A8/A9 | A6：main `computeRemoteHostAllowedOrigins`→注入 `TERMPRO_ALLOWED_ORIGINS`，host.ts:61-72 解析；A7：全远端路径引号；A8：isEexist 收窄至真 EEXIST；A9：save 前置 `isAvailable()` 拒绝 | **RESOLVED**。另确认相关红线未破：`protocol.ts` 仍零改、host 仍零 Electron、SSH 仍全在 main、AC-3 无 get-secret 通道不变。附带 F8（token 事件只推主窗口非广播）、F19（驻留态恒不打印 token）为额外纵深收敛，方向正确。 |
+
+### 残留（均非阻断 · 建议登记跟进，不拦本轮）
+- **R1 · MINOR（A5 修复引入的窄新边）**：`age = ts===null ? 0 : now-ts`（`deploy.ts:88`）——「meta 缺失恒判 age=0」意味着**一个存在但无 meta.json 的锁目录永不被判陈旧**（age 恒 0 ≤ staleMs → 永远 waitForPeer）。触发面很窄：合并 exec 的 `mkdir && printf` 之间若 SSH 恰在亚毫秒窗断开、或 printf 失败，会留下 meta-less 锁。此时 `acquireLock` 文档所称「下次尝试 meta 已正常写入可判陈旧」**推理有误**——下次 `tryMkdirWithMeta` 的 mkdir 因目录已存在即 EEXIST 短路，printf 永不执行，meta 永不补写 → 该 appVersion 首装**永久 wedge**（需人工 `rm -rf ~/.termpro-host/bundle/.deploying-<v>`）。建议：meta 缺失时按「锁目录 mtime 年龄」做兜底陈旧判定，或 meta 用 temp+rename 与 mkdir 解耦补写。概率极低（旧 A5 的击穿更常见且已修好），故仅登记不拦。
+- **R2 · 观察（E9 引入）**：disconnect 的 5s 强制超时后 `closeSessionTransport`，若在途 runConnect 恰在超时后瞬时 completes 到 ready，存在极窄竞态（隧道泄漏 / ready-with-closed-ssh）。BL-005 重连时会重访，非本轮阻断。
+- **R3 · 观察（A6 残留）**：注入链已通，但打包态白名单硬编码 `null,file://`（`main.ts computeRemoteHostAllowedOrigins`）仍依赖「打包 renderer Origin ∈ {null,file://}」的假设——A0/ARCH-B11 打包 Origin 实证仍应在真机打包包上抽验一次坐实（若实际是别的值则 renderer 直连仍会被拒）。
+
+### VERIFY VERDICT：**APPROVE**
+原 1 BLOCKER（A1）+ 3 MAJOR（A2/A3/A4）+ 相关 MINOR（A5/A6/A7/A8/A9/A14）全部有效消解，实现正确且有真测试驱动（非幽灵门禁）；无 open BLOCKER/MAJOR。残留 R1/R2/R3 均 MINOR/观察级，建议登记（R1 优先，虽窄但后果为永久 wedge），不拦本轮进 QA。

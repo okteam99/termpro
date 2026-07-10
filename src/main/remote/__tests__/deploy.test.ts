@@ -299,4 +299,57 @@ describe('AC-4 deployBundle', () => {
     // 关键断言:meta 缺失(竞态窗口,非真陈旧)绝不触发 break-and-reacquire 误删活跃锁
     expect(rmLockCalled).toBe(false);
   });
+
+  it('🔴 R1 回归:meta 永久缺失(mkdir 后 printf 失败的残留)但锁目录 mtime 超龄 → 判陈旧,break-and-reacquire 成功,不永久 wedge', async () => {
+    const now = () => 1_000_000_000_000; // 固定「当前时刻」(ms)
+    const staleMtimeSec = Math.floor(now() / 1000) - 200; // 锁目录 mtime = 200s 前,超过默认 120s 阈值
+    let mkdirCallCount = 0;
+    let rmLockCalled = false;
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('meta.json')) return null; // meta 永久缺失(printf 段从未执行成功过)
+        if (path.endsWith('.ready')) return null;
+        return null;
+      },
+      execHandlers: [
+        (cmd) => {
+          if (cmd.startsWith('mkdir "') && cmd.includes('.deploying-9.9.9')) {
+            mkdirCallCount++;
+            // 第一次(占用检测):锁目录已存在但 meta 从未写成功 → EXISTS;
+            // break-and-reacquire 后的第二次:重新 mkdir 成功 → LOCKED
+            return { code: 0, stdout: mkdirCallCount === 1 ? 'EXISTS\n' : 'LOCKED\n', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) => {
+          // 跨平台 stat 兜底(见 ageFromDirMtime):GNU 用 -c %Y,此处只需喂 GNU 分支即可
+          if (cmd.startsWith('stat -c %Y')) {
+            return { code: 0, stdout: `${staleMtimeSec}\n`, stderr: '' };
+          }
+          return null;
+        },
+        (cmd) => {
+          if (cmd.startsWith('rm -rf "') && cmd.includes('.deploying-9.9.9')) {
+            rmLockCalled = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+      ],
+    });
+
+    const result = await deployBundle({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      appVersion: '9.9.9',
+      localBundleDir: '/local/bundle/darwin-arm64',
+      now,
+    });
+
+    // 关键断言:陈旧判定生效(靠 mtime 兜底,不是永远判「刚创建」)→ break 掉陈旧锁 → 重取成功
+    expect(mkdirCallCount).toBe(2);
+    expect(rmLockCalled).toBe(true);
+    expect(result.skipped).toBe(false);
+    expect(ssh.sftpWriteDir).toHaveBeenCalled();
+  });
 });

@@ -159,3 +159,62 @@ incompatible→failed+disconnect 行为断言（orchestrator 层最小即可）�
 token 落盘/日志证否）、Q3（AC-7 倒序行为断言）建议随修一并补齐；Q4/Q5/Q6 为非阻塞改进项，dev 阶段酌情处理。
 
 修完 Q1（+建议的 Q2/Q3）即可转 APPROVE。
+
+---
+
+## verify 复核（commit 36cdb0a · 2026-07-10）
+
+复核范围 = Q1-Q6 是否消解 + 触碰面有无新问题。门禁重跑（worktree 本地）:**tsc exit 0 · vitest 539 passed · 1 skipped**
+（skip 仍 = T-031 无本机 sshd,同一诚实降级）· `verify-ac` 14/14。
+
+### 逐条核销
+
+- **Q1（high · 阻塞）→ RESOLVED**。三处都落地且打在 SUT 上,不再幽灵:
+  - 语义修正（超出我原建议,更好）:`orchestrator.ts:636-644` 把 `!probeResult.ok`（隧道时序/超时/被关等**瞬时传输
+    失败**）与 `compatible===false`（**真·版本不符**）**拆两支**——前者→`startFailed`（可重试）、后者→`incompatible`
+    （提示升级·不该重试）。原实现二者合并成 incompatible,重试语义全错;此拆分是真 bug fix,非仅补测。
+  - T-013（orchestrator.test.ts:399-417）驱动 `probe {ok:true,compatible:false}`：断言末态 `failed` +
+    `reason==='incompatible'` + **`ssh.close` 被调用** + **forward 隧道 server `closed===true`**——AC-6 的"断开"
+    半边真实验证。
+  - T-013b（:419-438）驱动 `probe {ok:false}`：断言 `reason==='startFailed'` 且 `!== 'incompatible'` + 同样断言
+    ssh/tunnel 已关。守住 A14 拆分的回归。
+  - T-012（RemoteHostsPage.test.tsx:285）：emit `verifying` 事件 → 断言 renderer 经 `hostRegistry.getOrCreateRemote`
+    以隧道参数发起握手（兼容→ready 二次确认的调用契约）;另有 A3 测覆盖同步栈背靠背 verifying→ready 竞态。
+  - TC.md 幽灵映射已修:T-012→RemoteHostsPage.test.tsx、T-013/T-013b→orchestrator.test.ts,**均为真实存在的
+    test**,`verify-ac` 报的 3 覆盖不再是幽灵。门禁完整性缺陷消解。
+  - 残留（minor · 非阻塞）:"兼容→ready **协议冒烟**"在 T-012 是**契约级**（hostRegistry 被 mock,验的是 renderer
+    调用契约,非真 ws 握手 round-trip）;真协议协商依赖既有 `hostClientVersionCheck` 单测 + main probe 组合覆盖。
+    比原 api-e2e 框定略降,但远优于幽灵,且组合上覆盖了判定契约——接受。
+
+- **Q2（medium）→ RESOLVED**。portFile.test.ts:267-302 起**真实 host 子进程**、经 stdin 喂已知 `secretToken`:
+  ① 断言端口文件内容不含 token;② 断言 host `getStdout()`/`getStderr()`（= 即将重定向进 host.log 的同一流）不含
+  token;**正例锚点**:用该 token 真发 ws 握手 `waitOpen` 成功（证"输出里看不到"非因 host 没读到 token 就挂了·
+  防假阴性）。另加 E12 测（驻留态恒不回显 token）。host 侧"零落盘/零日志"证否闭合,TC 落地风险#2 消解。
+
+- **Q3（medium）→ RESOLVED**。RemoteHostsPage.test.tsx:236-249 造 3 台 lastUsed 各异且**乱序**传入的 host,查最近区
+  渲染出的 `.remote-hosts__alias` DOM 序列,断言 `toEqual(['b','c','a'])`（新→旧）。断言打在 renderer 真实
+  `recentHosts` useMemo sort（RemoteHostsPage.tsx:227),独立于 list() 输入序——倒序行为真验证。
+
+- **Q4（low）→ SUPERSEDED/IMPROVED**。F5 部署锁重构（deploy.ts `acquireLock`/`tryMkdirWithMeta`）修了一个真实互斥
+  击穿窗口（A5/E2）:mkdir+meta 合并单条 exec（竞态窗口从"两次网络往返间"收窄到"本地 shell 执行"量级）;"meta
+  缺失"从判无限陈旧改判 age=0 宽限期（绝不误删活跃锁,代价有界受 waitForReady 超时保护）;去掉通配 `rm .tmp-*`
+  （防误删并发在传产物）。逻辑更正确,推理自洽,deploy.test.ts +100 行补测。我原 Q4 的"并发命名夸大"非阻塞点被此
+  更实质的硬化取代。
+
+- **Q5 / Q6（low · 非阻塞）**:未见针对性改动（可接受）。Q6 的真机锚点 T-031 仍 skipIf 门控、本地评审机仍 skip
+  （1 skipped）——CI 无 sshd 则"桩不失真"锚点仍条件性不跑,建议如原文在 CI 起 loopback sshd,非阻塞。
+
+### 新问题排查
+
+对触碰面（orchestrator A14 拆分 +155、deploy F5 锁重构、residency +28、Q2/Q3 新测、remoteHostIpc/ssh 新测）抽查:
+- `startFailed` 可重试与状态机自洽（`failed→connecting` 为合法边,已有 T-010 覆盖）✓
+- F5 锁"meta 缺失=宽限期"不会永久 wedge（下一次连接尝试时 meta 已由①正常写入 → 可判真陈旧回收）✓
+- tsc 0 错,539 全绿,无既有测试因重构翻红 ✓
+
+**未发现新引入缺陷。**
+
+### verdict: **APPROVE**
+
+Q1 阻塞项已实质消解（且附带修正了 incompatible/startFailed 语义 bug),Q2/Q3 断言真打在 SUT 上,Q4 被更强的锁
+硬化取代。AC-6 现由 3 个真实存在、真驱动 SUT 的 test 覆盖,机读门禁不再报幽灵绿。残留仅 minor 非阻塞项（T-012
+协议冒烟为契约级、Q6 真机锚点 CI 条件性执行),dev 阶段酌情,不阻塞交付。

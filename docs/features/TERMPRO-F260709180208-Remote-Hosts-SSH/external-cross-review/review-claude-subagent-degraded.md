@@ -110,3 +110,41 @@ verdict: NEEDS_REVISION
 
 1. **E1（BLOCKER）**：首装缺 `mkdir -p ${dataDir}/bundle`，"添加新主机→首次连接"主路径必败且被桩测完全掩盖。修：部署前递归建 bundle 父目录（锁目录仍非递归 mkdir 保原子）+ 补空 dataDir 首装回归。
 2. **E2（MAJOR）**：部署锁 mkdir 与 meta 写非原子，并发第二实例把"缺失 meta"读成无限陈旧从而破锁并删掉赢家在传的 `.tmp-*`。修：meta 与锁获取原子化 / 对"锁存在但 meta 缺失"给短 grace 而非直接 break；`rm -rf .tmp-*` 收窄到自身 suffix。顺带把 E3（isEexist 过宽）一并收紧——它掩盖 E1 真因。
+
+---
+
+## VERIFY 复核（fix commit 36cdb0a · degraded 同模型隔离）
+
+复核范围：仅验 E1–E12 是否真消解 + 有无新问题。逐条查真实 diff/代码（deploy.ts / ssh.ts / orchestrator.ts / residency.ts / remoteHostIpc.ts / host.ts / main.ts / RemoteHostsPage.tsx），并独立跑 `npx vitest run src/main/remote src/host` → **201 passed / 1 skipped（skip=localhost sshd 缺省的真机集成测，如实标注非伪绿）**。
+
+**verify verdict: APPROVE（残留 1 条 MINOR · 非阻塞 · 见 R1）**
+
+### 逐条消解确认
+
+| 原 finding | 状态 | 证据 |
+|---|---|---|
+| **E1 BLOCKER** 首装必败 | ✅ 真消解 | deploy.ts:176 取锁前 `mkdir -p "${dataDir}/bundle"`（锁目录仍非递归 `mkdir "${dir}"` 保原子）。**回归测非空壳**：deploy.test 新用例桩把「父目录未由 mkdir -p 建好时的锁 mkdir」建模为 `EXISTS`（复现真实 ENOENT→‖echo EXISTS 语义），并断言 `mkdir -p` 顺序先于取锁——删掉修复即红。绿测红产缺口已闭。 |
+| **E2 MAJOR** 锁被击穿 | ✅ 消解（引入 R1） | mkdir+meta 合并单 exec（tryMkdirWithMeta，deploy.ts:111-122，窗口收窄到远端本地 shell 执行）；缺 meta 判 `age=0` 宽限（deploy.ts:93）不再无限陈旧；`rm -rf .tmp-*` 通配已删（仅 `rm -rf "${dir}"`）。回归测断言缺 meta 竞态窗口 `rmLockCalled===false`（不误破活跃锁）。 |
+| **E3 MAJOR** isEexist 过宽 | ✅ 真消解 | ssh.ts:isEexist 收窄为只放行 `code==='EEXIST'` 或 message 含 file/already exists，ENOENT/EACCES 一律上抛。实际仅用于 sftpWriteDir 建全新唯一 tmp 子目录，不误伤幂等。 |
+| **E4 MINOR** connect 被 test 吞 | ✅ 真消解 | 拆 `connectInflight`（仅 connect 去重）/`mutex`（connect+test 串行化），身份守卫 delete。connect 命中在途 test 时经 mutex chain 到其后再真进 runConnect，不再静默返回 test 的 Promise。 |
+| **E5 MINOR** Origin dev 假绿 | ✅ 真消解 | main.ts computeRemoteHostAllowedOrigins dev 态追加 `new URL(VITE_DEV_SERVER_URL).origin` → orchestrator → buildStartCommand 注入 `TERMPRO_ALLOWED_ORIGINS`；host.ts:61-72 读 env 解析成 allowedOrigins Set 传 startWsServer。dev 下 vite origin 真放行、非仅测试注入。 |
+| **E6 MINOR** disconnect 残余复活 | ✅ 真消解 | main disconnect 5s 有界 `Promise.race`（E9）；renderer abandonedRef 过滤已 drop configId 的非终态事件（只放行 disconnected/idle），handleConnect 解除。 |
+| **E7 MINOR** exec 路径未引号 | ✅ 真消解 | buildStartCommand 全路径双引号；residency `kill "${pid}"`/`rm -f "…"`/cmdline、deploy `rm -rf "${dir}"`/`mkdir -p "…"`/`touch "…"` 均加引号。 |
+| **E8 MINOR** 竞态误分类 incompatible | ✅ 消解且分类正确 | orchestrator:636-649 拆两支——`ok && compatible===false`→incompatible（真版本不符，probeHostInfo 仅在拿到 host.info 后才置 compatible）；`!ok`（传输/超时/token 拒→ws 未拿到 host.info）→startFailed（可重试）。语义正确：真不兼容恒 ok=true，!ok 恒传输失败，无反向误标。 |
+| **E9 NIT** candidateTunnel 泄漏 | ✅ 真消解 | residency:174-187 probeHostInfo 包 try/catch，抛出即 `candidateTunnel.server.close()` + 归一探测失败。 |
+| **E10 NIT** token 广播全窗口 | ✅ 真消解 | remoteHostIpc 改 `getMainWindow()` getter，event 只推主窗口；main.ts 传 `() => mainWin`（getter 非固定引用，规避注册早于 createWindow）。 |
+| **E11 NIT** 重复 disconnected | ✅ 真消解 | 收口 handleTransportDown，stage 守卫（仅 ready/verifying 才 emit）天然幂等；net.Server close/error 与 ssh.onClose 二次触发命中已 disconnected → no-op。 |
+| **E12 NIT** token 打印脆弱 | ✅ 真消解 | host.ts 加 `isResident = Boolean(TERMPRO_HOST_PORT_FILE)`，驻留态恒不打印 token（即便 source 意外为 generated 也不落盘）——从隐性契约升级为结构约束。 |
+
+**顺带确认的 bonus 修复（非我 findings，均成立）**：F2 AC-12 真断链检测（ssh.onClose→handleTransportDown，此前 ready 后真实断线永不可探测——是个实打实的独立 bug，已补）；F3 verifying→ready 竞态（renderer 握手改 onEvent 逐条事件驱动，规避 React 批处理把背靠背 verifying+ready 采样成只见 ready → per-host client 永不建立）；A9 safeStorage 旗标前置校验（加密不可用时整单 save 拒绝，不落半成品 `hasPassword:true` 误导配置）。
+
+### 新问题（fix 引入的残留）
+
+**R1 · MINOR（新 · E2 修复副作用）· status: open**
+`file: src/main/remote/deploy.ts:60-108`（acquireLock：缺 meta → age=0 宽限 + 只按 meta.ts 判陈旧）
+E2 修复把「缺 meta」从 age=Infinity（旧：会 break-and-reacquire）改成 age=0（新：恒 waitForPeer），代价是**引入一条永久 wedge 路径**：若持锁实例的远端 shell 在单条 `mkdir "${dir}" && printf …meta…` 的 mkdir 已成功、printf 未执行的微秒窗口内被杀（SSH 通道掉线触发 SIGHUP / 远端断电 / 该 exec 未 nohup），锁目录残留且 meta **永久缺失**。此后该 appVersion 的每次 connect：mkdir 失败→读 meta=null→age=0→waitForPeer→轮询永不出现的 `.ready`→`waitReadyTimeoutMs`(默认=staleMs=120s) 超时 deployFailed。orchestrator 无自动重试，**每次连接 120s 后失败、永不自愈，须人工 `rm -rf ~/.termpro-host/bundle/.deploying-<v>` 才能恢复**。
+🔴 acquireLock 头注 deploy.ts:72-74 明确声称「有界…不会永久 wedge」，该断言**不成立**——后续尝试都不持有锁（mkdir 失败走读 meta 分支），永不补写 meta，故 meta 永久缺失、宽限永不转陈旧。概率极低（微秒窗口内崩溃），但后果不可自愈 + 注释误导后人，值得记一条。
+- 建议（不重开 E2）：陈旧判定除读 meta.ts 外，补一条「lock **目录** mtime（sftp stat）> staleMs 且 meta 缺失 → 判为崩溃孤儿 → break-and-reacquire」。正常持锁方微秒内即有 meta，只有真崩溃孤儿才既缺 meta 又目录老，二者可区分，自愈能力与 E2 互斥性可兼得。或把该永久 wedge 老实写进注释（撤掉「不会永久 wedge」），列为已知 YAGNI。
+
+### 结论
+E1–E12 **全部真消解**（非改测试掩盖：E1/E2 回归测桩已建模真实失败语义，删修复即红；201 remote/host 测独立复跑绿）。唯一新增 R1 为 E2 修复的低概率副作用（永久 wedge on crash + 注释误导），MINOR 非阻塞，建议 ship 后补目录-mtime 兜底或据实修注释。**放行。**

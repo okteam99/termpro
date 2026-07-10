@@ -25,6 +25,7 @@ findings:
   - {id: F16, severity: NIT, status: deferred, title: "disconnect 重复 emit disconnected / waitForReady 用 Date.now / docstring 滞后+死代码 / execDetached token-EOF spike 未勾", source: arch}
   - {id: F18, severity: MINOR, status: fixed, title: "在途 disconnect 后 main 残余事件把已 drop 的 renderer runtime 瞬时复活到 ready(UI 抖动+已 drop client 被 verifying 重触发)", source: external}
   - {id: F19, severity: NIT, status: fixed, title: "host token=%s 打印靠隐性契约维持零落盘·应结构化限制到非驻留模式", source: external}
+  - {id: F20, severity: MINOR, status: fixed, title: "R1(verify 发现·F5 修复引入的窄新边):meta 缺失恒判 age=0→meta-less 锁目录永不判陈旧→亚毫秒 mkdir&&printf 窗口被杀致永久 wedge。修:meta 缺失改用锁目录 mtime 兜底陈旧判定", source: arch+external}
 overall_verdict: APPROVE
 decided_at: "2026-07-10T00:40:00Z"
 ---
@@ -49,6 +50,16 @@ decided_at: "2026-07-10T00:40:00Z"
 
 ## 处置（Round 2 修复 · dispatch dev-main/dev-renderer/dev-host）
 
-见各 finding status 翻牌（fixed/deferred）。NIT 组（F16）deferred 进 PENDING 或顺手。修复后 architect + qa + 第三视角 verify 复核。
+见各 finding status 翻牌（fixed/deferred）。NIT 组（F16）deferred。修复后 architect + qa + 第三视角 verify 复核。
 
-（Round 2 verify 结论待修复完成后追加）
+## Round 2 Verify 结论（三路 APPROVE）
+
+- **architect verify：APPROVE**（无 open BLOCKER/MAJOR）。A1-A14 全 RESOLVED · 真修复+真测试驱动（非幽灵门禁）· 红线复核未破（protocol.ts 零改/host 零 Electron/SSH 全在 main/AC-3 无 get-secret）。发现 R1（F5 修复引入的窄新边·meta-less 锁永久 wedge）→ 已修（F20）。
+- **qa verify：APPROVE**。Q1 阻塞实质消解（AC-6 真覆盖 3 真实测试 + incompatible/startFailed 语义 bug 附带修正）· Q2/Q3 断言真打 SUT · 触碰面无新引入缺陷。
+- **external 第三视角 verify：APPROVE**。E1-E12 全真消解（非改测试掩盖）· 独立确认 E1/E2 并发正确性（两 App 实例并发安全）+ E8 归类正确性 · 同样独立发现 R1（→ F20 已修）。
+
+**收敛**：1 BLOCKER + 6 MAJOR + 11 MINOR + 2 NIT 全处置（F16 NIT 部分 deferred）。R1/F20（两路 verify 独立发现的窄新边）已用锁目录 mtime 兜底陈旧判定修复，永久 wedge 风险消除。三路 verify 一致 APPROVE。
+
+**发版前/BL-005 跟进 concerns**（已 add-concern 留痕）：R2 disconnect 5s 超时与在途 runConnect 的极窄竞态（BL-005 重连重访）· R3 打包态 Origin 白名单真机抽验 ARCH-B11 · Q6 CI loopback sshd 让 T-031 真机锚点常跑。
+
+overall_verdict: **APPROVE** · 门禁：tsc 0 错 · vitest 540 passed + 1 skip · SMOKE_OK · verify-ac 14/14（AC-6 3 真实测试）。
