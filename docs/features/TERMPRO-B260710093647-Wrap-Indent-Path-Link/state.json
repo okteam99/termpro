@@ -6,9 +6,9 @@
   "artifact_root": "docs/features/TERMPRO-B260710093647-Wrap-Indent-Path-Link",
   "host": null,
   "host_history": [],
-  "current_stage": "diagnose",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "2f702d4",
   "worktree": {
     "strategy": "auto",
     "branch": "fix/termpro-b260710093647-wrap-indent-path-link",
@@ -29,13 +29,28 @@
   "review_round": 0,
   "stage_contracts": {
     "diagnose": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T09:48:36Z",
+      "evidence": {},
+      "completed_at": "2026-07-10T10:12:49Z",
+      "auto_commit": "2f702d4",
+      "artifacts": [
+        "bugfix/BUG-TERMPRO-B260710093647-001.md"
+      ],
+      "duration_minutes": 24
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T09:48:36Z"
+      "started_at": "2026-07-10T10:12:49Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "diagnose"
+  ],
   "created_at": "2026-07-10T09:48:30Z",
   "stage_review_roles": {
     "review": [
@@ -51,10 +66,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T09:48:36Z",
+  "updated_at": "2026-07-10T10:12:49Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:3eb41564eab7cde8e4e55dfeb9afc182b4f1750419deaae20c5db220b29753d0",
+  "_state_checksum": "sha256:ed1850333d14c2961aab702a52aff613b1b49086d6ae1c233c50aefed7bd47bb",
   "legal_next_stages": [
-    "dev"
-  ]
+    "review"
+  ],
+  "execution_hints": {}
 }
