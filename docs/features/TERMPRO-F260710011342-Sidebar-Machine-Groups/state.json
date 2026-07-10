@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "blueprint",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": null,
   "worktree": {
@@ -37,13 +37,45 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T01:15:16Z",
+      "evidence": {},
+      "completed_at": "2026-07-10T01:35:19Z",
+      "auto_commit": "4f20c9ac7ec8cd9836237535aae555ba04b5e797",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "duration_minutes": 20
+    },
+    "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T01:35:19Z",
+      "evidence": {
+        "panorama_changed": "false"
+      },
+      "completed_at": "2026-07-10T02:35:16Z",
+      "auto_commit": "f44ba7d4365a95b7f97330932429e55cead5882e",
+      "artifacts": [
+        "UI.md"
+      ],
+      "duration_minutes": 59
+    },
+    "blueprint": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T01:15:16Z"
+      "started_at": "2026-07-10T02:35:16Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal",
+    "ui_design"
+  ],
   "created_at": "2026-07-10T01:15:04Z",
   "stage_review_roles": {
     "goal": [
@@ -81,11 +113,14 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T01:35:13Z",
+  "updated_at": "2026-07-10T02:35:27Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:6d7bab84239a19bdbf07722eae2413d9d391d0c2107d1fa19e56973e81c84996",
+  "_state_checksum": "sha256:5777e2e443a89761e335373cc8288a682e46fb6c86d0ab3958ba2fae13349ffc",
   "legal_next_stages": [
-    "ui_design",
-    "blueprint"
-  ]
+    "dev"
+  ],
+  "execution_hints": {
+    "ui_design_needed": true,
+    "panorama_changed": false
+  }
 }
