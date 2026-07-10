@@ -341,23 +341,25 @@ And 对每一个消费点断言：localStub 上**零调用**该 ws 的 RPC（不
 > ③ FilePanel（fs.readdir/watch/unwatch + git.info/status/worktrees）④ App.tsx 分支刷新（git.info）
 > ⑤ sessionEvents 订阅（(hostId,sessionId) 复合键）。
 
-**静态门禁（unit · 扫源码）** —— `BL004-U-grepgate`（E1 · pattern 与豁免清单**与 TECH 门禁脚本严格对齐**）
+**静态门禁（unit · 扫源码）** —— `BL004-U-grepgate`（E1 · verify V1/V2 定稿 · **权威 = import 集正则·与 TECH 门禁脚本同一条正则**）
 
 ```gherkin
-Given 扫描 src/renderer/**/*.{ts,tsx}（排除 __tests__）
-  And 先剥离注释行（// 行注释 + /* */ 块注释）—— 注释里的 hostClient 提及不算消费（防假阳）
-When 匹配词边界 /\bhostClient\b/（**非** `\bhostClient\.`）
-  # 用词边界而非要求紧跟 `.`：抓 App.tsx 折行消费（App.tsx:76 `hostClient` 独占一行，下一行才 `.rpc(...)`），
-  # `\bhostClient\.` 会漏掉这种折行写法(TC 首版 pattern 的缺陷)。
-Then 命中文件集 ⊆ 豁免清单（allowlist 写进测试常量 · 差集非空即 fail · 报文件+行号）
+Given 扫描 src/renderer/**/*.{ts,tsx}（排除豁免集）
+When 用**多行感知 + 大小写敏感 + 花括号作用域**正则匹配单例 import specifier：
+     /import\s+(?:type\s+)?\{[^}]*\bhostClient\b[^}]*\}/（perl -0777 语义·非行级）
+  # verify V1/V2 定稿:此正则一次免疫五坑——① 折行使用(App.tsx:76 独占行)② 注释(注释无 import specifier)
+  # ③ type-import 假阳(HostClient 大写·大小写敏感天然放行)④ 路径段假阳(花括号作用域排除 from '.../hostClient')
+  # ⑤ 多行 import(perl -0777 而非行级 grep)。放弃使用点 grep（\bhostClient\b / \bhostClient\. 均有坑）。
+Then 命中该正则的文件集 ⊆ 豁免清单（allowlist 写进测试常量 · 差集非空即 fail · 报文件）
+  And tsc -b 零报错作背靠（残留 hostClient.x 未 import → cannot find name）
 ```
 豁免清单（= TECH 门禁脚本同一份常量 · 任何新增非豁免文件的裸消费即红）：
 - `services/hostClient.ts`（定义本身）
 - `services/hostRegistry.ts`（内部持有 'local' 单例）
 - `components/viewer/*`（FileView / MarkdownPreview / DiffPanel / FilesWindow / ViewerWindow / DirListing —— 独立查看器窗口 · 各持本窗口单例 · D-7 出范围）
 - `**/__tests__/*`（测试文件本身用 hostClient 桩，不算生产消费）
-- **4 处仅注释提及的文件**（剥离注释后应零命中，仍列入 allowlist 作显式认可，与 TECH 对齐）：`state/remoteHostStore.ts` · `filepanel/core.ts` · `filepanel/types.ts` · `filepanel/deps.ts`
-  - ⚠️ `filepanel/deps.ts` 是关键校验点：改造前 `makeHostDeps()` 裸包 hostClient（deps.ts:4~49 十余处消费）；改造后须 `makeHostDeps(client)` 参数化注入 per-host client，deps.ts 内 hostClient 只应余注释。若门禁在 deps.ts 剥离注释后**仍命中** → RD 未完成参数化迁移（真缺口，不该被 allowlist 掩盖）。故断言此文件「剥离注释后零命中」比「在 allowlist 里」更强——TC 要求 deps.ts 走**剥离注释后零命中**校验，不靠 allowlist 兜底。
+- 注：4 处仅注释提及的文件（remoteHostStore/core/types/deps）**不需**列 allowlist——import 集正则不匹配注释（注释无 import specifier），天然不假阳。
+  - ⚠️ `filepanel/deps.ts` 关键校验点：改造前 `makeHostDeps()` 裸包 hostClient（deps.ts 十余处消费·含 `import { hostClient }`）；改造后须 `makeHostDeps(client)` 参数化 + 移除该 import。若门禁在 deps.ts **命中 import 正则** → RD 未完成参数化迁移（真缺口·非注释假阳·不该被 allowlist 掩盖）。deps.ts 不进豁免集，靠 import 正则守。
 - `components/FilePanel.tsx`：**仅** `openViewerWindow` 入口的本地保留（D-7）；其余 fs/git 经注入 deps。
 
 > ⚠️ FileView/MarkdownPreview/DiffPanel **不在**迁移清单——只在查看器窗口跑，随 D-7 保持本地。
@@ -482,7 +484,7 @@ Then 只协调 cfg-1 子集：R2 被删、R1 保留
 ```gherkin
 Given 目标机 cfg-1 已从 hostRegistry drop（断线 / 删除）
   And 用户在 cfg-1 组下发起 workspace.create
-When 路由 hostRegistry.forWorkspace({hostId:'cfg-1'}) 未命中
+When 路由 **hostRegistry.forHostId('cfg-1')**（create 走**写原语**·V3 修正·非读原语 forWorkspace）未命中 → 返回 null
 Then 拒绝创建（抛错 / 返回失败）+ 用户提示（transientNotice 或错误态）
   And **不**回落本机 hostClient（expect(localStub.rpc).not.toHaveBeenCalledWith('workspace.create', ...)）
   And 本机注册表快照前后不变（不产生一条 hostId 错配的孤儿本机 ws）
@@ -533,4 +535,5 @@ Then 后续 (cfg-1,'s1') 事件**不再路由**到任何 tab（该 host 会话�
 | 日期 | 变更 |
 |------|------|
 | 2026-07-10 | 首版：28 条 TC 覆盖 AC-1~AC-11 · unit/component/integration 三层 + 真机 spike 划出 CI |
-| 2026-07-10 | blueprint 两路评审补测 +6（§1b）：E2 快照对称非干扰(本机快照不删远程/远程快照不动本机)·E4 create 不落本机·E3 v1 fallback serialize 过滤远程 + v1 远程 CRUD 拒绝·E5 session 生命周期路由(drop 后不再路由)；E1 grep 门禁 pattern 改 `\bhostClient\b` 词边界 + 剥离注释 + deps.ts 零命中校验，与 TECH 脚本对齐。共 35 条(29 首版 + 6) |
+| 2026-07-10 | blueprint 两路评审补测 +6（§1b）：E2 快照对称非干扰(本机快照不删远程/远程快照不动本机)·E4 create 不落本机·E3 v1 fallback serialize 过滤远程 + v1 远程 CRUD 拒绝·E5 session 生命周期路由(drop 后不再路由)。共 35 条(29 首版 + 6) |
+| 2026-07-10 | verify V1/V2/V3/V4 收敛：E1 门禁与 TECH **统一为同一条 import 集正则** `import\s+(?:type\s+)?\{[^}]*\bhostClient\b[^}]*\}`(perl -0777 多行 + 大小写敏感 + 花括号作用域·一次免疫折行/注释/type/path/多行五坑)·放弃使用点 grep + 剥注释 allowlist；deps.ts 靠 import 正则守不进豁免集；create-nohost-reject gherkin `forWorkspace`→`forHostId`(V3·写原语) |

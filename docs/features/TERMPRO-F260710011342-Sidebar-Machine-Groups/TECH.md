@@ -222,19 +222,22 @@ UI.md 定义 `ws.tabCount`/`ws.tabRunning`（数字·向后兼容旧 `ws.session
 > 🔴 **门禁口径 = 导入语句集，不是使用点**。理由链：
 > - `hostClient\.` **漏** `App.tsx:76` 折行消费（`hostClient` 独占一行·无 `.`）。
 > - `\bhostClient\b` 抓到折行，但**误红 4 处注释**（`remoteHostStore.ts:7` / `filepanel/core.ts:1` / `filepanel/deps.ts:1` / `filepanel/types.ts:5`，其中 types.ts:5 用 `/**` 连简单剥注释脚本都漏）→ 诱导 dev 退回 `hostClient\.` 重新漏 App:76。
-> - **改用 import 集**：任何消费方（含折行使用）**必须在文件顶部 `import { hostClient }`**（单行·永不折行·注释里不会出现 `import`）。文件不 import 就用不了 → 残留 `hostClient.x` 被 `tsc`「cannot find name」直接拦。**import 集 + tsc = 完备覆盖**，且天然免疫折行与注释两个陷阱。
+> - **改用 import 集**：任何消费方（含折行使用）**必须 `import { hostClient }`**。文件不 import 就用不了 → 残留 `hostClient.x` 被 `tsc`「cannot find name」直接拦。
+> - 🔴 **门禁正则修正（verify V1/V2 · 一次修掉折行/注释/type/path/多行 5 个坑）**：`grep -rlE "import[^;]*\bhostClient\b"` **unsound**（`[^;]*` 跨进 `from '.../hostClient'` 路径段 → `import type { HostClient }` 假阳误红 · 迁移后各文件都要 type-import HostClient 定型）且 **incomplete**（行级 grep 漏多行 import）。改用 **perl -0777（多行）+ 大小写敏感 + 花括号作用域内匹配小写单例 specifier**：`import\s+(?:type\s+)?\{[^}]*\bhostClient\b[^}]*\}` —— `HostClient`（大写·type）不匹配、路径段被花括号排除、单行/多行/混合花括号都命中。
 
 ```sh
-# 主门禁：无非豁免文件 import hostClient（唯一合法 importer = 豁免集）
-IMPORTERS=$(grep -rlE "import[^;]*\bhostClient\b" src/renderer --include='*.ts' --include='*.tsx' \
-  | grep -vE '__tests__|services/hostClient\.ts|services/hostRegistry\.ts|components/viewer/')
-if [ -n "$IMPORTERS" ]; then echo "❌ 非豁免文件仍 import hostClient:"; echo "$IMPORTERS"; exit 1; fi
-echo "✅ 无残留 hostClient importer（全部经 hostRegistry）"
+# 主门禁(权威·多行感知·大小写敏感·匹配花括号内小写单例 hostClient specifier·不看路径):
+IMPORTERS=$(for f in $(grep -rlE 'hostClient' src/renderer --include='*.ts' --include='*.tsx' \
+    | grep -vE '__tests__|services/hostClient\.ts|services/hostRegistry\.ts|components/viewer/'); do
+  perl -0777 -ne 'exit 1 if /import\s+(?:type\s+)?\{[^}]*\bhostClient\b[^}]*\}/' "$f" || echo "$f"
+done)
+if [ -n "$IMPORTERS" ]; then echo "❌ 非豁免文件仍 import 单例 hostClient:"; echo "$IMPORTERS"; exit 1; fi
+echo "✅ 无残留 hostClient 单例 importer（全部经 hostRegistry）"
 # 背靠门禁：tsc -b 零报错（残留 hostClient.x 而未 import → 编译失败）
 ```
 
-**豁免集（唯一合法 importer）**：`services/hostClient.ts`（定义）· `services/hostRegistry.ts`（seed 'local'）· `components/viewer/*`（D-7 出范围）· `__tests__`。
-**TC 对齐（修 TC/TECH pattern 矛盾）**：TC.md `BL004-U-grepgate`（TC.md:311）现写 `\bhostClient\.` —— 须与本门禁统一为 **import 集 ⊆ 豁免集** 为**权威判定**（`\bhostClient\.` 成员 grep 因漏折行**不得作唯一门禁**）；TC 断言「命中 importer 集 ⊆ 豁免清单」与本脚本一致。注释豁免问题随之消失（注释无 import）。QA 补 TC 时按此校准。
+**豁免集（唯一合法 importer）**：`services/hostClient.ts`（定义）· `services/hostRegistry.ts`（seed 'local'）· `components/viewer/*`（D-7 出范围）· `__tests__`。注：`import type { HostClient }`（大写·仅类型）在任何文件都**合法**（不是单例消费·大小写敏感正则天然放行）。
+**🔴 TC 权威对齐（verify V2 · 统一为同一正则）**：TC.md `BL004-U-grepgate` 断言口径 = **上述 perl 正则的 importer 集 ⊆ 豁免集**（同源·非使用点 `\bhostClient\b` 剥注释 allowlist——那套与本门禁不同机制且共享路径假阳）。TC 与本脚本必用**同一条正则**。
 
 ### 会话路由复合键 `(hostId, sessionId)`（D-9/AC-2 · ARCH-9）
 
@@ -505,5 +508,5 @@ src/host/
 - [ ] commit message 含 Feature ID · 每阶段一 commit 三绿才进下一阶段
 
 ## 🧩 补充洞察
-- **grep 门禁的真正陷阱不是「有没有跑」而是「pattern 对不对」**：`hostClient\.` 会同时**漏**折行消费（App git.info·真缺口）和**误计**注释（migration L18·假阳）。这类「门禁看似绿实则漏」正是 KNOWLEDGE GO-027「测绿产红」的同型陷阱。TECH 已把门禁 pattern 钉成 `\bhostClient\b` + 豁免清单，dev 直接照抄，别自行简化回 `hostClient\.`。
+- **grep 门禁的真正陷阱不是「有没有跑」而是「pattern 对不对」**：使用点 grep 有五个坑——`hostClient\.` 漏折行消费（App git.info）；`\bhostClient\b` 误红注释；`import[^;]*hostClient` 跨进 `from '.../hostClient'` 路径段假阳误红 type-import；行级 grep 漏多行 import。**权威门禁（verify V1/V2 定稿）= perl -0777 多行 + 大小写敏感 + 花括号作用域 `import\s+(?:type\s+)?\{[^}]*\bhostClient\b[^}]*\}`**（详 §迁移清单「覆盖门禁」）——一次免疫折行/注释/type/path/多行。dev 照此正则 + tsc 背靠，别退回任何使用点 grep。这类「门禁看似绿实则漏」正是 KNOWLEDGE GO-027「测绿产红」的同型陷阱。
 - **本 Feature 与 BL-005 的接口面必须现在钉死**：远程 ws「视图态不持久化」是本 Feature 的地基决策，BL-005 的「持久化 + 重连恢复」会**改写这条**。若 BL-005 早于本 Feature 上线的假设成立，serialize 过滤逻辑会冲突——当前 ROADMAP 顺序 BL-004→BL-005，本 Feature 先交视图态，BL-005 再叠持久化，顺序正确。dev 若发现 BL-005 已并入 main 需回 blueprint 复议 serialize 过滤是否仍成立。

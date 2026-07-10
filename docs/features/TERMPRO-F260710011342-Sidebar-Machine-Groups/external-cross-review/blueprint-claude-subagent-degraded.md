@@ -91,3 +91,61 @@ verdict: NEEDS_REVISION
 **dev 前最该解决的 1-2 点**：
 1. **E2（blocker）**：applyWorkspaceSnapshot 必须补"远程子集回并 + 远程 active 守卫"，否则本机加一个项目就清空所有远程机分组——且当前 28 条 TC 测不出。
 2. **E1（high）**：门禁脚本与 TC 豁免清单要处理注释假阳（remoteHostStore/core/types/deps 的注释），否则正确迁移也红门禁，诱导 dev 退回 `hostClient\.` 重新漏 App:76。
+
+---
+
+# Verify · TECH v0.2 / TC 35test（commit 365f4e8 · 只验消解 + 新问题）
+
+**verify verdict: NEEDS_REVISION（窄口径）** —— BLOCKER 与 3 high 全部**真消解**（机制可落地、TC 断言到位），仅剩 E1 的**收尾未闭合**（1 high）+ 3 条 low。距 APPROVE 只差"把门禁口径在 TECH↔TC 之间收敛成一份"这一步。
+
+## 原 findings 消解核验（逐条对真实 v0.2 文本复核）
+
+| id | 状态 | 证据 |
+|----|------|------|
+| **E2（blocker）** | ✅ **真消解** | TECH「🔴 作用域隔离机制」(TECH.md:263-284) 给出可落地四步：① filter-in inScope/outScope ② `reconcileWorkspaces(inScope, active, snapshot, scopeHostId)` ③ 按 prev 原位次 merge-back + outScope 原位透传 ④ active hostId 守卫（仅当原 active 属本作用域且被本作用域快照删除才复位）。补 `BL004-U-snapshot-scope-local`（active=R1 远程时本机快照到达 → R1/R2 不删、active 仍=R1）+ `-remote`（对称）两 P0，断言正是我 E2 要求的"远程 ws 保留 + 远程 active 不抢"。闭环成立。|
+| **E3（high）** | ✅ **真消解** | serialize **v1+v2 双分支**都 `filter(hostId==='local')`（TECH.md:144-148）+ v1 CRUD `targetHostId!=='local'` 拒绝（TECH.md:300,303 · E-9）。补 `BL004-U-serialize-v1-noremote` + `-v1-remote-crud-reject`。v1 漏写口子已堵。|
+| **E4（high）** | ✅ **真消解** | 写/读分流：`forHostId(hostId): HostClient\|null` 未命中返 null**绝不兜底**、create 拿 null 拒绝不落本机（TECH.md:108-118,301 · E-8）；`forWorkspace` 读兜底 local **恒 WARN**（E-6）。补 `BL004-U-create-nohost-reject`，断言 `localStub.rpc` **未**被 `workspace.create` 调用 + 本机注册表快照前后不变。|
+| **E5（low）** | ✅ 消解 | session 远程订阅并入 `remoteWorkspaceSync` ready 编排、drop 一次性退订（unsub Map<hostId>）（TECH.md:242-244）；补 `BL004-U-session-lifecycle`（drop 后 (cfg-1,*) 不再路由、本机不受影响）。挂载点悬空已定。|
+| **E6（low）** | ✅ 消解 | `reconcileWorkspaces(+scopeHostId)` 作用域安全已入影响面表（TECH.md:375）+ 步骤表阶段 1。|
+
+## 残留 findings（verify 新增）
+
+### V1 · E1 门禁未真收敛：TECH 改判 import 集，TC 仍写 use-point `\bhostClient\b`+剥注释——两份不同门禁，"严格对齐"是假的
+- severity: **high**
+- status: open
+- title: 权威门禁口径 TECH↔TC 分叉，E1 想消灭的"TC/TECH pattern 矛盾"换形重现
+- location: TECH.md:220-237（`import 集` importer⊆豁免 + tsc 背靠）vs TC.md:344-360 `BL004-U-grepgate`（`When 匹配词边界 /\bhostClient\b/` + 剥离注释 + allowlist）；TECH.md:237 自陈"TC.md 现写 `\bhostClient\.` 须与本门禁统一为 import 集"（= 未完成的 action item）
+- rationale: RD 把 TECH 门禁改成 **import 集**（并明确 TECH.md:224 说 `\bhostClient\b` 会误红 4 处注释、types.ts:5 的 `/**` 连剥注释脚本都漏 → 故**放弃使用点 grep**）。但 QA 把 TC `BL004-U-grepgate` 改成了**另一套**——使用点 `\bhostClient\b` + 剥注释 + allowlist。两文件各自写着"与对方严格对齐"，实际是**两套不同判定**：① 权威性不清（dev 跑 import 集绿、QA 跑词边界可能红，或反之）；② TC 这套恰恰用了 TECH 亲手否掉的剥注释路径，而 TECH 已指出简单剥注释器漏 `types.ts:5` 的单行块注释 → TC 若照此实现就带着 TECH 已知的脆弱点。lead 本轮明确要"确认 import-set 门禁 + 与 TC 对齐"——**对齐这一条没达成**。TECH:237 自己都还挂着"须统一"。
+- 建议: 二选一并落成一份：**(推荐)** 把 `BL004-U-grepgate` 断言改为 **import 集不变式**（`import { hostClient }` importer 集 ⊆ 豁免集）与 TECH 脚本同源，删掉 TC 里的 `\bhostClient\b`+剥注释表述；或明确写"import 集 = CI 硬门禁（权威）、词边界 = 辅助 advisory"并说明二者互补。无论哪种，TECH.md:508 补充洞察 + TC.md:536 变更记录里"钉成/改成 `\bhostClient\b`"的**陈述性残留**要一并订正（见 V4）。
+
+### V2 · import 集门禁对"折行 import"仍有盲区，"import 单行·永不折行"是假设非保证
+- severity: **low**
+- status: open
+- title: 行式 `grep -rlE "import[^;]*hostClient"` 漏多行 import 语句，且 tsc 背靠此时不触发
+- location: TECH.md:225,229（`import[^;]*\bhostClient\b` + "单行·永不折行"论断）
+- rationale: 回答 lead 直问"import-set 是否真拦得住残留裸消费"：**单行 import + tsc 背靠 = 完备**（未 import 就用 → tsc「cannot find name」拦；类型 `HostClient` 大写不被 `\bhostClient\b` 误伤，无假阳）。**但** grep 默认按行匹配，若某文件 import 名单超 80 列被 prettier 折成多行、`hostClient,` 独占一行，则 `import[^;]*hostClient` 这条行式正则**匹配不到**该行（行内无 `import`），而该文件确实 import 了 hostClient → tsc 也不报（import 在）→ **两道门禁双绿、裸消费溜过**。这正是 import 集声称免疫的"折行"陷阱换了个位置。当前 `./hostClient` import 很短（~48 列）不触发，故 low；但"永不折行"是假设不是保证。
+- 建议: 门禁用多行感知扫描（`grep -rlzE` null 分隔 / 或 node AST / 或 eslint `no-restricted-imports` 规则）而非行式 grep；至少在 TECH 注明"依赖 import 单行"这一前提并在门禁里附一条"无折行 hostClient import 行"的兜底检查。
+
+### V3 · TC `BL004-U-create-nohost-reject` gherkin 写的是 `forWorkspace`（读原语），而 create 应走 `forHostId`（写原语）——照字面实现即触发 E4 原 bug
+- severity: **low**
+- status: open
+- title: create-reject 测试步骤误用读原语，与 TECH 写/读分流相悖
+- location: TC.md「E4 · create 不落本机」gherkin：`When 路由 hostRegistry.forWorkspace({hostId:'cfg-1'}) 未命中`
+- rationale: TECH 明确 create 走 `forHostId`（未命中→null→拒绝），`forWorkspace` 是读原语（未命中→**兜底 local**）。TC 的 create 场景却写 `forWorkspace`。断言（`localStub.rpc` 未被 create 调用）本身正确，但步骤命名把写路径挂到读原语上——dev 若照 TC 字面用 `forWorkspace` 路由 create，未命中会**兜底 local 写**，正是 E4 要防的 bug。语义漂移虽被断言兜住，但 TC 是 RD 对齐测试形状的单源，措辞要对。
+- 建议: 把该 gherkin 的 `forWorkspace` 改为 `forHostId`，与 TECH 写/读分流一致。
+
+### V4 · 两处陈述性残留仍指向已废弃的 `\bhostClient\b` 门禁
+- severity: **low**
+- status: open
+- title: TECH 补充洞察 + TC 变更记录仍把 `\bhostClient\b` 当权威门禁描述
+- location: TECH.md:508（"TECH 已把门禁 pattern 钉成 `\bhostClient\b` + 豁免清单，dev 直接照抄"）+ TC.md:536（"E1 grep 门禁 pattern 改 `\bhostClient\b` 词边界…与 TECH 脚本对齐"）
+- rationale: 正文权威段（TECH §覆盖门禁）已改 import 集，但这两处叙述仍说门禁是 `\bhostClient\b`，且 508 还叫"dev 直接照抄"。dev/QA 读到会实现错门禁，与 V1 相互印证同一根因（口径未一次性收敛）。
+- 建议: 随 V1 一并订正为 import 集口径。
+
+## 实现精度提示（非 finding · 供 RD 落地）
+- 作用域 active 守卫的正确判据是 **`active ∈ inScope 输入集 且 active ∉ snapshot`** 才复位——不能沿用现 `reconcileWorkspaces` 的裸 `active ∉ snapshot`（那样域外远程 active 会被本机快照误复位）。`BL004-U-snapshot-scope-local` 已把这条钉成断言，实现按它对即可。
+
+## 摘要
+- **消解**：E2 blocker + E3/E4 high + E5/E6 low **全部真闭环**，机制可落地、TC 断言到位，v0.2 质量高。
+- **残留**：V1（high · E1 门禁 TECH↔TC 未收敛）+ V2/V3/V4（low）。
+- **verdict: NEEDS_REVISION**，但**仅 E1 收尾**：把门禁口径在 TECH 与 TC 收敛成一份（推荐 TC `BL004-U-grepgate` 断言 import 集不变式）+ 订正两处陈述残留。做完即可 APPROVE。BLOCKER 已彻底清除，不必再回炉机制。

@@ -1,5 +1,9 @@
 # BL-004 Blueprint 评审 — Architect
 
+> ⚠️ 本文件含两轮：**Round 1**（v0.1 首审 · verdict NEEDS_REVISION）+ 末尾 **Round 2 · verify（v0.2 复核 · 见文末「## Round 2」）**。最新结论以 Round 2 为准。
+
+
+
 - **对象**: `docs/features/TERMPRO-F260710011342-Sidebar-Machine-Groups/{TECH.md,TC.md}`
 - **基准**: PRD v0.3（11 AC · D-1~D-9）+ PRD-REVIEW blueprint 强制事项 + 真实代码逐文件 grounded
 - **评审人**: Architect（隔离评审 · 默认质疑姿态）
@@ -109,3 +113,57 @@
 ## 收敛建议
 
 **放行条件**：修 A1（reconcileWorkspaces 作用域安全 + merge-back + active 守卫 + TC 对称非干扰两条 P0）。A2/A3/A4/A5/A6 建议同并入本轮 blueprint 修订（都是钉一句话/一个约束，成本低、都在「无静默 / 数据一致」红线上）。A7 措辞降级、A8 保持不动。改完即 APPROVE，无需重开架构。
+
+---
+
+## Round 2 · verify（TECH v0.2 + TC 35 test · commit 365f4e8）
+
+### Verdict: **NEEDS_REVISION**（收敛到 1 项 · 门禁）
+
+Round 1 的 A1(MAJOR) 核心机制已闭环，A2/A4/A5/A6/E5/E6 全部消解且做得干净。**唯一未闭合项 = 覆盖门禁（原 A3）**：改判 import 集本身**既不 sound 也不 complete**（实测），且 **TECH（import 集）与 TC（使用点 grep + 剥注释）用的是两套不同机制——QA 声明「严格对齐」不成立**。这是你点名要核的两个重点之一，答案是「未对齐 + 未完备」。修门禁即可 APPROVE，无需再动数据模型。
+
+### files_read（Round 2）
+- TECH.md v0.2 全文（路由原语 L82-118 / 作用域隔离机制 L263-284 / 门禁 L220-237 / 影响面 L371-380 / 改动文件清单 L392-421 / 变更记录 L491）
+- TC.md 全文（35 test · §1b 补测 L453-519 · grepgate L344-361）
+- 实测：门禁 regex 对 `import type { HostClient }` / 多行 import / 模块路径 的匹配行为（见下证据）
+
+### ✅ 已消解（逐条 verify 通过）
+
+| Round1 | 消解证据 | 判定 |
+|--------|----------|------|
+| **A1 MAJOR** 作用域隔离 | TECH L263-284 给出可落地四步（filter-in→`reconcileWorkspaces(inScope,active,snapshot,scopeHostId)`→按原位次 merge-back→active hostId 守卫）。我推演两个关键场景**都闭环**：①「本机加项目」= applyWorkspaceSnapshot(scopeHostId='local')，outScope 远程 ws 原位透传**不清空**；② active=远程时本机快照走 ④「原 active 属本作用域才复位」→ 远程 active **不被抢**。对称路径 setHostWorkspaces(configId) 同理。TC 补 `BL004-U-snapshot-scope-local/-remote`（P0）**直接断言这两条不变式**（TC L461-476）——Round1 我指出的 TC 覆盖缺口已补 | **闭环** |
+| **A2** serialize v1 | TECH L144-148：v1(114-127)+v2 双分支都 `filter(hostId==='local')` + activeWorkspaceId coerce；TC `BL004-U-serialize-v1-noremote`/`-v1-remote-crud-reject`(P0) | 消解 |
+| **A4** deps.platform | TECH L190 显式「platform 改 getter `get platform(){return resolveClient().info?.platform}`」 | 消解 |
+| **A5** 兜底分流 | TECH L82-118：`forWorkspace`(读·兜底 local+**恒 WARN**)/`forHostId`(写·null·**绝不兜底**)；E-8/E-9 错误路径；TC `BL004-U-create-nohost-reject`(P0) 断言 create null→拒绝不落本机 | 消解（分流比单一策略更对） |
+| **A6** FsLinkProvider | TECH L162/L189：闭包 `()=>inst.client` call-time 读（非构造注入·因 getOrCreateTerminal 早于 spawn 绑定） | 消解 |
+| **E5** session 生命周期 | TECH L242-244/L288-294：会话订阅并入 `remoteWorkspaceSync` ready 编排（与 workspace 订阅同生命周期·drop 一次性退订）；TC `BL004-U-session-lifecycle` 断言 drop 后不再路由 | 消解 |
+| **E6** reconcile 签名 | TECH L375 影响面表列入 `reconcileWorkspaces(+scopeHostId)` 破坏性变更行 | 消解 |
+
+### 🔴 未闭合 — 覆盖门禁（原 A3 · 阻塞）
+
+**V1 · MAJOR · open · import 集门禁 unsound + incomplete（实测）**
+TECH L229 门禁 `grep -rlE "import[^;]*\bhostClient\b"`：
+- **假阳（unsound）**：`import type { HostClient } from '../services/hostClient';` **命中**——因 `[^;]*` 跨进 `from '...'`，模块路径 `services/hostClient` 含子串 `hostClient`（实测 `>>> MATCHED`）。**迁移后 terminalRegistry / terminalLinks / deps / remoteWorkspaceSync 都要 `import type { HostClient }`** 给 `inst.client` / `resolveClient(): HostClient` 定型 → 全部被误红。危险后果：dev 为消红把这些文件塞进豁免集 → 从此**真的**裸 `import { hostClient }` 也被豁免 = 门禁自废。
+- **假阴（incomplete）**：多行 import `import {\n  hostClient,\n} from …` **不命中**（实测 `>>> NOT matched`·grep 行级）→ 折行的单例 import 逃逸。tsc 背靠**救不了**这两个：type import 合法编译（假阳纯 grep 之过）；多行单例 import 也合法编译（假阴逃逸）。故「import 集 + tsc = 完备覆盖」（TECH L225）**不成立**。
+
+**V2 · MAJOR · open · TECH 门禁 ≠ TC 门禁（QA「严格对齐」不实）**
+- TECH L220-237：门禁 = **import 集**（importer ⊆ 豁免 · 显式「改判 import 集，不是使用点」）。
+- TC L344-361：`BL004-U-grepgate` = **使用点 grep**（`\bhostClient\b` 词边界 + **剥离注释** + allowlist + deps.ts 零命中特判），**未**实现 import 集。
+- 两者是**不同机制**，QA 变更记录（TC L536「与 TECH 脚本对齐」）与 TC L344「与 TECH 门禁脚本严格对齐」**与事实不符**。且 **TC 的 `\bhostClient\b` 使用点 grep 同样假阳于模块路径**（实测：`import type { HostClient } from '.../hostClient'` 的路径段命中 `\bhostClient\b`）——两套机制**共享同一个路径假阳**，都在迁移后误红 type-import 文件。
+
+**建议（单一门禁 · 一次修掉折行/注释/type/path/多行五个坑）**：门禁匹配**花括号内的小写单例 specifier**，大小写敏感 + 多行感知，不看路径。实测通过（perl -0777 · 大小写敏感）：
+```
+import\s+(?:type\s+)?\{[^}]*\bhostClient\b[^}]*\}
+```
+- 单例 单行/多行/混合 `{ HostClient, hostClient }` → **MATCH**
+- `import type { HostClient }`（仅类型）→ **no-match**（大小写敏感排除 `HostClient` + 花括号作用域排除路径）
+- 纯路径 `import "./hostClient"` → no-match
+TC `BL004-U-grepgate` 实现须：读**整文件文本**（非行级·multiline dotall）匹配上式；TECH 与 TC **统一到这一条**（二者取一为权威·建议纯 import-specifier 式）。残留极小坑：注释里恰好出现 `import { hostClient }` 字面（罕见·可 allowlist 或先剥注释）。tsc 背靠保留（抓「删了 import 却残留 hostClient.x」）。
+
+### 新增小观察（NIT · 不阻塞）
+- **N1**：TECH L284 作用域机制给「纯函数承载全部 vs store 做 filter/merge」**二选一**——两条都正确但留了歧义；建议钉死「纯函数承载全部」（TECH 自己也倾向·单测面更干净）。
+- **N2**：merge-back 新增 ws 落「各自作用域末尾」在**交错**作用域下语义不唯一（同作用域末尾 vs 数组末尾）——纯视觉排序·无正确性影响。
+- **N3**：reconcile 的 active 回落只在**本作用域内**取 `nextActive`；若「远程仍连着、别的客户端删掉了当前 active 远程 ws 且该机已空」→ active 落 null 而非本机首个（AC-11 断线路径已单独处理为本机首个·此处是「未断线的远程删除」窄边界）。建议 scope 空时优先落首个本机/全局首个而非 null。低危。
+
+### 收敛
+修 V1+V2（合成一条门禁·TECH 脚本改 brace-scoped 大小写敏感多行式 + TC `BL004-U-grepgate` 严格实现同式·统一豁免常量）即 APPROVE。N1-N3 可 dev 落地时顺手定，不阻塞。数据模型/路由/作用域/兜底分流**本轮不必再动**。
