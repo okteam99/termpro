@@ -34,8 +34,9 @@ export interface MachineInfo {
   alias?: string;
   /** 远程机地址(user@host),组头 title 悬浮展示 */
   addr?: string;
-  /** dot 颜色语义:connected=绿 / connecting=琥珀 / disconnected=灰(从未连接) / lost=红(断线) */
-  status?: 'connected' | 'connecting' | 'disconnected' | 'lost';
+  /** dot 颜色语义:connected=绿 / connecting=琥珀 / disconnected=灰(从未连接) / lost=红(断线) /
+   *  reconnecting=琥珀脉冲(BL-005 瞬时断线·重连中·保活不折叠·AC-6/15) */
+  status?: 'connected' | 'connecting' | 'disconnected' | 'lost' | 'reconnecting';
   /** 连接生命周期进行中/失败态(BL-003 remoteHostStore);'ready'/'disconnected' 不传,由 status 呈现 */
   runtime?: RemoteEvent;
   /** true = 断线后已折叠回未连接态外观(D-8 folded 阶段);与"从未连接"灰态视觉区分(仍标红点) */
@@ -50,6 +51,8 @@ export interface MachineGroupProps {
   onConnect?: (machineId: string) => void;
   onRetry?: (machineId: string) => void;
   onSelectWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
+  /** BL-005 AC-6:reconnecting 态「立即重试」→ reconnectController.manualRetry(复位退避即刻再试) */
+  onManualRetry?: (machineId: string) => void;
 }
 
 export function MachineGroup({
@@ -57,6 +60,7 @@ export function MachineGroup({
   onConnect,
   onRetry,
   onSelectWorkspace,
+  onManualRetry,
 }: MachineGroupProps) {
   const isRemote = machine.kind === 'remote';
   const runtime = machine.runtime;
@@ -106,7 +110,21 @@ export function MachineGroup({
         <span className="sidebar-machine-label">
           {isRemote ? machine.alias : (machine.label ?? '本机')}
         </span>
-        {isRemote && runtime && renderRuntimeStatus(runtime)}
+        {/* BL-005:重连中——琥珀脉冲 + 「重连中…」文案(区别于确定断线的 lost·保活不折叠·AC-6/15) */}
+        {isRemote && machine.status === 'reconnecting' && (
+          <span className="sidebar-machine-status sidebar-machine-status--active">
+            <span className="add-ws__spinner add-ws__spinner--sm" />
+            重连中…
+            <button
+              className="sidebar-machine-connect"
+              title="立即重试(复位退避即刻再连)"
+              onClick={(e) => { e.stopPropagation(); onManualRetry?.(machine.id); }}
+            >
+              立即重试
+            </button>
+          </span>
+        )}
+        {isRemote && machine.status !== 'reconnecting' && runtime && renderRuntimeStatus(runtime)}
         {isRemote && !runtime && machine.foldedLost && (
           <button className="sidebar-machine-connect" onClick={() => onConnect?.(machine.id)}>
             重连

@@ -152,6 +152,21 @@ async function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const DEFAULT_CLAIM_PROBE_RETRIES = 3;
+const DEFAULT_CLAIM_PROBE_RETRY_DELAY_MS = 300;
+
+/**
+ * 🔴 EXT-B-2:claim 探测重试次数(不含首次尝试)。网络刚从抖动恢复是 claim 探测
+ * 最易假阴性的时刻——tag-match+alive 的活 host 自证属本 configId,单探 miss
+ * 不该直接判定回收(否则连同断线期跑完的 build 一并销毁)。env 可注入。
+ */
+function claimProbeRetries(): number {
+  const raw = process.env.TERMPRO_CLAIM_PROBE_RETRIES;
+  if (raw === undefined) return DEFAULT_CLAIM_PROBE_RETRIES;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_CLAIM_PROBE_RETRIES;
+}
+
 /**
  * 执行编排:sftp 探测 bundleReady/portRaw → (候选路径:建隧道 + main 探测) →
  * decideResidency → 按决策执行 kill(确定性轮询死亡)/ 清陈旧。
@@ -173,17 +188,27 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
 
   if (candidateEligible) {
     candidateTunnel = await ctx.buildTunnel(portRaw!.port);
-    try {
-      fullProbe = await ctx.probeHostInfo(candidateTunnel.localPort, ctx.storedToken!);
-      probeResult = { ok: fullProbe.ok, compatible: fullProbe.compatible };
-    } catch (err) {
-      // 🔴 E7 防御性修复:probeHostInfo 契约上「永不 reject」(probeHostInfo.ts 自述),
-      // 但若某实现(测试桩/未来变更)违反契约抛出,决不能让候选隧道泄漏——立即关闭
-      // 并归一为探测失败,继续走确定性回收(不 livelock)。
-      candidateTunnel.server.close();
-      candidateTunnel = undefined;
-      probeResult = { ok: false };
-      fullProbe = { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    const maxRetries = claimProbeRetries();
+    // 🔴 EXT-B-2 有界重试:同一隧道上重探(不重建隧道),瞬时失败短退避后再试;
+    // 仍未 ok 才把最终失败结果交给下方 decideResidency(该函数保持纯——重试只
+    // 发生在这层执行编排,decideResidency 永远只看「最终一次」probeResult)。
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fullProbe = await ctx.probeHostInfo(candidateTunnel.localPort, ctx.storedToken!);
+        probeResult = { ok: fullProbe.ok, compatible: fullProbe.compatible };
+      } catch (err) {
+        // 🔴 E7 防御性修复:probeHostInfo 契约上「永不 reject」(probeHostInfo.ts 自述),
+        // 但若某实现(测试桩/未来变更)违反契约抛出,决不能让候选隧道泄漏——立即关闭
+        // 并归一为探测失败,继续走确定性回收(不 livelock,也不重试:契约违反不是
+        // 「瞬时网络失败」)。
+        candidateTunnel.server.close();
+        candidateTunnel = undefined;
+        probeResult = { ok: false };
+        fullProbe = { ok: false, detail: err instanceof Error ? err.message : String(err) };
+        break;
+      }
+      if (probeResult.ok || attempt >= maxRetries) break;
+      await sleep(DEFAULT_CLAIM_PROBE_RETRY_DELAY_MS);
     }
   }
 

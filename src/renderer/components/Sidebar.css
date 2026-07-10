@@ -567,6 +567,22 @@
   background: var(--red);
 }
 
+/* BL-005:重连中——琥珀脉冲(区别 connecting 常亮/ lost 红常亮),AC-6/13/15 Sidebar 信号 */
+.sidebar-machine-dot--reconnecting {
+  background: var(--amber);
+  animation: sidebar-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sidebar-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
 .sidebar-machine-label {
   flex: 1;
   min-width: 0;

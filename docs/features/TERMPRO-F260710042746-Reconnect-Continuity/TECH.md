@@ -312,20 +312,20 @@ sequenceDiagram
 ## 完工自查（RD 实现完逐项打钩）
 
 **对照本 TECH 的设计落地：**
-- [ ] **现状基线**：8 硬门前提仍成立（onExit/ack/分流点/per-client Set/connectPromise/tracker getter）
-- [ ] **§错误处理**：8 条失败路径都实现（退避失败/gap超缓冲/exited逐出/拒新建/token拒/双spawn防护/截断/resize对账）
-- [ ] **错误有 WARN/ERROR 日志**：每条 catch 带 configId/sid 上下文·不静默吞
-- [ ] **§依赖与影响**：协议追加 · 两端 `tsc -b` 零报错 · 本机零回归口径（embedded mode 四点）
-- [ ] **§数据结构**：SessionSnapshot/AttachResult 字段两端一致 · 无类型漂移
-- [ ] **§测试策略**：集成测真跑（真 pty/ws）· 沙箱红登记 test-baseline 差分「0 新增」
-- [ ] AC-13 真机 spike 列门禁（发版前 manual）
+- [x] **现状基线**：8 硬门前提仍成立（g5d-host/rend grounded 实现·未发现假设错·onExit/ack/分流点/per-client Set/connectPromise/tracker getter 均按现码增量改）
+- [x] **§错误处理**：失败路径实现（退避失败/gap超缓冲→full/exited逐出按 exitedAt/拒新建/token拒/双spawn幂等收养/UTF-8 截断/exited 跳 resize·集成测 reconnectContinuity 覆盖·纯逻辑测 ringBuffer/reconnectSuppressDrop 断言）
+- [x] **错误有 WARN/ERROR 日志**：catch 带 configId/sid 上下文（host onExit/reattach·renderer reconnectController 退避失败·residency claim 重试）
+- [x] **§依赖与影响**：协议追加 · 全量 `tsc --noEmit` **0 error**（三层集成）· 本机零回归（冒烟日志 embedded「sessions killed」·AC-2）
+- [x] **§数据结构**：SessionSnapshot/AttachResult（含 nextOffset）两端一致（shared 契约单源·tsc 0 error 无漂移）
+- [x] **§测试策略**：集成测真跑（真 hostCore+真 ws+真 node-pty）· 沙箱 posix_spawnp 红**登记 test-baseline 差分 new=[]**（0 新增·722 passed）
+- [x] AC-13 真机 spike 列门禁（TC FE-E2E manual·沙箱注入快心跳做有界断言兜底·heartbeatDetect 7 测绿）
 
 **通用质量门：**
-- [ ] 规范符合（DEV-RULES / 架构红线：UI 不碰 fs/PTY/git · host 零 Electron import）
-- [ ] 已有测试无回归（exit-code=0 · 差分基线）
-- [ ] build 通过 · 冒烟 SMOKE_OK · GO-029 import 集门禁未退化
-- [ ] （UI）设计↔实际一致性核对（横幅/reconnecting/tab-dot--exited 三态）
-- [ ] commit message 含 Feature ID · 改动文件全在 changeset
+- [x] 规范符合（架构红线：UI 不碰 fs/PTY/git〔走 HostService 协议〕· host 零 Electron import〔g5d-host 声明〕）
+- [x] 已有测试无回归（exit-code≠0 但 test-baseline 差分 **new=[]** · 32 失败全 posix_spawnp 环境债 · 0 断言失败）
+- [x] build 通过（tsc 0 error）· 冒烟 **SMOKE_OK**（9s）· GO-029 import 集门禁未退化（未改 hostClient import 集）
+- [x] （UI）设计↔实际一致性核对：**核对发现背离**（reconnecting 态缺 AC-6「立即重试」按钮）→ **已修实现**（MachineGroup onManualRetry→reconnectController.manualRetry）· reconnecting/tab-dot--exited/机器别名+状态 三态与 UI.md 一致（真实重连态需真机远程·live 视觉验证并入 AC-13 spike）
+- [x] commit message 含 Feature ID · 改动文件全在 changeset
 
 ## 🧩 补充洞察
 

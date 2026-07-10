@@ -7,6 +7,7 @@ import {
   startRemoteWorkspaceSync,
   stopRemoteWorkspaceSync,
 } from '../services/remoteWorkspaceSync';
+import { reconnectController } from '../services/reconnectWiring';
 import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
 import type { RemoteHostConfig } from '../../shared/remoteHost';
 import { ProtocolIncompatibleError } from '../../shared/versionCompat';
@@ -168,6 +169,7 @@ export function Sidebar() {
   const notifications = useAppStore((s) => s.notifications);
 
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
+  const reconnectingMap = useRemoteHostRuntimeStore((s) => s.reconnecting);
   const applyRuntimeEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -243,8 +245,11 @@ export function Sidebar() {
       handshakingRef.current.add(configId);
       const wsUrl = `ws://127.0.0.1:${tunnel.localPort}?token=${encodeURIComponent(tunnel.token)}`;
       const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
+      // 🔴 硬门④ call site:改调 reconnect(单一 owner)而非 connect——重连时 main re-emit
+      // verifying{tunnel},若走 connect() 命中陈旧 connectPromise → 新 ws 不开、假 ready 污染 UI。
+      // reconnect() 复位 connectPromise 后开新 ws;初次连接 connectPromise=null 时复位是 no-op 等价 connect。
       client
-        .connect({ wsUrl })
+        .reconnect({ wsUrl })
         .then(async () => {
           try {
             await client.rpc('fs.readdir', { path: client.info?.homedir ?? '/' });
@@ -276,12 +281,26 @@ export function Sidebar() {
   // 同生命周期)。与「谁完成了握手」解耦——不论是本组件的 beginHandshake 还是 RemoteHostsPage
   // 完成的握手,只要 runtime 落到 ready 就触发一次,重入由 remoteWorkspaceSync 内部去重。
   const syncedHosts = useRef<Set<string>>(new Set());
+  const reconnectWired = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const [configId, evt] of Object.entries(runtimeMap)) {
-      if (evt.stage === 'ready' && !syncedHosts.current.has(configId)) {
-        syncedHosts.current.add(configId);
-        void startRemoteWorkspaceSync(configId, '');
-      } else if (evt.stage !== 'ready') {
+      if (evt.stage === 'ready') {
+        if (!syncedHosts.current.has(configId)) {
+          syncedHosts.current.add(configId);
+          void startRemoteWorkspaceSync(configId, '');
+        }
+        // 握手成功收尾(BL-005):若此前在 reconnecting → readoptHost 收养回放 + session.list 对账
+        // + 清 reconnecting(横幅消失);非 reconnecting 的初次 ready 为廉价 no-op。
+        reconnectController.onReady(configId);
+        // 订该 client 的「需要重连」信号(心跳判死 / transport close·仅订一次)→ 启动重连编排
+        if (!reconnectWired.current.has(configId)) {
+          const client = hostRegistry.forHostId(configId);
+          const unsub = client?.onReconnectNeeded?.(() =>
+            reconnectController.onDisconnected(configId),
+          );
+          if (unsub) reconnectWired.current.add(configId);
+        }
+      } else {
         syncedHosts.current.delete(configId);
       }
     }
@@ -301,17 +320,23 @@ export function Sidebar() {
       if (evt.stage === 'disconnected' && prev !== 'disconnected') {
         setPanelHosts((s) => ({ ...s, [configId]: true }));
         clearTimeout(panelTimers.current[configId]);
-        panelTimers.current[configId] = setTimeout(() => {
-          setPanelHosts((s) => {
-            if (!s[configId]) return s;
-            const next = { ...s };
-            delete next[configId];
-            return next;
-          });
-          // folded 阶段:退订该机订阅 + 清 store 该 host 全部 workspace(含 active 回落本机首个)
-          // + drop client(E-4/D-8 三步同一原子操作)
-          stopRemoteWorkspaceSync(configId);
-        }, DISCONNECT_PANEL_MS);
+        // 🔴 CR-1 ②:reconnecting 期**不启动** 900ms drop 倒计时(抑制 AC-15 full drop)——
+        // disconnect-first 会自发广播 disconnected,隧道重建常数秒 >900ms,若不 gate 会先 full-drop
+        // 击穿 AC-15。drop 唯一出口移到 reconnectController 超预算分支;非 reconnecting(确定断线/
+        // 机器删除)照旧折叠(不回归 BL-004)。
+        if (!useRemoteHostRuntimeStore.getState().isReconnecting(configId)) {
+          panelTimers.current[configId] = setTimeout(() => {
+            setPanelHosts((s) => {
+              if (!s[configId]) return s;
+              const next = { ...s };
+              delete next[configId];
+              return next;
+            });
+            // folded 阶段:退订该机订阅 + 清 store 该 host 全部 workspace(含 active 回落本机首个)
+            // + drop client(E-4/D-8 三步同一原子操作)
+            stopRemoteWorkspaceSync(configId);
+          }, DISCONNECT_PANEL_MS);
+        }
       } else if (evt.stage !== 'disconnected' && prev === 'disconnected') {
         clearTimeout(panelTimers.current[configId]);
         setPanelHosts((s) => {
@@ -427,6 +452,19 @@ export function Sidebar() {
     const inPanel = !!panelHosts[cfg.id];
     const wsForHost = workspaces.filter((w) => w.hostId === cfg.id);
     const addr = `${cfg.username}@${cfg.host}`;
+
+    // BL-005 · AC-15:瞬时断线·重连中——保活该机 workspace 可见(不折叠·不消失),组头琥珀脉冲。
+    // reconnecting 是 store 单源标志(reconnectController 先占),优先于 runtime.stage 的 disconnected 呈现。
+    if (reconnectingMap[cfg.id]) {
+      return {
+        id: cfg.id,
+        kind: 'remote',
+        alias: cfg.alias,
+        addr,
+        status: 'reconnecting',
+        workspaces: wsForHost.map((w) => toRowData(w, activeWorkspaceId, false)),
+      };
+    }
 
     if (runtime?.stage === 'ready') {
       return {
@@ -575,6 +613,7 @@ export function Sidebar() {
               machine={machine}
               onConnect={handleConnectMachine}
               onRetry={handleConnectMachine}
+              onManualRetry={(id) => reconnectController.manualRetry(id)}
               onSelectWorkspace={handleSelectWorkspace}
             />
           ),

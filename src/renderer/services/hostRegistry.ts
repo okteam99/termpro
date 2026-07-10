@@ -25,7 +25,9 @@ export class HostRegistry {
     void wsUrl; // 保留形参与 TECH SSH-6 签名对齐;连接时机由调用方显式触发
     let client = this.clients.get(configId);
     if (!client) {
-      client = new HostClient();
+      // BL-005:远程 client 置 reconnectable —— transport 断开/心跳判死走「触发重连」分叉
+      // (非终结),区别本地嵌入式单例(reconnectable=false·onClose=终结)。
+      client = new HostClient({ reconnectable: true });
       this.clients.set(configId, client);
     }
     return client;

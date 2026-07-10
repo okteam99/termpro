@@ -5,7 +5,7 @@
 // orchestrator/residency/deploy 一律只依赖 SshConnectionLike + ConnectSsh 工厂类型
 // (DI 接缝 · ARCH-B10);本文件的 SshConnection 是生产实现,测试全部注入桩,不导入本文件。
 
-import { Client, type SFTPWrapper } from 'ssh2';
+import { Client, type SFTPWrapper, type ConnectConfig } from 'ssh2';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as path from 'node:path';
@@ -61,6 +61,29 @@ export interface SshConnectionLike {
 /** DI 接缝(ARCH-B10):orchestrator 只依赖此工厂类型,不直接 new/调 static。 */
 export type ConnectSsh = (o: SshConnectOptions) => Promise<SshConnectionLike>;
 
+const DEFAULT_KEEPALIVE_INTERVAL_MS = 15_000;
+const DEFAULT_KEEPALIVE_COUNT_MAX = 3;
+
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/**
+ * 🔴 纵深防御(TECH §依赖与影响面「main 侧断线感知时延」·ARCH-B-1 补充,非替代
+ * disconnect-first):ssh2 自身 keepalive——冻结 TCP(合盖/断网)下 renderer 心跳
+ * 可能数分钟才感知,main 靠此主动探活也能较快 emit disconnected。心跳仍是权威
+ * fast 信号,这只是纵深;env 可注入(测试/调优免碰真实网络等待)。
+ */
+export function buildKeepaliveConfig(): Pick<ConnectConfig, 'keepaliveInterval' | 'keepaliveCountMax'> {
+  return {
+    keepaliveInterval: envPositiveInt('TERMPRO_SSH_KEEPALIVE_MS', DEFAULT_KEEPALIVE_INTERVAL_MS),
+    keepaliveCountMax: envPositiveInt('TERMPRO_SSH_KEEPALIVE_COUNT', DEFAULT_KEEPALIVE_COUNT_MAX),
+  };
+}
+
 function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
@@ -115,6 +138,7 @@ export class SshConnection implements SshConnectionLike {
         privateKey: o.auth.privateKey,
         passphrase: o.auth.passphrase,
         readyTimeout: o.readyTimeoutMs,
+        ...buildKeepaliveConfig(),
       });
     });
   }
