@@ -59,6 +59,7 @@ function ws(id: string, name: string, root: string, tabIds: string[]): Workspace
     id,
     name,
     root,
+    hostId: 'local',
     tabs: tabIds.map((t) => ({ id: t, title: t, cwd: root })),
     activeTabId: tabIds[0] ?? null,
   };
@@ -77,7 +78,7 @@ describe('workspace 多客户端集成', () => {
     expect(b.lastSnapshot()?.map((w) => w.id)).toEqual([entry.id]);
 
     // B 本地空(初始 activeWorkspaceId=null)→ 协调:合成默认视图,不抢激活
-    const result = reconcileWorkspaces([], null, b.lastSnapshot()!);
+    const result = reconcileWorkspaces([], null, b.lastSnapshot()!, 'local');
     expect(result.workspaces.map((w) => w.id)).toEqual([entry.id]);
     expect(result.workspaces[0].tabs).toHaveLength(1);
     expect(result.workspaces[0].tabs[0].cwd).toBe('/tmp/proj');
@@ -104,7 +105,7 @@ describe('workspace 多客户端集成', () => {
 
     await svc.handle('workspace.update', { id: entry.id, name: 'renamed' });
     const snap = b.lastSnapshot()!;
-    const result = reconcileWorkspaces(bLocal, other.id, snap);
+    const result = reconcileWorkspaces(bLocal, other.id, snap, 'local');
 
     const w1 = result.workspaces.find((w) => w.id === entry.id)!;
     expect(w1.name).toBe('renamed');
@@ -133,7 +134,7 @@ describe('workspace 多客户端集成', () => {
     const snap = a.lastSnapshot()!;
     expect(snap.map((w) => w.id)).toEqual([w2.id]);
 
-    const result = reconcileWorkspaces(aLocal, w1.id, snap);
+    const result = reconcileWorkspaces(aLocal, w1.id, snap, 'local');
     expect(result.disposedTabIds).toEqual(['pty-1']); // 回收 w1 全部 tab
     expect(result.workspaces.map((w) => w.id)).toEqual([w2.id]);
     expect(result.activeWorkspaceId).toBe(w2.id); // 活跃切到剩余首个

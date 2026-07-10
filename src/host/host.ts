@@ -4,13 +4,18 @@
 //   否则                              → 嵌入式模式(utilityProcess + parentPort,现状)
 // 两种模式共用 hostCore(传输无关);新增 WS 逻辑全在 wsServer,嵌入式路径零侵入。
 
+import * as fs from 'node:fs';
 import { PROTOCOL_VERSION } from '../shared/protocol';
 import { createHostCore, PortLike } from './hostCore';
 import { gitInfo } from './gitService';
 import { resolveToken } from './token';
 import { startWsServer } from './wsServer';
 
-const core = createHostCore();
+// 形态注入(D-1 · BL-005):--listen → standalone(远程/loopback · 断线续跑 + 回放收养);
+// 否则 → embedded(本机嵌入式 · 零回归)。分流在 argv 层,createHostCore 之前前移。
+const core = createHostCore(
+  process.argv.includes('--listen') ? 'standalone' : 'embedded',
+);
 
 // dev/远程冒烟自测:host cwd 即项目仓库时验证 git 链路
 function maybeGitSmoke(): void {
@@ -33,9 +38,18 @@ function parseListen(argv: string[]): { host: string; port: number } {
   return { host: host.replace(/^\[|\]$/g, ''), port: Number.isNaN(port) ? 0 : port };
 }
 
+/** 取 flag 后紧跟的一个 argv 值;缺失返回 undefined。 */
+function argValue(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  return i === -1 ? undefined : argv[i + 1];
+}
+
 if (process.argv.includes('--listen')) {
   // ---- standalone WebSocket 模式 ----
   const { host, port } = parseListen(process.argv);
+  // configId 自证标签(远程编排注入):仅写入端口文件/日志供 main 侧 reap 双验识别
+  // 同机兄弟 host(SSH-4·ARCH-B2),绝不参与下方 token 端口闸——闸仍只认 token。
+  const hostTag = argValue(process.argv, '--host-tag');
   // token 解析(env 读后即抹,置于任何 pool.spawn 之前);禁 argv 明文
   let token: string;
   let source: string;
@@ -48,15 +62,36 @@ if (process.argv.includes('--listen')) {
     process.exit(1);
   }
 
+  // Origin 白名单(AC-10 纵深):main 侧(dev-main buildStartCommand)按打包/dev 场景算出
+  // 完整白名单经 env 注入,逗号分隔;缺省(embedded 本机路径/未注入)→ 维持 wsServer 内建
+  // DEFAULT_ALLOWED_ORIGINS(向后兼容,行为不变)。
+  const allowedOriginsEnv = process.env.TERMPRO_ALLOWED_ORIGINS;
+  const allowedOrigins = allowedOriginsEnv
+    ? new Set(
+        allowedOriginsEnv
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0),
+      )
+    : undefined;
+
   startWsServer({
     host,
     port,
     token,
     attachClient: (p: PortLike) => core.attachClient(p),
+    allowedOrigins,
   }).then(
     (handle) => {
-      // 自动生成 token 时单行打印供调用方/ssh exec 捕获(显式传入则不回显)
-      if (source === 'generated') {
+      // 自动生成 token 时单行打印供调用方/ssh exec 捕获(显式传入则不回显)。
+      // 结构上仅限非驻留模式(无 TERMPRO_HOST_PORT_FILE):驻留态由 main 编排经
+      // --token-stdin 注入(source==='stdin',本就不会走这条分支),但仅凭「调用方
+      // 永远传 --token-stdin」这一隐性契约维持不落盘 —— 任何未来误将驻留 host 以
+      // generated token 起、或调试改动绕过 --token-stdin,都会把 128-bit token 明文
+      // 写进被 main 重定向的 host.log。改为显式结构约束:驻留态(有端口文件)恒不
+      // 打印 token,即便 source 意外为 'generated' 也不落盘(纵深 · E12)。
+      const isResident = Boolean(process.env.TERMPRO_HOST_PORT_FILE);
+      if (source === 'generated' && !isResident) {
         console.log('[host] token=%s', token);
       }
       // 固定 listening 日志行(CI 可 grep · AC-4)
@@ -66,6 +101,34 @@ if (process.argv.includes('--listen')) {
         handle.port,
         PROTOCOL_VERSION,
       );
+      // 驻留端口交接文件(main sftp 回读用 · SSH-4)。O_CREAT|O_EXCL|O_WRONLY:
+      // 陈旧文件视为 main 未先清理 = bug,fail-closed 拒绝覆盖而非静默复用
+      // (无 TOCTOU 窗口 · AC-8)。
+      const portFile = process.env.TERMPRO_HOST_PORT_FILE;
+      if (portFile) {
+        let fd: number;
+        try {
+          fd = fs.openSync(portFile, 'wx', 0o600);
+        } catch {
+          console.error('[host] stale port file, refusing:', portFile);
+          process.exit(1);
+          return;
+        }
+        fs.writeFileSync(
+          fd,
+          JSON.stringify({ port: handle.port, pid: process.pid, hostTag }),
+        );
+        fs.closeSync(fd);
+        // 正常回收:main 断连/重启前发 SIGTERM → 清端口文件,不留陈旧供下次 EEXIST 误判。
+        process.on('SIGTERM', () => {
+          try {
+            fs.unlinkSync(portFile);
+          } catch {
+            /* 已被清理或从未创建,忽略 */
+          }
+          process.exit(0);
+        });
+      }
       maybeGitSmoke();
     },
     (err) => {

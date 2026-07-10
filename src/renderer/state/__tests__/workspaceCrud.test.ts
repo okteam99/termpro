@@ -2,12 +2,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const rpc = vi.fn();
-vi.mock('../../services/hostClient', () => ({
-  hostClient: {
-    rpc: (...args: unknown[]) => rpc(...args),
-    onWorkspaceChanged: vi.fn(() => () => undefined),
-  },
-}));
+vi.mock('../../services/hostClient', async (importOriginal) => {
+  // 保留真实 HostClient 类导出(hostRegistry.getOrCreateRemote 需要 new 它),
+  // 只替换单例 hostClient 的行为供本地路径断言。
+  const actual = await importOriginal<typeof import('../../services/hostClient')>();
+  return {
+    ...actual,
+    hostClient: {
+      rpc: (...args: unknown[]) => rpc(...args),
+      onWorkspaceChanged: vi.fn(() => () => undefined),
+    },
+  };
+});
 vi.mock('../../terminal/terminalRegistry', () => ({
   disposeTerminal: vi.fn(),
 }));
@@ -15,12 +21,20 @@ vi.mock('../../terminal/terminalRegistry', () => ({
 import { useAppStore } from '../store';
 import type { WorkspaceState } from '../store';
 import { disposeTerminal } from '../../terminal/terminalRegistry';
+import { hostRegistry } from '../../services/hostRegistry';
 
-function ws(id: string, name: string, root: string, tabIds: string[]): WorkspaceState {
+function ws(
+  id: string,
+  name: string,
+  root: string,
+  tabIds: string[],
+  hostId = 'local',
+): WorkspaceState {
   return {
     id,
     name,
     root,
+    hostId,
     tabs: tabIds.map((t) => ({ id: t, title: t, cwd: root })),
     activeTabId: tabIds[0] ?? null,
   };
@@ -120,5 +134,81 @@ describe('workspace CRUD 等待确认 + 防重复提交(AC-2)', () => {
     expect(disposeTerminal).toHaveBeenCalledWith('pty-1');
     expect(s.workspaces.map((w) => w.id)).toEqual(['w2']);
     expect(s.activeWorkspaceId).toBe('w2');
+  });
+
+  it('created workspace defaults to hostId=local (write path forHostId)', async () => {
+    rpc.mockResolvedValueOnce({ id: 'srv-1', name: 'proj', root: '/tmp/proj' });
+    await useAppStore.getState().addWorkspace('/tmp/proj');
+    expect(useAppStore.getState().workspaces[0].hostId).toBe('local');
+  });
+
+  it('BL004-U-create-nohost-reject: unknown targetHostId (forHostId miss) rejects without RPC, no local write', async () => {
+    await useAppStore.getState().addWorkspace('/tmp/proj', 'cfg-ghost');
+    const s = useAppStore.getState();
+    expect(s.workspaces).toHaveLength(0);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(s.transientNotice).toBeTruthy();
+    expect(s.creatingWorkspace).toBe(false);
+  });
+
+  it('remove/rename route through hostRegistry.forWorkspace(ws) keyed by ws.hostId', async () => {
+    const forWorkspaceSpy = vi.spyOn(hostRegistry, 'forWorkspace');
+    useAppStore.setState({ workspaces: [ws('w1', 'old', '/a', ['t1'])] });
+    rpc.mockResolvedValueOnce({ id: 'w1', name: 'new', root: '/a' });
+    await useAppStore.getState().renameWorkspace('w1', 'new');
+    expect(forWorkspaceSpy).toHaveBeenCalledWith(expect.objectContaining({ hostId: 'local' }));
+    forWorkspaceSpy.mockRestore();
+  });
+
+  it('review E1: 远程已连(远程 ws 已在 store)时新建本机 ws → 本机 ws 仍是数组连续前缀', async () => {
+    useAppStore.setState({
+      workspaces: [
+        ws('l0', 'l0', '/l0', ['t0']),
+        ws('r0', 'r0', '/r0', [], 'cfg-1'), // 远程 ws 先于本机新建存在于数组中
+      ],
+      activeWorkspaceId: 'l0',
+    });
+    rpc.mockResolvedValueOnce({ id: 'l1', name: 'proj', root: '/tmp/proj' });
+    await useAppStore.getState().addWorkspace('/tmp/proj'); // targetHostId 默认 'local'
+    const s = useAppStore.getState();
+    // 新本机 ws 插到首个远程 ws 之前,不是整体数组末尾([l0, l1, r0] 而非 [l0, r0, l1])
+    expect(s.workspaces.map((w) => w.id)).toEqual(['l0', 'l1', 'r0']);
+    const firstRemoteIdx = s.workspaces.findIndex((w) => w.hostId !== 'local');
+    const localIds = s.workspaces.filter((w) => w.hostId === 'local').map((w) => w.id);
+    // 本机 ws 集合恰好是数组前缀(下标 0..firstRemoteIdx-1)
+    expect(s.workspaces.slice(0, firstRemoteIdx).map((w) => w.id)).toEqual(localIds);
+  });
+
+  it('review E1(对照): 无远程 ws 时新建本机 ws 仍 append 到末尾(零回归)', async () => {
+    useAppStore.setState({ workspaces: [ws('l0', 'l0', '/l0', ['t0'])] });
+    rpc.mockResolvedValueOnce({ id: 'l1', name: 'proj', root: '/tmp/proj' });
+    await useAppStore.getState().addWorkspace('/tmp/proj');
+    expect(useAppStore.getState().workspaces.map((w) => w.id)).toEqual(['l0', 'l1']);
+  });
+
+  it('review E1: 远程目标(targetHostId=configId)新建仍 append 到数组末尾', async () => {
+    const remote = hostRegistry.getOrCreateRemote('cfg-2', 'ws://x');
+    const remoteRpc = vi
+      .spyOn(remote, 'rpc')
+      .mockResolvedValue({ id: 'r1', name: 'rproj', root: '/home/r' });
+    useAppStore.setState({ workspaces: [ws('l0', 'l0', '/l0', ['t0'])] });
+    await useAppStore.getState().addWorkspace('/home/r', 'cfg-2');
+    expect(useAppStore.getState().workspaces.map((w) => w.id)).toEqual(['l0', 'r1']);
+    hostRegistry.drop('cfg-2');
+    remoteRpc.mockRestore();
+  });
+
+  it('review A5: remove 目标 ws 已不在 store(竞态)→ 静默返回,不发 RPC(不兜底本机误发)', async () => {
+    useAppStore.setState({ workspaces: [], pendingWorkspaceIds: [] });
+    await useAppStore.getState().removeWorkspace('ghost-id');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(useAppStore.getState().pendingWorkspaceIds).toEqual([]);
+  });
+
+  it('review A5: rename 目标 ws 已不在 store(竞态)→ 静默返回,不发 RPC(不兜底本机误发)', async () => {
+    useAppStore.setState({ workspaces: [], pendingWorkspaceIds: [] });
+    await useAppStore.getState().renameWorkspace('ghost-id', 'new-name');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(useAppStore.getState().pendingWorkspaceIds).toEqual([]);
   });
 });

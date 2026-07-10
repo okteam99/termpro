@@ -6,7 +6,7 @@ import {
   tabPathLabel,
 } from '../state/store';
 import type { TabState } from '../state/store';
-import { hostClient } from '../services/hostClient';
+import { hostRegistry } from '../services/hostRegistry';
 import { RenameModal } from './RenameModal';
 
 /** Small terminal icon: rounded rect with > chevron and underscore line */
@@ -183,7 +183,7 @@ export function TabBar() {
           // 否则默认 = cwd 相对工作区根的路径(随 cd 联动)
           const label =
             tab.customName ??
-            tabPathLabel(ws.root, tab.cwd, hostClient.info?.homedir);
+            tabPathLabel(ws.root, tab.cwd, hostRegistry.forWorkspace(ws).info?.homedir);
           // Compute dot state class (priority order)
           const dotState = tab.waiting
             ? 'tab-dot--waiting'
@@ -208,7 +208,11 @@ export function TabBar() {
               <TerminalIcon />
               <span className="tabbar-tab-title">{label}</span>
               {tab.exited && (
-                <span className="tabbar-tab-exited-hint">exited</span>
+                <span className="tabbar-tab-exited-hint">
+                  {typeof tab.exitCode === 'number'
+                    ? `exit ${tab.exitCode}`
+                    : 'exited'}
+                </span>
               )}
               <button
                 className={`tabbar-close-btn${isActive ? ' tabbar-close-btn--always' : ''}`}

@@ -52,7 +52,7 @@ describe('v2 hydrate(注册表 ⋈ 存档外键)', () => {
     const s = useAppStore.getState();
     expect(s.persistMode).toBe('v2');
     const w1 = s.workspaces[0];
-    expect(w1).toMatchObject({ id: 'w1', name: 'W1', root: '/r' }); // name/root 来自注册表
+    expect(w1).toMatchObject({ id: 'w1', name: 'W1', root: '/r', hostId: 'local' }); // name/root 来自注册表 · hostId 恒本机
     expect(w1.tabs).toHaveLength(2);
     expect(w1.tabs[0].customName).toBe('Alpha');
     expect(w1.tabs[1].customName).toBe('Beta');

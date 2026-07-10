@@ -72,6 +72,8 @@ const KNOWN_ROUTES = [
   '/shell/close-install-confirmation',
   '/workspace/add-workspace',
   '/settings/remote-hosts',
+  '/sidebar/machine-groups',
+  '/session/reconnect-continuity',
 ];
 
 const DEFAULT_ROUTE = '/workspace/add-workspace';
@@ -88,6 +90,8 @@ const DEVBAR_ROUTES = [
   { path: '/shell/close-install-confirmation', label: 'Close/Install' },
   { path: '/workspace/add-workspace', label: 'Add Workspace' },
   { path: '/settings/remote-hosts', label: 'Remote Hosts' },
+  { path: '/sidebar/machine-groups', label: 'Sidebar · Machine Groups' },
+  { path: '/session/reconnect-continuity', label: 'Session · Reconnect' },
 ];
 
 function PreviewDevBar({ currentPath, onNavigate, statePresets, activeStateKey, onSelectState }) {
@@ -150,6 +154,8 @@ function Sidebar({
   workspaces = DEFAULT_WORKSPACES,
   machines,
   onConnectMachine,
+  onRetryMachine,
+  onSelectWorkspace,
   onAddWorkspace,
   onOpenRemoteHosts,
   onReconnectWorkspace,
@@ -163,7 +169,13 @@ function Sidebar({
       <div className="sidebar-list">
         {machines ? (
           machines.map((m) => (
-            <MachineGroup key={m.id} machine={m} onConnect={onConnectMachine} />
+            <MachineGroup
+              key={m.id}
+              machine={m}
+              onConnect={onConnectMachine}
+              onRetry={onRetryMachine}
+              onSelectWorkspace={onSelectWorkspace}
+            />
           ))
         ) : (
           workspaces.map((item) => (
@@ -190,20 +202,60 @@ function Sidebar({
  * 机器分组:本机组头无状态点;远程组头 = 状态点 + 别名(title 显 addr)。
  * status: 'connected' | 'connecting' | 'disconnected'(未连接·灰)| 'lost'(断线·红)。
  * workspaces 为 null = 未连接,连接后才能看到该机上的 workspace(A 模型核心)。
+ *
+ * machine.runtime(可选 · AC-8 连接生命周期):{stage, percent?, reason?, fast?, arch?} ·
+ * 形状与 /settings/remote-hosts 的 hostRuntime 条目一致(CONNECT_STAGE_LABEL / FAIL_REASONS 复用) ·
+ * stage='failed' → 组头显示原因 + 重试;stage∈连接中各态 → 显示阶段文案(+ deploying 时的 %)。
+ * 不传 runtime 时保持旧有基于 machine.status 的渲染(零回归)。
+ *
+ * machine.foldedLost(可选 · D-8/AC-11):true = 断线后折叠回未连接态外观(隐藏 workspace 列表·
+ * 显示 emptyLabel + 重连入口),区别于旧有「lost 仅整体变灰但仍展开」的呈现(该呈现继续保留·
+ * 供未设置 foldedLost 的既有场景使用,零回归)。
+ *
+ * machine.status === 'reconnecting'(可选 · BL-005 AC-15):瞬时断线保活态 —— 区别于 'lost'(确定断线·
+ * BL-004 full drop 边界)。组头黄点脉冲 + 「重连中…」而非红点/「已断开」·workspace 列表**照常展开**
+ * (非 foldedLost·会话仍在远端跑·非消失)。
  */
-function MachineGroup({ machine, onConnect }) {
+function MachineGroup({ machine, onConnect, onRetry, onSelectWorkspace }) {
   const isRemote = machine.kind === 'remote';
+  const runtime = machine.runtime;
   const groupClasses = [
     'sidebar-machine-group',
     machine.status === 'lost' ? 'sidebar-machine-group--lost' : '',
   ].filter(Boolean).join(' ');
+
+  function renderRuntimeStatus() {
+    if (runtime.stage === 'failed') {
+      const reason = FAIL_REASONS[runtime.reason] || FAIL_REASONS.unreachable;
+      return (
+        <span className="sidebar-machine-status sidebar-machine-status--fail" title={reason.detail}>
+          <span className="sidebar-machine-status-text">✗ {reason.label}</span>
+          <button className="sidebar-machine-connect" onClick={() => onRetry && onRetry(machine.id)}>重试</button>
+        </span>
+      );
+    }
+    const label = CONNECT_STAGE_LABEL[runtime.stage] || '连接中…';
+    const pct = runtime.stage === 'deploying' && typeof runtime.percent === 'number' ? ` ${runtime.percent}%` : '';
+    return (
+      <span className="sidebar-machine-status sidebar-machine-status--active">
+        <span className="add-ws__spinner add-ws__spinner--sm" />
+        {label}{pct}
+      </span>
+    );
+  }
+
+  const showWorkspaces = machine.workspaces && !machine.foldedLost;
 
   return (
     <div className={groupClasses}>
       <div className="sidebar-machine-header" title={isRemote ? machine.addr : undefined}>
         {isRemote && <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status}`} />}
         <span className="sidebar-machine-label">{isRemote ? machine.alias : machine.label}</span>
-        {isRemote && machine.status === 'disconnected' && (
+        {isRemote && runtime && renderRuntimeStatus()}
+        {isRemote && !runtime && machine.foldedLost && (
+          <button className="sidebar-machine-connect" onClick={() => onConnect && onConnect(machine.id)}>重连</button>
+        )}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'disconnected' && (
           <button
             className="sidebar-machine-connect"
             onClick={() => onConnect && onConnect(machine.id)}
@@ -211,30 +263,76 @@ function MachineGroup({ machine, onConnect }) {
             连接
           </button>
         )}
-        {isRemote && machine.status === 'connecting' && (
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'connecting' && (
           <span className="sidebar-machine-connecting">连接中…</span>
         )}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'reconnecting' && (
+          <span className="sidebar-machine-status sidebar-machine-status--active">
+            <span className="add-ws__spinner add-ws__spinner--sm" />
+            重连中…
+          </span>
+        )}
       </div>
-      {machine.workspaces ? (
-        machine.workspaces.map((ws, i) => <MachineWorkspaceRow key={`${ws.name}-${i}`} ws={ws} />)
+      {showWorkspaces ? (
+        machine.workspaces.map((ws, i) => (
+          <MachineWorkspaceRow
+            key={`${ws.name}-${i}`}
+            ws={ws}
+            onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
+          />
+        ))
       ) : (
-        <div className="sidebar-machine-empty">未连接 · 连接后显示该机上的 workspace</div>
+        <div className="sidebar-machine-empty">
+          {machine.emptyLabel || '未连接 · 连接后显示该机上的 workspace'}
+        </div>
       )}
     </div>
   );
 }
 
-/** 机器组内 workspace 条目;sessions = 会话活动徽标(UI 断开期间会话仍在 Host 上活着)。 */
-function MachineWorkspaceRow({ ws }) {
+/**
+ * 机器组内 workspace 条目。会话徽标(AC-2/D-9)= 本客户端在该 workspace 的活跃 tab 数(hostId-aware) ·
+ * 首连远程机可为 0(显式呈现「0 个标签」· 非隐藏)。
+ * 优先用 ws.tabCount(number,新语义);兼容旧 ws.sessions(string · 既有页面未改动的调用点零回归)。
+ * ws.disconnectedPanel(可选 · D-8):该 workspace 所在机器刚断线且它正是活跃态,行内打「已断开」态标签。
+ */
+function formatTabBadge(ws) {
+  if (typeof ws.tabCount === 'number') {
+    const running = ws.tabRunning || 0;
+    const text = ws.tabCount === 0 ? '0 个标签' : `${ws.tabCount} 个标签${running ? ` · ${running} running` : ''}`;
+    return { text, zero: ws.tabCount === 0 };
+  }
+  if (ws.sessions) return { text: ws.sessions, zero: false };
+  return null;
+}
+
+/** ws.reconnectingPanel(可选 · BL-005 AC-15):瞬时断线保活态,复用同一条目视觉家族但标签是「重连中」
+ *  (琥珀色·区别于「已断开」的红色·D-13 与 BL-004 full-drop 的关键区分——保活非移除)。 */
+function MachineWorkspaceRow({ ws, onClick }) {
+  const badge = formatTabBadge(ws);
+  const classes = [
+    'sidebar-item',
+    ws.active ? 'sidebar-item--active' : '',
+    (ws.disconnectedPanel || ws.reconnectingPanel) ? 'sidebar-item--disconnected' : '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={`sidebar-item${ws.active ? ' sidebar-item--active' : ''}`}>
+    <div className={classes} onClick={onClick} role={onClick ? 'button' : undefined}>
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{ws.name}</span>
+        {ws.disconnectedPanel && <span className="sidebar-item-lost-tag">已断开</span>}
+        {ws.reconnectingPanel && (
+          <span className="sidebar-item-lost-tag sidebar-item-lost-tag--reconnecting">重连中</span>
+        )}
       </div>
       <div className="sidebar-item-meta">
         <span className="sidebar-item-meta-row">
           <span className="sidebar-remote-meta-text">{ws.meta}</span>
-          {ws.sessions && <span className="sidebar-machine-sessions">{ws.sessions}</span>}
+          {badge && (
+            <span className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}>
+              {badge.text}
+            </span>
+          )}
         </span>
       </div>
     </div>
@@ -643,10 +741,27 @@ function Terminal({ scenario, onScenario }) {
   );
 }
 
-function FilePanel({ scenario }) {
+/**
+ * 远程 workspace「文件」= 树浏览 + git 着色(在范围·D-7)。remote=true 时:
+ * 点文件行 / 行内 diff 按钮 / 顶部 Diff 按钮一律**禁用弹窗** + 显示确定性提示
+ * 「远程文件独立窗口暂不支持」(非静默失败·AC-5)。remote 默认 false,其余调用点零变化。
+ */
+function FilePanel({ scenario, remote = false }) {
   const mode = scenario.mode;
+  const [hint, setHint] = useState(false);
+  const hintTimer = useRef(null);
+
+  useEffect(() => () => { if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
+
+  function showRemoteHint() {
+    if (!remote) return;
+    setHint(true);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setHint(false), 1800);
+  }
+
   return (
-    <section className="file-panel" aria-label="File Panel">
+    <section className={`file-panel${remote ? ' file-panel--remote' : ''}`} aria-label="File Panel">
       <div className="file-panel__header">
         <div className="file-panel__seg">
           <button className={`file-panel__seg-btn${mode === 'root' ? ' file-panel__seg-btn--active' : ''}`}>Root</button>
@@ -684,7 +799,14 @@ function FilePanel({ scenario }) {
       <div className="file-panel__meta">
         <span className="file-panel__count">{scenario.rows.length} entries</span>
         <div className="file-panel__meta-actions">
-          <button className="file-panel__diff-btn">Diff</button>
+          <button
+            className="file-panel__diff-btn"
+            onClick={remote ? showRemoteHint : undefined}
+            title={remote ? '远程文件独立窗口暂不支持' : undefined}
+            aria-disabled={remote || undefined}
+          >
+            Diff
+          </button>
           <button className="file-panel__refresh" title="Refresh">⟳</button>
         </div>
       </div>
@@ -692,14 +814,18 @@ function FilePanel({ scenario }) {
 
       <div className="file-panel__tree">
         {scenario.rows.map((row) => (
-          <TreeRow key={`${row.depth}-${row.name}`} row={row} />
+          <TreeRow key={`${row.depth}-${row.name}`} row={row} remote={remote} onFileClick={showRemoteHint} />
         ))}
       </div>
+
+      {remote && hint && (
+        <div className="file-panel__remote-hint" role="status">远程文件独立窗口暂不支持</div>
+      )}
     </section>
   );
 }
 
-function TreeRow({ row }) {
+function TreeRow({ row, remote = false, onFileClick }) {
   const isDir = row.kind === 'dir';
   const classes = [
     'file-panel__row',
@@ -707,23 +833,38 @@ function TreeRow({ row }) {
     row.status ? `file-panel__row--git-${row.status}` : '',
     row.target ? 'file-panel__row--locate-target' : '',
   ].filter(Boolean).join(' ');
+  const fileDisabled = !isDir && remote;
 
   return (
-    <div className={classes} style={{ paddingLeft: 10 + row.depth * 14 }}>
+    <div
+      className={classes}
+      style={{ paddingLeft: 10 + row.depth * 14 }}
+      onClick={fileDisabled ? onFileClick : undefined}
+      title={fileDisabled ? '远程文件独立窗口暂不支持' : undefined}
+    >
       <span className="file-panel__arrow">{isDir ? (row.expanded ? '▾' : '▸') : null}</span>
       <span className="file-panel__name">{row.name}</span>
-      {!isDir && <button className="file-panel__row-action">diff</button>}
+      {!isDir && (
+        <button
+          className="file-panel__row-action"
+          aria-disabled={fileDisabled || undefined}
+          onClick={fileDisabled ? (e) => { e.stopPropagation(); onFileClick(); } : undefined}
+          title={fileDisabled ? '远程文件独立窗口暂不支持' : undefined}
+        >
+          diff
+        </button>
+      )}
     </div>
   );
 }
 
 /** 无 dev 工具栏的纯净终端:新路由背景用,不带预览专属的场景切换控件。 */
-function PlainTerminal() {
+function PlainTerminal({ promptUser = 'liam@local' }) {
   return (
     <div className="terminal-host" aria-label="Terminal">
       <div className="terminal-screen">
         <div className="terminal-line">
-          <span className="terminal-prefix">liam@local</span>
+          <span className="terminal-prefix">{promptUser}</span>
           <span>~ $</span>
         </div>
       </div>
@@ -802,6 +943,11 @@ function listRemoteDir(segments) {
   return REMOTE_DIR_TREE[segments.join('/')] || [];
 }
 
+/** fs.readdir over 远程 host 的错误态 mock(AC-3):键命中即模拟该目录读取失败(权限拒绝)。 */
+const REMOTE_DIR_ERRORS = {
+  'home/liam/.config': 'EACCES: permission denied, scandir \'/home/liam/.config\'',
+};
+
 function formatRemotePath(segments) {
   if (segments.length >= 2 && segments[0] === 'home' && segments[1] === 'liam') {
     const rest = segments.slice(2);
@@ -847,6 +993,9 @@ function AddWorkspaceModal({
   onManageHosts,
   selectedHost,
   dirSegments,
+  dirLoading,
+  dirError,
+  onRetryDir,
   onCrumb,
   onDescend,
   onBackToPick,
@@ -988,21 +1137,39 @@ function AddWorkspaceModal({
                   </span>
                 ))}
               </div>
-              <div className="add-ws__dirlist">
-                {dirs.length === 0 && <div className="add-ws__dir-empty">(空目录)</div>}
-                {dirs.map((name) => (
-                  <div key={name} className="file-panel__row file-panel__row--dir" onClick={() => onDescend(name)}>
-                    <span className="file-panel__arrow">▸</span>
-                    <span className="file-panel__name">{name}</span>
-                  </div>
-                ))}
-              </div>
+              {dirLoading ? (
+                <div className="add-ws__dirlist add-ws__dirlist--loading">
+                  <span className="add-ws__spinner add-ws__spinner--sm" />
+                  <span>正在读取目录…</span>
+                </div>
+              ) : dirError ? (
+                <div className="add-ws__dir-error">
+                  <div className="add-ws__dir-error-text">{dirError}</div>
+                  <button className="add-ws__btn" onClick={onRetryDir}>重试</button>
+                </div>
+              ) : (
+                <div className="add-ws__dirlist">
+                  {dirs.length === 0 && <div className="add-ws__dir-empty">(空目录)</div>}
+                  {dirs.map((name) => (
+                    <div key={name} className="file-panel__row file-panel__row--dir" onClick={() => onDescend(name)}>
+                      <span className="file-panel__arrow">▸</span>
+                      <span className="file-panel__name">{name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="add-ws__pathrow">
                 <input className="file-panel__path-input add-ws__path-input" value={pathDisplay} readOnly />
               </div>
               <div className="add-ws__actions">
                 <button className="add-ws__btn" onClick={onClose}>取消</button>
-                <button className="add-ws__btn add-ws__btn--primary" onClick={onCreate}>在 {selectedHost.alias} 上创建项目</button>
+                <button
+                  className="add-ws__btn add-ws__btn--primary"
+                  onClick={onCreate}
+                  disabled={dirLoading || !!dirError}
+                >
+                  在 {selectedHost.alias} 上创建项目
+                </button>
               </div>
             </div>
           )}
@@ -1018,6 +1185,9 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
   const [step, setStep] = useState('pick');
   const [selectedHostId, setSelectedHostId] = useState(null);
   const [dirSegments, setDirSegments] = useState(['home', 'liam']);
+  const [dirLoading, setDirLoading] = useState(false);
+  const [dirError, setDirError] = useState(null);
+  const dirLoadTimer = useRef(null);
   const [connState, setConnState] = useState({});
   const [extraByMachine, setExtraByMachine] = useState({});
   const [createdMachines, setCreatedMachines] = useState([]);
@@ -1035,10 +1205,28 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
     setCreatedMachines([]);
   }, [devState]);
 
+  useEffect(() => () => { if (dirLoadTimer.current) clearTimeout(dirLoadTimer.current); }, []);
+
+  /** fs.readdir over 该 host client 的加载态模拟(AC-3):落定 segments 前先转圈,命中 REMOTE_DIR_ERRORS 则呈现错误态。 */
+  function loadDir(nextSegments) {
+    setDirSegments(nextSegments);
+    setDirLoading(true);
+    setDirError(null);
+    if (dirLoadTimer.current) clearTimeout(dirLoadTimer.current);
+    dirLoadTimer.current = setTimeout(() => {
+      setDirLoading(false);
+      const key = nextSegments.join('/');
+      if (REMOTE_DIR_ERRORS[key]) setDirError(REMOTE_DIR_ERRORS[key]);
+    }, 350);
+  }
+
   function resetModalFlow() {
     setStep('pick');
     setSelectedHostId(null);
     setDirSegments(['home', 'liam']);
+    setDirLoading(false);
+    setDirError(null);
+    if (dirLoadTimer.current) { clearTimeout(dirLoadTimer.current); dirLoadTimer.current = null; }
   }
 
   function openModal() {
@@ -1058,8 +1246,8 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
 
   function selectHost(id) {
     setSelectedHostId(id);
-    setDirSegments(['home', 'liam']);
     setStep('dir');
+    loadDir(['home', 'liam']);
   }
 
   function backToPick() {
@@ -1181,8 +1369,11 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
           onManageHosts={() => onNavigate('/settings/remote-hosts')}
           selectedHost={selectedHost}
           dirSegments={dirSegments}
-          onCrumb={setDirSegments}
-          onDescend={(name) => setDirSegments((prev) => [...prev, name])}
+          dirLoading={dirLoading}
+          dirError={dirError}
+          onRetryDir={() => loadDir(dirSegments)}
+          onCrumb={loadDir}
+          onDescend={(name) => loadDir([...dirSegments, name])}
           onBackToPick={backToPick}
           onCreate={handleCreate}
         />
@@ -1197,14 +1388,112 @@ const REMOTE_HOSTS_STATE_PRESETS = [
   { key: 'default', label: '默认' },
   { key: 'empty', label: '空态' },
   { key: 'test-fail', label: '测试失败' },
+  { key: 'deploying', label: '部署中 · 63%' },
+  { key: 'node-missing', label: '失败 · 缺 Node' },
+  { key: 'incompatible', label: '失败 · 版本不兼容' },
+  { key: 'lost', label: '连接已断开' },
 ];
 
-/** 「远程机」管理 modal:最近使用快捷区(只读)+ 手动添加区(增/改/删/测试连接)。 */
+/**
+ * 失败原因口径:「测试连接」(仅认证 + 可达探测)与「连接」(完整部署编排)共用同一分类文案(AC-2)。
+ * nodeMissing / incompatible 只会在「连接」的部署/握手阶段出现,测试连接不会触发这两类。
+ */
+const FAIL_REASONS = {
+  unreachable: { label: '不可达', detail: 'ssh: connect to host: Connection refused' },
+  auth: { label: '认证失败', detail: 'Permission denied (publickey)' },
+  timeout: { label: '超时', detail: 'Connection timed out (10s)' },
+  nodeMissing: {
+    label: '缺少 Node.js 运行时',
+    detail: '远端未检测到 node ≥ 20',
+    guidance: '请在远端机器安装 Node.js 20 或更高版本后重试连接',
+  },
+  incompatible: {
+    label: '版本不兼容',
+    detail: '远端 host v0.2.1 与当前应用 v0.3.12 协议不兼容 · 已断开',
+  },
+};
+
+/** 连接生命周期(AC-5)进行中各态的徽标文案;ready/failed/lost 另有专属徽标(见 renderStageBadge)。 */
+const CONNECT_STAGE_LABEL = {
+  connecting: '连接中…',
+  deploying: '部署中…',
+  starting: '启动 host…',
+  claiming: '认领中…',
+  verifying: '握手校验…',
+};
+
+function isActiveStage(stage) {
+  return stage === 'connecting' || stage === 'deploying' || stage === 'starting'
+    || stage === 'claiming' || stage === 'verifying';
+}
+
+function hasProgressPanel(stage) {
+  return stage === 'deploying' || stage === 'starting' || stage === 'claiming' || stage === 'verifying';
+}
+
+function hostDotModifier(host, runtime) {
+  if (runtime && runtime.stage) {
+    if (runtime.stage === 'failed' || runtime.stage === 'lost') return 'fail';
+    if (isActiveStage(runtime.stage)) return 'active';
+  }
+  return host.status === 'connected' ? 'connected' : 'disconnected';
+}
+
+/**
+ * 「连接」编排模拟(mock 定时器,镜像 add-workspace 页已用户确认的部署时序):
+ * fast(曾成功连接过 · lastUsed 有值)→ connecting → claiming → verifying → ready(认领驻留进程 · 跳过上传,AC-13);
+ * 否则走首次部署全链路 → connecting → deploying(0~100%)→ starting → verifying → ready(AC-4)。
+ * 失败/断线态不由本函数产生 —— 由顶栏 preset 注入(见 RemoteHostsPage 的 devState 分支)。
+ */
+function beginHostConnect(host, setHostRuntime, onReady) {
+  const id = host.id;
+  const fast = !!host.lastUsed;
+  setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'connecting', fast } }));
+
+  window.setTimeout(() => {
+    if (fast) {
+      setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'claiming', fast: true } }));
+      window.setTimeout(() => {
+        setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'verifying', fast: true } }));
+        window.setTimeout(() => {
+          setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+          onReady(id);
+        }, 550);
+      }, 500);
+      return;
+    }
+
+    setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'deploying', percent: 0, arch: 'darwin-arm64', fast: false } }));
+    let pct = 0;
+    const timer = window.setInterval(() => {
+      pct = Math.min(100, pct + 25);
+      if (pct < 100) {
+        setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'deploying', percent: pct, arch: 'darwin-arm64', fast: false } }));
+        return;
+      }
+      window.clearInterval(timer);
+      setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'starting', arch: 'darwin-arm64', fast: false } }));
+      window.setTimeout(() => {
+        setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'verifying', arch: 'darwin-arm64', fast: false } }));
+        window.setTimeout(() => {
+          setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+          onReady(id);
+        }, 550);
+      }, 450);
+    }, 260);
+  }, 500);
+}
+
+/** 「远程机」管理 modal:最近使用快捷区(一键连接)+ 手动添加区(增/改/删/测试连接/连接生命周期)。 */
 function RemoteHostsModal({
   recentHosts,
   manualHosts,
   testState,
+  testFailReason,
   onTest,
+  hostRuntime,
+  onConnect,
+  onDisconnect,
   deleteConfirmId,
   onRequestDelete,
   onCancelDelete,
@@ -1225,22 +1514,136 @@ function RemoteHostsModal({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  function renderTestArea(host, extraActions) {
-    const state = testState[host.id];
-    if (state === 'testing') {
-      return <span className="remote-hosts__badge remote-hosts__badge--pending">测试连接中…</span>;
+  function renderStageBadge(runtime) {
+    if (runtime.stage === 'failed') {
+      const reason = FAIL_REASONS[runtime.reason] || FAIL_REASONS.unreachable;
+      return <span className="remote-hosts__badge remote-hosts__badge--fail">✗ {reason.label}</span>;
     }
-    if (state === 'ok') {
-      return <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连通 · 384ms</span>;
+    if (runtime.stage === 'lost') {
+      return <span className="remote-hosts__badge remote-hosts__badge--lost">⚠ 连接已断开</span>;
     }
-    if (state === 'fail') {
-      return <span className="remote-hosts__badge remote-hosts__badge--fail">✗ 连接失败 · Permission denied (publickey)</span>;
+    const label = CONNECT_STAGE_LABEL[runtime.stage] || '连接中…';
+    const pct = runtime.stage === 'deploying' && typeof runtime.percent === 'number' ? ` ${runtime.percent}%` : '';
+    return (
+      <span className="remote-hosts__badge remote-hosts__badge--active">
+        <span className="add-ws__spinner add-ws__spinner--sm" />
+        {label}{pct}
+      </span>
+    );
+  }
+
+  function renderActionButtons(host, stage, compact) {
+    const buttons = [];
+    if (stage === 'ready') {
+      buttons.push(<button key="disc" className="remote-hosts__action" onClick={() => onDisconnect(host.id)}>断开</button>);
+    } else if (stage === 'failed') {
+      buttons.push(<button key="retry" className="remote-hosts__action remote-hosts__action--primary" onClick={() => onConnect(host)}>重试</button>);
+    } else if (stage === 'lost') {
+      buttons.push(<button key="reconn" className="remote-hosts__action remote-hosts__action--primary" onClick={() => onConnect(host)}>重连</button>);
+    } else {
+      buttons.push(<button key="conn" className="remote-hosts__action remote-hosts__action--primary" onClick={() => onConnect(host)}>连接</button>);
     }
+    if (!compact) {
+      if (stage === 'idle' || stage === 'ready') {
+        buttons.push(<button key="test" className="remote-hosts__action" onClick={() => onTest(host.id)}>测试连接</button>);
+      }
+      buttons.push(<button key="edit" className="remote-hosts__action" onClick={() => onOpenEdit(host)}>编辑</button>);
+      buttons.push(<button key="del" className="remote-hosts__action remote-hosts__action--danger" onClick={() => onRequestDelete(host.id)}>删除</button>);
+    }
+    return buttons;
+  }
+
+  /** 行内状态/动作区:连接生命周期(非闲置)优先于测试态;两者共用 FAIL_REASONS 口径(AC-2)。 */
+  function renderStatusArea(host, runtime, compact) {
+    if (runtime && runtime.stage) {
+      if (isActiveStage(runtime.stage)) {
+        return renderStageBadge(runtime);
+      }
+      return (
+        <span className="remote-hosts__row-actions">
+          {renderStageBadge(runtime)}
+          {renderActionButtons(host, runtime.stage, compact)}
+        </span>
+      );
+    }
+    if (!compact) {
+      const testStatus = testState[host.id];
+      if (testStatus === 'testing') {
+        return (
+          <span className="remote-hosts__badge remote-hosts__badge--pending">
+            <span className="add-ws__spinner add-ws__spinner--sm" />
+            测试连接中…
+          </span>
+        );
+      }
+      if (testStatus === 'ok') {
+        return <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连通 · 384ms</span>;
+      }
+      if (testStatus === 'fail') {
+        const reason = FAIL_REASONS[testFailReason[host.id]] || FAIL_REASONS.auth;
+        return <span className="remote-hosts__badge remote-hosts__badge--fail">✗ {reason.label} · {reason.detail}</span>;
+      }
+    }
+    const stage = host.status === 'connected' ? 'ready' : 'idle';
     return (
       <span className="remote-hosts__row-actions">
-        <button className="remote-hosts__action" onClick={() => onTest(host.id)}>测试连接</button>
-        {extraActions}
+        {stage === 'ready' && <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连接</span>}
+        {renderActionButtons(host, stage, compact)}
       </span>
+    );
+  }
+
+  /** 部署进度(AC-4):快路径(fast)呈现「认领驻留进程」单行提示;否则三段 stepper(上传/启动/握手),上传段带百分比。 */
+  function renderProgressPanel(runtime) {
+    if (runtime.fast) {
+      const verifying = runtime.stage === 'verifying';
+      return (
+        <div className="remote-hosts__progress-claim">
+          <span className="add-ws__spinner add-ws__spinner--sm" />
+          {verifying ? '已认领运行中的 host 进程 · 握手校验…' : '发现已运行的 host 进程 · 认领中…'}
+        </div>
+      );
+    }
+    const steps = [
+      { key: 'upload', label: '上传 bundle' },
+      { key: 'start', label: '启动 host' },
+      { key: 'verify', label: '握手验证' },
+    ];
+    const order = ['deploying', 'starting', 'verifying'];
+    const idx = order.indexOf(runtime.stage);
+    return (
+      <>
+        {runtime.arch && <div className="remote-hosts__progress-arch">已探测远端架构 · {runtime.arch}</div>}
+        <div className="remote-hosts__progress">
+          {steps.map((s, i) => {
+            const state = i < idx ? 'done' : i === idx ? 'active' : 'pending';
+            return (
+              <React.Fragment key={s.key}>
+                {i > 0 && <span className="remote-hosts__progress-connector" />}
+                <span className={`remote-hosts__progress-step remote-hosts__progress-step--${state}`}>
+                  {state === 'done' && <span className="remote-hosts__progress-check">✓</span>}
+                  {state === 'active' && <span className="add-ws__spinner add-ws__spinner--sm" />}
+                  {state === 'pending' && <span className="remote-hosts__progress-dot-pending" />}
+                  {s.label}
+                  {state === 'active' && s.key === 'upload' && typeof runtime.percent === 'number' && (
+                    <span className="remote-hosts__progress-percent"> {runtime.percent}%</span>
+                  )}
+                </span>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+
+  function renderFailDetail(runtime) {
+    const reason = FAIL_REASONS[runtime.reason] || FAIL_REASONS.unreachable;
+    return (
+      <div className="remote-hosts__fail-detail">
+        <span className="remote-hosts__fail-detail-code">{reason.detail}</span>
+        {reason.guidance && <span>{reason.guidance}</span>}
+      </div>
     );
   }
 
@@ -1253,7 +1656,7 @@ function RemoteHostsModal({
         <div className="remote-hosts__header">
           <div>
             <div className="remote-hosts__title">远程机</div>
-            <div className="remote-hosts__subtitle">SSH 密钥或密码登录 · 密码凭据存入系统钥匙串</div>
+            <div className="remote-hosts__subtitle">SSH 密钥或密码登录 · 密码/私钥密码存入系统钥匙串</div>
           </div>
           <button className="remote-hosts__close" onClick={onClose} title="关闭">×</button>
         </div>
@@ -1270,17 +1673,22 @@ function RemoteHostsModal({
                 <div className="remote-hosts__section">
                   <div className="remote-hosts__section-title">最近使用</div>
                   <div className="remote-hosts__list">
-                    {recentHosts.map((h) => (
-                      <div key={h.id} className="remote-hosts__row">
-                        <span className={`remote-hosts__dot remote-hosts__dot--${h.status}`} />
-                        <span className="remote-hosts__alias">{h.alias}</span>
-                        <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
-                        <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
-                        <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
-                        <span className="remote-hosts__last-used">{h.lastUsed}</span>
-                        {renderTestArea(h)}
-                      </div>
-                    ))}
+                    {recentHosts.map((h) => {
+                      const runtime = hostRuntime[h.id];
+                      return (
+                        <div key={h.id} className="remote-hosts__entry">
+                          <div className="remote-hosts__row">
+                            <span className={`remote-hosts__dot remote-hosts__dot--${hostDotModifier(h, runtime)}`} />
+                            <span className="remote-hosts__alias">{h.alias}</span>
+                            <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
+                            <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
+                            <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
+                            <span className="remote-hosts__last-used">{h.lastUsed}</span>
+                            {renderStatusArea(h, runtime, true)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1288,31 +1696,35 @@ function RemoteHostsModal({
               <div className="remote-hosts__section">
                 <div className="remote-hosts__section-title">手动添加</div>
                 <div className="remote-hosts__list">
-                  {manualHosts.map((h) => (
-                    <div key={h.id} className="remote-hosts__row">
-                      {deleteConfirmId === h.id ? (
-                        <span className="remote-hosts__confirm">
-                          <span className="remote-hosts__confirm-text">确认删除?</span>
-                          <button className="remote-hosts__action remote-hosts__action--danger" onClick={() => onConfirmDelete(h.id)}>是</button>
-                          <button className="remote-hosts__action" onClick={onCancelDelete}>否</button>
-                        </span>
-                      ) : (
-                        <>
-                          <span className={`remote-hosts__dot remote-hosts__dot--${h.status}`} />
-                          <span className="remote-hosts__alias">{h.alias}</span>
-                          <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
-                          <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
-                          <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
-                          {renderTestArea(h, (
+                  {manualHosts.map((h) => {
+                    const runtime = hostRuntime[h.id];
+                    return (
+                      <div key={h.id} className="remote-hosts__entry">
+                        <div className="remote-hosts__row">
+                          {deleteConfirmId === h.id ? (
+                            <span className="remote-hosts__confirm">
+                              <span className="remote-hosts__confirm-text">
+                                确认删除 {h.alias}?将同时清除已存凭据{(runtime || h.status === 'connected') ? ' · 将先断开当前连接' : ''}
+                              </span>
+                              <button className="remote-hosts__action remote-hosts__action--danger" onClick={() => onConfirmDelete(h.id)}>是</button>
+                              <button className="remote-hosts__action" onClick={onCancelDelete}>否</button>
+                            </span>
+                          ) : (
                             <>
-                              <button className="remote-hosts__action" onClick={() => onOpenEdit(h)}>编辑</button>
-                              <button className="remote-hosts__action remote-hosts__action--danger" onClick={() => onRequestDelete(h.id)}>删除</button>
+                              <span className={`remote-hosts__dot remote-hosts__dot--${hostDotModifier(h, runtime)}`} />
+                              <span className="remote-hosts__alias">{h.alias}</span>
+                              <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
+                              <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
+                              <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
+                              {renderStatusArea(h, runtime, false)}
                             </>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  ))}
+                          )}
+                        </div>
+                        {runtime && hasProgressPanel(runtime.stage) && renderProgressPanel(runtime)}
+                        {runtime && runtime.stage === 'failed' && renderFailDetail(runtime)}
+                      </div>
+                    );
+                  })}
                   {manualHosts.length === 0 && <div className="remote-hosts__section-empty">暂无手动添加的远程机</div>}
                 </div>
               </div>
@@ -1363,14 +1775,25 @@ function RemoteHostsModal({
                         <span className="remote-hosts__field-hint">密码存入 macOS 钥匙串,不明文落盘</span>
                       </label>
                     ) : (
-                      <label className="remote-hosts__field remote-hosts__field--wide">
-                        <span>私钥路径</span>
-                        <input
-                          value={formValues.identityFile}
-                          onChange={(e) => onFormChange({ ...formValues, identityFile: e.target.value })}
-                          placeholder="默认使用 ssh config / agent"
-                        />
-                      </label>
+                      <>
+                        <label className="remote-hosts__field remote-hosts__field--wide">
+                          <span>私钥路径</span>
+                          <input
+                            value={formValues.identityFile}
+                            onChange={(e) => onFormChange({ ...formValues, identityFile: e.target.value })}
+                            placeholder="例如 ~/.ssh/id_ed25519"
+                          />
+                        </label>
+                        <label className="remote-hosts__field remote-hosts__field--wide">
+                          <span>私钥密码(可选)</span>
+                          <input
+                            type="password"
+                            value={formValues.passphrase}
+                            onChange={(e) => onFormChange({ ...formValues, passphrase: e.target.value })}
+                          />
+                          <span className="remote-hosts__field-hint">加密私钥的 passphrase · 存入系统钥匙串,不明文落盘</span>
+                        </label>
+                      </>
                     )}
                   </div>
                   <div className="remote-hosts__form-actions">
@@ -1395,22 +1818,45 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
   const [connState, setConnState] = useState({});
   const [manualHosts, setManualHosts] = useState(DEFAULT_MANUAL_HOSTS);
   const [testState, setTestState] = useState({});
+  const [testFailReason, setTestFailReason] = useState({});
+  const [hostRuntime, setHostRuntime] = useState({});
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [formMode, setFormMode] = useState(null);
   const [formHostId, setFormHostId] = useState(null);
-  const [formValues, setFormValues] = useState({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', password: '' });
+  const [formValues, setFormValues] = useState({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', passphrase: '', password: '' });
 
   useEffect(() => {
     setManualHosts(devState === 'empty' ? [] : DEFAULT_MANUAL_HOSTS);
-    setTestState(devState === 'test-fail' ? { 'mini-pc': 'fail' } : {});
     setDeleteConfirmId(null);
     setFormMode(null);
     setFormHostId(null);
     setConnState({});
     setModalOpen(true);
+
+    if (devState === 'test-fail') {
+      setTestState({ 'vps-hk': 'fail' });
+      setTestFailReason({ 'vps-hk': 'auth' });
+    } else {
+      setTestState({});
+      setTestFailReason({});
+    }
+
+    // 顶栏 preset:注入页面难自然触达的连接生命周期态(部署中快照/失败分类/断线待重连);
+    // 真实点击「连接/重试/重连」走 beginHostConnect 演示成功路径(见下方 handleConnect)。
+    if (devState === 'deploying') {
+      setHostRuntime({ 'gpu-box': { stage: 'deploying', percent: 63, arch: 'darwin-arm64', fast: false } });
+    } else if (devState === 'node-missing') {
+      setHostRuntime({ 'vps-hk': { stage: 'failed', reason: 'nodeMissing' } });
+    } else if (devState === 'incompatible') {
+      setHostRuntime({ 'gpu-box': { stage: 'failed', reason: 'incompatible' } });
+    } else if (devState === 'lost') {
+      setHostRuntime({ 'mini-pc': { stage: 'lost' } });
+    } else {
+      setHostRuntime({});
+    }
   }, [devState]);
 
-  // 最近使用 = 手动添加主机中 lastUsed 有值的子集(只读快捷区)
+  // 最近使用 = 手动添加主机中 lastUsed 有值的子集(只读快捷区 + 一键连接,AC-7)
   const recentHosts = manualHosts.filter((h) => h.lastUsed);
   // 空态引导:无远程机且未展开表单时显示;点「添加远程机」→ 展开表单,保存后真实落入手动区
   const showEmptyState = manualHosts.length === 0 && !formMode;
@@ -1422,10 +1868,26 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
     }, 600);
   }
 
+  /** 「连接」(AC-4/AC-5/AC-13):清掉过期测试徽标,交给 beginHostConnect 走 mock 时序,ready 后回写 manualHosts。 */
+  function handleConnect(host) {
+    setTestState((prev) => { const next = { ...prev }; delete next[host.id]; return next; });
+    beginHostConnect(host, setHostRuntime, (id) => {
+      setManualHosts((prev) => prev.map((h) => (
+        h.id === id ? { ...h, status: 'connected', lastUsed: h.lastUsed || '刚刚' } : h
+      )));
+    });
+  }
+
+  /** 「断开」(AC-5 · ready → idle):清运行态,行回落到未连接展示。 */
+  function handleDisconnect(id) {
+    setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setManualHosts((prev) => prev.map((h) => (h.id === id ? { ...h, status: 'disconnected' } : h)));
+  }
+
   function openAddForm() {
     setFormMode('add');
     setFormHostId(null);
-    setFormValues({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', password: '' });
+    setFormValues({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', passphrase: '', password: '' });
   }
 
   function openEditForm(host) {
@@ -1438,6 +1900,7 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
       port: String(host.port),
       auth: host.auth || 'key',
       identityFile: host.identityFile || '',
+      passphrase: '',
       // 密码不回显明文:回填占位圆点,表示钥匙串里已有凭据
       password: host.auth === 'password' ? '••••••••' : '',
     });
@@ -1481,7 +1944,10 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
   function requestDelete(id) { setDeleteConfirmId(id); }
   function cancelDelete() { setDeleteConfirmId(null); }
   function confirmDelete(id) {
+    // AC-14:删除随清 safeStorage 凭据(mock 侧同步清运行态/测试态,防孤儿展示态)
     setManualHosts((prev) => prev.filter((h) => h.id !== id));
+    setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setTestState((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setDeleteConfirmId(null);
   }
 
@@ -1516,7 +1982,11 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
           recentHosts={recentHosts}
           manualHosts={manualHosts}
           testState={testState}
+          testFailReason={testFailReason}
           onTest={runTest}
+          hostRuntime={hostRuntime}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
           deleteConfirmId={deleteConfirmId}
           onRequestDelete={requestDelete}
           onCancelDelete={cancelDelete}
@@ -1532,6 +2002,459 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
           onClose={() => setModalOpen(false)}
         />
       )}
+    </PreviewPage>
+  );
+}
+
+// ---- F. /sidebar/machine-groups ----
+// Sidebar 机器分组主视图(AC-1/AC-2/AC-8/AC-10/AC-11):本机组置顶 + 远程机组 +
+// 连接生命周期在组头呈现 + 断线确定性回落。dev 顶栏只放页面到不了的态(M=0 / 部署中%快照 /
+// 连接失败 / 断线回落);默认态可真实点「连接」跑完整连接编排(复用 startMachineConnect)。
+
+const SIDEBAR_MG_STATE_PRESETS = [
+  { key: 'idle', label: '默认交互' },
+  { key: 'm0', label: 'M=0 · 纯本机' },
+  { key: 'deploying', label: '部署中快照 · 47%' },
+  { key: 'failed', label: '连接失败' },
+  { key: 'disconnected', label: '断线回落(AC-11)' },
+];
+
+const SIDEBAR_MG_LOCAL_WORKSPACES = [
+  { name: 'TermPro', meta: 'main · ~/apps/okok/TermPro', tabCount: 2, tabRunning: 1 },
+];
+
+const SIDEBAR_MG_MINIPC_WORKSPACES = [
+  { name: 'aon-edge', meta: 'dev · ~/apps/aon-edge', tabCount: 2, tabRunning: 1 },
+  { name: 'ml-lab', meta: 'main · ~/work/ml-lab', tabCount: 0 },
+];
+
+/** 远程 workspace 文件树 mock(供 FilePanel remote=true 演示 D-7:树浏览 + git 着色在范围)。 */
+const SIDEBAR_MG_REMOTE_FILES = [
+  { name: 'src', kind: 'dir', depth: 0, expanded: true, status: 'modified-dim' },
+  { name: 'edge', kind: 'dir', depth: 1, expanded: true, status: 'modified-dim' },
+  { name: 'inference.py', kind: 'file', depth: 2, status: 'modified' },
+  { name: 'config.yaml', kind: 'file', depth: 1, status: 'untracked' },
+  { name: 'README.md', kind: 'file', depth: 0 },
+];
+
+function buildSidebarMgMachines() {
+  return [
+    { id: 'local', kind: 'local', label: '本机', workspaces: SIDEBAR_MG_LOCAL_WORKSPACES.map((w) => ({ ...w })) },
+    {
+      id: 'mini-pc', kind: 'remote', alias: 'mini-pc', addr: 'liam@192.168.1.40', status: 'connected',
+      workspaces: SIDEBAR_MG_MINIPC_WORKSPACES.map((w) => ({ ...w })),
+    },
+    { id: 'dev-server', kind: 'remote', alias: 'dev-server', addr: 'liam@10.0.0.8', status: 'disconnected', workspaces: null },
+  ];
+}
+
+/** 本页专属极简 TabBar:单活跃 tab 跟随当前选中 workspace(+ 远程机小标签),仅作定位锚 · 不是通用 TabBar 的替代。 */
+function MachineGroupsTabBar({ activeWs, activeMachine }) {
+  const label = activeWs ? activeWs.name : '—';
+  const remote = !!(activeMachine && activeMachine.kind === 'remote');
+  return (
+    <div className="tabbar" aria-label="Tabs">
+      <div className="tabbar-tabs">
+        <div className="tabbar-tab tabbar-tab--active">
+          <span className="tab-dot tab-dot--running" />
+          <span className="tab-icon">▱</span>
+          <span className="tabbar-tab-title">{label}</span>
+          {remote && <span className="tabbar-tab-host">{activeMachine.alias}</span>}
+          <button className="tabbar-close-btn tabbar-close-btn--always" title="Close tab">×</button>
+        </div>
+      </div>
+      <div className="tabbar-drag-strip" />
+    </div>
+  );
+}
+
+function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
+  const [devState, setDevState] = useState('idle');
+  const [connState, setConnState] = useState({});
+  const [active, setActive] = useState({ machineId: 'mini-pc', name: 'aon-edge' });
+  const [lostPhase, setLostPhase] = useState(null); // null | 'panel' | 'folded'(D-8 两段式回落)
+  const lostTimer = useRef(null);
+
+  useEffect(() => {
+    setConnState({});
+    setLostPhase(null);
+    if (lostTimer.current) { clearTimeout(lostTimer.current); lostTimer.current = null; }
+
+    if (devState === 'disconnected') {
+      // AC-11 演示:先呈现该 workspace 面板断线态(900ms)· 再确定性回落到本机首个 workspace + 组头折叠
+      setActive({ machineId: 'mini-pc', name: 'aon-edge' });
+      setLostPhase('panel');
+      lostTimer.current = setTimeout(() => {
+        setLostPhase('folded');
+        setActive({ machineId: 'local', name: 'TermPro' });
+      }, 900);
+    } else if (devState === 'idle') {
+      setActive({ machineId: 'mini-pc', name: 'aon-edge' });
+    } else {
+      setActive({ machineId: 'local', name: 'TermPro' });
+    }
+
+    return () => { if (lostTimer.current) clearTimeout(lostTimer.current); };
+  }, [devState]);
+
+  const baseMachines = useMemo(() => buildSidebarMgMachines(), []);
+
+  const machines = useMemo(() => {
+    if (devState === 'm0') {
+      return [{ id: 'local', kind: 'local', label: '本机', workspaces: SIDEBAR_MG_LOCAL_WORKSPACES.map((w) => ({ ...w, active: true })) }];
+    }
+
+    let list = applyConnectionSim(baseMachines, connState);
+
+    if (devState === 'deploying') {
+      list = list.map((m) => (m.id === 'dev-server' ? { ...m, runtime: { stage: 'deploying', percent: 47, arch: 'linux-x64', fast: false } } : m));
+    } else if (devState === 'failed') {
+      list = list.map((m) => (m.id === 'dev-server' ? { ...m, runtime: { stage: 'failed', reason: 'unreachable' } } : m));
+    } else if (devState === 'disconnected') {
+      list = list.map((m) => {
+        if (m.id !== 'mini-pc') return m;
+        if (lostPhase === 'folded') {
+          return { ...m, status: 'lost', foldedLost: true, workspaces: null, emptyLabel: '已断开 · 点击重连' };
+        }
+        return {
+          ...m,
+          status: 'lost',
+          workspaces: m.workspaces.map((ws) => (ws.name === 'aon-edge' ? { ...ws, disconnectedPanel: true } : ws)),
+        };
+      });
+    }
+
+    return list.map((m) => ({
+      ...m,
+      workspaces: m.workspaces
+        ? m.workspaces.map((ws) => ({ ...ws, active: m.id === active.machineId && ws.name === active.name }))
+        : null,
+    }));
+  }, [baseMachines, connState, devState, lostPhase, active]);
+
+  function selectWorkspace(machine, ws) {
+    if (devState === 'disconnected' && lostPhase === 'panel') return; // 断线瞬间锁定选择,等待确定性回落完成
+    setActive({ machineId: machine.id, name: ws.name });
+  }
+
+  function retryMachine() {
+    // 失败态重试:退出快照 preset,回到可真实交互的默认态(点「连接」走完整编排)
+    setDevState('idle');
+  }
+
+  const activeMachine = machines.find((m) => m.id === active.machineId);
+  const activeWs = activeMachine && activeMachine.workspaces ? activeMachine.workspaces.find((w) => w.active) : null;
+  const activeIsRemote = !!(activeMachine && activeMachine.kind === 'remote');
+  const panelDisconnected = devState === 'disconnected' && lostPhase === 'panel' && !!(activeWs && activeWs.disconnectedPanel);
+
+  const remoteScenario = activeIsRemote && activeMachine ? {
+    mode: 'worktree',
+    root: `~/apps/${activeWs ? activeWs.name : ''}`,
+    hint: `${activeMachine.alias} · ${activeMachine.addr}`,
+    rows: SIDEBAR_MG_REMOTE_FILES,
+  } : null;
+
+  return (
+    <PreviewPage
+      currentPath={currentPath}
+      onNavigate={onNavigate}
+      statePresets={SIDEBAR_MG_STATE_PRESETS}
+      activeStateKey={devState}
+      onSelectState={setDevState}
+    >
+      <div className="app-shell">
+        <Sidebar
+          machines={machines}
+          onConnectMachine={(id) => startMachineConnect(setConnState, id)}
+          onRetryMachine={retryMachine}
+          onSelectWorkspace={selectWorkspace}
+          onAddWorkspace={() => onNavigate('/workspace/add-workspace')}
+          onOpenRemoteHosts={() => onNavigate('/settings/remote-hosts')}
+        />
+        <div className="pane-handle" />
+        <main className="main-column">
+          <MachineGroupsTabBar activeWs={activeWs} activeMachine={activeMachine} />
+          <div className="terminal-area">
+            {panelDisconnected ? (
+              <div className="terminal-host" aria-label="Terminal">
+                <div className="terminal-disconnected">
+                  <span className="terminal-disconnected__icon">⚠</span>
+                  <div className="terminal-disconnected__title">与 mini-pc 的连接已断开</div>
+                  <div className="terminal-disconnected__hint">workspace「aon-edge」面板已失联 · 即将回落到本机工作区…</div>
+                </div>
+              </div>
+            ) : (
+              <PlainTerminal promptUser={activeIsRemote && activeMachine ? `liam@${activeMachine.alias}` : 'liam@local'} />
+            )}
+          </div>
+        </main>
+        <div className="pane-handle" />
+        {panelDisconnected ? (
+          <section className="file-panel file-panel--disconnected" aria-label="File Panel">
+            <div className="file-panel__disconnected-note">连接已断开 · 文件树暂不可用</div>
+          </section>
+        ) : (
+          <FilePanel scenario={remoteScenario || scenarios.worktree} remote={activeIsRemote} />
+        )}
+      </div>
+    </PreviewPage>
+  );
+}
+
+// ---- G. /session/reconnect-continuity(BL-005:断线重连与会话连续性)----
+
+const RECONNECT_STATE_PRESETS = [
+  { key: 'live', label: '在线基线' },
+  { key: 'disconnected', label: '断线 · T 秒内' },
+  { key: 'reconnecting', label: '重连握手中' },
+  { key: 'reconnected-running', label: '重连成功 · 仍在跑' },
+  { key: 'reconnected-completed', label: '断开期已完成' },
+  { key: 'retry-failed', label: '重连失败' },
+];
+
+const RC_LOCAL_WORKSPACES = [
+  { name: 'TermPro', meta: 'main · ~/apps/okok/TermPro', tabCount: 1, tabRunning: 0 },
+];
+
+const RC_DEFAULT_TABS = [
+  { id: 'build', title: 'aon-edge · build', primary: true },
+  { id: 'agent', title: 'aon-edge · agent', primary: false },
+];
+
+/** 断开前已知的终端快照(6 态共用「历史部分」·冻结态只展示这段·重连后在其后追加,AC-3 增量回放)。 */
+const RC_SNAPSHOT_LINES = [
+  { prefix: '12:04:01', value: 'Compiling src/edge/inference.py' },
+  { prefix: '12:04:03', value: 'Compiling src/edge/config.yaml' },
+  { prefix: '12:04:05', value: 'Running unit tests (42/58)…' },
+  { prefix: '12:04:07', value: 'Running unit tests (55/58)…' },
+  { prefix: '12:04:09', value: 'Running unit tests (58/58) ✓' },
+];
+
+const RC_LIVE_STREAM_LINE = { prefix: '12:04:11', value: 'Bundling assets (2/6)…', streaming: true };
+
+const RC_RESUME_RUNNING_LINES = [
+  { prefix: '12:09:12', value: 'Bundling assets (5/6)…' },
+  { prefix: '12:09:16', value: 'Starting dev server…', streaming: true },
+];
+
+const RC_COMPLETED_LINES = [
+  { prefix: '12:11:02', value: 'Bundling assets (6/6)…' },
+  { prefix: '12:11:05', value: '✓ build succeeded in 3m12s', tone: 'success' },
+  { prefix: '12:11:05', value: 'process exited (code 0)', tone: 'exit' },
+];
+
+/** 终端条目按态拼装:disconnected/reconnecting/retry-failed 三态**冻结在断开前快照**(断开期无新输出可见 ·
+ * 与「远端仍在跑但本地画面暂停」的叙事一致);reconnected-* 两态在快照后接**补回断开期 gap** 的分隔行(AC-3)。 */
+function buildRcEntries(devState) {
+  const snapshot = RC_SNAPSHOT_LINES.map((l) => ({ type: 'line', ...l }));
+  if (devState === 'live') {
+    return [...snapshot, { type: 'line', ...RC_LIVE_STREAM_LINE }];
+  }
+  if (devState === 'reconnected-running') {
+    return [
+      ...snapshot,
+      { type: 'divider', label: '补回断开期间 128 行' },
+      ...RC_RESUME_RUNNING_LINES.map((l) => ({ type: 'line', ...l })),
+    ];
+  }
+  if (devState === 'reconnected-completed') {
+    return [
+      ...snapshot,
+      { type: 'divider', label: '补回断开期间 214 行' },
+      ...RC_COMPLETED_LINES.map((l) => ({ type: 'line', ...l })),
+    ];
+  }
+  // disconnected / reconnecting / retry-failed:冻结在断开前快照,无新增
+  return snapshot;
+}
+
+/** Sidebar 机器分组按态拼装:reconnecting = AC-15 瞬时断线保活(黄点·workspace 打「重连中」·不折叠);
+ * retry-failed = 逼近 BL-004 full-drop 边界(红点 lost·仍展示为可重连,非真的从 Sidebar 消失)。 */
+function buildRcMachines(devState) {
+  const minipcStatus = devState === 'retry-failed'
+    ? 'lost'
+    : (devState === 'disconnected' || devState === 'reconnecting')
+      ? 'reconnecting'
+      : 'connected';
+
+  const ws = {
+    name: 'aon-edge',
+    meta: 'dev · ~/apps/aon-edge',
+    tabCount: 2,
+    tabRunning: devState === 'reconnected-completed' ? 0 : 1,
+    active: true,
+  };
+  if (devState === 'disconnected' || devState === 'reconnecting') {
+    ws.reconnectingPanel = true;
+  }
+
+  return [
+    { id: 'local', kind: 'local', label: '本机', workspaces: RC_LOCAL_WORKSPACES.map((w) => ({ ...w })) },
+    {
+      id: 'mini-pc', kind: 'remote', alias: 'mini-pc', addr: 'liam@192.168.1.40',
+      status: minipcStatus,
+      workspaces: [ws],
+    },
+  ];
+}
+
+/** 断开前已知态(running)在未对账前维持不变(AC-5 对账只在重连收敛后发生)·reconnected-completed 才翻新态。 */
+function rcTabMeta(devState) {
+  if (devState === 'reconnected-completed') {
+    return { dotClass: 'tab-dot--exited', exitTag: '✓ exit 0' };
+  }
+  return { dotClass: 'tab-dot--running', exitTag: null };
+}
+
+const RC_REMOTE_FILE_SCENARIO = {
+  mode: 'worktree',
+  root: '~/apps/aon-edge',
+  hint: 'mini-pc · liam@192.168.1.40',
+  rows: SIDEBAR_MG_REMOTE_FILES,
+};
+
+function ReconnectTabBar({ devState, tabs, onCloseTab }) {
+  const { dotClass, exitTag } = rcTabMeta(devState);
+  return (
+    <div className="tabbar" aria-label="Tabs">
+      <div className="tabbar-tabs">
+        {tabs.map((t) => (
+          <div key={t.id} className={`tabbar-tab${t.primary ? ' tabbar-tab--active' : ''}`}>
+            <span className={`tab-dot ${t.primary ? dotClass : 'tab-dot--idle'}`} />
+            <span className="tab-icon">▱</span>
+            <span className="tabbar-tab-title">{t.title}</span>
+            {t.primary && <span className="tabbar-tab-host">mini-pc</span>}
+            {t.primary && exitTag && (
+              <span className="tab-exit-tag" data-ac="AC-12">{exitTag}</span>
+            )}
+            <button
+              className="tabbar-close-btn tabbar-close-btn--always"
+              title="Close tab"
+              onClick={() => onCloseTab(t.id)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="tabbar-drag-strip" />
+    </div>
+  );
+}
+
+/** 重连横幅:disconnected(自动重连倒计时 + 手动立即重试)/ reconnecting(隧道重建中 · spinner)/
+ * retry-failed(失败态 · 重试 + 查看远程机)三态各自的真实可点交互(AC-6/AC-10/AC-13)。 */
+function ReconnectBanner({ devState, manualRetrying, onManualRetry, onViewHost }) {
+  if (devState === 'disconnected') {
+    return (
+      <div className="add-ws__reconnect-banner" role="status" data-ac="AC-6 AC-13 AC-15">
+        <span>与 mini-pc 的连接已断开 · 正在重连…(第 2 次 · 4s 后重试)</span>
+        <button className="add-ws__reconnect-btn" onClick={onManualRetry} disabled={manualRetrying}>
+          {manualRetrying ? '重试中…' : '立即重试'}
+        </button>
+      </div>
+    );
+  }
+  if (devState === 'reconnecting') {
+    return (
+      <div className="add-ws__reconnect-banner" role="status" data-ac="AC-6 AC-10">
+        <span className="add-ws__spinner add-ws__spinner--sm" />
+        <span>正在重建隧道 → mini-pc…</span>
+      </div>
+    );
+  }
+  if (devState === 'retry-failed') {
+    return (
+      <div className="add-ws__reconnect-banner add-ws__reconnect-banner--failed" role="status" data-ac="AC-6">
+        <span>重连失败 · 已重试 5 次</span>
+        <div className="rc-banner-actions">
+          <button className="add-ws__reconnect-btn" onClick={onManualRetry} disabled={manualRetrying}>
+            {manualRetrying ? '重试中…' : '重试'}
+          </button>
+          <button className="add-ws__reconnect-btn" onClick={onViewHost}>查看远程机</button>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+function ReconnectContinuityPage({ currentPath, onNavigate }) {
+  const [devState, setDevState] = useState('live');
+  const [tabs, setTabs] = useState(RC_DEFAULT_TABS);
+  const [manualRetrying, setManualRetrying] = useState(false);
+
+  useEffect(() => {
+    setTabs(RC_DEFAULT_TABS);
+    setManualRetrying(false);
+  }, [devState]);
+
+  function closeTab(id) {
+    setTabs((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  function handleManualRetry() {
+    setManualRetrying(true);
+    setTimeout(() => setManualRetrying(false), 900);
+  }
+
+  const machines = useMemo(() => buildRcMachines(devState), [devState]);
+  const entries = useMemo(() => buildRcEntries(devState), [devState]);
+  const frozen = devState === 'disconnected' || devState === 'reconnecting' || devState === 'retry-failed';
+
+  return (
+    <PreviewPage
+      currentPath={currentPath}
+      onNavigate={onNavigate}
+      statePresets={RECONNECT_STATE_PRESETS}
+      activeStateKey={devState}
+      onSelectState={setDevState}
+    >
+      <div className="app-shell">
+        <div data-ac="AC-15" style={{ display: 'contents' }}>
+          <Sidebar
+            machines={machines}
+            onAddWorkspace={() => onNavigate('/workspace/add-workspace')}
+            onOpenRemoteHosts={() => onNavigate('/settings/remote-hosts')}
+          />
+        </div>
+        <div className="pane-handle" />
+        <main className="main-column">
+          <ReconnectTabBar devState={devState} tabs={tabs} onCloseTab={closeTab} />
+          <div className="terminal-area">
+            <div className="add-ws__terminal-wrap">
+              <div className="terminal-host" aria-label="Terminal">
+                <ReconnectBanner
+                  devState={devState}
+                  manualRetrying={manualRetrying}
+                  onManualRetry={handleManualRetry}
+                  onViewHost={() => onNavigate('/settings/remote-hosts')}
+                />
+                {frozen && (
+                  <div className="rc-frozen-note" role="status">● 远端进程仍在运行 · 本地画面已暂停</div>
+                )}
+                <div className={`terminal-screen${frozen ? ' rc-frozen' : ''}`} data-ac="AC-1 AC-3">
+                  {entries.map((e, i) => (
+                    e.type === 'divider' ? (
+                      <div className="rc-gap-divider" key={`d-${i}`}>— {e.label} —</div>
+                    ) : (
+                      <div className={`terminal-line${e.tone ? ` terminal-line--${e.tone}` : ''}`} key={`l-${i}`}>
+                        <span className="terminal-prefix">{e.prefix}</span>
+                        <span>
+                          {e.value}
+                          {e.streaming && !frozen && <span className="rc-cursor">▍</span>}
+                        </span>
+                      </div>
+                    )
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <div className="pane-handle" />
+        <FilePanel scenario={RC_REMOTE_FILE_SCENARIO} remote />
+      </div>
     </PreviewPage>
   );
 }
@@ -1572,6 +2495,14 @@ function App() {
 
   if (path === '/settings/remote-hosts') {
     return <RemoteHostsPage currentPath={path} onNavigate={navigate} />;
+  }
+
+  if (path === '/sidebar/machine-groups') {
+    return <SidebarMachineGroupsPage currentPath={path} onNavigate={navigate} />;
+  }
+
+  if (path === '/session/reconnect-continuity') {
+    return <ReconnectContinuityPage currentPath={path} onNavigate={navigate} />;
   }
 
   const scenario = scenarios[scenarioKey];

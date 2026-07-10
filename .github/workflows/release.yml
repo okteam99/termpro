@@ -17,7 +17,62 @@ permissions:
   contents: write
 
 jobs:
+  # BL-003 SSH-5:三架构 host standalone 部署产物,并入 tag 流水线同一 commit
+  # 现产(消版本偏斜——旧 host-package.yml 无 tag 触发器,`bundle.version` 可能
+  # ≠ 本次 release version)。产物随后被 build-macos 下载、随应用 extraResource
+  # 打进 Contents/Resources/host-bundles/<arch>/(见 forge.config.ts)。
+  # fail-fast:false:三腿互相隔离,linux-arm64 单腿失败不牵连另外两腿;
+  # 是否因此拖累 build-macos(整个发版)由下方 build-macos 的 if:!cancelled()
+  # + 逐 arch 存在性判断兜底(R2-2)。
+  build-host-bundles:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: darwin-arm64
+            runner: macos-14
+          - arch: linux-x64
+            runner: ubuntu-latest
+          - arch: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖(node-pty 按 runner 平台自动取预编译/源码编译)
+        run: npm ci
+
+      - name: 打包 standalone host 产物
+        run: |
+          node scripts/package-host.mjs \
+            --out out/host-bundle-${{ matrix.arch }} \
+            --platform ${{ matrix.arch }}
+
+      - name: 验证产物(真实进程 + WS 握手 + PTY 真实 spawn)
+        run: node scripts/verify-host-artifact.mjs --dir out/host-bundle-${{ matrix.arch }}
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v5
+        with:
+          name: host-bundle-${{ matrix.arch }}
+          path: out/host-bundle-${{ matrix.arch }}
+          retention-days: 14
+
   build-macos:
+    needs: build-host-bundles
+    # 🔴 R2-2(external verify):裸 needs 下,build-host-bundles 若因 linux-arm64
+    # 单腿失败而整体报 failure,GitHub Actions 会默认跳过本 job → 整个 macOS
+    # 发版被跳过,与「arm64 缺位应运行时降级、不阻断发版」相反。改
+    # if:!cancelled()(上游非取消即运行),缺失的具体 arch 交给下方「组装」步骤
+    # 逐个存在性判断:darwin-arm64/linux-x64 缺失 → fail release(必需);
+    # linux-arm64 缺失 → 跳过复制、继续 make(该 arch 运行时走 detectArch 降级阀)。
+    if: ${{ !cancelled() }}
     # Apple Silicon(arm64)。如需 Intel 包,改为矩阵并加 macos-13。
     runs-on: macos-14
     timeout-minutes: 40
@@ -42,6 +97,56 @@ jobs:
       - name: 端到端冒烟(渲染层↔Host↔PTY)
         run: TERMPRO_SMOKE=1 npx electron-forge start
         timeout-minutes: 6
+
+      # ---- SSH-5:下载三架构 host bundle,逐 arch 存在性判断(R2-2 降级阀)----
+      # continue-on-error:任一 arch 的 build-host-bundles 腿失败时该 artifact
+      # 从未上传,download 步骤本身会报错;不让它直接中断 job,统一交给下方
+      # 「组装」步骤按 darwin-arm64/linux-x64(必需) vs linux-arm64(可选)分别判定。
+      - name: 下载 darwin-arm64 host bundle
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: host-bundle-darwin-arm64
+          path: /tmp/host-bundle-darwin-arm64
+
+      - name: 下载 linux-x64 host bundle
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: host-bundle-linux-x64
+          path: /tmp/host-bundle-linux-x64
+
+      - name: 下载 linux-arm64 host bundle(允许缺失)
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: host-bundle-linux-arm64
+          path: /tmp/host-bundle-linux-arm64
+
+      - name: 组装 resources/host-bundles/<arch>/(darwin-arm64/linux-x64 必需 · linux-arm64 允许缺失)
+        run: |
+          set -euo pipefail
+          mkdir -p resources/host-bundles
+          missing_required=()
+          for arch in darwin-arm64 linux-x64; do
+            if [ -d "/tmp/host-bundle-$arch" ]; then
+              cp -R "/tmp/host-bundle-$arch" "resources/host-bundles/$arch"
+              echo "[host-bundles] $arch: 就绪"
+            else
+              echo "::error::host bundle missing for required arch: $arch"
+              missing_required+=("$arch")
+            fi
+          done
+          if [ -d /tmp/host-bundle-linux-arm64 ]; then
+            cp -R /tmp/host-bundle-linux-arm64 resources/host-bundles/linux-arm64
+            echo "[host-bundles] linux-arm64: 就绪"
+          else
+            echo "::warning::linux-arm64 host bundle missing — 运行时 detectArch 命中该架构时走手装引导降级阀,不阻断本次发版"
+          fi
+          if [ ${#missing_required[@]} -gt 0 ]; then
+            echo "::error::required host bundle(s) missing, failing release: ${missing_required[*]}"
+            exit 1
+          fi
 
       # ---- 签名证书导入(复用 cmux-pro 的临时 keychain 方案)----
       - name: Import signing cert

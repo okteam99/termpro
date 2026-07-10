@@ -9,7 +9,7 @@ import type {
   ILinkProvider,
   Terminal,
 } from '@xterm/xterm';
-import { hostClient } from '../services/hostClient';
+import type { HostClient } from '../services/hostClient';
 import { tryLocateInFilePanel } from '../filepanel/locateRegistry';
 import {
   extractCandidates,
@@ -250,6 +250,8 @@ export class FsLinkProvider implements ILinkProvider {
     private term: Terminal,
     private getSessionId: () => string | null,
     private getFallbackCwd: () => string,
+    /** BL-004:该终端绑定的 host client(call-time 读——构造早于 spawn 绑定,A6) */
+    private getClient: () => HostClient,
   ) {}
 
   provideLinks(
@@ -278,7 +280,7 @@ export class FsLinkProvider implements ILinkProvider {
     const sid = this.getSessionId();
     if (sid) {
       try {
-        const r = await hostClient.rpc('pty.cwd', { sessionId: sid });
+        const r = await this.getClient().rpc('pty.cwd', { sessionId: sid });
         if (r.cwd) cwd = r.cwd;
       } catch {
         /* host 忙时退回 fallback */
@@ -294,7 +296,7 @@ export class FsLinkProvider implements ILinkProvider {
     if (hit && now - hit.ts < STAT_CACHE_MS) return hit.kind;
     let kind: 'file' | 'dir' | null = null;
     try {
-      kind = (await hostClient.rpc('fs.stat', { path: p })).kind;
+      kind = (await this.getClient().rpc('fs.stat', { path: p })).kind;
     } catch {
       kind = null;
     }
@@ -313,7 +315,7 @@ export class FsLinkProvider implements ILinkProvider {
       if (!p) return null;
     }
     p = stripLineCol(p);
-    const home = hostClient.info?.homedir ?? '';
+    const home = this.getClient().info?.homedir ?? '';
     if (p.startsWith('~')) p = home + p.slice(1);
     if (!p.startsWith('/')) {
       const cwd = await this.cwd();

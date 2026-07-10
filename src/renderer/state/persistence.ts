@@ -8,7 +8,7 @@ import {
   PersistedState,
   useAppStore,
 } from './store';
-import { hostClient } from '../services/hostClient';
+import { hostRegistry } from '../services/hostRegistry';
 import { runMigration } from './workspaceMigration';
 import type { MigrationOutcome } from './workspaceMigration';
 import type { WorkspaceEntry } from '../../shared/protocol';
@@ -32,18 +32,19 @@ export async function initPersistence(): Promise<void> {
 async function hydrateFromHost(): Promise<void> {
   const raw = await window.termpro.storeGet();
 
-  // 壳层驱动迁移:读 v1 逐条 workspace.create 保留原 id → 全成功备份并翻 v2 / 失败继续 v1
+  // 壳层驱动迁移(只对本机注册表):读 v1 逐条 workspace.create 保留原 id → 全成功备份并翻 v2 / 失败继续 v1
   const outcome = await runMigration(raw, {
-    createWorkspace: (input) => hostClient.rpc('workspace.create', input),
+    createWorkspace: (input) => hostRegistry.local().rpc('workspace.create', input),
     backupV1: () => window.termpro.backupV1Archive(),
     writeArchive: (state) => window.termpro.storeSet(state),
   });
 
-  // 从 Host 拉权威注册表(v2 hydrate 的 name/root 单源;v1 fallback 忽略)。
+  // 从本机 Host 拉权威注册表(v2 hydrate 的 name/root 单源;v1 fallback 忽略)。
+  // 🔴 hydrate 只发现本机 ws(D-6·远程 ws 走实时发现,不走持久化路径)。
   // 用 null 显式标记「读失败」,区别于「读成功且注册表为空([])」。
   let registry: WorkspaceEntry[] | null = null;
   try {
-    const res = await hostClient.rpc('workspace.list', undefined);
+    const res = await hostRegistry.local().rpc('workspace.list', undefined);
     registry = res.workspaces;
   } catch (err) {
     console.warn('[renderer] workspace.list failed during hydrate:', err);
@@ -89,8 +90,8 @@ function finishHydrate(registry: WorkspaceEntry[], outcome: MigrationOutcome): v
         : null,
     );
 
-  // 收 Host 注册表变更广播 → 按 id 协调本地视图态
-  hostClient.onWorkspaceChanged((workspaces) => {
+  // 收本机 Host 注册表变更广播 → 按 id 协调本地视图态(applyWorkspaceSnapshot 已限 hostId='local' 作用域)
+  hostRegistry.local().onWorkspaceChanged((workspaces) => {
     useAppStore.getState().applyWorkspaceSnapshot(workspaces);
   });
 
@@ -110,12 +111,21 @@ export function serialize(s: AppState): PersistedState {
     pinBottomBar: s.pinBottomBar,
   };
 
+  // 🔴 D-6/ARCH-2:远程 ws(hostId!=='local')是纯视图态,v1+v2 两分支都不写盘——
+  // 否则重启后 v2 会产生孤儿外键,v1 fallback 会被 runMigration 逐条 create 在本机重建(污染)。
+  const localWorkspaces = s.workspaces.filter((w) => w.hostId === 'local');
+  const activeWorkspaceId =
+    s.activeWorkspaceId !== null &&
+    localWorkspaces.some((w) => w.id === s.activeWorkspaceId)
+      ? s.activeWorkspaceId
+      : (localWorkspaces[0]?.id ?? null);
+
   // v1 fallback 模式:保留 name/root(全功能),version:1 + 迁移失败计数
   if (s.persistMode === 'v1') {
     return {
       version: 1,
-      activeWorkspaceId: s.activeWorkspaceId,
-      workspaces: s.workspaces.map((w) => ({
+      activeWorkspaceId,
+      workspaces: localWorkspaces.map((w) => ({
         id: w.id,
         name: w.name,
         root: w.root,
@@ -130,8 +140,8 @@ export function serialize(s: AppState): PersistedState {
   // v2 模式:去 name/root(单源 = Host 注册表),只留 workspaceId 外键 + 视图态
   return {
     version: 2,
-    activeWorkspaceId: s.activeWorkspaceId,
-    workspaces: s.workspaces.map((w) => ({
+    activeWorkspaceId,
+    workspaces: localWorkspaces.map((w) => ({
       workspaceId: w.id,
       activeTabId: w.activeTabId,
       tabs: w.tabs.map(serializeTab),

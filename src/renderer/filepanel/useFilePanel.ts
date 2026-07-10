@@ -2,7 +2,8 @@
 // StrictMode 安全模式:构造函数纯,无订阅;生命周期 effect 管 start/dispose。
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { useAppStore } from '../state/store';
+import { useAppStore, selectActiveWorkspace } from '../state/store';
+import { hostRegistry } from '../services/hostRegistry';
 import { FilePanelController } from './controller';
 import { makeHostDeps } from './deps';
 import type { FilePanelInputs, FilePanelView } from './types';
@@ -28,7 +29,12 @@ export function useFilePanel(inputs: FilePanelInputs): UseFilePanelResult {
   function ensure(): FilePanelController {
     if (ctrlRef.current === null || ctrlRef.current.isDisposed()) {
       ctrlRef.current = new FilePanelController({
-        deps: makeHostDeps(),
+        // BL-004:call-time 解析当前 active workspace 的 host client(切 ws 换 host·
+        // 不重建 controller)。本机 ws→'local' 既有单例零回归·远程 ws→该机 client。
+        deps: makeHostDeps(() => {
+          const ws = selectActiveWorkspace(useAppStore.getState());
+          return ws ? hostRegistry.forWorkspace(ws) : hostRegistry.local();
+        }),
         // lockRoot 经 getState() 取活函数,绕开渲染闭包
         lockRoot: (tabId, rootPath) => {
           useAppStore.getState().updateTabFilePanel(tabId, { rootPath });

@@ -14,10 +14,42 @@ export const HANDSHAKE_TIMEOUT_MS = 10_000;
 export const PING_INTERVAL_MS = 30_000;
 export const AUTH_FAIL_WINDOW_MS = 60_000;
 export const AUTH_FAIL_ALERT = 10;
+/** 告警节流冷却窗(AC-9):同一冷却期内至多 emit 一次 onAuthAlert,防同机攻击刷屏。
+ * 与失败滑动窗同宽(先到期的失败计数自然归零,冷却期与统计窗天然对齐)。 */
+export const AUTH_FAIL_ALERT_COOLDOWN_MS = AUTH_FAIL_WINDOW_MS;
 /** 32 MiB:容纳 readFileBinary 20MB 二进制 → base64 ≈ 27MB + JSON 封套。 */
 export const WS_MAX_PAYLOAD = 32 * 1024 * 1024;
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+
+/** Origin 白名单默认值(纵深 · token 仍是主屏障):裸文件协议 / Node 客户端典型取值。 */
+export const DEFAULT_ALLOWED_ORIGINS: ReadonlySet<string> = new Set(['null', 'file://']);
+
+/**
+ * 纯函数:是否该 emit 认证失败告警(AC-9)。同一冷却窗内至多一次,跨窗口可重新告警。
+ * 无 IO,便于跨窗口组合单测(T-019);recordAuthFailure 用它 + 闭包持有的 lastAlertAt 驱动。
+ */
+export function shouldAlert(
+  now: number,
+  lastAlertAt: number,
+  countInWindow: number,
+  threshold: number,
+  cooldownMs: number,
+): boolean {
+  return countInWindow >= threshold && now - lastAlertAt >= cooldownMs;
+}
+
+/**
+ * 纯函数:Origin 是否放行(AC-10 纵深 · 防 DNS-rebinding 打回环端口)。
+ * 无 Origin 头(非浏览器客户端 / verify 脚本 / Node ws 客户端默认不发)→ 恒放行,不误杀;
+ * 有 Origin 头则须命中白名单。token 仍是主屏障,此仅纵深。
+ */
+export function checkOrigin(
+  origin: string | undefined,
+  allowedOrigins: ReadonlySet<string>,
+): boolean {
+  return origin === undefined || allowedOrigins.has(origin);
+}
 
 export interface WsServerOptions {
   /** 监听地址;必须是 loopback(127.0.0.1 / ::1 / localhost),否则抛错 */
@@ -35,6 +67,8 @@ export interface WsServerOptions {
   logger?: (line: string) => void;
   /** 认证失败告警回调(测试可观测;不阻断连接) */
   onAuthAlert?: (failuresInWindow: number) => void;
+  /** Origin 白名单(AC-10 纵深;token 校验通过后追加校验)。默认 DEFAULT_ALLOWED_ORIGINS。 */
+  allowedOrigins?: ReadonlySet<string>;
 }
 
 export interface WsServerHandle {
@@ -179,6 +213,7 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
   const handshakeTimeoutMs = opts.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
   const pingIntervalMs = opts.pingIntervalMs ?? PING_INTERVAL_MS;
   const maxPayload = opts.maxPayload ?? WS_MAX_PAYLOAD;
+  const allowedOrigins = opts.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
 
   const httpServer: HttpServer = createServer();
   const wss = new WebSocketServer({ noServer: true, maxPayload });
@@ -186,13 +221,17 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
   // 认证失败滑动窗(告警 only · 不阻断 —— external CR-3:阻断会给同机攻击者
   // DoS 杠杆;真屏障是 128-bit token 熵)
   let authFailures: number[] = [];
+  let lastAlertAt = -Infinity;
   let connSeq = 0;
 
   function recordAuthFailure(): void {
     const now = Date.now();
     authFailures.push(now);
     authFailures = authFailures.filter((t) => now - t < AUTH_FAIL_WINDOW_MS);
-    if (authFailures.length >= AUTH_FAIL_ALERT) {
+    if (
+      shouldAlert(now, lastAlertAt, authFailures.length, AUTH_FAIL_ALERT, AUTH_FAIL_ALERT_COOLDOWN_MS)
+    ) {
+      lastAlertAt = now;
       logger(
         `[host] repeated ws auth failures: ${authFailures.length} in ${AUTH_FAIL_WINDOW_MS}ms`,
       );
@@ -213,6 +252,13 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
     if (provided === null || !verifyToken(provided, opts.token)) {
       recordAuthFailure();
       logger('[host] ws auth rejected');
+      socket.destroy();
+      return;
+    }
+    // Origin 纵深(AC-10 · token 校验之外追加):token 已是主屏障,此处只防
+    // DNS-rebinding 类场景打回环端口;无 Origin 头(非浏览器客户端)恒放行,不误杀。
+    if (!checkOrigin(req.headers.origin, allowedOrigins)) {
+      logger('[host] ws origin rejected');
       socket.destroy();
       return;
     }

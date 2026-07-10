@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { disposeTerminal } from '../terminal/terminalRegistry';
-import { hostClient } from '../services/hostClient';
+import { hostRegistry } from '../services/hostRegistry';
 import { basename } from './pathLabel';
 import { reconcileWorkspaces } from './workspaceSync';
 import type { WorkspaceEntry } from '../../shared/protocol';
+
+const LOCAL_HOST_ID = 'local';
 
 export { basename, tildify, tabPathLabel } from './pathLabel';
 
@@ -28,6 +30,8 @@ export interface TabState {
   customName?: string;
   processName?: string;
   exited?: boolean;
+  /** 会话退出码(AC-12·断线期跑完/本地退出);TabBar 渲染「exit N」。exited 时才有意义。 */
+  exitCode?: number;
   filePanel?: TabFilePanelState;
   // ---- 会话状态(运行时,host 状态机驱动,不持久化)----
   activity?: 'idle' | 'running';
@@ -53,6 +57,9 @@ export interface WorkspaceState {
   root: string;
   /** 主工作区(main worktree)当前分支名,运行时获取,不持久化 */
   branch?: string;
+  /** 运行时路由键(BL-004):'local' | configId。'local' 随存档持久化 v2;
+   *  非 local(远程发现注入)为纯视图态,serialize 过滤不写盘。hostRegistry.forWorkspace(ws) 据此选客户端。 */
+  hostId: string;
   tabs: TabState[];
   activeTabId: string | null;
 }
@@ -129,11 +136,15 @@ export interface AppState {
   pendingWorkspaceIds: string[];
   /** hydrate:注册表(name/root 单源)+ 存档(视图态/迁移标记)合并 */
   hydrate(registry: WorkspaceEntry[], archive: PersistedState | null): void;
-  /** 新增:v2=等待 workspace.create 确认后入列并激活(新建即选中);v1=本地同步全功能 */
-  addWorkspace(root: string): Promise<void>;
-  /** 删除:v2=等待 workspace.remove 确认后本地回收;v1=本地同步 */
+  /** 新增:targetHostId 默认 'local'。v2=选定 host 的 client 发 workspace.create,等待确认后
+   *  入列并激活(新建即选中);未命中该 host(forHostId→null)→ 拒绝不建仓。
+   *  v1=仅本机(targetHostId!=='local' → 拒绝,远程操作在本地回退模式下不可用)。 */
+  addWorkspace(root: string, targetHostId?: string): Promise<void>;
+  /** 删除:按 ws.hostId 路由(forWorkspace);v2=等待 workspace.remove 确认后本地回收;
+   *  v1=仅本机 ws 本地同步(远程 ws 若出现在 v1 store 中 → 拒绝) */
   removeWorkspace(id: string): Promise<void>;
-  /** 改名:v2=等待 workspace.update 确认后同步;v1=本地同步 */
+  /** 改名:按 ws.hostId 路由(forWorkspace);v2=等待 workspace.update 确认后同步;
+   *  v1=仅本机 ws 本地同步(远程 ws 若出现在 v1 store 中 → 拒绝) */
   renameWorkspace(id: string, name: string): Promise<void>;
   setActiveWorkspace(id: string): void;
   /** 运行时字段本地更新(branch 等,不入注册表;v1 模式的 name 亦经此本地写) */
@@ -141,8 +152,14 @@ export interface AppState {
     id: string,
     patch: Partial<Pick<WorkspaceState, 'name' | 'branch'>>,
   ): void;
-  /** 收到 workspace:changed 全量快照 → 按 id 协调本地视图态(仅 v2 模式生效) */
+  /** 收到本机 workspace:changed 全量快照 → 作用域隔离协调(scopeHostId='local',仅 v2 模式生效,
+   *  不触碰其它 host 的 ws) */
   applyWorkspaceSnapshot(snapshot: WorkspaceEntry[]): void;
+  /** 远程发现/该机 onWorkspaceChanged 推送 → 作用域隔离协调(scopeHostId=hostId),
+   *  只影响该 configId 下的 ws,本机与其它远程机 ws 不动(BL-004) */
+  setHostWorkspaces(hostId: string, entries: WorkspaceEntry[]): void;
+  /** 远程断线/删除:移除该 host 全部 ws + 释放其全部 tab;active 若属该 host → 回落本机首个(无则 null) */
+  dropHostWorkspaces(hostId: string): void;
   /** 设置/清除一次性提示 */
   setTransientNotice(text: string | null): void;
   /** 拖拽排序:把工作区移到目标下标(越界自动夹紧) */
@@ -209,13 +226,34 @@ function resolveActiveWs(
   );
 }
 
-/** 由注册表记录合成默认单 tab 视图(新建 / 快照新增 / 注册表有存档无) */
-function buildDefaultWorkspace(entry: WorkspaceEntry): WorkspaceState {
+/**
+ * 新建本机 ws 插入时维持「本机 ws 是数组连续前缀」不变式(review E1):插到首个非本机 ws
+ * 之前,而不是整体数组末尾。Sidebar 拖拽把「本机子集下标」映射回「全量数组下标」依赖此前缀,
+ * 若本机 ws 在远程 ws 已存在时被 append 到末尾(如 [L0,L1,R0,L2]),下标映射即错位。
+ * 还没有远程 ws 时,firstRemoteIdx=-1,等价于原来的「append 到末尾」,本机零回归。
+ */
+function insertLocalWorkspace(
+  workspaces: WorkspaceState[],
+  ws: WorkspaceState,
+): WorkspaceState[] {
+  const firstRemoteIdx = workspaces.findIndex((w) => w.hostId !== LOCAL_HOST_ID);
+  if (firstRemoteIdx < 0) return [...workspaces, ws];
+  const next = [...workspaces];
+  next.splice(firstRemoteIdx, 0, ws);
+  return next;
+}
+
+/** 由注册表记录合成默认单 tab 视图(新建 / 快照新增 / 注册表有存档无);hostId 默认 'local'(本机调用零改) */
+function buildDefaultWorkspace(
+  entry: WorkspaceEntry,
+  hostId: string = LOCAL_HOST_ID,
+): WorkspaceState {
   const tab = makeTab(entry.root);
   return {
     id: entry.id,
     name: entry.name,
     root: entry.root,
+    hostId,
     tabs: [tab],
     activeTabId: tab.id,
   };
@@ -285,6 +323,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           id: w.id,
           name: w.name,
           root: w.root,
+          hostId: LOCAL_HOST_ID, // 存档只含本机 ws(远程不持久化)
           tabs,
           activeTabId: resolveActiveTab(tabs, w.activeTabId),
         };
@@ -314,6 +353,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           id: entry.id,
           name: entry.name,
           root: entry.root,
+          hostId: LOCAL_HOST_ID, // 存档只含本机 ws(远程不持久化)
           tabs,
           activeTabId: resolveActiveTab(tabs, pw.activeTabId),
         });
@@ -333,18 +373,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  async addWorkspace(root) {
-    // v1 全功能:本地同步(与迁移前行为一致)
+  async addWorkspace(root, targetHostId = LOCAL_HOST_ID) {
+    // v1 全功能:仅本机(远程操作需 v2 + 该机 client · 防污染 v1 存档)
     if (get().persistMode === 'v1') {
-      const ws = buildDefaultWorkspace({ id: crypto.randomUUID(), name: basename(root), root });
-      set((s) => ({ workspaces: [...s.workspaces, ws], activeWorkspaceId: ws.id }));
+      if (targetHostId !== LOCAL_HOST_ID) {
+        console.warn('[renderer] addWorkspace remote target rejected in v1 fallback:', targetHostId);
+        set({ transientNotice: '远程操作在本地回退模式下不可用' });
+        return;
+      }
+      const ws = buildDefaultWorkspace(
+        { id: crypto.randomUUID(), name: basename(root), root },
+        LOCAL_HOST_ID,
+      );
+      set((s) => ({
+        workspaces: insertLocalWorkspace(s.workspaces, ws),
+        activeWorkspaceId: ws.id,
+      }));
       return;
     }
     // v2:等待确认式 RPC + 防重复提交
     if (get().creatingWorkspace) return;
+    // 写操作走 forHostId:未命中(该机已断线/未连接)→ 拒绝创建,绝不兜底落本机
+    const client = hostRegistry.forHostId(targetHostId);
+    if (!client) {
+      console.warn('[renderer] addWorkspace target host unavailable:', targetHostId);
+      set({ transientNotice: '目标机器已断开' });
+      return;
+    }
     set({ creatingWorkspace: true });
     try {
-      const entry = await hostClient.rpc('workspace.create', {
+      const entry = await client.rpc('workspace.create', {
         name: basename(root),
         root,
       });
@@ -354,7 +412,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? s.workspaces.map((w) =>
               w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,
             )
-          : [...s.workspaces, buildDefaultWorkspace(entry)];
+          : targetHostId === LOCAL_HOST_ID
+            ? insertLocalWorkspace(s.workspaces, buildDefaultWorkspace(entry, targetHostId))
+            : [...s.workspaces, buildDefaultWorkspace(entry, targetHostId)]; // 远程 ws 仍 append
         return { workspaces, activeWorkspaceId: entry.id, creatingWorkspace: false };
       });
     } catch (err) {
@@ -380,16 +440,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     };
 
-    // v1 全功能:本地同步
+    const ws = get().workspaces.find((w) => w.id === id);
+
+    // v1 全功能:仅本机 ws 本地同步(远程 ws 理应不出现在 v1 store,防御性拒绝)
     if (get().persistMode === 'v1') {
+      if (ws && ws.hostId !== LOCAL_HOST_ID) {
+        console.warn('[renderer] removeWorkspace remote ws rejected in v1 fallback:', id);
+        set({ transientNotice: '远程操作在本地回退模式下不可用' });
+        return;
+      }
       disposeAndRemove();
       return;
     }
-    // v2:等待确认式 RPC + 防重复提交
+    // v2:按 ws.hostId 路由(forWorkspace) + 等待确认式 RPC + 防重复提交
+    // review A5:ws 已不在 store(竞态/重复点击/陈旧 id)→ 无路由依据,直接返回,
+    // 绝不兜底 { hostId: 'local' }(那会把本该发往未知 host 的删除误发到本机)。
+    if (!ws) return;
     if (get().pendingWorkspaceIds.includes(id)) return;
     set((s) => ({ pendingWorkspaceIds: [...s.pendingWorkspaceIds, id] }));
     try {
-      await hostClient.rpc('workspace.remove', { id });
+      await hostRegistry.forWorkspace(ws).rpc('workspace.remove', { id });
       // 成功才本地回收;回声 workspace:changed 再次协调为幂等 no-op
       disposeAndRemove();
     } catch (err) {
@@ -402,18 +472,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async renameWorkspace(id, name) {
-    // v1 全功能:本地同步
+    const ws = get().workspaces.find((w) => w.id === id);
+
+    // v1 全功能:仅本机 ws 本地同步(远程 ws 理应不出现在 v1 store,防御性拒绝)
     if (get().persistMode === 'v1') {
+      if (ws && ws.hostId !== LOCAL_HOST_ID) {
+        console.warn('[renderer] renameWorkspace remote ws rejected in v1 fallback:', id);
+        set({ transientNotice: '远程操作在本地回退模式下不可用' });
+        return;
+      }
       set((s) => ({
         workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, name } : w)),
       }));
       return;
     }
-    // v2:等待确认式 RPC + 防重复提交
+    // v2:按 ws.hostId 路由(forWorkspace) + 等待确认式 RPC + 防重复提交
+    // review A5:ws 已不在 store → 无路由依据,直接返回,绝不兜底本机误发。
+    if (!ws) return;
     if (get().pendingWorkspaceIds.includes(id)) return;
     set((s) => ({ pendingWorkspaceIds: [...s.pendingWorkspaceIds, id] }));
     try {
-      const entry = await hostClient.rpc('workspace.update', { id, name });
+      const entry = await hostRegistry.forWorkspace(ws).rpc('workspace.update', { id, name });
       set((s) => ({
         workspaces: s.workspaces.map((w) =>
           w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,
@@ -437,9 +516,38 @@ export const useAppStore = create<AppState>((set, get) => ({
       s.workspaces,
       s.activeWorkspaceId,
       snapshot,
+      LOCAL_HOST_ID,
     );
     disposedTabIds.forEach((tabId) => disposeTerminal(tabId));
     set({ workspaces, activeWorkspaceId });
+  },
+
+  setHostWorkspaces(hostId, entries) {
+    // 远程发现与本地持久化模式无关(v1/v2 均生效)——远程 ws 是纯视图态,不受迁移状态门控
+    const s = get();
+    const { workspaces, activeWorkspaceId, disposedTabIds } = reconcileWorkspaces(
+      s.workspaces,
+      s.activeWorkspaceId,
+      entries,
+      hostId,
+    );
+    disposedTabIds.forEach((tabId) => disposeTerminal(tabId));
+    set({ workspaces, activeWorkspaceId });
+  },
+
+  dropHostWorkspaces(hostId) {
+    const dropped = get().workspaces.filter((w) => w.hostId === hostId);
+    dropped.forEach((w) => w.tabs.forEach((t) => disposeTerminal(t.id)));
+    set((s) => {
+      const workspaces = s.workspaces.filter((w) => w.hostId !== hostId);
+      const activeWasDropped =
+        s.activeWorkspaceId !== null &&
+        dropped.some((w) => w.id === s.activeWorkspaceId);
+      const activeWorkspaceId = activeWasDropped
+        ? (workspaces.find((w) => w.hostId === LOCAL_HOST_ID)?.id ?? null)
+        : s.activeWorkspaceId;
+      return { workspaces, activeWorkspaceId };
+    });
   },
 
   setTransientNotice(text) {

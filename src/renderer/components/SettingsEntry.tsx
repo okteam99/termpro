@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../state/store';
+import { RemoteHostsPage } from './settings/RemoteHostsPage';
 
 // 应用图标(About 弹窗 logo)· Vite 把资源打进 renderer bundle(dev + 打包均生效)
 const appIconUrl = new URL('../../../assets/icon.png', import.meta.url).href;
@@ -41,6 +42,28 @@ function InfoIcon() {
       <circle cx="7.5" cy="7.5" r="6" />
       <line x1="7.5" y1="7" x2="7.5" y2="10.5" />
       <circle cx="7.5" cy="4.7" r="0.55" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** 远程机:简化机箱/服务器轮廓 */
+function ServerIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="1.5" y="2" width="11" height="4" rx="1" />
+      <rect x="1.5" y="8" width="11" height="4" rx="1" />
+      <circle cx="3.7" cy="4" r="0.55" fill="currentColor" stroke="none" />
+      <circle cx="3.7" cy="10" r="0.55" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -120,8 +143,9 @@ interface SettingsEntryProps {
 export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [remoteHostsOpen, setRemoteHostsOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  // 持有打开弹窗前的聚焦元素,关闭时还原(AC-6)
+  // 持有打开弹窗前的聚焦元素,关闭时还原(AC-6 · About/Remote Hosts 弹层共用同一归还机制)
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const pinBottomBar = useAppStore((s) => s.pinBottomBar);
   const setPinBottomBar = useAppStore((s) => s.setPinBottomBar);
@@ -161,6 +185,18 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
     prevFocusRef.current = null;
   }
 
+  function openRemoteHosts() {
+    prevFocusRef.current = document.activeElement as HTMLElement | null;
+    setMenuOpen(false);
+    setRemoteHostsOpen(true);
+  }
+
+  function handleCloseRemoteHosts() {
+    setRemoteHostsOpen(false);
+    prevFocusRef.current?.focus();
+    prevFocusRef.current = null;
+  }
+
   return (
     <div className="settings-anchor" ref={anchorRef}>
       {menuOpen && (
@@ -184,6 +220,17 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
             >
               <span className="settings-switch-knob" />
             </span>
+          </button>
+          <button
+            className="settings-menu-item"
+            role="menuitem"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            onClick={openRemoteHosts}
+          >
+            <span className="settings-menu-icon">
+              <ServerIcon />
+            </span>
+            <span className="settings-menu-label">Remote Hosts</span>
           </button>
           <button
             className="settings-menu-item"
@@ -223,6 +270,7 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
       </button>
 
       {aboutOpen && <AboutModal version={version} onClose={handleCloseAbout} />}
+      {remoteHostsOpen && <RemoteHostsPage onClose={handleCloseRemoteHosts} />}
     </div>
   );
 }

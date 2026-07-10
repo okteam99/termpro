@@ -93,7 +93,7 @@ flowchart LR
 > 架构已按远程就绪设计（见 project-specs/ARCHITECTURE.md「UI 与 Host 分离」），M5 兑现以下能力。
 > 这些条目原列于 README 里程碑清单，现统一归入产品规划跟踪。
 
-- [ ] **Host 独立可执行**：打包为纯 Node 单文件，可在远程机器独立运行；接入走 `ssh` 隧道 + WebSocket；远程机由 TermPro 自管（应用内配置 SSH 密钥或密码登录，密码凭据存系统钥匙串，不做 ~/.ssh/config 导入）。
+- [ ] **Host 独立可执行**：打包为纯 Node 单文件，可在远程机器独立运行；接入走 `ssh` 隧道 + WebSocket；远程机由 TermPro 自管（应用内配置 SSH 密钥或密码登录，密码凭据存系统钥匙串〔实现语义 safeStorage · BL-003 ADR-001〕，不做 ~/.ssh/config 导入）。
 - [ ] **Workspace 注册表驻留 Host（模型 A · Q-002）**：每台机器的 Host 持有该机 workspace 注册表；UI 是可断开视图，连接机器后发现并挂载其全部 workspace 与活跃会话；Sidebar 按机器分组。动因：未来 mobile 客户端直连远程机即见全部 workspace。
 - [ ] **协议版本握手与兼容性检查**：UI ↔ Host 连接时协商协议版本，拒绝/降级不兼容连接。
 - [ ] **断线重连**：scrollback 环形缓冲回放 + 状态徽标对账，重连即恢复屏幕与会话状态。
@@ -124,4 +124,4 @@ flowchart LR
 |------|------|------|------|----------|------|
 | Q-001 | 冷启动 product-overview 初始内容来源 | ✅ 已决 | 以 README 与 project-specs/ARCHITECTURE.md 为产品与架构事实来源，先建立轻量上游规划 | 全文 | 2026-06-13 |
 | Q-002 | 远程模型：workspace 为中心（B）vs 远程机为中心（A） | ✅ 已决 | 用户拍板模型 A：workspace 注册表驻留各机 Host，UI 为可断开视图，连接机器即发现其全部 workspace；动因是未来 mobile 客户端此模型更直接。Sidebar IA 改为按机器分组 | MVP 范围定义 / M5 详细范围 / 业务架构 | 2026-07-09 |
-| Q-003 | 远程机配置来源 | ✅ 已决 | 不做 ~/.ssh/config 导入；远程机由 TermPro 自管（最近使用 + 手动添加），SSH 密钥或密码登录，密码凭据存系统钥匙串 | M5 详细范围 | 2026-07-09 |
+| Q-003 | 远程机配置来源 | ✅ 已决 | 不做 ~/.ssh/config 导入；远程机由 TermPro 自管（最近使用 + 手动添加），SSH 密钥或密码登录，密码凭据存系统钥匙串（实现语义 = safeStorage：加密密钥在钥匙串·密文落 userData·BL-003 ADR-001 · 2026-07-10 用户确认） | M5 详细范围 | 2026-07-09 |

@@ -11,6 +11,52 @@ type WorkspaceMethod =
   | 'workspace.remove'
   | 'workspace.update';
 
+/** WARN + throw:输入非法(可恢复),日志带失败字段供排查。 */
+function fail(field: string): never {
+  console.warn(`[host] workspace params invalid: ${field}`);
+  throw new Error(`invalid workspace params: ${field}`);
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+/**
+ * 运行时 params 校验(AC-9/F10),先于 registry.create/update/remove 执行,非法 → throw 不落盘。
+ * 远程面(远程 workspace.create over WAN)正是此校验的消费点——不能只信注册表内部校验
+ * (注册表方法签名声明的类型在运行时经 WAN JSON 反序列化后不受 TS 静态检查保护)。
+ */
+function validateParams(method: WorkspaceMethod, params: unknown): void {
+  const p = (params ?? {}) as Record<string, unknown>;
+  switch (method) {
+    case 'workspace.list':
+      return;
+    case 'workspace.create': {
+      if (!isNonEmptyString(p.name)) fail('name');
+      if (
+        typeof p.root !== 'string' ||
+        p.root.trim().length === 0 ||
+        !p.root.startsWith('/')
+      ) {
+        fail('root');
+      }
+      if (p.id !== undefined && !isNonEmptyString(p.id)) fail('id');
+      return;
+    }
+    case 'workspace.update': {
+      if (!isNonEmptyString(p.id)) fail('id');
+      if (p.name === undefined && p.root === undefined) fail('name/root');
+      if (p.name !== undefined && !isNonEmptyString(p.name)) fail('name');
+      if (p.root !== undefined && !isNonEmptyString(p.root)) fail('root');
+      return;
+    }
+    case 'workspace.remove': {
+      if (!isNonEmptyString(p.id)) fail('id');
+      return;
+    }
+  }
+}
+
 export class WorkspaceService {
   private readonly registry: WorkspaceRegistry;
   private readonly senders = new Map<number, (msg: HostMessage) => void>();
@@ -51,6 +97,7 @@ export class WorkspaceService {
    */
   async handle(method: WorkspaceMethod, params: unknown): Promise<unknown> {
     await this.registry.load();
+    validateParams(method, params);
     switch (method) {
       case 'workspace.list':
         return { workspaces: this.registry.list() };

@@ -66,9 +66,17 @@ export interface HostCore {
 /**
  * 创建一个 host 核心实例(共享一个 PTY 池 + 客户端表)。
  * 单进程只跑一种传输模式,但工厂化便于测试隔离。
+ *
+ * @param mode host 形态(D-1 · BL-005):
+ *   - 'embedded'(默认):本机嵌入式 · 端口 close 即 kill 会话 · 不分配 ring · onExit 立即
+ *     delete · host.info 不带 capabilities(零回归)。
+ *   - 'standalone':远程/loopback · 端口 close 转 detach(断开续跑)· 分配 ring · onExit 转
+ *     exited 保留态 · host.info 带 capabilities=['session.resume'] · 支持 session.list/attach。
  */
-export function createHostCore(): HostCore {
-  const pool = new PtyPool();
+export function createHostCore(
+  mode: 'embedded' | 'standalone' = 'embedded',
+): HostCore {
+  const pool = new PtyPool(mode);
   const clients = new Map<number, Client>();
   let clientSeq = 0;
 
@@ -99,7 +107,7 @@ export function createHostCore(): HostCore {
       const msg = e.data as ClientMessage;
       switch (msg.t) {
         case 'rpc:req':
-          void handleRpc(msg, send, client, pool, workspaces);
+          void handleRpc(msg, send, client, pool, workspaces, clients, mode);
           break;
         // PTY 控制消息只接受会话归属方(sessionId 不当 capability 用;
         // 多连接下的防御纵深)
@@ -121,15 +129,21 @@ export function createHostCore(): HostCore {
       }
     });
 
-    // 窗口关闭/重载/WS 断开 → 端口关闭 → 只回收该客户端的会话与 watcher
+    // 窗口关闭/重载/WS 断开 → 端口关闭 → 只回收该客户端的会话与 watcher。
+    // 🔴 形态分叉(D-1):embedded → kill 该 client 会话(本机语义,零回归);
+    // standalone → detach(断开续跑:会话不 kill,旁路流控,输出入 ring 待重连回放 · AC-1)。
     port.on('close', () => {
-      for (const sid of client.sessions) pool.kill(sid);
+      for (const sid of client.sessions) {
+        if (mode === 'standalone') pool.detach(sid);
+        else pool.kill(sid);
+      }
       client.watches.dispose();
       workspaces.removeClient(id);
       clients.delete(id);
       console.log(
-        '[host] client %d detached (sessions cleaned: %d, clients left: %d)',
+        '[host] client %d detached (sessions %s: %d, clients left: %d)',
         id,
+        mode === 'standalone' ? 'detached' : 'killed',
         client.sessions.size,
         clients.size,
       );
@@ -148,6 +162,8 @@ async function handleRpc(
   client: Client,
   pool: PtyPool,
   workspaces: WorkspaceService,
+  clients: Map<number, Client>,
+  mode: 'embedded' | 'standalone',
 ): Promise<void> {
   try {
     let result: unknown;
@@ -160,6 +176,10 @@ async function handleRpc(
           platform: os.platform(),
           homedir: os.homedir(),
           shell: process.env.SHELL ?? '/bin/zsh',
+          // 能力位(向后兼容追加):standalone 支持断线重连回放收养;embedded 省略
+          // → renderer 判为不支持 → 重连退化 new spawn(旧 host 零破坏 · QA-14)。
+          capabilities:
+            mode === 'standalone' ? ['session.resume'] : undefined,
         };
         result = info;
         break;
@@ -260,6 +280,58 @@ async function handleRpc(
         // 服务内部:mutate 注册表 → 落盘 → 向全部客户端广播 workspace:changed
         result = await workspaces.handle(msg.method, msg.params);
         break;
+      // ---- 断线重连回放收养(BL-005)----
+      case 'session.list': {
+        // token 闸后单租户全可见:遍历 pool 全部会话(live + exited)产快照(AC-8)
+        result = { sessions: pool.list() };
+        break;
+      }
+      case 'session.attach': {
+        const p = msg.params as {
+          sessionId: string;
+          resumeOffset: number;
+          cols: number;
+          rows: number;
+        };
+        // 🔴 last-attach-wins 所有权转移(CR-2/ARCH-B-5):同步原子三步 —— 无 await 插入。
+        // ① 从旧 owner 的 client.sessions 摘除 sid(否则旧连接稍后 close 回收会误 detach
+        //    已转移会话 · 把新 owner 输出转进 ring 不回屏 · 楔死 · ARCH-B-5②)。
+        for (const c of clients.values()) {
+          if (c !== client) c.sessions.delete(p.sessionId);
+        }
+        // ② reattach 换 send + 回放切片(同步)。
+        const res = pool.reattach(p.sessionId, send, {
+          cols: p.cols,
+          rows: p.rows,
+          resumeOffset: p.resumeOffset,
+        });
+        if (res === null) {
+          // found=false:该 sessionId 已不存在(被逐/从未有)→ renderer 退化 new spawn。
+          // snapshot 必填但会被 renderer 的 found=false 分支忽略 → 占位空快照。
+          result = {
+            found: false,
+            full: false,
+            baseOffset: 0,
+            data: '',
+            nextOffset: 0,
+            snapshot: {
+              sessionId: p.sessionId,
+              cwd: '',
+              title: '',
+              status: 'exited' as const,
+              state: 'idle' as const,
+              quiet: false,
+              altscreen: false,
+              exitCode: null,
+            },
+          } satisfies RpcMethods['session.attach']['result'];
+        } else {
+          // ③ 加入本 client(成为新 owner)。
+          client.sessions.add(p.sessionId);
+          result = res;
+        }
+        break;
+      }
       default:
         throw new Error(`unknown rpc method: ${String(msg.method)}`);
     }

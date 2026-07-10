@@ -13,7 +13,21 @@ import path from 'node:path';
 // plugin-vite 打包时不携带 node_modules(默认一切被 vite 打进 bundle),
 // 但 node-pty 是原生模块、在 vite.host.config 里 external,
 // 必须在 packageAfterCopy 钩子里手动搬进产物(含其运行时依赖)。
-const EXTERNAL_MODULES = ['node-pty'];
+// ssh2(BL-003 SSH-5):main 侧 vite.main.config.ts 已 external,同理需搬运
+// (纯 JS,copyModuleWithDeps 只递归 package.json#dependencies,天然跳过
+// cpu-features/nan 等 optionalDependencies)。
+const EXTERNAL_MODULES = ['node-pty', 'ssh2'];
+
+// BL-003 SSH-5:CI 三架构预编译的 host standalone 部署产物(darwin-arm64/
+// linux-x64/linux-arm64),由 release.yml 在 `npm run make` 前落到这里,
+// 随应用 extraResource 打进 Contents/Resources/host-bundles/<arch>/。
+// main 运行时经 hostBundle.ts 定位同一相对路径(打包态 process.resourcesPath
+// 下 / dev 态仓库根下),两侧路径口径保持一致。
+// 本地 `npm run make` 若未预先放置该目录(未跑 package-host.mjs / 未从 CI
+// 下载 artifact),自动跳过 extraResource——不阻断日常打包,只是产物不含
+// 远程 host bundle(运行时走 SSH-5 §linux-arm64 降级阀同款「手装」引导)。
+const hostBundlesDir = path.join(__dirname, 'resources/host-bundles');
+const hasHostBundles = fs.existsSync(hostBundlesDir);
 
 async function copyModuleWithDeps(
   name: string,
@@ -51,7 +65,12 @@ const config: ForgeConfig = {
   packagerConfig: {
     // node-pty 整目录解出 asar:prebuilds 里除了 .node 还有
     // spawn-helper 可执行文件,留在 asar 内无法 exec
+    // ssh2(SSH-5):纯 JS,保守先留 asar 内不 unpack——若 A0 spike 发现
+    // cpu-features 被解析为原生 .node(而非纯 JS optional 回退),再补
+    // '**/node_modules/cpu-features/**' 到 unpack glob(TECH §SSH-5 打包处置)。
     asar: { unpack: '**/node_modules/node-pty/**' },
+    // BL-003 SSH-5:三架构 host standalone 部署产物,见上 hostBundlesDir 注释。
+    extraResource: hasHostBundles ? [hostBundlesDir] : [],
     name: isDevBuild ? 'TermPro Dev' : 'TermPro',
     appBundleId: isDevBuild
       ? 'com.okteam99.termpro.dev'
@@ -94,7 +113,13 @@ const config: ForgeConfig = {
         }
       : {}),
   },
-  rebuildConfig: {},
+  // 只重建 app 真正需要的原生模块 node-pty。ssh2(BL-003)为纯 JS,其 optional
+  // 依赖 cpu-features 是原生加速件——ssh2 用 try/catch require、缺失即纯 JS 回退
+  // (node_modules/ssh2/lib/protocol/constants.js:6-8),故无需、也不应让 electron
+  // rebuild 去编译它(node-gyp 在无构建链环境会失败,拖垮 start/make)。onlyModules
+  // 白名单化避免误伤,且不触碰 vite/rollup 的平台 optional 二进制(那些非 electron
+  // rebuild 范畴)。
+  rebuildConfig: { onlyModules: ['node-pty'] },
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
