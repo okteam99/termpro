@@ -52,6 +52,9 @@
 | GO-025 | remote/security | **远程机凭据存储语义 = safeStorage 非钥匙串条目**:密码/passphrase 经 `safeStorage.encryptString`→base64 落 `userData/remote-hosts.secrets.json`(密文)·加密密钥在 OS 钥匙串;私钥仅路径引用**内容不入库**;host loopback capability token(经 ws URL 出 main)≠ SSH 登录凭据(永不入 renderer)——两类 secret 边界勿混(ADR-001·上游 Q-003 措辞已注 safeStorage) | 见 `src/main/remote/credentialStore.ts`·`setSecret` 在 `!isEncryptionAvailable` 时抛错拒存不明文兜底;save 前置校验 isAvailable() 防 has* 旗标与密文不符 | 2026-07 | TERMPRO-F260709180208 |
 | GO-026 | remote/concurrency | **远程 host「认领驻留进程」reap 必须双因子身份核验防兄弟误杀**:configId 只在 env 不进 argv 时,`ps`/`/proc/cmdline` 对同机所有 host 签名相同 → 按 pid+`host.js` 签名 kill 会误杀兄弟 host。且认领握手在 renderer 会致 livelock(main emit verifying 后不等反馈) | ① host 启动注 `--host-tag <configId>` 显式 argv(仅自证不入 token 闸)·reap 唯一放行=cmdline argv 分词**全等**本 configId(非裸 substring);② 认领验证**前移 main**(storedToken 自建 node-ws 探测 host.info·probe 失败同栈回收不 livelock)·见 `src/main/remote/residency.ts` | 2026-07 | TERMPRO-F260709180208 |
 | GO-027 | remote/deploy | **远端部署锁用非递归 mkdir 保原子**,但锁目录父目录(`~/.termpro-host/bundle`)首装不存在 → 非递归 mkdir 连环 ENOENT → waitForPeer 轮询永不出现的 .ready → 120s deployFailed(桩测全 mock exec 掩盖·测绿产红)。且「锁存在但 meta 缺失」若恒判 age=0 会致 meta-less 锁**永久 wedge** | 取锁前 `mkdir -p "${dataDir}/bundle"`(锁目录本身仍非递归保原子);meta 缺失改按**锁目录 mtime**(`stat -c %Y`/`-f %m` 跨平台)兜底陈旧判定,不永久 wedge;远端路径 shell 命令统一双引号(远端 $HOME 含空格即破)·见 `src/main/remote/deploy.ts` | 2026-07 | TERMPRO-F260709180208 |
+| GO-028 | renderer/multi-host | **hostClient 单例 → per-host 时,数据模型/路由/持久化/会话四面必须同步迁,漏一面即静默错**:① store workspace 加运行时 `hostId`·远程 ws **不持久化**(实时 workspace.list 发现·serialize v1+v2 双分支都 filter hostId==='local'·否则远程 ws 落存档被 runMigration 本机重建成孤儿);② 广播协调**按 hostId 作用域**(applyWorkspaceSnapshot 本机快照只协调 local 子集·远程 ws 原位 merge-back 透传·否则本机加一个项目就清空所有远程机分组·active=远程时守卫不被抢);③ 会话路由用 **(hostId,sessionId) 复合键**(sessionId 仅 per-host 唯一·防串 tab) | per-host 键=hostRegistry map 键('local'\|configId·非 host.info.hostId);读兜底 `forWorkspace`(未命中 local+WARN)/写 `forHostId`(未命中 **null 绝不兜底**·create 拿 null 拒绝不落本机);本机 ws 维持**连续前缀不变式**(addWorkspace/reconcile 本机新增插到首个远程 ws 前·否则拖拽子集下标≠全量下标错位)·见 `src/renderer/state/{store,workspaceSync}.ts` | 2026-07 | TERMPRO-F260710011342 |
+| GO-029 | build/gate | **「无残留裸消费」门禁不能用使用点 grep**:`hostClient\.` 漏折行(标识符独占行·下行才 `.`)·`\bhostClient\b` 误红注释·`import[^;]*hostClient` 跨进 `from '.../hostClient'` 路径段假阳误红 type-import·行级 grep 漏多行 import — 五个坑 | 门禁 = **import 集正则**(perl -0777 多行 + 大小写敏感 + 花括号作用域):`import\s+(?:type\s+)?\{[^}]*\bhostClient\b[^}]*\}`(小写单例 specifier·`HostClient` 大写 type 天然放行·路径段被花括号排除)+ tsc 背靠(残留 `hostClient.x` 未 import→cannot find name)·配守门元测试锁正则不退化·见 `hostClientImportGate.test.ts` | 2026-07 | TERMPRO-F260710011342 |
+| GO-030 | ui/remote | **远程 workspace 的「本地 OS 动作」入口(openInBrowser/showItemInFolder/openPath/openViewerWindow)必须按 isRemote 确定性禁用**:否则点远程文件把**远程绝对路径**交本机 shell·同名巧合静默开错本机文件(无反馈)。禁用用 **`aria-disabled` 非原生 `disabled`**(原生 disabled 按钮不派发 click→提示弹不出=静默失败) | isRemote 时按钮 aria-disabled + onClick 早返 `showRemoteFileHint()`「远程文件独立窗口暂不支持」;树浏览/git 着色不禁(经 forWorkspace 走远程 host 照常)·见 `src/renderer/components/FilePanel.tsx` | 2026-07 | TERMPRO-F260710011342 |
 
 ---
 
@@ -100,6 +103,9 @@
 - **remote/security**: GO-025
 - **remote/concurrency**: GO-026
 - **remote/deploy**: GO-027, GO-024(build)
+- **renderer/multi-host**: GO-028
+- **build/gate**: GO-029
+- **ui/remote**: GO-030
 - **发版**: PR-001
 - **歧义**: FA-001
 - **拒绝**: OS-001, OS-002, OS-003, OS-004, OS-005

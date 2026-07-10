@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { hostClient } from '../services/hostClient';
+import { hostRegistry } from '../services/hostRegistry';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
 import type { DirEntry, GitFileStatus } from '../../shared/protocol';
 import { gitStatusClass, joinPath } from '../filepanel/core';
@@ -20,6 +20,11 @@ interface TreeNode {
 // onDragEnd 清、以及新鲜度窗口三重兜底,杜绝陈旧源被误判为内部移动。单例面板,模块级即可。
 const DRAG_FRESH_MS = 15_000;
 const dragState: { path: string | null; ts: number } = { path: null, ts: 0 };
+
+// 远程 workspace 文件禁用提示(D-7):点顶部 Diff / 行内 diff / 文件行三个入口
+// 触发同一条确定性提示,1.8s 后自动消失(非 modal,不打断操作)。
+const REMOTE_FILE_HINT_MS = 1_800;
+const REMOTE_FILE_HINT_TEXT = '远程文件独立窗口暂不支持';
 
 /** 行级动作:文件夹图标 11×11 */
 function FolderIcon() {
@@ -208,7 +213,30 @@ export function FilePanel() {
     };
   }
 
-  const homedir = hostClient.info?.homedir;
+  // BL-004:该 workspace 路由到的 host client(本机 workspace 无 hostId 字段落地前
+  // hostRegistry.forWorkspace 兜底 local,行为等价迁移前)。远程 workspace(hostId!=='local')
+  // 触发 D-7 远程文件禁用 UX——树浏览/git 着色仍走 wsClient 正常可用,只禁「文件内容/Diff」。
+  const wsClient = workspace ? hostRegistry.forWorkspace(workspace) : hostRegistry.local();
+  const isRemote = workspace ? workspace.hostId !== 'local' : false;
+  const homedir = wsClient.info?.homedir;
+
+  // 远程文件禁用提示:三入口(顶部 Diff / 行内 diff / 文件行)共用同一条 1.8s 行内提示
+  const [remoteHintVisible, setRemoteHintVisible] = useState(false);
+  const remoteHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showRemoteFileHint = useCallback(() => {
+    setRemoteHintVisible(true);
+    if (remoteHintTimerRef.current) clearTimeout(remoteHintTimerRef.current);
+    remoteHintTimerRef.current = setTimeout(() => {
+      setRemoteHintVisible(false);
+      remoteHintTimerRef.current = null;
+    }, REMOTE_FILE_HINT_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (remoteHintTimerRef.current) clearTimeout(remoteHintTimerRef.current);
+    },
+    [],
+  );
 
   // ── Header control: Root mode ──
   const handleRootChoose = useCallback(async () => {
@@ -291,7 +319,10 @@ export function FilePanel() {
       let changed = false;
       for (const { src, move } of ops) {
         try {
-          await hostClient.rpc(move ? 'fs.move' : 'fs.copy', { src, destDir });
+          // fs.move/copy 走该 workspace 的 host(远程内部移动/复制正确路由)。跨 host
+          // 从 Finder 拖入远程面板(src 是本地路径、destDir 在远程机)会 ENOENT——
+          // 这条 catch 已兜底(E-3 确定性拒绝,不崩溃),不做跨机文件传输。
+          await wsClient.rpc(move ? 'fs.move' : 'fs.copy', { src, destDir });
           changed = true;
         } catch (err) {
           console.error('[filepanel] drop failed', src, '→', destDir, err);
@@ -299,7 +330,7 @@ export function FilePanel() {
       }
       if (changed) refresh();
     },
-    [refresh],
+    [refresh, wsClient],
   );
 
   if (!workspace) {
@@ -324,7 +355,28 @@ export function FilePanel() {
   const applyDisabled = !autoRoot || effectiveRootForRoot === autoRoot;
 
   return (
-    <div className="file-panel">
+    <div className="file-panel" style={{ position: 'relative' }}>
+      {remoteHintVisible && (
+        <div
+          className="file-panel__remote-hint"
+          role="status"
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 20,
+            background: 'rgba(20,20,24,0.92)',
+            color: '#e4e6eb',
+            padding: '6px 10px',
+            borderRadius: 6,
+            fontSize: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+            pointerEvents: 'none',
+          }}
+        >
+          {REMOTE_FILE_HINT_TEXT}
+        </div>
+      )}
       {/* Draggable top bar + segmented toggle */}
       <div className="file-panel__header">
         <div className="file-panel__seg">
@@ -414,8 +466,16 @@ export function FilePanel() {
           {isGitRepo && (
             <button
               className="file-panel__diff-btn"
-              title="打开 Diff 视图"
+              title={isRemote ? REMOTE_FILE_HINT_TEXT : '打开 Diff 视图'}
+              aria-disabled={isRemote ? 'true' : undefined}
+              style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
               onClick={() => {
+                // aria-disabled(非原生 disabled):原生 disabled 的按钮不派发 click,
+                // 会让「点击必须给确定性反馈」的要求静默失效(D-7 明确禁止)。
+                if (isRemote) {
+                  showRemoteFileHint();
+                  return;
+                }
                 const { toplevel, baseRef } = diffContext();
                 window.termpro.openViewerWindow({
                   mode: 'diff',
@@ -486,6 +546,9 @@ export function FilePanel() {
           const canDiff = !!fileStatus && fileStatus !== 'ignored';
           const isFile = !isDir && !isErr;
           const isHtml = isFile && /\.html?$/i.test(node.entry.name);
+          // D-7:远程 workspace 只禁「文件内容」入口(点文件行开查看器)——目录展开/收起、
+          // git 着色树浏览不受影响(目录行永不落进这条分支)。
+          const fileRemoteDisabled = isFile && isRemote;
 
           return (
             <div
@@ -495,7 +558,9 @@ export function FilePanel() {
                 else rowRefs.current.delete(node.absPath);
               }}
               className={rowClass}
-              style={{ paddingLeft }}
+              style={fileRemoteDisabled ? { paddingLeft, opacity: 0.45, cursor: 'not-allowed' } : { paddingLeft }}
+              aria-disabled={fileRemoteDisabled ? 'true' : undefined}
+              title={fileRemoteDisabled ? REMOTE_FILE_HINT_TEXT : undefined}
               draggable={!isErr}
               onDragStart={
                 isErr
@@ -544,7 +609,13 @@ export function FilePanel() {
                   ? undefined
                   : isDir
                     ? () => handleToggleDir(node.absPath)
-                    : () => window.termpro.openViewerWindow({ mode: 'file', path: node.absPath })
+                    : () => {
+                        if (fileRemoteDisabled) {
+                          showRemoteFileHint();
+                          return;
+                        }
+                        window.termpro.openViewerWindow({ mode: 'file', path: node.absPath });
+                      }
               }
             >
               <span className="file-panel__arrow">
@@ -554,8 +625,15 @@ export function FilePanel() {
               {canDiff && (
                 <button
                   className="file-panel__row-action"
+                  aria-disabled={isRemote ? 'true' : undefined}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : undefined}
+                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (isRemote) {
+                      showRemoteFileHint();
+                      return;
+                    }
                     const { toplevel, baseRef } = diffContext();
                     if (!node.absPath.startsWith(toplevel + '/')) return;
                     window.termpro.openViewerWindow({
@@ -572,9 +650,17 @@ export function FilePanel() {
               {isHtml && (
                 <button
                   className="file-panel__row-action"
-                  title="用系统默认浏览器打开"
+                  aria-disabled={isRemote ? 'true' : undefined}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '用系统默认浏览器打开'}
+                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    // 远程 ws 的路径是该机上的路径,交给本机 openInBrowser 会静默作用于
+                    // 本机同名(但无关)文件——D-7 一律禁用 + 提示,而非静默走错文件。
+                    if (isRemote) {
+                      showRemoteFileHint();
+                      return;
+                    }
                     window.termpro.openInBrowser(node.absPath);
                   }}
                 >
@@ -584,9 +670,15 @@ export function FilePanel() {
               {isFile && (
                 <button
                   className="file-panel__row-action"
-                  title="在 Finder 中显示(跳转所在目录)"
+                  aria-disabled={isRemote ? 'true' : undefined}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '在 Finder 中显示(跳转所在目录)'}
+                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (isRemote) {
+                      showRemoteFileHint();
+                      return;
+                    }
                     window.termpro.showItemInFolder(node.absPath);
                   }}
                 >
@@ -596,9 +688,17 @@ export function FilePanel() {
               {isDir && !isErr && (
                 <button
                   className="file-panel__row-action"
-                  title="在 Finder 中打开"
+                  aria-disabled={isRemote ? 'true' : undefined}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '在 Finder 中打开'}
+                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    // 目录展开/收起(行点击 handleToggleDir)不受影响——这个按钮是「本机
+                    // Finder 打开」,是本地 OS 动作,与树浏览是两回事,D-7 同样要禁用。
+                    if (isRemote) {
+                      showRemoteFileHint();
+                      return;
+                    }
                     window.termpro.openPath(node.absPath);
                   }}
                 >

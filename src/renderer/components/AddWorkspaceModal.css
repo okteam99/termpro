@@ -1,0 +1,373 @@
+/* 添加项目 modal(BL-004 · D-4/AC-3/AC-4)。移植自
+   docs/design/preview-project/src/styles.css .add-ws__*(§C节,backdrop~actions 子集;
+   overlay/deploy/error/terminal-wrap/reconnect 一节不移植——那套连接编排 overlay 属
+   Sidebar 组头「连接」入口 AC-8 范围,不在本 modal D-4 简化流程内)。 */
+
+.add-ws__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.add-ws__card {
+  position: relative;
+  width: 560px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 72px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.add-ws__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.add-ws__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.add-ws__subtitle {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--fg-dim);
+}
+
+.add-ws__close {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.add-ws__close:hover {
+  color: var(--fg);
+}
+
+.add-ws__body {
+  padding: 16px 18px 18px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.add-ws__panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.add-ws__hint {
+  margin-top: 8px;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.add-ws__btn {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.add-ws__btn:hover {
+  background: var(--bg-active);
+}
+
+.add-ws__btn--primary {
+  align-self: flex-start;
+  background: var(--accent);
+  border-color: rgba(74, 141, 248, 0.8);
+  color: #fff;
+}
+
+.add-ws__btn--primary:hover {
+  opacity: 0.9;
+}
+
+.add-ws__btn--primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.add-ws__host-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 「本机」置顶行(单行小列表,与远程机分组之间留距) */
+.add-ws__host-list--local {
+  margin-bottom: 12px;
+}
+
+.add-ws__local-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+  flex: none;
+}
+
+.add-ws__host-group {
+  margin-bottom: 12px;
+}
+
+.add-ws__host-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--fg-dim);
+  margin-bottom: 6px;
+}
+
+.add-ws__host-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  width: 100%;
+}
+
+.add-ws__host-row:last-child {
+  border-bottom: none;
+}
+
+.add-ws__host-row:hover {
+  background: var(--bg-active);
+}
+
+.add-ws__host-row:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.add-ws__host-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--fg-dim);
+}
+
+.add-ws__host-dot--connected {
+  background: var(--green);
+}
+
+.add-ws__host-alias {
+  flex: none;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.add-ws__host-addr {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  font-family: Menlo, Monaco, 'SF Mono', monospace;
+  font-size: 11px;
+}
+
+.add-ws__host-chevron {
+  flex: none;
+  color: var(--fg-dim);
+}
+
+.add-ws__dirhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.add-ws__back {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.add-ws__back:hover {
+  color: var(--fg);
+}
+
+.add-ws__machine-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.add-ws__machine-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+}
+
+.add-ws__machine-chip--connected .add-ws__machine-dot {
+  background: var(--green);
+}
+
+.add-ws__breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.add-ws__crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.add-ws__crumb-sep {
+  color: var(--fg-dim);
+  margin: 0 2px;
+  font-size: 11px;
+}
+
+.add-ws__crumb {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.add-ws__crumb:hover {
+  color: var(--fg);
+  background: var(--bg-active);
+}
+
+.add-ws__dirlist {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-height: 96px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px;
+  margin-bottom: 10px;
+}
+
+.add-ws__dir-empty {
+  padding: 10px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* fs.readdir over 该 host client 的加载/错误态(AC-3) */
+.add-ws__dirlist--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  height: 96px;
+}
+
+.add-ws__dir-error {
+  border: 1px solid rgba(224, 108, 117, 0.32);
+  background: rgba(224, 108, 117, 0.1);
+  border-radius: 6px;
+  min-height: 96px;
+  max-height: 180px;
+  padding: 14px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.add-ws__dir-error-text {
+  color: var(--red);
+  font-family: Menlo, Monaco, 'SF Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.add-ws__pathrow {
+  margin-bottom: 12px;
+}
+
+.add-ws__path-input {
+  width: 100%;
+  font-family: Menlo, Monaco, 'SF Mono', monospace;
+}
+
+.add-ws__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.add-ws__spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  animation: add-ws-spin 0.8s linear infinite;
+  flex: none;
+}
+
+.add-ws__spinner--sm {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+}
+
+@keyframes add-ws-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
