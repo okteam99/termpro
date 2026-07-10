@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "pm_acceptance",
+  "current_stage": "ship",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": "52fd557d3ce2edc2ecdc8c1360b96005562d8a3c",
   "worktree": {
@@ -324,10 +324,24 @@
       "duration_minutes": 3
     },
     "pm_acceptance": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T01:06:29Z",
+      "evidence": {
+        "decision": "approved_and_ship",
+        "note": ""
+      },
+      "completed_at": "2026-07-10T01:06:56Z",
+      "auto_commit": "1144e265d57f1ba54f436f716523dab879799754",
+      "artifacts": [],
+      "duration_minutes": 0
+    },
+    "ship": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T01:06:29Z"
+      "started_at": "2026-07-10T01:06:56Z"
     }
   },
   "completed_stages": [
@@ -336,7 +350,8 @@
     "blueprint",
     "dev",
     "review",
-    "test"
+    "test",
+    "pm_acceptance"
   ],
   "created_at": "2026-07-09T18:03:12Z",
   "stage_review_roles": {
@@ -375,15 +390,31 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T01:06:56Z",
+  "updated_at": "2026-07-10T01:09:23Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:77ae7989747c19a16b5a586890258777fa603ccc43dece8a59d37131eeee9899",
+  "_state_checksum": "sha256:b71f3f7270d09e190ee5f9fb4390adc488f20e6634b4be489cda2587d95b5a6b",
   "legal_next_stages": [
-    "ship",
-    "dev"
+    "completed"
   ],
   "execution_hints": {
     "ui_design_needed": true,
     "panorama_changed": false
+  },
+  "ship": {
+    "started_at": "2026-07-10T01:09:23Z",
+    "distill": {
+      "knowledge": "promoted GO-024(ssh2 cpu-features rebuild)/GO-025(safeStorage 凭据语义)/GO-026(residency reap 双验+认领前移)/GO-027(部署锁父目录+mtime 兜底) → project-specs/KNOWLEDGE.md",
+      "adr": "promoted ADR-001 凭据存储 safeStorage(goal 阶段建 adrs/ · 上游 4+3 处台账已注)",
+      "reg": "n/a",
+      "retro": "n/a(ship2 planning-backref 随收尾 append PROCESS-LEDGER)",
+      "architecture": "updated 远程接入拓扑(SSH 编排驻 main + per-host HostClient 注册表 + 端口转发直连) → project-specs/ARCHITECTURE.md §二",
+      "db_schema": "n/a(无 schema 变更 · 配置 userData JSON + safeStorage)",
+      "distilled_at": "2026-07-10T01:09:23Z"
+    },
+    "sanitize_log": {
+      "residual_commits": [],
+      "cleaned_files": [],
+      "suspicious_files": []
+    }
   }
 }

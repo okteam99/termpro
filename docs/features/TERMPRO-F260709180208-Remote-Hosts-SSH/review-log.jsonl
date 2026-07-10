@@ -4,3 +4,4 @@
 {"at": "2026-07-09T21:30:46Z", "event": "stage_completed", "stage": "dev", "auto_commit": "7c2bd54a5c0cfd70159516505b498d87deec3b03", "duration_minutes": 92, "artifacts": ["src/shared/remoteHost.ts", "src/main/remote/orchestrator.ts", "src/main/remote/residency.ts", "src/host/host.ts", "src/host/wsServer.ts", "src/renderer/components/settings/RemoteHostsPage.tsx"]}
 {"at": "2026-07-10T01:03:09Z", "event": "stage_completed", "stage": "review", "auto_commit": "0e88235e756c952763c17601ab40f3396830851c", "duration_minutes": 212, "artifacts": ["REVIEW.md", "REVIEW-arch.md", "REVIEW-qa.md"]}
 {"at": "2026-07-10T01:06:29Z", "event": "stage_completed", "stage": "test", "auto_commit": "cb8e662ea91c6831407f66627221b814cd2bb63d", "duration_minutes": 3, "artifacts": ["TEST-REPORT.md", "e2e/"]}
+{"at": "2026-07-10T01:06:56Z", "event": "stage_completed", "stage": "pm_acceptance", "auto_commit": "1144e265d57f1ba54f436f716523dab879799754", "duration_minutes": 0, "artifacts": []}
