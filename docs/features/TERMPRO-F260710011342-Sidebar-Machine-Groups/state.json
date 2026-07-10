@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "pm_acceptance",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": "a373ee8e213ae4c20b6d53e8520e3de053ece987",
   "worktree": {
@@ -32,7 +32,8 @@
   "auto_mode": true,
   "yolo": true,
   "concerns": [
-    "2026-07-10T01:35:13Z WARN yolo auto goal 确认:三路 goal 冷审两轮收敛 APPROVE(qa/architect/pl)。blanket yolo 授权代确认。移交 blueprint 强制事项:D-6 serialize 过滤远程 workspace / D-9 (hostId,sessionId) 复合键 / AC-5 全消费点迁移+grep 门禁豁免 viewer/* / 会话徽标 per-host 接线独立阶段 / 远程文件点击禁用+提示。concerns:PENDING-005 远程查看器可见性延后 · 真机远程 spike"
+    "2026-07-10T01:35:13Z WARN yolo auto goal 确认:三路 goal 冷审两轮收敛 APPROVE(qa/architect/pl)。blanket yolo 授权代确认。移交 blueprint 强制事项:D-6 serialize 过滤远程 workspace / D-9 (hostId,sessionId) 复合键 / AC-5 全消费点迁移+grep 门禁豁免 viewer/* / 会话徽标 per-host 接线独立阶段 / 远程文件点击禁用+提示。concerns:PENDING-005 远程查看器可见性延后 · 真机远程 spike",
+    "2026-07-10T04:23:23Z WARN yolo auto pm_acceptance:自动 approved_and_ship(blanket 授权)。PM 视角 AC 验收:11/11 真覆盖·三视角评审两轮收敛 APPROVE(地基作用域隔离闭环·2 MAJOR+Q1门禁+多项全消解)·门禁 tsc0/vitest681/SMOKE_OK/E2E PASS。ship→yolo/m5-remote-host 集成分支(非main)。发版前:真机远程 spike·PENDING-005 远程查看器·F8 Sidebar 握手镜像收敛"
   ],
   "review_round": 0,
   "stage_contracts": {
@@ -195,10 +196,39 @@
       "duration_minutes": 26
     },
     "test": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T04:21:31Z",
+      "evidence": {
+        "integration_test_exit_code": 0,
+        "e2e_test_exit_code": 0
+      },
+      "completed_at": "2026-07-10T04:23:11Z",
+      "auto_commit": "4ea8f86d696d9a0adc339ac91a9e9e845b625e89",
+      "artifacts": [
+        "TEST-REPORT.md",
+        "e2e/"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-07-10T04:21:31Z",
+          "completed_at": "2026-07-10T04:23:11Z",
+          "test_commit": "4ea8f86d696d9a0adc339ac91a9e9e845b625e89",
+          "integration_test_exit_code": 0,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": null,
+          "current_failures": ""
+        }
+      ],
+      "duration_minutes": 1
+    },
+    "pm_acceptance": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T04:21:31Z"
+      "started_at": "2026-07-10T04:23:11Z"
     }
   },
   "completed_stages": [
@@ -206,7 +236,8 @@
     "ui_design",
     "blueprint",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-07-10T01:15:04Z",
   "stage_review_roles": {
@@ -245,12 +276,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T04:21:40Z",
+  "updated_at": "2026-07-10T04:23:23Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:32a1e1a32fc392bf45a3aa0c72008050cadf5d64e3e3df841f491f525161c536",
+  "_state_checksum": "sha256:c892293eb6fb4630997d4c2912d88273d7ffb25a936f8d491f6088cbc5f0e1ae",
   "legal_next_stages": [
-    "browser_e2e",
-    "pm_acceptance"
+    "ship",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
