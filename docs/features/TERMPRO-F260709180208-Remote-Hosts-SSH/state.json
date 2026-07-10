@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": "52fd557d3ce2edc2ecdc8c1360b96005562d8a3c",
   "worktree": {
@@ -104,17 +104,208 @@
       "duration_minutes": 92
     },
     "review": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T21:30:46Z",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "completed_at": "2026-07-10T01:03:09Z",
+      "auto_commit": "0e88235e756c952763c17601ab40f3396830851c",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-07-09T21:30:46Z",
+          "completed_at": "2026-07-10T01:03:09Z",
+          "review_commit": "0e88235e756c952763c17601ab40f3396830851c",
+          "verdict": "APPROVE",
+          "new_findings_count": 20,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "BLOCKER",
+          "status": "fixed",
+          "title": "全新远程机首次部署必失败(${dataDir}/bundle 父目录未建·非递归 mkdir 连环失败→120s deployFailed)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F2",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "SSH 传输层断链不检测→ready 后真实掉线不 emit disconnected(AC-12)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F3",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "main 同步 verifying→ready 覆盖 renderer 瞬时 verifying→renderer 握手/AC-6 冒烟大概率不执行·per-host client 不建立",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F4",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "in-flight guard 语义:connect 被在途 test 吞掉+无条件 delete 误删 test 槽位",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F5",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "部署锁互斥被击穿(mkdir 与 writeLockMeta 非原子·跨实例读 null 判陈旧→rm 掉他人锁+在传产物→双双部署)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F6",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "AC-6(P0) 运行时零覆盖+verify-ac 因 TC 映射到不存在的 T-012/T-013 而误报绿(门禁完整性)",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F7",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "认领 probe reject 时 buildTunnel 的 net.Server 泄漏",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F8",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "带 token 的 verifying 事件广播到所有 BrowserWindow(安全·token 泄漏面)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F9",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "TERMPRO_ALLOWED_ORIGINS 注入未实现→dev WS 直连回归+打包 Origin 前提未实证",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F10",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "isEexist 过宽吞掉一切 sftp mkdir 错误(掩盖 A1 的 ENOENT)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F11",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "远端路径 shell 命令未加引号(远端 $HOME 含空格即破)",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F12",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "safeStorage 不可用时 config 落盘带 has* 旗标但无密文",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F13",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "host 侧 token 零落盘/零日志未证否(T-018 仅 argv 契约·未扫真实 host.log)",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F14",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "AC-7 按 lastUsed 倒序无真实渲染顺序断言",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F15",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "disconnect 在途最长阻塞约 135s",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F17",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "orchestrator 把 !probe.ok(瞬时传输失败)与 compatible===false(真版本不符)合并判 incompatible→刚部署 host 瞬时探测失败被误报版本不兼容·不该重试",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F16",
+          "severity": "NIT",
+          "status": "deferred",
+          "title": "disconnect 重复 emit disconnected / waitForReady 用 Date.now / docstring 滞后+死代码 / execDetached token-EOF spike 未勾",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F18",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "在途 disconnect 后 main 残余事件把已 drop 的 renderer runtime 瞬时复活到 ready(UI 抖动+已 drop client 被 verifying 重触发)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F19",
+          "severity": "NIT",
+          "status": "fixed",
+          "title": "host token=%s 打印靠隐性契约维持零落盘·应结构化限制到非驻留模式",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F20",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "R1(verify 发现·F5 修复引入的窄新边):meta 缺失恒判 age=0→meta-less 锁目录永不判陈旧→亚毫秒 mkdir&&printf 窗口被杀致永久 wedge。修:meta 缺失改用锁目录 mtime 兜底陈旧判定",
+          "source": "arch+external",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 212
+    },
+    "test": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-09T21:30:46Z"
+      "started_at": "2026-07-10T01:03:09Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-07-09T18:03:12Z",
   "stage_review_roles": {
@@ -153,12 +344,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T01:00:01Z",
+  "updated_at": "2026-07-10T01:03:16Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:4566470733db6a73eec0d1aa9a55652d5bf774a17557af354ffa8ae2cb090cb5",
+  "_state_checksum": "sha256:e591bdfc68febb2a8ae2315df3acc4f4525121bb06ad3a8ebb7807dd55340f3a",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": true,
