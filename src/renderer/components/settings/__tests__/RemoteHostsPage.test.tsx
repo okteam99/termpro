@@ -229,6 +229,25 @@ describe('test_AC7_recent_area_one_click_connect', () => {
     await renderPage([notRecent]);
     expect(screen.queryByText('最近使用')).toBeNull();
   });
+
+  // --- Q3(code review medium):此前只测单按钮/一键连接/排除规则,未断言多条最近项的
+  // 真实倒序渲染顺序。三个 lastUsed 各异的主机、故意乱序传给 list(),断言渲染顺序
+  // 是组件内部 recentHosts useMemo 的 sort 结果,而非传入顺序的巧合。 ---
+  it('renders recent hosts sorted by lastUsed descending, independent of list() order (Q3)', async () => {
+    const now = Date.now();
+    const a = makeConfig({ id: 'a', alias: 'a', lastUsed: now - 3 * 3_600_000 }); // 3h 前(最旧)
+    const b = makeConfig({ id: 'b', alias: 'b', lastUsed: now - 1 * 3_600_000 }); // 1h 前(最新)
+    const c = makeConfig({ id: 'c', alias: 'c', lastUsed: now - 2 * 3_600_000 }); // 2h 前(居中)
+    // 刻意乱序传入(a, c, b),渲染顺序不应等于传入顺序
+    const { container } = await renderPage([a, c, b]);
+
+    const recentSection = container.querySelectorAll('.remote-hosts__section')[0] as HTMLElement;
+    const renderedAliases = Array.from(
+      recentSection.querySelectorAll('.remote-hosts__alias'),
+    ).map((el) => el.textContent);
+
+    expect(renderedAliases).toEqual(['b', 'c', 'a']);
+  });
 });
 
 // --- 连接生命周期渲染随 onEvent 事件切换徽标/stepper(AC-4/AC-5) ---
@@ -296,6 +315,44 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
   });
 
+  // --- A3(code review MAJOR):main 可能在同一同步栈背靠背 emit verifying 紧跟 ready
+  // (例如认领快路径)。若握手触发靠一个"采样当前 runtimeMap"的被动 effect,React 会把
+  // 两次 setState 批处理成一次渲染,effect 只看得到最终落地的 ready,永远观测不到中间的
+  // verifying → connect({wsUrl})/冒烟从未发生。握手必须挂在 onEvent 回调本身、逐条事件
+  // 同步判定,不依赖事后渲染采样。此用例复现该竞态:两条事件不 await、背靠背同步 emit。
+  it('back-to-back verifying→ready in the same synchronous tick still triggers the handshake (A3)', async () => {
+    const config = makeConfig({ id: 'gpu-box', alias: 'gpu-box' });
+    const { emit } = await renderPage([config]);
+
+    const info: HostInfo = {
+      hostId: 'local',
+      protocolVersion: 1,
+      minCompatible: 1,
+      platform: 'linux',
+      homedir: '/root',
+      shell: '/bin/bash',
+    };
+    fakeRemoteClient.connect.mockResolvedValueOnce(info);
+    fakeRemoteClient.rpc.mockResolvedValueOnce({ entries: [] });
+
+    // 不 await、不经额外 render:main 同步栈内背靠背两次 emit
+    emit({
+      configId: 'gpu-box',
+      stage: 'verifying',
+      tunnel: { localPort: 4321, token: 'tok-1' },
+    });
+    emit({ configId: 'gpu-box', stage: 'ready' });
+
+    // 握手必须在 verifying 事件到达的那一刻同步发起 —— 不需要 waitFor/额外渲染才能观测到
+    expect(hostRegistryMock.getOrCreateRemote).toHaveBeenCalledWith(
+      'gpu-box',
+      'ws://127.0.0.1:4321?token=tok-1',
+    );
+    expect(fakeRemoteClient.connect).toHaveBeenCalledWith({
+      wsUrl: 'ws://127.0.0.1:4321?token=tok-1',
+    });
+  });
+
   it('handshake rejecting with ProtocolIncompatibleError renders failed · incompatible', async () => {
     const config = makeConfig({ id: 'gpu-box' });
     const { emit } = await renderPage([config]);
@@ -324,6 +381,79 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('mini-pc');
     await waitFor(() => expect(screen.queryByText('✓ 已连接')).toBeNull());
     expect(screen.getByText('连接')).toBeInTheDocument();
+  });
+
+  // --- E6(code review MINOR):disconnect 后,main 侧编排可能仍有残余事件在管道里排队
+  // (例如断开前已入队的重连/重部署尾迹,或断开与新一轮 verifying 之间的时序竞态)——
+  // 一旦照单全收,会把已清空的 runtime 瞬时"复活"到 ready(UI 抖动),且残余的 verifying
+  // 事件还会对已 drop 的 client 重新触发握手。「断开」在当前 UI 只在 ready 态可点(忙碌态
+  // 不渲染任何按钮 · UI.md),故用 ready→断开 作为可达触发点,验证断开之后抵达的残余
+  // 事件(deploying/verifying/ready)被过滤:不 revive、不重新握手。 ---
+  it('disconnect abandons the configId: later residual events are ignored, not revived, no re-handshake (E6)', async () => {
+    const config = makeConfig({ id: 'gpu-box', alias: 'gpu-box' });
+    const { emit } = await renderPage([config]);
+
+    emit({ configId: 'gpu-box', stage: 'ready' });
+    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('断开'));
+    expect(hostRegistryMock.drop).toHaveBeenCalledWith('gpu-box');
+    await waitFor(() => expect(screen.queryByText('✓ 已连接')).toBeNull());
+    expect(screen.getByText('连接')).toBeInTheDocument();
+
+    // 断开之后,残余的在途编排事件才抵达(排队延迟 / 时序竞态):deploying → verifying{tunnel} → ready
+    vi.clearAllMocks();
+    hostRegistryMock.getOrCreateRemote.mockReturnValue(fakeRemoteClient);
+    emit({ configId: 'gpu-box', stage: 'deploying', percent: 80, arch: 'linux-x64' });
+    emit({
+      configId: 'gpu-box',
+      stage: 'verifying',
+      tunnel: { localPort: 9999, token: 'stale-tok' },
+    });
+    emit({ configId: 'gpu-box', stage: 'ready' });
+
+    // 既不重新握手,也不把 UI 复活到 ready —— 行仍是 idle「连接」态
+    expect(hostRegistryMock.getOrCreateRemote).not.toHaveBeenCalled();
+    expect(fakeRemoteClient.connect).not.toHaveBeenCalled();
+    expect(screen.queryByText('✓ 已连接')).toBeNull();
+    expect(screen.getByText('连接')).toBeInTheDocument();
+  });
+
+  it('reconnecting after a disconnect clears the abandoned mark (verifying handshakes again)', async () => {
+    const config = makeConfig({ id: 'gpu-box', alias: 'gpu-box' });
+    const { bridge, emit } = await renderPage([config]);
+
+    emit({ configId: 'gpu-box', stage: 'ready' });
+    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('断开'));
+    await waitFor(() => expect(screen.getByText('连接')).toBeInTheDocument());
+
+    // 用户重新点「连接」→ 应解除"已弃"标记,后续 verifying 恢复正常握手
+    fireEvent.click(screen.getByText('连接'));
+    expect(bridge.connect).toHaveBeenCalledWith({ id: 'gpu-box' });
+
+    const info: HostInfo = {
+      hostId: 'local',
+      protocolVersion: 1,
+      minCompatible: 1,
+      platform: 'linux',
+      homedir: '/root',
+      shell: '/bin/bash',
+    };
+    fakeRemoteClient.connect.mockResolvedValueOnce(info);
+    fakeRemoteClient.rpc.mockResolvedValueOnce({ entries: [] });
+
+    emit({
+      configId: 'gpu-box',
+      stage: 'verifying',
+      tunnel: { localPort: 4321, token: 'fresh-tok' },
+    });
+
+    expect(hostRegistryMock.getOrCreateRemote).toHaveBeenCalledWith(
+      'gpu-box',
+      'ws://127.0.0.1:4321?token=fresh-tok',
+    );
+    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
   });
 });
 

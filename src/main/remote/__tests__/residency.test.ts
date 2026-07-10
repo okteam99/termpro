@@ -150,16 +150,19 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       },
       execHandlers: [
         (cmd) => {
-          if (cmd === 'kill 222 2>/dev/null') {
+          // 精确匹配「纯 kill」(非 kill -0):`kill "222" 2>/dev/null`
+          if (cmd.startsWith('kill "222"')) {
             killSent = true;
             return { code: 0, stdout: '', stderr: '' };
           }
           return null;
         },
         (cmd) =>
-          cmd.includes('kill -0 222') ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' } : null,
+          cmd.startsWith('kill -0 "222"')
+            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
+            : null,
         (cmd) =>
-          cmd.includes('/proc/222/cmdline') || cmd.includes('-p 222')
+          cmd.includes('/proc/222/cmdline') || cmd.includes('-p "222"')
             ? { code: 0, stdout: `node host.js --host-tag ${CONFIG_ID}`, stderr: '' }
             : null,
       ],
@@ -177,7 +180,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     });
     expect(resolution.decision.action).toBe('reapThenDeploy');
     expect(candidateServer.closed).toBe(true);
-    expect(ssh.execCalls.some((c) => c === 'kill 222 2>/dev/null')).toBe(true);
+    expect(ssh.execCalls.some((c) => c.startsWith('kill ') && c.includes('222'))).toBe(true);
     expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
   });
 
@@ -200,5 +203,39 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     });
     expect(resolution.decision.action).toBe('freshDeploy');
     expect(tunnelCalls).toBe(0);
+  });
+
+  it('🔴 E7 回归:probeHostInfo 违反契约抛出(而非返回 {ok:false})→ 候选隧道仍被关闭,不泄漏', async () => {
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('.ready')) return bufferOf('ok');
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 4999, pid: 111, hostTag: CONFIG_ID });
+        }
+        return null;
+      },
+      execHandlers: [
+        // 死 pid(kill -0 失败)→ 落 cleanStaleThenDeploy,不涉及 kill,行为可预测
+        (cmd) => (cmd.includes('kill -0') ? { code: 0, stdout: 'N\n', stderr: '' } : null),
+      ],
+    });
+    const candidateServer = new FakeServer(43000);
+    const resolution = await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      appVersion: '1.0.0',
+      storedToken: 'some-token',
+      probeHostInfo: async () => {
+        throw new Error('network hiccup mid-probe');
+      },
+      buildTunnel: async () => ({ server: asNetServer(candidateServer), localPort: 43000 }),
+      sleep: async () => undefined,
+    });
+
+    // 探测异常应被归一为「探测失败」,继续走确定性回收(不 livelock、不让异常冒泡炸掉整个 connect())
+    expect(resolution.decision.action).toBe('cleanStaleThenDeploy');
+    // 关键断言:候选隧道必须已关闭,不泄漏 net.Server
+    expect(candidateServer.closed).toBe(true);
   });
 });

@@ -199,4 +199,104 @@ describe('AC-4 deployBundle', () => {
     // 这条测试仅作职责边界说明,orchestrator.test.ts 覆盖真实断言(T-023/T-024)。
     expect(typeof deployBundle).toBe('function');
   });
+
+  it('🔴 BLOCKER 回归(A1/E1):全新远端 bundle 父目录不存在时,mkdir -p 先行,取锁不再因 ENOENT 误判陈旧', async () => {
+    let bundleDirEnsured = false;
+    let lockAcquired = false;
+    let readyWritten = false;
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => (path.endsWith('.ready') ? (readyWritten ? bufferOf('ok') : null) : null),
+      sftpWriteDir: (_l, _r, onProgress) => onProgress(100),
+      execHandlers: [
+        (cmd) => {
+          if (cmd === 'mkdir -p "/home/tester/.termpro-host/bundle"') {
+            bundleDirEnsured = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) => {
+          if (cmd.startsWith('mkdir "') && cmd.includes('.deploying-9.9.9') && cmd.includes('LOCKED')) {
+            // 真实非递归 mkdir 在父目录不存在时会 ENOENT 失败(shell 里落到 || echo EXISTS
+            // 分支,与「已被占用」的输出不可区分)——若 bundle 父目录尚未由 mkdir -p 建好,
+            // 这里必须复现该失败,才能证明「先 mkdir -p 再取锁」这个顺序真的生效。
+            if (!bundleDirEnsured) return { code: 0, stdout: 'EXISTS\n', stderr: '' };
+            lockAcquired = true;
+            return { code: 0, stdout: 'LOCKED\n', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) => {
+          if (cmd.startsWith('touch "') && cmd.includes('.ready')) {
+            readyWritten = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+      ],
+    });
+
+    const result = await deployBundle({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      appVersion: '9.9.9',
+      localBundleDir: '/local/bundle/darwin-arm64',
+      waitReadyTimeoutMs: 50,
+      waitPollIntervalMs: 1,
+      sleep: async () => undefined,
+    });
+
+    expect(bundleDirEnsured).toBe(true);
+    expect(lockAcquired).toBe(true);
+    expect(result.skipped).toBe(false);
+    // 顺序断言:mkdir -p 必须先于取锁尝试出现在调用序列里
+    const ensureIdx = ssh.execCalls.indexOf('mkdir -p "/home/tester/.termpro-host/bundle"');
+    const lockIdx = ssh.execCalls.findIndex((c) => c.includes('.deploying-9.9.9') && c.includes('LOCKED'));
+    expect(ensureIdx).toBeGreaterThanOrEqual(0);
+    expect(lockIdx).toBeGreaterThan(ensureIdx);
+  });
+
+  it('🔴 A5/E2 回归:锁存在但 meta 尚未写入(竞态窗口)不再判定为无限陈旧,不误删活跃锁', async () => {
+    let readyAppeared = false;
+    let rmLockCalled = false;
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('.ready')) return readyAppeared ? bufferOf('ok') : null;
+        if (path.endsWith('meta.json')) return null; // 模拟竞态窗口:另一实例已 mkdir 但 meta 未写
+        return null;
+      },
+      execHandlers: [
+        (cmd) => (cmd.startsWith('mkdir -p "') ? { code: 0, stdout: '', stderr: '' } : null),
+        (cmd) =>
+          cmd.startsWith('mkdir "') && cmd.includes('.deploying-')
+            ? { code: 0, stdout: 'EXISTS\n', stderr: '' } // 锁被另一活跃实例占用
+            : null,
+        (cmd) => {
+          if (cmd.startsWith('rm -rf "') && cmd.includes('.deploying-')) {
+            rmLockCalled = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+      ],
+    });
+
+    let pollCount = 0;
+    const result = await deployBundle({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      appVersion: '9.9.9',
+      localBundleDir: '/local/bundle/darwin-arm64',
+      waitReadyTimeoutMs: 20,
+      waitPollIntervalMs: 1,
+      sleep: async () => {
+        pollCount++;
+        if (pollCount >= 2) readyAppeared = true; // 模拟真正持锁方随后完成部署
+      },
+    });
+
+    expect(result.skipped).toBe(true);
+    // 关键断言:meta 缺失(竞态窗口,非真陈旧)绝不触发 break-and-reacquire 误删活跃锁
+    expect(rmLockCalled).toBe(false);
+  });
 });

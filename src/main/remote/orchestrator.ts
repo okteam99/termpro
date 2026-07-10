@@ -35,6 +35,10 @@ import { probeHostInfo as defaultProbeHostInfo, type ProbeResult } from './probe
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_START_TIMEOUT_MS = 15_000;
 const MIN_NODE_MAJOR = 20;
+/** E9:disconnect() 等在途编排最长这么久,超时后仍强制收尾本地资源(不长阻塞调用方 IPC)。 */
+const DISCONNECT_WAIT_TIMEOUT_MS = 5_000;
+/** buildStartCommand 未显式传 allowedOrigins 时的兜底(与 host 侧 DEFAULT_ALLOWED_ORIGINS 同口径)。 */
+const DEFAULT_ALLOWED_ORIGINS = 'null,file://';
 
 // ---- 合法状态转移表(AC-5 · R2V-2 补 claiming→deploying / claiming→failed) ----
 
@@ -93,6 +97,13 @@ export interface OrchestratorDeps {
   sleep?: (ms: number) => Promise<void>;
   connectTimeoutMs?: number;
   startTimeoutMs?: number;
+  /**
+   * A6:注入远端 host 进程的 TERMPRO_ALLOWED_ORIGINS(逗号分隔,host.ts 侧已按此
+   * 格式解析)。main.ts 按打包/dev 场景算出(打包=null,file://;dev 追加 vite
+   * origin)。未传时退化为 DEFAULT_ALLOWED_ORIGINS(与本机 embedded host 的内建
+   * 默认同口径)。
+   */
+  allowedOrigins?: string;
 }
 
 function tokenKey(configId: string): string {
@@ -161,19 +172,27 @@ function buildAuth(config: RemoteHostConfig, credentials: CredentialStore): SshA
   return { username: config.username, privateKey, passphrase };
 }
 
-/** 启动命令(TECH SSH-4):`--host-tag` 显式 argv,路径全程绝对(ARCH-B9)。 */
+/**
+ * 启动命令(TECH SSH-4):`--host-tag` 显式 argv,路径全程绝对(ARCH-B9)。
+ * 🔴 A7/E6:全部远端路径统一双引号包裹(防路径含空格/特殊字符破坏 shell 解析)。
+ * 🔴 A6:注入 TERMPRO_ALLOWED_ORIGINS(host.ts 侧已实现按逗号分隔解析,见
+ * host.ts:61-72)。
+ */
 export function buildStartCommand(opts: {
   dataDir: string;
   appVersion: string;
   configId: string;
+  allowedOrigins?: string;
 }): string {
   const portFile = `${opts.dataDir}/hosts/${opts.configId}/host.port`;
   const logFile = `${opts.dataDir}/hosts/${opts.configId}/host.log`;
   const entry = `${opts.dataDir}/bundle/${opts.appVersion}/host.js`;
+  const allowedOrigins = opts.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
   return (
-    `setsid nohup env TERMPRO_HOST_DATA_DIR=${opts.dataDir} TERMPRO_HOST_PORT_FILE=${portFile} ` +
-    `node ${entry} --listen 127.0.0.1:0 --token-stdin --host-tag ${opts.configId} ` +
-    `> ${logFile} 2>&1 < /dev/stdin &`
+    `setsid nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
+    `TERMPRO_HOST_PORT_FILE="${portFile}" TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
+    `node "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${opts.configId}" ` +
+    `> "${logFile}" 2>&1 < /dev/stdin &`
   );
 }
 
@@ -213,15 +232,26 @@ async function pollPortFile(
 
 export class RemoteHostOrchestrator {
   private readonly sessions = new Map<string, RemoteHostSession>();
-  /** 🔴 per-configId 在途互斥(ARCH-B3):connect/test 共享,防并发编排竞争 host.port。 */
-  private readonly inflight = new Map<string, Promise<unknown>>();
+  /**
+   * 🔴 A4/E3 修复(两张表,语义不同,严禁合一):
+   *  - `connectInflight`:仅 connect() 写入/读取,纯粹用来给「并发 connect() 打同一
+   *    configId」去重复用同一个 Promise(ARCH-B3 本义)。
+   *  - `mutex`:connect() 与 test() 都会写入,单纯用来把两者按到达顺序**串行化**
+   *    (都触碰同一 configId 的 ssh/host.port,不能并发跑),但绝不允许一个操作
+   *    的 Promise 被另一操作复用/顶替——旧实现只有一张共享 `inflight` map,
+   *    connect() 命中 test() 的在途 Promise 时直接 `return existing`,导致
+   *    connect() 的连接意图被静默丢弃(看似成功 resolve,实际从未进 runConnect);
+   *    且 connect() 的 `finally` 无条件 delete 会误删 test() 刚写入的槽位。
+   */
+  private readonly connectInflight = new Map<string, Promise<void>>();
+  private readonly mutex = new Map<string, Promise<unknown>>();
   private readonly listeners = new Set<(e: RemoteEvent) => void>();
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
   connect(configId: string): Promise<void> {
-    const existing = this.inflight.get(configId);
-    if (existing) return existing.then(() => undefined, () => undefined);
+    const existingConnect = this.connectInflight.get(configId);
+    if (existingConnect) return existingConnect;
 
     const session = this.ensureSession(configId);
     if (ACTIVE_STAGES.has(session.stage)) {
@@ -230,18 +260,27 @@ export class RemoteHostOrchestrator {
       return Promise.resolve();
     }
 
-    const promise = this.runConnect(configId, session).finally(() => {
-      this.inflight.delete(configId);
+    const priorMutex = this.mutex.get(configId) ?? Promise.resolve();
+    const promise: Promise<void> = priorMutex
+      .catch(() => undefined)
+      .then(() => this.runConnect(configId, session));
+    const tracked = promise.finally(() => {
+      if (this.connectInflight.get(configId) === tracked) this.connectInflight.delete(configId);
+      if (this.mutex.get(configId) === tracked) this.mutex.delete(configId);
     });
-    this.inflight.set(configId, promise);
-    return promise;
+    this.connectInflight.set(configId, tracked);
+    this.mutex.set(configId, tracked);
+    return tracked;
   }
 
   async disconnect(configId: string): Promise<void> {
-    const existing = this.inflight.get(configId);
-    if (existing) {
-      // 在途编排(部署/启动)不安全中断,best-effort 等它自然结束
-      await existing.catch(() => undefined);
+    const pending = this.mutex.get(configId);
+    if (pending) {
+      // 🔴 E9:在途编排(部署/启动)不安全中断,best-effort 等它自然结束,但不能
+      // 无界阻塞调用方(IPC handler)——超时后放弃等待,直接强制收尾本地资源
+      // (net.Server/ssh 连接),在途编排的后续 ssh 调用会因连接已关而自然失败,
+      // 由其自身 catch 分支收场(不会崩溃/悬挂)。
+      await Promise.race([pending.catch(() => undefined), this.sleep(DISCONNECT_WAIT_TIMEOUT_MS)]);
     }
     const session = this.sessions.get(configId);
     if (!session) return;
@@ -253,14 +292,14 @@ export class RemoteHostOrchestrator {
   }
 
   test(configId: string): Promise<TestResult> {
-    const existing = this.inflight.get(configId);
-    const chain = existing
-      ? existing.catch(() => undefined).then(() => this.runTest(configId))
-      : this.runTest(configId);
-    const tracked = chain.finally(() => {
-      if (this.inflight.get(configId) === tracked) this.inflight.delete(configId);
+    const priorMutex = this.mutex.get(configId) ?? Promise.resolve();
+    const promise: Promise<TestResult> = priorMutex
+      .catch(() => undefined)
+      .then(() => this.runTest(configId));
+    const tracked = promise.finally(() => {
+      if (this.mutex.get(configId) === tracked) this.mutex.delete(configId);
     });
-    this.inflight.set(configId, tracked);
+    this.mutex.set(configId, tracked);
     return tracked;
   }
 
@@ -276,11 +315,16 @@ export class RemoteHostOrchestrator {
       this.closeSessionTransport(session);
     }
     this.sessions.clear();
-    this.inflight.clear();
+    this.connectInflight.clear();
+    this.mutex.clear();
     this.listeners.clear();
   }
 
   // ---- 内部 -------------------------------------------------------------
+
+  private sleep(ms: number): Promise<void> {
+    return (this.deps.sleep ?? defaultSleep)(ms);
+  }
 
   private ensureSession(configId: string): RemoteHostSession {
     let session = this.sessions.get(configId);
@@ -369,16 +413,40 @@ export class RemoteHostOrchestrator {
     });
   }
 
+  /**
+   * ready/verifying 态下检测到「断线」的唯一入口(本地转发 server 挂/SSH 连接层
+   * close 都会调用此处)。收尾:关掉本地残留资源(隧道/ssh)+ emit disconnected。
+   */
+  private handleTransportDown(configId: string): void {
+    const session = this.sessions.get(configId);
+    if (!session) return;
+    if (session.stage === 'ready' || session.stage === 'verifying') {
+      this.closeSessionTransport(session);
+      this.safeEmit(configId, { stage: 'disconnected' });
+    }
+  }
+
+  /** 本地转发 net.Server 挂了(其自身 accept 循环出错/被动关闭)。 */
   private wireDisconnectWatcher(configId: string, server: NetServer): void {
-    const handleDown = () => {
-      const session = this.sessions.get(configId);
-      if (!session) return;
-      if (session.stage === 'ready' || session.stage === 'verifying') {
-        this.safeEmit(configId, { stage: 'disconnected' });
-      }
-    };
+    const handleDown = () => this.handleTransportDown(configId);
     server.on('close', handleDown);
     server.on('error', handleDown);
+  }
+
+  /**
+   * 🔴 A2 修复(AC-12 缺口):本地转发 net.Server 只监听「本地 accept」层面的
+   * 事件,SSH 连接本身在远端断线/网络中断时并不会让本地 server emit close/error
+   * ——之前完全没有代码在监听底层 ssh2 Client 的 close/error,导致 ready 后
+   * 真实断线永远探测不到。这里注册 ssh.onClose,在 SSH 连接层面断开时同样触发
+   * handleTransportDown。
+   *
+   * 该回调也会在我们自己主动调用 ssh.close()(如 disconnect()/失败收尾路径)时
+   * 触发——不需要额外去重:这些路径在调用 ssh.close() 之前都已经把 session.stage
+   * 转出 ready/verifying(或马上会转),而 handleTransportDown 的守卫正是基于
+   * 当前 stage 是否仍是 ready/verifying,天然幂等(见函数顶部注释的时序论证)。
+   */
+  private wireSshDisconnectWatcher(configId: string, ssh: SshConnectionLike): void {
+    ssh.onClose(() => this.handleTransportDown(configId));
   }
 
   private async runTest(configId: string): Promise<TestResult> {
@@ -424,6 +492,7 @@ export class RemoteHostOrchestrator {
       return;
     }
     session.ssh = ssh;
+    this.wireSshDisconnectWatcher(configId, ssh);
 
     const probe = this.deps.probeHostInfo ?? defaultProbeHostInfo;
     const sleep = this.deps.sleep ?? defaultSleep;
@@ -521,9 +590,14 @@ export class RemoteHostOrchestrator {
       const newToken = generateToken();
       const hostDir = `${dataDir}/hosts/${configId}`;
       try {
-        await ssh.exec(`mkdir -p ${hostDir}`);
+        await ssh.exec(`mkdir -p "${hostDir}"`);
         await ssh.execDetached(
-          buildStartCommand({ dataDir, appVersion: this.deps.appVersion, configId }),
+          buildStartCommand({
+            dataDir,
+            appVersion: this.deps.appVersion,
+            configId,
+            allowedOrigins: this.deps.allowedOrigins,
+          }),
           newToken,
         );
       } catch (err) {
@@ -553,8 +627,21 @@ export class RemoteHostOrchestrator {
       session.remotePid = portRaw.pid;
 
       const probeResult = await probe(tunnel.localPort, newToken);
-      if (!probeResult.ok || probeResult.compatible === false) {
+      // 🔴 A14 修复:此前 !probeResult.ok(隧道时序/超时/被关等瞬时传输失败)与
+      // probeResult.compatible===false(真·版本不符)被合并成同一个 incompatible——
+      // 刚部署成功的 host 一次瞬时探测失败就被报「版本不兼容·请升级」,分类/文案/
+      // 重试语义全错(incompatible 提示升级、不该重试;瞬时失败该归 startFailed,
+      // 可重试)。拆两支:探测本身没跑通(!ok)→ startFailed;探测跑通但版本判定
+      // 不兼容(ok 且 compatible===false)→ incompatible。
+      if (probeResult.ok && probeResult.compatible === false) {
         this.failSession(configId, 'incompatible', probeResult.detail);
+        tunnel.server.close();
+        session.forwardServer = null;
+        ssh.close();
+        return;
+      }
+      if (!probeResult.ok) {
+        this.failSession(configId, 'startFailed', probeResult.detail);
         tunnel.server.close();
         session.forwardServer = null;
         ssh.close();

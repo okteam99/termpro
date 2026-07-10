@@ -47,6 +47,14 @@ export interface SshConnectionLike {
   sftpRename(from: string, to: string): Promise<void>;
   /** 本地端口转发:127.0.0.1:localPort → 远端 127.0.0.1:remotePort。 */
   forwardOut(localPort: number, remotePort: number): net.Server;
+  /**
+   * 注册连接层 close/error 监听(AC-12 断链检测 · A2):底层 ssh2 Client 的
+   * 'close'/'error' 都会触发。本地转发 net.Server 并不会在 SSH 连接掉线时
+   * 自动 close/error(它独立监听本地 accept),故 orchestrator 必须另经此接口
+   * 才能感知远端连接真的断了。intentional close()(orchestrator 主动调用)也会
+   * 触发此回调——调用方需据自身状态判断是否为预期内收尾(不可在此接口内部去重)。
+   */
+  onClose(cb: (err?: Error) => void): void;
   close(): void;
 }
 
@@ -266,6 +274,11 @@ export class SshConnection implements SshConnectionLike {
     return server;
   }
 
+  onClose(cb: (err?: Error) => void): void {
+    this.client.on('close', () => cb());
+    this.client.on('error', (err: Error) => cb(err));
+  }
+
   close(): void {
     this.client.end();
   }
@@ -296,11 +309,18 @@ function mkdirRemote(sftp: SFTPWrapper, dir: string): Promise<void> {
   });
 }
 
-function isEexist(err: unknown): boolean {
-  const code = (err as NodeJS.ErrnoException | undefined)?.code;
-  // ssh2 的 SFTP 错误 code 可能是数字状态码或字符串;已存在按幂等处理直接放行,
-  // 真实失败(权限等)会在后续 putFile 步骤暴露。
-  return code !== undefined;
+/**
+ * 🔴 A8/E5 修复:此前任意非 undefined code 都被当 EEXIST 放行,会把 ENOENT(父
+ * 目录不存在)之类的真实失败也当「已存在」吞掉,掩盖如 A1 那类「父目录缺失」的
+ * bug(sftpWriteDir 的 mkdir 链会静默跳过而非报错,后续 putFile 才会以更费解的
+ * 方式失败)。只对确凿的「已存在」信号放行,其余一律上抛。
+ */
+export function isEexist(err: unknown): boolean {
+  const e = err as { code?: string | number; message?: string } | undefined;
+  if (!e) return false;
+  if (e.code === 'EEXIST') return true;
+  const msg = (e.message ?? '').toLowerCase();
+  return msg.includes('file exists') || msg.includes('already exists');
 }
 
 function putFile(sftp: SFTPWrapper, localPath: string, remotePath: string): Promise<void> {

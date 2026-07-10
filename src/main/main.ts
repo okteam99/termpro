@@ -103,6 +103,21 @@ app.on('before-quit', () => {
 // ---- 远程机 SSH 编排(BL-003)---------------------------------------------
 // main 是 SSH 编排的唯一落点(renderer/host 零 SSH);orchestrator 持有全部
 // 隧道/ssh 连接,before-quit 必须收尾关闭,否则残留本地转发 server 占端口。
+
+// A6:远端 host 进程的 Origin 白名单(逗号分隔,host.ts 侧按此格式解析)——打包态
+// 只有 file://+null;dev 态渲染层走 vite dev server,追加其 origin 一并放行。
+function computeRemoteHostAllowedOrigins(): string {
+  const origins = ['null', 'file://'];
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    try {
+      origins.push(new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin);
+    } catch {
+      /* 解析失败(极端情形下 dev server URL 格式异常):保留基础白名单,不阻断启动 */
+    }
+  }
+  return origins.join(',');
+}
+
 const remoteHostCredentials = new CredentialStore({
   userDataDir: () => app.getPath('userData'),
   safeStorage,
@@ -120,8 +135,11 @@ const remoteHostOrchestrator = new RemoteHostOrchestrator({
       isPackaged: app.isPackaged,
     }),
   appVersion: app.getVersion(),
+  allowedOrigins: computeRemoteHostAllowedOrigins(),
 });
-registerRemoteHostIpc(remoteHostOrchestrator, remoteHostCredentials, remoteHostConfigStore);
+// E8:事件(含 verifying 阶段的隧道 token)只推给主窗口——getter 而非固定引用,
+// 因为此刻主窗口可能尚未创建(createWindow() 在 app.on('ready') 里才跑)。
+registerRemoteHostIpc(remoteHostOrchestrator, remoteHostCredentials, remoteHostConfigStore, () => mainWin);
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();
 });

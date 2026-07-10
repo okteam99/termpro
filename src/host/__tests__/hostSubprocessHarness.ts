@@ -64,18 +64,27 @@ export interface SpawnedHost {
   kill(): void;
 }
 
-/** 以真实子进程启动打包后的 host.cjs。 */
+/**
+ * 以真实子进程启动打包后的 host.cjs。
+ * @param stdin 若提供,经子进程 stdin 写入后 half-close(EOF)——供 `--token-stdin` 场景注入
+ *   token(resolveToken 走 fs.readFileSync(0),读到 EOF 返回);不提供则 stdin 为 'ignore'。
+ */
 export function spawnHost(
   bundlePath: string,
   argv: string[],
   env: NodeJS.ProcessEnv = {},
+  stdin?: string,
 ): SpawnedHost {
   const child = spawn(process.execPath, [bundlePath, ...argv], {
     // node-pty/ws 打包时标 external(同 package-host.mjs 口径),bundle 独居临时目录、
     // 向上找不到仓库 node_modules —— 经 NODE_PATH 显式指回仓库 node_modules 供 require() 解析。
     env: { ...process.env, NODE_PATH: path.join(repoRoot, 'node_modules'), ...env },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   });
+  if (stdin !== undefined) {
+    child.stdin?.write(stdin);
+    child.stdin?.end();
+  }
   let stdout = '';
   let stderr = '';
   child.stdout?.on('data', (d: Buffer) => {

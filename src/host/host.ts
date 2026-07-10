@@ -58,15 +58,36 @@ if (process.argv.includes('--listen')) {
     process.exit(1);
   }
 
+  // Origin 白名单(AC-10 纵深):main 侧(dev-main buildStartCommand)按打包/dev 场景算出
+  // 完整白名单经 env 注入,逗号分隔;缺省(embedded 本机路径/未注入)→ 维持 wsServer 内建
+  // DEFAULT_ALLOWED_ORIGINS(向后兼容,行为不变)。
+  const allowedOriginsEnv = process.env.TERMPRO_ALLOWED_ORIGINS;
+  const allowedOrigins = allowedOriginsEnv
+    ? new Set(
+        allowedOriginsEnv
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0),
+      )
+    : undefined;
+
   startWsServer({
     host,
     port,
     token,
     attachClient: (p: PortLike) => core.attachClient(p),
+    allowedOrigins,
   }).then(
     (handle) => {
-      // 自动生成 token 时单行打印供调用方/ssh exec 捕获(显式传入则不回显)
-      if (source === 'generated') {
+      // 自动生成 token 时单行打印供调用方/ssh exec 捕获(显式传入则不回显)。
+      // 结构上仅限非驻留模式(无 TERMPRO_HOST_PORT_FILE):驻留态由 main 编排经
+      // --token-stdin 注入(source==='stdin',本就不会走这条分支),但仅凭「调用方
+      // 永远传 --token-stdin」这一隐性契约维持不落盘 —— 任何未来误将驻留 host 以
+      // generated token 起、或调试改动绕过 --token-stdin,都会把 128-bit token 明文
+      // 写进被 main 重定向的 host.log。改为显式结构约束:驻留态(有端口文件)恒不
+      // 打印 token,即便 source 意外为 'generated' 也不落盘(纵深 · E12)。
+      const isResident = Boolean(process.env.TERMPRO_HOST_PORT_FILE);
+      if (source === 'generated' && !isResident) {
         console.log('[host] token=%s', token);
       }
       // 固定 listening 日志行(CI 可 grep · AC-4)

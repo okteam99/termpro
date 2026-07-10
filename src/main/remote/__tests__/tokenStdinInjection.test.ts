@@ -19,13 +19,25 @@ describe('AC-8 buildStartCommand', () => {
       configId: 'vps-hk',
     });
     expect(cmd).toContain('--token-stdin');
-    expect(cmd).toContain('--host-tag vps-hk');
+    expect(cmd).toContain('--host-tag "vps-hk"');
     expect(cmd).not.toMatch(/--token\s+\S/); // 无 "--token <明文>" 形态(--token-stdin 不算,因其后无空格跟值)
-    expect(cmd).toContain('/home/tester/.termpro-host/bundle/1.2.3/host.js');
-    expect(cmd).toContain('/home/tester/.termpro-host/hosts/vps-hk/host.port');
-    expect(cmd).toContain('/home/tester/.termpro-host/hosts/vps-hk/host.log');
+    expect(cmd).toContain('"/home/tester/.termpro-host/bundle/1.2.3/host.js"');
+    expect(cmd).toContain('"/home/tester/.termpro-host/hosts/vps-hk/host.port"');
+    expect(cmd).toContain('"/home/tester/.termpro-host/hosts/vps-hk/host.log"');
     expect(cmd).toContain('setsid nohup env');
     expect(cmd).toContain('< /dev/stdin');
+    // A6:远端 Origin 白名单经 env 注入(host.ts 已实现按逗号分隔解析)
+    expect(cmd).toContain('TERMPRO_ALLOWED_ORIGINS=');
+  });
+
+  it('A6 buildStartCommand 可注入自定义 allowedOrigins(main.ts 按打包/dev 场景算出)', () => {
+    const cmd = buildStartCommand({
+      dataDir: '/home/tester/.termpro-host',
+      appVersion: '1.2.3',
+      configId: 'vps-hk',
+      allowedOrigins: 'null,file://,http://localhost:5173',
+    });
+    expect(cmd).toContain('TERMPRO_ALLOWED_ORIGINS="null,file://,http://localhost:5173"');
   });
 });
 

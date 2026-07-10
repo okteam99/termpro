@@ -153,11 +153,84 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     refreshList();
   }, [refreshList]);
 
-  // 事件驱动(AC-5):main 经 remoteHost:event 推送生命周期态,写入极薄运行态切片。
+  // main 前移探测已确认「我方 + 兼容」后才 emit verifying{tunnel};renderer 侧握手退化为
+  // 版本二次确认(near-必成功)。resolve → ready(冒烟 fs.readdir · AC-6);
+  // reject ProtocolIncompatibleError → failed·incompatible(罕见竞态兜底)。
+  //
+  // 🔴 A3 修复:握手必须由 verifying 事件本身直接驱动,不能靠一个采样 runtimeMap 的被动
+  // useEffect。main 可能在同一同步栈里背靠背 emit verifying 紧跟 ready(例如认领快路径);
+  // React 会把这两次 setState 批处理成一次渲染,被动 effect 只看得到"最终落地"的 ready,
+  // 中间的 verifying 从未被观测到 → renderer 从不 connect({wsUrl})、从不冒烟、per-host
+  // client 从未建立。改为在 onEvent 回调内逐条事件同步判定,不经渲染采样。
+  const handshakingRef = useRef<Set<string>>(new Set());
+  // 🔴 E6 修复:用户在连接在途点「断开」时,handleDisconnect 立即本地清空 + drop 客户端,
+  // 但 main 侧编排(部署/启动/握手)仍在跑,沿途 deploying/starting/verifying/ready 等残余
+  // 事件仍会经 onEvent 抵达——若照单全收会把已清空的 runtime 瞬时"复活"到 ready(UI 抖动),
+  // 且 verifying 事件还会对已 drop 的 client 重新触发握手。用 per-configId「已弃」标记过滤:
+  // 弃用期间只放行 disconnected/idle 终态(与本地已知状态一致,无害);其余中间态一律吞掉。
+  // 用户对该 configId 重新点「连接」时移出该集合(handleConnect)。
+  const abandonedRef = useRef<Set<string>>(new Set());
+
+  // 事件驱动(AC-5):main 经 remoteHost:event 推送生命周期态。逐条事件到达时同步:
+  // ① 写入极薄运行态切片(供渲染);② 若本条事件恰是 verifying{tunnel},立即触发握手——
+  // 判定基于事件本身,不基于事后读到的 store 状态,故不受同栈后续事件覆盖影响(A3)。
+  // beginHandshake 定义在 effect 内部:其依赖(applyEvent/refreshList)已在 deps 数组里,
+  // 不存在闭包过期风险,也不需要额外的 exhaustive-deps 抑制。
   useEffect(() => {
-    const unsubscribe = window.termpro.remoteHost.onEvent(applyEvent);
+    function beginHandshake(configId: string, tunnel: { localPort: number; token: string }) {
+      if (handshakingRef.current.has(configId)) return; // 去重:同 configId 握手在途不重复 connect
+      handshakingRef.current.add(configId);
+      const { localPort, token } = tunnel;
+      const wsUrl = `ws://127.0.0.1:${localPort}?token=${encodeURIComponent(token)}`;
+      const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
+      client
+        .connect({ wsUrl })
+        .then(async (info) => {
+          try {
+            await client.rpc('fs.readdir', { path: info.homedir });
+          } catch {
+            // 冒烟失败不阻断 ready —— 握手(host.info + 版本兼容)已是核心判据
+          }
+          applyEvent({ configId, stage: 'ready' });
+          refreshList();
+        })
+        .catch((err: unknown) => {
+          if (err instanceof ProtocolIncompatibleError) {
+            applyEvent({
+              configId,
+              stage: 'failed',
+              reason: 'incompatible',
+              detail: err.message,
+            });
+          } else {
+            applyEvent({
+              configId,
+              stage: 'failed',
+              reason: 'internal',
+              detail: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })
+        .finally(() => {
+          handshakingRef.current.delete(configId);
+        });
+    }
+
+    const unsubscribe = window.termpro.remoteHost.onEvent((e) => {
+      if (
+        abandonedRef.current.has(e.configId) &&
+        e.stage !== 'disconnected' &&
+        e.stage !== 'idle'
+      ) {
+        return; // E6:在途 disconnect 后忽略残余的非终态事件——不复活 UI、不重新握手
+      }
+      applyEvent(e);
+      if (e.stage === 'verifying' && e.tunnel) {
+        beginHandshake(e.configId, e.tunnel);
+      }
+    });
     return unsubscribe;
-  }, [applyEvent]);
+  }, [applyEvent, refreshList]);
 
   // Esc 关闭(对齐既有 AboutModal 交互)
   useEffect(() => {
@@ -167,58 +240,6 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  // main 前移探测已确认「我方 + 兼容」后才 emit verifying{tunnel};renderer 侧握手退化为
-  // 版本二次确认(near-必成功)。resolve → ready(冒烟 fs.readdir · AC-6);
-  // reject ProtocolIncompatibleError → failed·incompatible(罕见竞态兜底)。
-  const handshakingRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    for (const config of configs) {
-      const runtime = runtimeMap[config.id];
-      if (
-        runtime?.stage === 'verifying' &&
-        runtime.tunnel &&
-        !handshakingRef.current.has(config.id)
-      ) {
-        const configId = config.id;
-        const { localPort, token } = runtime.tunnel;
-        const wsUrl = `ws://127.0.0.1:${localPort}?token=${encodeURIComponent(token)}`;
-        handshakingRef.current.add(configId);
-        const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
-        client
-          .connect({ wsUrl })
-          .then(async (info) => {
-            try {
-              await client.rpc('fs.readdir', { path: info.homedir });
-            } catch {
-              // 冒烟失败不阻断 ready —— 握手(host.info + 版本兼容)已是核心判据
-            }
-            applyEvent({ configId, stage: 'ready' });
-            refreshList();
-          })
-          .catch((err: unknown) => {
-            if (err instanceof ProtocolIncompatibleError) {
-              applyEvent({
-                configId,
-                stage: 'failed',
-                reason: 'incompatible',
-                detail: err.message,
-              });
-            } else {
-              applyEvent({
-                configId,
-                stage: 'failed',
-                reason: 'internal',
-                detail: err instanceof Error ? err.message : String(err),
-              });
-            }
-          })
-          .finally(() => {
-            handshakingRef.current.delete(configId);
-          });
-      }
-    }
-  }, [configs, runtimeMap, applyEvent, refreshList]);
 
   const recentHosts = useMemo(
     () =>
@@ -242,12 +263,19 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   /** 「连接」(AC-4/AC-5/AC-13):清掉过期测试徽标,发起 IPC connect,进度经 onEvent 呈现。 */
   function handleConnect(config: RemoteHostConfig) {
+    abandonedRef.current.delete(config.id); // E6:重新发起连接,解除此前的"已弃"过滤
     setTestState((prev) => omitKey(prev, config.id));
     window.termpro.remoteHost.connect({ id: config.id });
   }
 
-  /** 「断开」(AC-5 · ready → idle,用户主动):本地立即回落 idle,IPC 通知 main 拆隧道。 */
+  /**
+   * 「断开」(AC-5 · ready → idle,用户主动):本地立即回落 idle,IPC 通知 main 拆隧道。
+   * E6:若此时 main 侧编排仍在途(部署/启动/握手中断开),标记该 configId 为"已弃"——
+   * 沿途残余事件(deploying/starting/verifying/ready…)到达时被过滤,不会把已清空的
+   * runtime 复活、也不会对已 drop 的 client 重新触发握手。
+   */
   function handleDisconnect(id: string) {
+    abandonedRef.current.add(id);
     window.termpro.remoteHost.disconnect({ id });
     clearRuntime(id);
     hostRegistry.drop(id);

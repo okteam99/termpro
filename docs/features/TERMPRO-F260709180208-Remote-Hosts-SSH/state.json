@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": "52fd557d3ce2edc2ecdc8c1360b96005562d8a3c",
   "worktree": {
@@ -82,16 +82,38 @@
       "duration_minutes": 64
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-09T19:58:33Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": " ✓ src/renderer/components/settings/__tests__/RemoteHostsPage.test.tsx (17 tests) 163ms\n ✓ src/host/__tests__/portFile.test.ts (3 tests) 534ms\n\n Test Files  17 passed | 1 skipped (18)\n      Tests  124 passed | 1 skipped (125)\n   Start at  05:30:37\n   Duration  967ms (transform 775ms, setup 0ms, collect 1.51s, tests 825ms, environment 1.32s, prepare 1.96s)"
+      },
+      "completed_at": "2026-07-09T21:30:46Z",
+      "auto_commit": "7c2bd54a5c0cfd70159516505b498d87deec3b03",
+      "artifacts": [
+        "src/shared/remoteHost.ts",
+        "src/main/remote/orchestrator.ts",
+        "src/main/remote/residency.ts",
+        "src/host/host.ts",
+        "src/host/wsServer.ts",
+        "src/renderer/components/settings/RemoteHostsPage.tsx"
+      ],
+      "duration_minutes": 92
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-09T19:58:33Z"
+      "started_at": "2026-07-09T21:30:46Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-07-09T18:03:12Z",
   "stage_review_roles": {
@@ -130,11 +152,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-09T20:59:17Z",
+  "updated_at": "2026-07-09T21:30:52Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:2eb866f9754dff97a1d35225f63eb6789f2a3ff088344d8493271d76257390a5",
+  "_state_checksum": "sha256:a5e5faa473aa2b3bb4a4ab2b691105d4aba73cb83a699d9d2a421e405961f878",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,

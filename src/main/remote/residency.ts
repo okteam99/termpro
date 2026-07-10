@@ -173,8 +173,18 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
 
   if (candidateEligible) {
     candidateTunnel = await ctx.buildTunnel(portRaw!.port);
-    fullProbe = await ctx.probeHostInfo(candidateTunnel.localPort, ctx.storedToken!);
-    probeResult = { ok: fullProbe.ok, compatible: fullProbe.compatible };
+    try {
+      fullProbe = await ctx.probeHostInfo(candidateTunnel.localPort, ctx.storedToken!);
+      probeResult = { ok: fullProbe.ok, compatible: fullProbe.compatible };
+    } catch (err) {
+      // 🔴 E7 防御性修复:probeHostInfo 契约上「永不 reject」(probeHostInfo.ts 自述),
+      // 但若某实现(测试桩/未来变更)违反契约抛出,决不能让候选隧道泄漏——立即关闭
+      // 并归一为探测失败,继续走确定性回收(不 livelock)。
+      candidateTunnel.server.close();
+      candidateTunnel = undefined;
+      probeResult = { ok: false };
+      fullProbe = { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   let killAliveResult: boolean | null = null;
@@ -183,7 +193,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     candidateEligible && probeResult?.ok === true && probeResult.compatible !== false;
 
   if (!claimWouldSucceed && portRaw?.pid != null) {
-    const aliveRes = await ctx.ssh.exec(`kill -0 ${portRaw.pid} 2>/dev/null && echo Y || echo N`);
+    const aliveRes = await ctx.ssh.exec(`kill -0 "${portRaw.pid}" 2>/dev/null && echo Y || echo N`);
     killAliveResult = aliveRes.stdout.trim() === 'Y';
     if (killAliveResult) {
       cmdlineResult = await readRemoteCmdline(ctx.ssh, portRaw.pid);
@@ -218,7 +228,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     await killAndWait(ctx.ssh, portRaw.pid, sleep, ctx.killPollTimeoutMs ?? 3000);
   }
   if (decision.cleanStale) {
-    await ctx.ssh.exec(`rm -f ${portFilePath(ctx.dataDir, ctx.configId)}`);
+    await ctx.ssh.exec(`rm -f "${portFilePath(ctx.dataDir, ctx.configId)}"`);
   }
 
   return { decision, portRaw, attemptedClaim: candidateEligible };
@@ -227,8 +237,8 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
 /** darwin `ps -o command=` / linux `/proc/<pid>/cmdline` 双路径读取(取到即用,失败留空)。 */
 async function readRemoteCmdline(ssh: SshConnectionLike, pid: number): Promise<string | null> {
   const cmd =
-    `(tr '\\0' ' ' < /proc/${pid}/cmdline 2>/dev/null) || ` +
-    `(ps -o command= -p ${pid} 2>/dev/null)`;
+    `(tr '\\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null) || ` +
+    `(ps -o command= -p "${pid}" 2>/dev/null)`;
   const res = await ssh.exec(cmd);
   const out = res.stdout.trim();
   return out.length > 0 ? out : null;
@@ -240,12 +250,12 @@ async function killAndWait(
   sleep: (ms: number) => Promise<void>,
   timeoutMs: number,
 ): Promise<void> {
-  await ssh.exec(`kill ${pid} 2>/dev/null`);
+  await ssh.exec(`kill "${pid}" 2>/dev/null`);
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const res = await ssh.exec(`kill -0 ${pid} 2>/dev/null && echo Y || echo N`);
+    const res = await ssh.exec(`kill -0 "${pid}" 2>/dev/null && echo Y || echo N`);
     if (res.stdout.trim() !== 'Y') return;
     await sleep(200);
   }
-  await ssh.exec(`kill -9 ${pid} 2>/dev/null`);
+  await ssh.exec(`kill -9 "${pid}" 2>/dev/null`);
 }

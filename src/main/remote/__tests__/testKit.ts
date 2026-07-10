@@ -49,12 +49,15 @@ export interface RoutedSsh extends SshConnectionLike {
   execCalls: string[];
   execDetachedCalls: Array<{ cmd: string; stdin: string }>;
   closed: boolean;
+  /** 测试用:模拟底层 ssh2 连接层断开(A2),触发所有经 onClose 注册的回调。 */
+  simulateSshClose: (err?: Error) => void;
 }
 
 export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
   const execCalls: string[] = [];
   const execDetachedCalls: Array<{ cmd: string; stdin: string }> = [];
   let closed = false;
+  const closeListeners: Array<(err?: Error) => void> = [];
 
   return {
     execCalls,
@@ -62,6 +65,12 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
     get closed() {
       return closed;
     },
+    simulateSshClose: (err?: Error) => {
+      for (const cb of closeListeners.slice()) cb(err);
+    },
+    onClose: vi.fn((cb: (err?: Error) => void) => {
+      closeListeners.push(cb);
+    }),
     exec: vi.fn(async (cmd: string): Promise<ExecResult> => {
       execCalls.push(cmd);
       for (const handler of opts.execHandlers ?? []) {

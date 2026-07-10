@@ -76,17 +76,25 @@ tests:
     covers_ac: ["AC-5"]
     level: integration
     priority: P0
+  # 🔴 F6/Q1/G1 修正:原映射指向不存在的 remoteHandshakeSmoke.integration.test.ts(幽灵覆盖·verify-ac 误报绿)
+  # → 改指真实存在的测试。AC-6 兼容→ready+冒烟由 renderer 版本二次确认驱动(A3 修复后);不兼容/瞬时失败由 main 前移探测覆盖。
   - id: T-012
-    file: src/host/__tests__/remoteHandshakeSmoke.integration.test.ts
-    function: test_AC6_compatible_ready_protocol_smoke
+    file: src/renderer/components/settings/__tests__/RemoteHostsPage.test.tsx
+    function: "drives verifying → ready through hostRegistry handshake (AC-6 · main 前移探测后的版本二次确认)"
     covers_ac: ["AC-6"]
-    level: api-e2e
+    level: fe-e2e
     priority: P0
   - id: T-013
-    file: src/host/__tests__/remoteHandshakeSmoke.integration.test.ts
-    function: test_AC6_incompatible_version_disconnect
+    file: src/main/remote/__tests__/orchestrator.test.ts
+    function: "probe 探测跑通但 compatible:false(真·版本不符)→ 状态落 failed·incompatible,tunnel/ssh 均已关闭"
     covers_ac: ["AC-6"]
-    level: api-e2e
+    level: unit
+    priority: P0
+  - id: T-013b
+    file: src/main/remote/__tests__/orchestrator.test.ts
+    function: "A14 回归:probe 探测本身没跑通(!ok,瞬时传输失败)→ failed·startFailed(非 incompatible),可重试"
+    covers_ac: ["AC-6"]
+    level: unit
     priority: P0
   - id: T-014
     file: src/main/remote/__tests__/hostConfigStore.test.ts

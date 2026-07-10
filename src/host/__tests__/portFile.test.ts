@@ -173,3 +173,153 @@ describe('AC-8 --host-tag 自证不入端口闸', () => {
     20_000,
   );
 });
+
+function waitOpen(ws: WebSocket, timeoutMs = 4_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('open timeout')), timeoutMs);
+    ws.on('open', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+  });
+}
+
+function waitOutcome(ws: WebSocket, timeoutMs = 4_000): Promise<'opened' | 'closed' | 'errored' | 'timeout'> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), timeoutMs);
+    ws.on('open', () => {
+      clearTimeout(timer);
+      resolve('opened');
+    });
+    ws.on('close', () => {
+      clearTimeout(timer);
+      resolve('closed');
+    });
+    ws.on('error', () => {
+      clearTimeout(timer);
+      resolve('errored');
+    });
+  });
+}
+
+describe('A6 · TERMPRO_ALLOWED_ORIGINS env 注入(host 侧接线)', () => {
+  it(
+    '设置该 env 后白名单按注入值生效(注入 origin 放行 · 非注入 origin 仍拒,即不回落 DEFAULT)',
+    async () => {
+      const dataDir = tmpDataDir();
+      const portFile = path.join(dataDir, 'host.port');
+      const host = track(
+        spawnHost(bundlePath, ['--listen', '127.0.0.1:0'], {
+          TERMPRO_HOST_TOKEN: 'origin-env-token',
+          TERMPRO_HOST_PORT_FILE: portFile,
+          TERMPRO_ALLOWED_ORIGINS: 'http://localhost:5173,file://',
+        }),
+      );
+      const m = await host.waitForStdout(/\[host\] listening ws:\/\/([^:]+):(\d+)/);
+      const port = Number(m[2]);
+
+      // 注入值(dev vite origin)→ 放行
+      const injected = new WebSocket(`ws://127.0.0.1:${port}/?token=origin-env-token`, {
+        origin: 'http://localhost:5173',
+      });
+      await waitOpen(injected);
+      injected.close();
+
+      // 'null' 是 wsServer 内建 DEFAULT 的一员,但本次注入值不含它 —— 一旦 host.ts 传入
+      // 非空 allowedOrigins,wsServer 按 `opts.allowedOrigins ?? DEFAULT` 覆盖语义生效,
+      // 不回落 DEFAULT,故此处仍应被拒(证明 env 值确被下传,不是摆设)。
+      const notInjected = new WebSocket(`ws://127.0.0.1:${port}/?token=origin-env-token`, {
+        origin: 'null',
+      });
+      expect(await waitOutcome(notInjected)).not.toBe('opened');
+    },
+    20_000,
+  );
+
+  it(
+    '未设置该 env 时维持 wsServer 内建 DEFAULT_ALLOWED_ORIGINS(file:// 仍放行,向后兼容)',
+    async () => {
+      const dataDir = tmpDataDir();
+      const portFile = path.join(dataDir, 'host.port');
+      const host = track(
+        spawnHost(bundlePath, ['--listen', '127.0.0.1:0'], {
+          TERMPRO_HOST_TOKEN: 'origin-default-token',
+          TERMPRO_HOST_PORT_FILE: portFile,
+        }),
+      );
+      const m = await host.waitForStdout(/\[host\] listening ws:\/\/([^:]+):(\d+)/);
+      const port = Number(m[2]);
+
+      const fileOrigin = new WebSocket(`ws://127.0.0.1:${port}/?token=origin-default-token`, {
+        origin: 'file://',
+      });
+      await waitOpen(fileOrigin);
+      fileOrigin.close();
+    },
+    20_000,
+  );
+});
+
+describe('Q2 · AC-8 token-stdin 零落盘/零回显(host 侧证否,补 TC 落地风险#2)', () => {
+  it(
+    '经 --token-stdin 注入的 token 明文不出现在端口文件内容,也不出现在 host 的 stdout/stderr(恒不回显)',
+    async () => {
+      const dataDir = tmpDataDir();
+      const portFile = path.join(dataDir, 'host.port');
+      const secretToken = 'stdin-secret-9f3e7a2c1d5b8046';
+      const host = track(
+        spawnHost(
+          bundlePath,
+          ['--listen', '127.0.0.1:0', '--token-stdin', '--host-tag', 'cfg-portfile-q2'],
+          { TERMPRO_HOST_PORT_FILE: portFile },
+          `${secretToken}\n`,
+        ),
+      );
+      const m = await host.waitForStdout(/\[host\] listening ws:\/\/([^:]+):(\d+)/);
+      const port = Number(m[2]);
+      await waitForFile(portFile);
+
+      // ① 端口文件内容不含 token 明文
+      expect(fs.readFileSync(portFile, 'utf8')).not.toContain(secretToken);
+
+      // 正例锚点:token 确实生效(证「未在输出里看到」不是因为 host 根本没读到 token 就挂了)
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/?token=${encodeURIComponent(secretToken)}`);
+      await waitOpen(ws);
+      ws.close();
+
+      // ② host 的 stdout/stderr(即将被重定向进 host.log 的同一流)不含 token 明文
+      // (--token-stdin 路径 source==='stdin',host.ts 仅 source==='generated' 才回显)
+      await new Promise((r) => setTimeout(r, 100)); // 让可能的滞后输出落进缓冲区
+      expect(host.getStdout()).not.toContain(secretToken);
+      expect(host.getStderr()).not.toContain(secretToken);
+    },
+    20_000,
+  );
+});
+
+describe('E12 · 驻留态恒不回显 token(结构纵深,防未来误用 generated token 起驻留 host)', () => {
+  it(
+    '设置 TERMPRO_HOST_PORT_FILE 且未显式传 token(落到 generated 分支)时,stdout 恒不出现 "[host] token=" 回显行',
+    async () => {
+      const dataDir = tmpDataDir();
+      const portFile = path.join(dataDir, 'host.port');
+      const host = track(
+        spawnHost(bundlePath, ['--listen', '127.0.0.1:0', '--host-tag', 'cfg-portfile-e12'], {
+          TERMPRO_HOST_PORT_FILE: portFile,
+          // 故意不传 TERMPRO_HOST_TOKEN / --token-*:resolveToken 落到 generated 分支
+          // (source==='generated'),验证「驻留态」这一结构约束独立生效,不依赖 source。
+        }),
+      );
+      await host.waitForStdout(/\[host\] listening ws:\/\//);
+      await waitForFile(portFile);
+      // 让可能的滞后输出落进缓冲区,再断言回显行始终未出现
+      await new Promise((r) => setTimeout(r, 100));
+      expect(host.getStdout()).not.toMatch(/\[host\] token=/);
+    },
+    20_000,
+  );
+});

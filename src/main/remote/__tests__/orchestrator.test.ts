@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { RemoteHostOrchestrator, isLegalTransition } from '../orchestrator';
 import { CredentialStore, HostConfigStore, type SafeStorageLike } from '../credentialStore';
 import type { RemoteEvent, RemoteStage } from '../../../shared/remoteHost';
-import { createRoutedSsh, bufferOf, type RoutedSsh } from './testKit';
+import { createRoutedSsh, bufferOf, flushMicrotasks, type RoutedSsh } from './testKit';
 
 let tmpDir: string;
 
@@ -183,7 +183,7 @@ describe('AC-5 状态机全链路(首次部署到 ready)', () => {
     expect(stages.filter((s) => s === 'ready')).toHaveLength(1);
     expect(routed.execDetached).toHaveBeenCalledTimes(1);
     const [cmd, stdin] = routed.execDetachedCalls[0] ? [routed.execDetachedCalls[0].cmd, routed.execDetachedCalls[0].stdin] : ['', ''];
-    expect(cmd).toContain('--host-tag vps-hk');
+    expect(cmd).toContain('--host-tag "vps-hk"');
     expect(cmd).toContain('--token-stdin');
     expect(stdin.length).toBeGreaterThan(0);
   });
@@ -334,4 +334,166 @@ describe('ARCH-B3 in-flight guard', () => {
     await Promise.all([p1, p2]);
     expect(connectCalls).toBe(1);
   });
+
+  it('🔴 A4/E3 回归:connect() 命中在途 test() 时,等待其结束后仍真正进入编排(连接意图不被静默丢弃)', async () => {
+    let resolveTest!: () => void;
+    let testStarted = false;
+    let connectRan = false;
+    const h = makeHarness({
+      connectSshImpl: async () => {
+        if (!testStarted) {
+          // 第一次调用属于 test():卡住直到测试显式放行,验证 connect() 确实在等它
+          testStarted = true;
+          await new Promise<void>((resolve) => {
+            resolveTest = resolve;
+          });
+          return createRoutedSsh({ execHandlers: healthyDefaults() });
+        }
+        connectRan = true;
+        return createFreshDeploySsh('vps-hk');
+      },
+    });
+    saveConfig(h.configStore);
+
+    const testPromise = h.orchestrator.test('vps-hk');
+    // test() 的实际执行经 mutex 链的 .then() 调度(微任务),不是同步发生的——
+    // 先让微任务队列跑一轮,确保 connectSshImpl 真的已经进入「卡住」分支并捕获
+    // 到 resolveTest,再发起 connect()。
+    await flushMicrotasks();
+    expect(testStarted).toBe(true);
+    const connectPromise = h.orchestrator.connect('vps-hk');
+
+    // 放行 test() 的 connectSsh
+    resolveTest();
+    await testPromise;
+    await connectPromise;
+
+    // 关键断言:connect() 真正跑了自己的 runConnect(不是复用/丢弃 test 的 promise)
+    expect(connectRan).toBe(true);
+    expect(h.events.at(-1)?.stage).toBe('ready');
+  });
+
+  it('🔴 A4/E3 回归:test() 命中在途 connect() 时,等其结束后仍真正跑自己的探测(不复用 connect 的结果)', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    let testConnectSshCalls = 0;
+    const h = makeHarness({
+      connectSshImpl: async () => {
+        testConnectSshCalls++;
+        if (testConnectSshCalls === 1) return routed; // connect() 的调用
+        return createRoutedSsh({ execHandlers: healthyDefaults() }); // test() 的调用
+      },
+    });
+    saveConfig(h.configStore);
+
+    const connectPromise = h.orchestrator.connect('vps-hk');
+    const testPromise = h.orchestrator.test('vps-hk');
+
+    const [, testResult] = await Promise.all([connectPromise, testPromise]);
+    // test() 必须真正发起了自己的 connectSsh 调用(第 2 次),而非直接复用 connect 的结果
+    expect(testConnectSshCalls).toBe(2);
+    expect(testResult).toEqual({ ok: true });
+  });
+});
+
+describe('AC-6 版本不兼容 → failed·incompatible + 断开(main 前移探测 · Q1/A14)', () => {
+  it('probe 探测跑通但 compatible:false(真·版本不符)→ 状态落 failed·incompatible,tunnel/ssh 均已关闭', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      probeImpl: async () => ({ ok: true, compatible: false, detail: 'PROTOCOL_INCOMPATIBLE' }),
+    });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    const failEvent = h.events.at(-1);
+    expect(failEvent?.stage).toBe('failed');
+    expect(failEvent?.reason).toBe('incompatible');
+    expect(routed.close).toHaveBeenCalled();
+    // 建过的隧道 server 必须已被关闭(不留悬挂本地转发端口)
+    const forwardResults = (routed.forwardOut as ReturnType<typeof vi.fn>).mock.results;
+    const lastServer = forwardResults.at(-1)?.value as unknown as { closed: boolean };
+    expect(lastServer.closed).toBe(true);
+  });
+
+  it('🔴 A14 回归:probe 探测本身没跑通(!ok,瞬时传输失败)→ 状态落 failed·startFailed(非 incompatible),可重试', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      // 首装后的 verifying 探测瞬时失败(隧道时序/超时/被关等)——刚部署成功的
+      // host 不该被误报「版本不兼容·请升级」
+      probeImpl: async () => ({ ok: false, detail: 'probe timeout' }),
+    });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    const failEvent = h.events.at(-1);
+    expect(failEvent?.stage).toBe('failed');
+    expect(failEvent?.reason).toBe('startFailed');
+    expect(failEvent?.reason).not.toBe('incompatible');
+    expect(routed.close).toHaveBeenCalled();
+    const forwardResults = (routed.forwardOut as ReturnType<typeof vi.fn>).mock.results;
+    const lastServer = forwardResults.at(-1)?.value as unknown as { closed: boolean };
+    expect(lastServer.closed).toBe(true);
+  });
+});
+
+describe('🔴 A2 SSH 断链检测(AC-12 缺口修复)', () => {
+  it('ready 后底层 ssh 连接层 close(非本地转发 server 主动关)→ 探测到并转 disconnected', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+    expect(h.events.at(-1)?.stage).toBe('ready');
+
+    // 模拟远端网络中断:底层 ssh2 Client 触发 close,而非本地 net.Server 自己出错
+    routed.simulateSshClose();
+
+    expect(h.events.at(-1)?.stage).toBe('disconnected');
+  });
+
+  it('主动 disconnect() 触发的 ssh close 不产生重复/多余的 disconnected 事件', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+    await h.orchestrator.disconnect('vps-hk');
+    const disconnectedCount = h.events.filter((e) => e.stage === 'disconnected').length;
+
+    // disconnect() 内部会 close ssh(间接触发 onClose 回调)——但此时 stage 已经
+    // 不是 ready/verifying,守卫应吞掉重复回调,不重复 emit
+    routed.simulateSshClose();
+    expect(h.events.filter((e) => e.stage === 'disconnected').length).toBe(disconnectedCount);
+  });
+});
+
+describe('🔴 E9 disconnect() 有界超时,不长阻塞', () => {
+  it('在途编排卡住时,disconnect() 仍在有界时间内返回(不会等满整个编排)', async () => {
+    // 🔴 关键:不覆盖 sleep(不像 makeHarness 默认那样注入「瞬时 resolve」的桩)——
+    // 用真实定时器,才能真正验证 disconnect() 内部超时用的是有界的具体时长
+    // (实现常量 DISCONNECT_WAIT_TIMEOUT_MS=5s),而不只是「存在某个 race」。
+    const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
+    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage() });
+    const orchestrator = new RemoteHostOrchestrator({
+      connectSsh: async () => new Promise(() => {}), // 永不 resolve,模拟网络黑洞
+      credentials,
+      configStore,
+      bundleDir: () => '/local/bundle/darwin-arm64',
+      appVersion: '1.0.0',
+    });
+    saveConfig(configStore);
+
+    const connectPromise = orchestrator.connect('vps-hk');
+    void connectPromise.catch(() => undefined);
+
+    const start = Date.now();
+    await orchestrator.disconnect('vps-hk');
+    const elapsed = Date.now() - start;
+    // 有界在实现常量(5s)附近,远小于「永不 resolve」的无穷等待
+    expect(elapsed).toBeGreaterThanOrEqual(4_500);
+    expect(elapsed).toBeLessThan(9_000);
+  }, 15_000);
 });
