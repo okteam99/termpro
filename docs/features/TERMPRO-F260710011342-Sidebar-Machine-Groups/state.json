@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "pm_acceptance",
+  "current_stage": "ship",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": "a373ee8e213ae4c20b6d53e8520e3de053ece987",
   "worktree": {
@@ -225,10 +225,24 @@
       "duration_minutes": 1
     },
     "pm_acceptance": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T04:23:11Z",
+      "evidence": {
+        "decision": "approved_and_ship",
+        "note": ""
+      },
+      "completed_at": "2026-07-10T04:23:24Z",
+      "auto_commit": "794e2c105dbf34c5f92b53855fe4f6bab7f2a973",
+      "artifacts": [],
+      "duration_minutes": 0
+    },
+    "ship": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T04:23:11Z"
+      "started_at": "2026-07-10T04:23:24Z"
     }
   },
   "completed_stages": [
@@ -237,7 +251,8 @@
     "blueprint",
     "dev",
     "review",
-    "test"
+    "test",
+    "pm_acceptance"
   ],
   "created_at": "2026-07-10T01:15:04Z",
   "stage_review_roles": {
@@ -276,15 +291,31 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T04:23:23Z",
+  "updated_at": "2026-07-10T04:24:47Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:c892293eb6fb4630997d4c2912d88273d7ffb25a936f8d491f6088cbc5f0e1ae",
+  "_state_checksum": "sha256:76ffd87c9e233bd12e48aea860b8799c847f2a762d85c6253588de6da707aa60",
   "legal_next_stages": [
-    "ship",
-    "dev"
+    "completed"
   ],
   "execution_hints": {
     "ui_design_needed": true,
     "panorama_changed": false
+  },
+  "ship": {
+    "started_at": "2026-07-10T04:24:47Z",
+    "distill": {
+      "knowledge": "promoted GO-028(per-host 迁移四面同步不变式)/GO-029(import 集门禁正则)/GO-030(远程本地OS动作禁用) → project-specs/KNOWLEDGE.md",
+      "adr": "none(承接 BL-003 ADR-001·本 Feature 无新 ADR)",
+      "reg": "n/a",
+      "retro": "n/a(ship2 PROCESS-LEDGER append)",
+      "architecture": "none(BL-003 已更新远程拓扑·本 Feature 消费未改拓扑)",
+      "db_schema": "n/a(无 schema 变更·workspace hostId 是运行时字段远程不持久化)",
+      "distilled_at": "2026-07-10T04:24:47Z"
+    },
+    "sanitize_log": {
+      "residual_commits": [],
+      "cleaned_files": [],
+      "suspicious_files": []
+    }
   }
 }

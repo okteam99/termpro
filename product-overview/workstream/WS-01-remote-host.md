@@ -47,7 +47,7 @@ features:
     current_state: "Sidebar.tsx 为平铺 workspace 列表（单 host 假设）；创建项目走 dialog:pick-directory 原生对话框；全景页 /workspace/add-workspace（模型 A 版）已用户确认"
     flow_type: feature
     dependencies: [WS-01-S1, WS-01-S3]
-    status: planned
+    status: delivered
   - id: WS-01-S5
     target: TERMPRO
     bl: BL-005
@@ -133,14 +133,14 @@ risks:
 
 <!-- WS-PROGRESS:START · 工具生成(state.py ws-progress) · 名册驱动 · 自各 ROADMAP 匹配状态 · 勿手改 -->
 进度 0/5 已完成 · 5 待开始
-（名册 5 feature · 状态自 1 个 ROADMAP 匹配 · 2026-07-10T01:09:45Z）
+（名册 5 feature · 状态自 1 个 ROADMAP 匹配 · 2026-07-10T04:23:41Z）
 
 | feature | BL | 子项目 | 功能 | 状态 | 当前阶段 | F |
 |---------|----|--------|------|------|----------|---|
 | S1 | BL-001 | TERMPRO | Workspace 注册表驻留 Host（本地先行） | ✅ 已交付 | - | TERMPRO-F260709092258 |
 | S2 | BL-002 | TERMPRO | Host standalone + WebSocket + 协议握手 | ✅ 已交付 | - | TERMPRO-F260709092310 |
 | S3 | BL-003 | TERMPRO | 远程机管理与 SSH 连接编排 | ✅ 已交付 | - | TERMPRO-F260709180208 |
-| S4 | BL-004 | TERMPRO | 机器分组 Sidebar + 添加项目流程 | 待开始 | - | - |
+| S4 | BL-004 | TERMPRO | 机器分组 Sidebar + 添加项目流程 | ✅ 已交付 | - | TERMPRO-F260710011342 |
 | S5 | BL-005 | TERMPRO | 断线重连与会话连续性 | 待开始 | - | - |
 <!-- WS-PROGRESS:END -->
 
