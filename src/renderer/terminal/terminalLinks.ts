@@ -15,6 +15,7 @@ import {
   extractCandidates,
   fileUrlToPath,
   stripLineCol,
+  trimTrailingPunct,
 } from './terminalLinkParse';
 
 const STAT_CACHE_MS = 5_000;
@@ -176,6 +177,62 @@ function rowSegments(
     segs.push({ row, startCol, width: endCol - startCol + 1 });
   }
   return segs;
+}
+
+/** 跨缩进拼接链最多段数(限 stat RPC 次数;缝隙拼接每链最多试 MAX-1 次) */
+const MAX_JOIN_PARTS = 6;
+
+/** 每条逻辑行 join 尝试的 stat 预算(REVIEW E3:拼接落空时重叠后缀链最坏
+ *  O(链²) 次 stat;statCache 亦缓存 miss,此处再给确定性上限) */
+const MAX_JOIN_STATS_PER_LINE = 12;
+
+/** 续接段字符 run:与 PATH_RE 主体字符集一致 + 斜杠,可带 :行(:列) 后缀 */
+const CONT_RUN_RE = /^[\w.@%+/-]+(?::\d+(?::\d+)?)?/;
+
+/**
+ * Ink/Claude Code 等 TUI 硬折行时给续行加「悬挂缩进」(前导空格,可带 gutter
+ * 竖线),路径在缝隙处被截断。从上一段末尾 prevEnd 找下一物理行的续接段:
+ * - 上一段之后到行尾只能是空白(候选后有杂字符 → 不续);
+ * - 紧邻下一物理行行首只跳过空白/gutter(空格、│、⎿);
+ * - 其后取路径字符 run(尾部标点修剪)。
+ * 续接段**不要求是独立候选**(REVIEW E2:basename 内折行的续段不含斜杠,
+ * 不会被 extractCandidates 收录,但仍是合法续接)。
+ */
+function continuationPiece(
+  ll: LogicalLine,
+  prevEnd: number,
+): { start: number; end: number } | null {
+  const r1 = ll.pos[prevEnd - 1]?.row;
+  if (r1 === undefined) return null;
+  let j = prevEnd;
+  while (j < ll.text.length && ll.pos[j].row === r1) {
+    if (ll.text[j] !== ' ') return null;
+    j++;
+  }
+  if (j >= ll.text.length || ll.pos[j].row !== r1 + 1) return null;
+  while (
+    j < ll.text.length &&
+    ll.pos[j].row === r1 + 1 &&
+    /[ │⎿]/.test(ll.text[j])
+  ) {
+    j++;
+  }
+  if (j >= ll.text.length || ll.pos[j].row !== r1 + 1) return null;
+  const m = CONT_RUN_RE.exec(ll.text.slice(j));
+  if (!m) return null;
+  const run = trimTrailingPunct(m[0]);
+  if (!run) return null;
+  return { start: j, end: j + run.length };
+}
+
+/** 逻辑行内已命中的 fs 链接(hover 与常驻高亮共用;跨缩进拼接时多段) */
+export interface ResolvedFsLink {
+  abs: string;
+  kind: 'file' | 'dir';
+  /** 各高亮段 index 区间 [start, endExcl)(拼接链接跳过缩进缝 · 单候选仅一段) */
+  parts: Array<[number, number]>;
+  /** 链接文本(各段拼接 · 不含缝隙字符) */
+  text: string;
 }
 
 // OSC 8 超链接(程序用转义序列 ESC]8;;URI ST … 内嵌的可点链接)由 xterm 核心
@@ -359,31 +416,94 @@ export class FsLinkProvider implements ILinkProvider {
     return null;
   }
 
+  /**
+   * 跨缩进拼接(BUG-TERMPRO-B260710093647-001):从候选 i 起沿「贴行尾 + 续行
+   * 缩进续接段」链尽量延伸(续接段从文本派生 · 可不含斜杠 · REVIEW E2),
+   * 按最长优先 stat 拼接文本(不含缝隙字符)。
+   * 命中 → 合并为一条链接(返回 endIdx 供调用方吞掉链覆盖区间内的候选);
+   * 落空 → null(调用方回退单候选解析,前缀目录命中仍照旧成链)。stat 是最终
+   * oracle:只有拼出的完整路径真实存在才成链,无关缩进行不会误拼。
+   * join 只对拼接整段做 exact 解析,不叠加 resolveCandidateSpanning 的
+   * 前缀/后缀修剪(混合形态与 Ink 一致缩进的渲染相悖 · REVIEW A2)。
+   */
+  private async resolveJoinedAcrossIndent(
+    ll: LogicalLine,
+    cands: ReturnType<typeof extractCandidates>,
+    i: number,
+    budget: { left: number },
+  ): Promise<{ link: ResolvedFsLink; endIdx: number } | null> {
+    const chain: Array<[number, number]> = [[cands[i].start, cands[i].end]];
+    while (chain.length < MAX_JOIN_PARTS) {
+      const piece = continuationPiece(ll, chain[chain.length - 1][1]);
+      if (!piece) break;
+      chain.push([piece.start, piece.end]);
+    }
+    for (let n = chain.length; n >= 2; n--) {
+      if (budget.left <= 0) return null;
+      budget.left--;
+      const parts = chain.slice(0, n);
+      const text = parts.map(([s, e]) => ll.text.slice(s, e)).join('');
+      const hit = await this.resolveCandidateText(text);
+      if (hit) {
+        return { link: { ...hit, parts, text }, endIdx: parts[n - 1][1] };
+      }
+    }
+    return null;
+  }
+
+  /** 解析逻辑行内全部 fs 候选(hover 与常驻高亮共用;拼接命中的候选被吞掉) */
+  async resolveFsCandidates(
+    ll: LogicalLine,
+    cands: ReturnType<typeof extractCandidates>,
+  ): Promise<ResolvedFsLink[]> {
+    const out: ResolvedFsLink[] = [];
+    const budget = { left: MAX_JOIN_STATS_PER_LINE };
+    for (let i = 0; i < cands.length; i++) {
+      const joined = await this.resolveJoinedAcrossIndent(ll, cands, i, budget);
+      if (joined) {
+        out.push(joined.link);
+        // 吞掉链覆盖区间内的全部候选(含派生续接段恰好也是候选的情形)
+        while (i + 1 < cands.length && cands[i + 1].start < joined.endIdx) i++;
+        continue;
+      }
+      const hit = await this.resolveCandidateSpanning(ll, cands[i]);
+      if (hit) {
+        out.push({
+          abs: hit.abs,
+          kind: hit.kind,
+          parts: [[hit.startIdx, hit.endIdx]],
+          text: ll.text.slice(hit.startIdx, hit.endIdx),
+        });
+      }
+    }
+    return out;
+  }
+
   private async resolve(
     cands: ReturnType<typeof extractCandidates>,
     ll: LogicalLine,
   ): Promise<ILink[] | undefined> {
+    const resolved = await this.resolveFsCandidates(ll, cands);
     const links: ILink[] = [];
-    await Promise.all(
-      cands.map(async (c) => {
-        const hit = await this.resolveCandidateSpanning(ll, c);
-        if (!hit) return;
-        const s = ll.pos[hit.startIdx];
-        const e = ll.pos[hit.endIdx - 1];
-        links.push({
-          // 折行链接:范围跨物理行(x/y 均 1 基)
-          range: {
-            start: { x: s.col + 1, y: s.row + 1 },
-            end: { x: e.col + 1, y: e.row + 1 },
-          },
-          text: ll.text.slice(hit.startIdx, hit.endIdx),
-          decorations: { underline: true, pointerCursor: true },
-          activate: () => {
-            openTarget(this.tabId, hit.abs, hit.kind);
-          },
-        });
-      }),
-    );
+    for (const r of resolved) {
+      const s = ll.pos[r.parts[0][0]];
+      const e = ll.pos[r.parts[r.parts.length - 1][1] - 1];
+      if (!s || !e) continue;
+      links.push({
+        // 折行链接:范围跨物理行(x/y 均 1 基)。拼接链接的 hover 下划线由 xterm
+        // 按 range 起止连画、会盖住中间缩进缝(与 VS Code 折行链接一致);常驻
+        // 高亮走 parts 分段,跳过缝隙。
+        range: {
+          start: { x: s.col + 1, y: s.row + 1 },
+          end: { x: e.col + 1, y: e.row + 1 },
+        },
+        text: r.text,
+        decorations: { underline: true, pointerCursor: true },
+        activate: () => {
+          openTarget(this.tabId, r.abs, r.kind);
+        },
+      });
+    }
     return links.length > 0 ? links : undefined;
   }
 }
@@ -444,22 +564,33 @@ export class LinkHighlighter {
       y = Math.max(y, ll.endRow);
       if (seenStarts.has(ll.startRow)) continue;
       seenStarts.add(ll.startRow);
-      for (const c of extractCandidates(ll.text)) {
-        let startIdx = c.start;
-        let endIdx = c.end;
-        if (c.kind === 'fs') {
-          const hit = await this.provider.resolveCandidateSpanning(ll, c);
-          if (this.epoch !== myEpoch) return; // 已有新一轮扫描
-          if (!hit) continue;
-          startIdx = hit.startIdx; // 硬折行回退后的实际起止
-          endIdx = hit.endIdx;
-        }
-        for (const seg of rowSegments(ll.pos, startIdx, endIdx)) {
+      const cands = extractCandidates(ll.text);
+      for (const c of cands) {
+        if (c.kind !== 'web') continue;
+        for (const seg of rowSegments(ll.pos, c.start, c.end)) {
           hits.push({
             row: seg.row,
             startCol: seg.startCol,
             widthCells: seg.width,
           });
+        }
+      }
+      // fs 候选走与 hover 相同的 resolver(含跨缩进拼接 · 回退);拼接链接按
+      // parts 分段高亮,缩进缝不上色
+      const resolved = await this.provider.resolveFsCandidates(
+        ll,
+        cands.filter((c) => c.kind === 'fs'),
+      );
+      if (this.epoch !== myEpoch) return; // 已有新一轮扫描
+      for (const r of resolved) {
+        for (const [s, e] of r.parts) {
+          for (const seg of rowSegments(ll.pos, s, e)) {
+            hits.push({
+              row: seg.row,
+              startCol: seg.startCol,
+              widthCells: seg.width,
+            });
+          }
         }
       }
     }

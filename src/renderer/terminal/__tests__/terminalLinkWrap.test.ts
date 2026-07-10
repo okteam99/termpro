@@ -86,6 +86,151 @@ describe('wrapped path links', () => {
     expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } }); // 仅首行
   });
 
+  // BUG-TERMPRO-B260710093647-001:Ink/Claude Code 硬折行 + 续行悬挂缩进 ——
+  // 路径在缩进处被切成两个候选,前缀恰为真实目录时只高亮半截。
+  // 修复:跨缩进拼接(贴行尾候选 + 续行缩进候选 · stat 拼接文本 · 最长优先)。
+  it('Ink hanging-indent hard wrap: full path linked across rows (beats real prefix dir)', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/'; // 30 chars · 本身是真实目录
+    const tail = 'ios/docs/features/IOS-scaffold';
+    const full = dir + tail;
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir; // 行1恰好铺满
+    expect(line1.length).toBe(cols);
+    const line2 = '    ' + tail; // Ink 悬挂缩进 4 空格
+    statExisting({ [full]: 'dir', [dir.replace(/\/$/, '')]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    expect(term.buffer.active.getLine(1)?.isWrapped).toBe(false); // 前提:硬折行
+    for (const y of [1, 2]) {
+      const links = await provide(term, y);
+      expect(links).toHaveLength(1);
+      expect(links[0].text).toBe(full); // 最长优先:整条压过前缀目录
+      expect(links[0].range).toMatchObject({
+        start: { x: 11, y: 1 },
+        end: { x: 4 + tail.length, y: 2 },
+      });
+    }
+  });
+
+  it('hanging indent with unrelated continuation: falls back to the real prefix dir only', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/';
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir;
+    const line2 = '    unrelated/words here'; // 缩进后是无关相对路径 · 拼接 stat 落空
+    statExisting({ [dir.replace(/\/$/, '')]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe(dir); // 不误拼 · 前缀目录照旧成链
+    expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } });
+  });
+
+  // REVIEW Q2:gutter 白名单(│/⎿)真被执行 · 且 gutter 字符不得混入链接 text
+  it('gutter chars (│/⎿) in the gap: join still works, gutter stays out of link text', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/';
+    const tail = 'ios/docs/features/IOS-scaffold';
+    const full = dir + tail;
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir;
+    const line2 = '│ ⎿ ' + tail; // 两个 gutter 字符一起钉住白名单字符集
+    statExisting({ [full]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe(full); // 不含 │/⎿/空格
+    expect(links[0].range).toMatchObject({
+      start: { x: 11, y: 1 },
+      end: { x: 4 + tail.length, y: 2 },
+    });
+  });
+
+  // REVIEW Q3:候选贴行尾判定的镜像分支 —— 候选后同行还有杂字符(tail 非空白)
+  // 时不得跨行拼接(即便拼接路径真实存在 · 决定性断言)
+  it('non-blank char between candidate and row edge: no join even if joined path exists', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps'; // 29 chars · 无尾斜杠
+    const tail = 'ios/docs/thing';
+    const line1 = 'x'.repeat(cols - dir.length - 2) + ' ' + dir + ')'; // ')' 铺满行尾
+    expect(line1.length).toBe(cols);
+    const line2 = '    ' + tail;
+    statExisting({ [dir]: 'dir', [dir + tail]: 'dir' }); // 拼接路径也存在 · 仍不该拼
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe(dir); // tail 守卫生效 · 只有前缀成链
+    expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } });
+  });
+
+  // REVIEW E2:basename 内折行 —— 续段不含斜杠 · 不构成独立候选 · 仍须拼接
+  it('continuation without slash (wrap inside basename): still joined', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/';
+    const tail = 'IOS-scaffold'; // 无斜杠
+    const full = dir + tail;
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir;
+    const line2 = '    ' + tail;
+    statExisting({ [full]: 'dir', [dir.replace(/\/$/, '')]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    for (const y of [1, 2]) {
+      const links = await provide(term, y);
+      expect(links).toHaveLength(1);
+      expect(links[0].text).toBe(full); // 整条压过真实前缀目录
+      expect(links[0].range).toMatchObject({
+        start: { x: 11, y: 1 },
+        end: { x: 4 + tail.length, y: 2 },
+      });
+    }
+  });
+
+  // REVIEW E2 配套:无斜杠续段带尾随标点(引号等) · 修剪后拼接
+  it('slash-less continuation with trailing punct: punct trimmed from joined text', async () => {
+    const cols = 40;
+    const dir = '/home/u/aif/.worktree/F1/apps/';
+    const tail = 'IOS-scaffold';
+    const full = dir + tail;
+    const line1 = 'x'.repeat(cols - dir.length - 1) + ' ' + dir;
+    const line2 = "    IOS-scaffold' --label ok"; // 尾引号来自 shell 引参
+    statExisting({ [full]: 'dir' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe(full); // 引号不入链接
+    expect(links[0].range).toMatchObject({
+      start: { x: 11, y: 1 },
+      end: { x: 4 + tail.length, y: 2 },
+    });
+  });
+
+  it('3-row chain with indent on each continuation: single link spans all rows', async () => {
+    const cols = 30;
+    const c1 = '/home/u/wrap3/aaaaaaaa/bb'; // 25 chars
+    const c2 = 'cccccccc/dddddddd/eeeeeeee/f'; // 28 chars · 行2 恰好铺满
+    const c3 = 'gg/hh.ts';
+    const full = c1 + c2 + c3;
+    const line1 = 'y'.repeat(cols - c1.length - 1) + ' ' + c1;
+    const line2 = '  ' + c2;
+    const line3 = '  ' + c3;
+    expect(line1.length).toBe(cols);
+    expect(line2.length).toBe(cols);
+    statExisting({ [full]: 'file' });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2 + '\r\n' + line3, r));
+    for (const y of [1, 2, 3]) {
+      const links = await provide(term, y);
+      expect(links).toHaveLength(1);
+      expect(links[0].text).toBe(full);
+      expect(links[0].range).toMatchObject({
+        start: { x: 6, y: 1 },
+        end: { x: 2 + c3.length, y: 3 },
+      });
+    }
+  });
+
   it('no regression (upward): a real path is not swallowed by a coincidentally full line above it', async () => {
     const above = 'Some long status line that fills up to'; // 38 chars -> pad to 38? make exactly 38
     const filler = 'x'.repeat(38 - above.length);
