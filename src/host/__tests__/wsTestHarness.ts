@@ -14,6 +14,11 @@ export interface TestHostOptions {
   handshakeTimeoutMs?: number;
   pingIntervalMs?: number;
   maxPayload?: number;
+  /**
+   * host 形态(BL-005 · D-1)。默认 'embedded'(与既有 createHostCore() 默认一致 · 保既有
+   * ws 集成测零回归)。断线重连/回放收养测(AC-1/12)显式传 'standalone'。
+   */
+  mode?: 'embedded' | 'standalone';
 }
 
 export interface TestHost {
@@ -31,7 +36,7 @@ export async function startTestHost(
   opts: TestHostOptions = {},
 ): Promise<TestHost> {
   const token = opts.token ?? 'test-token-8f3a9c2e1b6d4077';
-  const core = createHostCore();
+  const core = createHostCore(opts.mode ?? 'embedded');
   const logs: string[] = [];
   const authAlerts: number[] = [];
   const handle = await startWsServer({

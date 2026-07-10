@@ -16,6 +16,19 @@ export interface TrackerOptions {
   now?: () => number;
 }
 
+/**
+ * 会话状态快照(SessionSnapshot 的 tracker 半侧 · BL-005)。
+ * 🔴 只含「当前态」——无未读计数 / 离散 bell·notify 累积(emit-and-forget · M-1/ARCH-5)。
+ * 🔴 exitCode = 最近一条命令的退出码(OSC133 D)· 不是进程/会话退出码
+ *    (后者是 ptyPool.onExit 的 exitCode · SessionSnapshot.exitCode 单独取 · QA-B-7)。
+ */
+export interface TrackerSnapshot {
+  state: 'idle' | 'running';
+  quiet: boolean;
+  altscreen: boolean;
+  exitCode: number | null;
+}
+
 export class SessionTracker {
   state: 'idle' | 'running' = 'idle';
   private quiet = false;
@@ -24,14 +37,36 @@ export class SessionTracker {
   private osc133 = false;
   private lastOsc133 = 0;
   private readonly now: () => number;
+  /** 当前是否 altscreen(全屏 TUI)· 现被存储可查询(BL-005 快照) */
+  private altscreen = false;
+  /** 最近一条命令的退出码(OSC133 D)· 存储可查询(BL-005 快照) */
+  private lastExitCode: number | null = null;
+  /** 会话退出后冻结:后续信号一律忽略,快照定格为退出前最终态(CR-4) */
+  private frozen = false;
 
   constructor(private opts: TrackerOptions) {
     this.now = opts.now ?? Date.now;
     this.lastOutput = this.now();
   }
 
+  /** 当前态快照(可查询 · session.list / attach 对账用) */
+  snapshot(): TrackerSnapshot {
+    return {
+      state: this.state,
+      quiet: this.quiet,
+      altscreen: this.altscreen,
+      exitCode: this.lastExitCode,
+    };
+  }
+
+  /** 会话退出:冻结最终快照,停止响应后续信号(死 pty 不再轮询 · CR-4) */
+  freeze(): void {
+    this.frozen = true;
+  }
+
   /** 每个输出 chunk 调用(扫描之后) */
   onOutput(): void {
+    if (this.frozen) return;
     this.lastOutput = this.now();
     if (this.quiet) {
       this.quiet = false;
@@ -40,10 +75,12 @@ export class SessionTracker {
   }
 
   onBell(): void {
+    if (this.frozen) return;
     this.opts.emit({ kind: 'bell' });
   }
 
   onOsc(code: number, payload: string): void {
+    if (this.frozen) return;
     if (code === 133) {
       this.onOsc133(payload);
     } else if (code === 9) {
@@ -65,11 +102,14 @@ export class SessionTracker {
   }
 
   onAltScreen(on: boolean): void {
+    if (this.frozen) return;
+    this.altscreen = on;
     this.opts.emit({ kind: 'altscreen', on });
   }
 
   /** pty.process 轮询喂入(变化时) */
   onProcessName(name: string): void {
+    if (this.frozen) return;
     if (this.osc133) {
       // 闩锁出口:133 长时间无声(如 exec 进了无注入的 shell)则解除
       if (this.now() - this.lastOsc133 < OSC133_STALE_MS) return;
@@ -81,6 +121,7 @@ export class SessionTracker {
 
   /** 池级 tick(~1.5s):运行中静默超阈值 → 软「等输入」信号 */
   tick(): void {
+    if (this.frozen) return;
     if (this.state !== 'running' || this.quiet) return;
     if (this.now() - this.lastOutput >= QUIET_MS) {
       this.quiet = true;
@@ -96,9 +137,10 @@ export class SessionTracker {
       this.setState('running', 'osc133');
     } else if (cmd === 'D') {
       const raw = payload.length > 2 ? Number.parseInt(payload.slice(2), 10) : NaN;
+      this.lastExitCode = Number.isFinite(raw) ? raw : null;
       this.opts.emit({
         kind: 'cmd-done',
-        exitCode: Number.isFinite(raw) ? raw : null,
+        exitCode: this.lastExitCode,
       });
     } else if (cmd === 'A') {
       this.setState('idle', 'osc133');

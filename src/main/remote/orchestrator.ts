@@ -540,6 +540,9 @@ export class RemoteHostOrchestrator {
         const { tunnel } = residency.claimed!;
         session.forwardServer = tunnel.server;
         session.localPort = tunnel.localPort;
+        // 🔴 EXT-B-2 确认:claim 复用 storedToken(host 进程本身没重启,它仍只认
+        // 这个 token)——生成新 token(:590 generateToken())只发生在未认领的部署
+        // 分支,claim 分支绝不换 token(否则收养瞬间就把自己踢出)。
         session.token = storedToken;
         session.remotePid = residency.portRaw?.pid ?? null;
 

@@ -11,7 +11,11 @@ import { gitInfo } from './gitService';
 import { resolveToken } from './token';
 import { startWsServer } from './wsServer';
 
-const core = createHostCore();
+// 形态注入(D-1 · BL-005):--listen → standalone(远程/loopback · 断线续跑 + 回放收养);
+// 否则 → embedded(本机嵌入式 · 零回归)。分流在 argv 层,createHostCore 之前前移。
+const core = createHostCore(
+  process.argv.includes('--listen') ? 'standalone' : 'embedded',
+);
 
 // dev/远程冒烟自测:host cwd 即项目仓库时验证 git 链路
 function maybeGitSmoke(): void {

@@ -24,7 +24,8 @@ function callbacksFor(tabId: string): TermCallbacks {
       onTitle: (name) =>
         useAppStore.getState().updateTab(tabId, { processName: name }),
       onCwd: (cwd) => useAppStore.getState().updateTab(tabId, { cwd }),
-      onExit: () => useAppStore.getState().updateTab(tabId, { exited: true }),
+      onExit: (exitCode) =>
+        useAppStore.getState().updateTab(tabId, { exited: true, exitCode }),
       onFirstData: () => {
         if (!smokeSent) {
           smokeSent = true;

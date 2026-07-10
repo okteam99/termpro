@@ -7,6 +7,8 @@ import {
   startRemoteWorkspaceSync,
   stopRemoteWorkspaceSync,
 } from '../services/remoteWorkspaceSync';
+import { reconnectController } from '../services/reconnectWiring';
+import { scheduleDropUnlessReconnecting } from '../services/reconnectController';
 import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
 import type { RemoteHostConfig } from '../../shared/remoteHost';
 import { ProtocolIncompatibleError } from '../../shared/versionCompat';
@@ -168,6 +170,7 @@ export function Sidebar() {
   const notifications = useAppStore((s) => s.notifications);
 
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
+  const reconnectingMap = useRemoteHostRuntimeStore((s) => s.reconnecting);
   const applyRuntimeEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -243,8 +246,11 @@ export function Sidebar() {
       handshakingRef.current.add(configId);
       const wsUrl = `ws://127.0.0.1:${tunnel.localPort}?token=${encodeURIComponent(tunnel.token)}`;
       const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
+      // 🔴 硬门④ call site:改调 reconnect(单一 owner)而非 connect——重连时 main re-emit
+      // verifying{tunnel},若走 connect() 命中陈旧 connectPromise → 新 ws 不开、假 ready 污染 UI。
+      // reconnect() 复位 connectPromise 后开新 ws;初次连接 connectPromise=null 时复位是 no-op 等价 connect。
       client
-        .connect({ wsUrl })
+        .reconnect({ wsUrl })
         .then(async () => {
           try {
             await client.rpc('fs.readdir', { path: client.info?.homedir ?? '/' });
@@ -252,6 +258,10 @@ export function Sidebar() {
             // 冒烟失败不阻断 ready —— 握手(host.info + 版本兼容)已是核心判据
           }
           applyRuntimeEvent({ configId, stage: 'ready' });
+          // 🔴 A1(review-fix):readopt 收养由 reconnect promise resolution 驱动(ws 真 open·transport
+          // 已就绪)——而非 main 的 'ready' stage 事件(那会在 ws 打开前触发 session.attach → reject →
+          // 收养静默中止 → 终端冻结)。初次连接 wasReconnecting=false·onReconnected 内为廉价 no-op。
+          reconnectController.onReconnected(configId);
         })
         .catch((err: unknown) => {
           applyRuntimeEvent({
@@ -260,6 +270,9 @@ export function Sidebar() {
             reason: err instanceof ProtocolIncompatibleError ? 'incompatible' : 'internal',
             detail: err instanceof Error ? err.message : String(err),
           });
+          // 🔴 A2(review-fix):握手失败(ws 打不开 / 不兼容)→ 推进退避重试;超预算 → 确定断线 drop。
+          // 非 reconnecting(初次连接失败)时 onAttemptFailed 内守卫使其 no-op。
+          reconnectController.onAttemptFailed(configId);
         })
         .finally(() => {
           handshakingRef.current.delete(configId);
@@ -268,7 +281,16 @@ export function Sidebar() {
 
     return window.termpro.remoteHost.onEvent((e) => {
       applyRuntimeEvent(e);
-      if (e.stage === 'verifying' && e.tunnel) beginHandshake(e.configId, e.tunnel);
+      if (e.stage === 'verifying' && e.tunnel) {
+        beginHandshake(e.configId, e.tunnel);
+      } else if (
+        e.stage === 'failed' &&
+        useRemoteHostRuntimeStore.getState().isReconnecting(e.configId)
+      ) {
+        // 🔴 A2(review-fix):重连期 main emit 'failed'(隧道重建失败:ssh 抛/token 拒/不可达)→
+        // 推进退避重试或超预算 drop。守卫到 isReconnecting——初次连接失败不误入重连状态机。
+        reconnectController.onAttemptFailed(e.configId);
+      }
     });
   }, [applyRuntimeEvent]);
 
@@ -276,12 +298,27 @@ export function Sidebar() {
   // 同生命周期)。与「谁完成了握手」解耦——不论是本组件的 beginHandshake 还是 RemoteHostsPage
   // 完成的握手,只要 runtime 落到 ready 就触发一次,重入由 remoteWorkspaceSync 内部去重。
   const syncedHosts = useRef<Set<string>>(new Set());
+  const reconnectWired = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const [configId, evt] of Object.entries(runtimeMap)) {
-      if (evt.stage === 'ready' && !syncedHosts.current.has(configId)) {
-        syncedHosts.current.add(configId);
-        void startRemoteWorkspaceSync(configId, '');
-      } else if (evt.stage !== 'ready') {
+      if (evt.stage === 'ready') {
+        if (!syncedHosts.current.has(configId)) {
+          syncedHosts.current.add(configId);
+          void startRemoteWorkspaceSync(configId, '');
+        }
+        // 🔴 A1(review-fix):收养回放**不再**在此(main 'ready' stage 事件)驱动——它会在新 ws 打开前
+        // 触发 session.attach → reject → 收养静默中止 → 终端冻结。改由 beginHandshake 的
+        // `client.reconnect().then`(ws 真 open 后)调 reconnectController.onReconnected。此处仅保留与
+        // 「谁完成握手」解耦的 workspace 发现 + onReconnectNeeded 订阅。
+        // 订该 client 的「需要重连」信号(心跳判死 / transport close·仅订一次)→ 启动重连编排
+        if (!reconnectWired.current.has(configId)) {
+          const client = hostRegistry.forHostId(configId);
+          const unsub = client?.onReconnectNeeded?.(() =>
+            reconnectController.onDisconnected(configId),
+          );
+          if (unsub) reconnectWired.current.add(configId);
+        }
+      } else {
         syncedHosts.current.delete(configId);
       }
     }
@@ -301,17 +338,27 @@ export function Sidebar() {
       if (evt.stage === 'disconnected' && prev !== 'disconnected') {
         setPanelHosts((s) => ({ ...s, [configId]: true }));
         clearTimeout(panelTimers.current[configId]);
-        panelTimers.current[configId] = setTimeout(() => {
-          setPanelHosts((s) => {
-            if (!s[configId]) return s;
-            const next = { ...s };
-            delete next[configId];
-            return next;
-          });
-          // folded 阶段:退订该机订阅 + 清 store 该 host 全部 workspace(含 active 回落本机首个)
-          // + drop client(E-4/D-8 三步同一原子操作)
-          stopRemoteWorkspaceSync(configId);
-        }, DISCONNECT_PANEL_MS);
+        delete panelTimers.current[configId];
+        // 🔴 CR-1 ② / Q1(review-fix):把 900ms drop gate **收敛到被测 seam** scheduleDropUnlessReconnecting
+        // ——reconnecting 期返 null(不启动 drop 倒计时·抑制 AC-15 full drop);非 reconnecting(确定断线/
+        // 机器删除)才排 900ms 折叠(不回归 BL-004)。生产路径由此走 T-030/031 断言的同一函数:删掉其
+        // 内 isReconnecting gate 测即变红。folded 阶段 stopSync = 清 panel 展示态 + stopRemoteWorkspaceSync
+        // (退订 + 清 store 该 host 全部 workspace + drop client·E-4/D-8 三步)。
+        const handle = scheduleDropUnlessReconnecting(configId, {
+          isReconnecting: (id) =>
+            useRemoteHostRuntimeStore.getState().isReconnecting(id),
+          stopSync: (id) => {
+            setPanelHosts((s) => {
+              if (!s[id]) return s;
+              const next = { ...s };
+              delete next[id];
+              return next;
+            });
+            stopRemoteWorkspaceSync(id);
+          },
+          delayMs: DISCONNECT_PANEL_MS,
+        });
+        if (handle) panelTimers.current[configId] = handle;
       } else if (evt.stage !== 'disconnected' && prev === 'disconnected') {
         clearTimeout(panelTimers.current[configId]);
         setPanelHosts((s) => {
@@ -324,6 +371,19 @@ export function Sidebar() {
       prevStages.current[configId] = evt.stage;
     }
   }, [runtimeMap]);
+
+  // 🔴 A5(review-fix·CR-1 gate 真闭合):某 host 进入 reconnecting 的一刻,主动清掉可能已排上的 900ms
+  // drop 计时器。修的是「main 的 disconnected 先于 renderer 心跳判死到达」竞态——那时 isReconnecting 仍
+  // false·上面的 gate 会放行排上 drop 计时器·若随后的 connecting 事件因任何原因晚于 900ms 就会漏 drop
+  // 击穿 AC-15。reconnecting 置真后 drop 的唯一出口就是 reconnectController 超预算分支,故此处清 timer 安全。
+  useEffect(() => {
+    for (const [configId, on] of Object.entries(reconnectingMap)) {
+      if (on && panelTimers.current[configId] !== undefined) {
+        clearTimeout(panelTimers.current[configId]);
+        delete panelTimers.current[configId];
+      }
+    }
+  }, [reconnectingMap]);
 
   useEffect(
     () => () => {
@@ -427,6 +487,19 @@ export function Sidebar() {
     const inPanel = !!panelHosts[cfg.id];
     const wsForHost = workspaces.filter((w) => w.hostId === cfg.id);
     const addr = `${cfg.username}@${cfg.host}`;
+
+    // BL-005 · AC-15:瞬时断线·重连中——保活该机 workspace 可见(不折叠·不消失),组头琥珀脉冲。
+    // reconnecting 是 store 单源标志(reconnectController 先占),优先于 runtime.stage 的 disconnected 呈现。
+    if (reconnectingMap[cfg.id]) {
+      return {
+        id: cfg.id,
+        kind: 'remote',
+        alias: cfg.alias,
+        addr,
+        status: 'reconnecting',
+        workspaces: wsForHost.map((w) => toRowData(w, activeWorkspaceId, false)),
+      };
+    }
 
     if (runtime?.stage === 'ready') {
       return {
@@ -575,6 +648,7 @@ export function Sidebar() {
               machine={machine}
               onConnect={handleConnectMachine}
               onRetry={handleConnectMachine}
+              onManualRetry={(id) => reconnectController.manualRetry(id)}
               onSelectWorkspace={handleSelectWorkspace}
             />
           ),

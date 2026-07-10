@@ -12,23 +12,50 @@ import type { RemoteEvent } from '../../shared/remoteHost';
 interface RemoteHostRuntimeState {
   /** configId → 最近一次 RemoteEvent;无 key = 该机从未连接过(idle)。 */
   runtime: Record<string, RemoteEvent>;
+  /**
+   * BL-005(CR-1):configId → 是否正处于「瞬时断线·重连中」。reconnectController **同步先占**
+   * 此态再走 disconnect-first(disconnect() 会自发广播 disconnected)。Sidebar 900ms drop 计时器
+   * gate 到 `!isReconnecting(configId)`——reconnecting 期不启动 full-drop 倒计时(抑制 AC-15)。
+   */
+  reconnecting: Record<string, boolean>;
   /** 写入/覆盖某 configId 的运行态(main 推送事件 与 renderer 本地握手结果共用同一落点)。 */
   applyEvent(e: RemoteEvent): void;
   /** 清空某 configId 运行态(手动断开/删除后回落 idle,不留孤儿展示态)。 */
   clear(configId: string): void;
+  /** 置/清某 configId 的 reconnecting 态(reconnectController 单源驱动)。 */
+  setReconnecting(configId: string, on: boolean): void;
+  /** 查询某 configId 是否 reconnecting(Sidebar drop 计时器 gate·CR-1)。 */
+  isReconnecting(configId: string): boolean;
 }
 
-export const useRemoteHostRuntimeStore = create<RemoteHostRuntimeState>((set) => ({
+export const useRemoteHostRuntimeStore = create<RemoteHostRuntimeState>((set, get) => ({
   runtime: {},
+  reconnecting: {},
   applyEvent(e) {
     set((s) => ({ runtime: { ...s.runtime, [e.configId]: e } }));
   },
   clear(configId) {
     set((s) => {
-      if (!(configId in s.runtime)) return s;
-      const next = { ...s.runtime };
-      delete next[configId];
-      return { runtime: next };
+      const hasRuntime = configId in s.runtime;
+      const hasReconnecting = configId in s.reconnecting;
+      if (!hasRuntime && !hasReconnecting) return s;
+      const runtime = { ...s.runtime };
+      delete runtime[configId];
+      const reconnecting = { ...s.reconnecting };
+      delete reconnecting[configId];
+      return { runtime, reconnecting };
     });
+  },
+  setReconnecting(configId, on) {
+    set((s) => {
+      if (!!s.reconnecting[configId] === on) return s;
+      const reconnecting = { ...s.reconnecting };
+      if (on) reconnecting[configId] = true;
+      else delete reconnecting[configId];
+      return { reconnecting };
+    });
+  },
+  isReconnecting(configId) {
+    return !!get().reconnecting[configId];
   },
 }));

@@ -183,8 +183,12 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       const { localPort, token } = tunnel;
       const wsUrl = `ws://127.0.0.1:${localPort}?token=${encodeURIComponent(token)}`;
       const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
+      // 🔴 E2(review-fix·硬门④ 另半边·同 Sidebar):verifying→握手改调 reconnect(单一 owner)而非
+      // connect——重连时 main re-emit verifying{tunnel},走 connect() 会命中陈旧 connectPromise(hostClient
+      // :227 早返)→ 新 ws 不开、假 ready 污染 UI(EXT-B-1)。reconnect() 复位 connectPromise 后开新 ws;
+      // 初次连接 connectPromise=null 时复位是 no-op 等价 connect。
       client
-        .connect({ wsUrl })
+        .reconnect({ wsUrl })
         .then(async (info) => {
           try {
             await client.rpc('fs.readdir', { path: info.homedir });

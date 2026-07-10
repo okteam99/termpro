@@ -18,6 +18,7 @@ import {
   checkHostInfoCompatible,
   ProtocolIncompatibleError,
 } from '../../shared/versionCompat';
+import { Heartbeat, readHeartbeatEnv } from './heartbeat';
 
 export interface PtyListener {
   onData?(data: string, bytes: number): void;
@@ -74,6 +75,9 @@ export class WebSocketTransport implements Transport {
 export class HostClient {
   private transport: Transport | null = null;
   private connectPromise: Promise<HostInfo> | null = null;
+  // 断线重连的并发再入守卫(BL-005 · ARCH-B-2):手动「立即重试」+ 退避循环可能同时触发
+  // reconnect;in-flight 复用同一 promise,不重复开 ws。
+  private reconnectPromise: Promise<HostInfo> | null = null;
   private seq = 0;
   private pending = new Map<
     number,
@@ -89,10 +93,22 @@ export class HostClient {
     (sessionId: string, event: SessionEvent) => void
   >();
   private workspaceListeners = new Set<(workspaces: WorkspaceEntry[]) => void>();
+  // BL-005:远程 client(reconnectable)transport 断开/心跳判死 → 非终结,触发重连编排。
+  private reconnectNeededListeners = new Set<() => void>();
+  // 主动 teardown(reconnect/dispose 内 close 旧 transport)期间抑制自身 onClose 分叉,防 loop。
+  private tearingDown = false;
+  private heartbeat: Heartbeat | null = null;
+
+  /**
+   * reconnectable(BL-005 · AC-10):远程 client 置 true —— transport onClose / 心跳判死走
+   * 「触发重连(非终结)」分叉;本地嵌入式 client 保持 false —— onClose = markDown 终结(进程真死)。
+   */
+  readonly reconnectable: boolean;
 
   info: HostInfo | null = null;
 
-  constructor() {
+  constructor(opts?: { reconnectable?: boolean }) {
+    this.reconnectable = opts?.reconnectable ?? false;
     // main 广播 host 进程退出 → 拒绝所有挂起调用,通知 UI。
     // 守卫 window 缺失(node 环境单测导入 store→hostClient 时不崩)。
     if (typeof window !== 'undefined') {
@@ -100,6 +116,26 @@ export class HostClient {
         if (e.data?.t === 'host:down') this.markDown();
       });
     }
+  }
+
+  /**
+   * 订阅「需要重连」信号(BL-005 · 仅 reconnectable client 触发):远程 transport onClose 或
+   * app 层心跳判死时触发。reconnectController 订此驱动 disconnect-first→connect 编排。
+   */
+  onReconnectNeeded(cb: () => void): () => void {
+    this.reconnectNeededListeners.add(cb);
+    return () => {
+      this.reconnectNeededListeners.delete(cb);
+    };
+  }
+
+  /**
+   * 该 host 是否支持断线重连回放收养(BL-005 · QA-14 稳定信号 = 能力位存在性)。
+   * host.info.capabilities 含 'session.resume' → 支持 session.list/attach;旧 host 省略 → false,
+   * 收养退化 new spawn(不发 list/attach)。
+   */
+  supportsSessionResume(): boolean {
+    return this.info?.capabilities?.includes('session.resume') ?? false;
   }
 
   /** 订阅 host 进程退出事件,返回退订函数 */
@@ -147,6 +183,42 @@ export class HostClient {
   }
 
   /**
+   * transport onClose 分叉(BL-005 · AC-10):
+   * - reconnectable(远程):非终结 → 停心跳 + 通知 reconnectNeeded(不置 down·不永久拒 rpc);
+   * - 否则(本地嵌入式):markDown 终结(进程真死·现语义)。
+   * tearingDown 期(reconnect/dispose 主动关旧 transport)直接忽略,防自触发 loop。
+   */
+  private handleTransportClose(): void {
+    if (this.tearingDown) return;
+    if (this.reconnectable) {
+      this.stopHeartbeat();
+      this.reconnectNeededListeners.forEach((cb) => cb());
+    } else {
+      this.markDown();
+    }
+  }
+
+  private startHeartbeat(): void {
+    if (!this.reconnectable || this.heartbeat) return;
+    this.heartbeat = new Heartbeat(readHeartbeatEnv(), {
+      probe: () => this.rpc('host.info', undefined),
+      onDead: () => this.handleHeartbeatDead(),
+    });
+    this.heartbeat.start();
+  }
+
+  private stopHeartbeat(): void {
+    this.heartbeat?.stop();
+    this.heartbeat = null;
+  }
+
+  /** 心跳判死(AC-13):等同 transport 断开的远程分叉 —— 触发重连编排(非终结)。 */
+  private handleHeartbeatDead(): void {
+    this.stopHeartbeat();
+    this.reconnectNeededListeners.forEach((cb) => cb());
+  }
+
+  /**
    * opts.wsUrl 存在 → 走 connectViaWebSocket(opts.wsUrl)(远程 per-host 客户端 · SSH-6);
    * 否则现状分支一字不变:dev 开关 VITE_TERMPRO_REMOTE_WS → WS,缺省 → MessagePort。
    * 🔴 本地单例调用 connect() 不传参,行为零变化(40+ 消费方兼容)。
@@ -161,7 +233,45 @@ export class HostClient {
     this.connectPromise.catch(() => {
       this.connectPromise = null;
     });
+    // 远程 client 连上后启动 app 层心跳(冻结 TCP 下比 onclose 更快判死·AC-13)
+    if (this.reconnectable) {
+      this.connectPromise.then(
+        () => this.startHeartbeat(),
+        () => undefined,
+      );
+    }
     return this.connectPromise;
+  }
+
+  /**
+   * 显式重连(BL-005 · AC-10):区别于 dispose——复位握手态(down/connectPromise)、关旧 transport、
+   * 重开新 transport,但**保留 per-host 结构**(sessionListeners/workspaceListeners/fsListeners/
+   * downListeners/reconnectNeededListeners 不清)。单一入口兼容初次/重连:初次 connectPromise=null 时
+   * 复位是 no-op 等价 connect(硬门④ call site 收敛·beginHandshake 亦改调本方法)。
+   * 🔴 并发再入守卫:in-flight 复用同一 promise(手动立即重试 + 退避循环同时触发时不重复开 ws)。
+   */
+  reconnect(opts?: { wsUrl?: string }): Promise<HostInfo> {
+    if (this.reconnectPromise) return this.reconnectPromise;
+    // 关旧 transport 但抑制其 onClose 分叉(否则又触发一次 reconnectNeeded → loop)
+    this.tearingDown = true;
+    this.stopHeartbeat();
+    try {
+      this.transport?.close();
+    } catch {
+      /* 旧 transport 可能已死 */
+    }
+    this.transport = null;
+    this.tearingDown = false;
+    // 复位陈旧握手态(connectPromise 陈旧早返是复用实例重连卡死的根因·硬门④)
+    this.down = false;
+    this.connectPromise = null;
+    const p = this.connect(opts);
+    this.reconnectPromise = p;
+    const clear = (): void => {
+      if (this.reconnectPromise === p) this.reconnectPromise = null;
+    };
+    p.then(clear, clear);
+    return p;
   }
 
   /**
@@ -171,10 +281,14 @@ export class HostClient {
    * 误判为「host 已退出」而拒绝(与「dispose 后重连」的调用方期望不符)。
    */
   dispose(): void {
+    this.tearingDown = true;
+    this.stopHeartbeat();
     this.transport?.close();
     this.transport = null;
     this.connectPromise = null;
+    this.reconnectPromise = null;
     this.down = false;
+    this.tearingDown = false;
   }
 
   private connectViaMessagePort(): Promise<HostInfo> {
@@ -300,7 +414,7 @@ export class HostClient {
   private attachTransport(transport: Transport): void {
     this.transport = transport;
     transport.onMessage((msg) => this.handle(msg));
-    transport.onClose(() => this.markDown());
+    transport.onClose(() => this.handleTransportClose());
   }
 
   private handle(msg: HostMessage): void {

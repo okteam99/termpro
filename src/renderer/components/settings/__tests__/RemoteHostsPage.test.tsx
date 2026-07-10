@@ -28,6 +28,9 @@ const { fakeRemoteClient, hostRegistryMock } = vi.hoisted(() => {
   const fakeRemoteClient = {
     info: null as HostInfo | null,
     connect: vi.fn(),
+    // 🔴 E2(review-fix):beginHandshake 改调 client.reconnect(单一 owner·硬门④)——mock 补该方法,
+    // 握手驱动断言从 connect 迁到 reconnect。
+    reconnect: vi.fn(),
     rpc: vi.fn(),
     dispose: vi.fn(),
   };
@@ -294,7 +297,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       homedir: '/root',
       shell: '/bin/bash',
     };
-    fakeRemoteClient.connect.mockResolvedValueOnce(info);
+    fakeRemoteClient.reconnect.mockResolvedValueOnce(info);
     fakeRemoteClient.rpc.mockResolvedValueOnce({ entries: [] });
 
     emit({
@@ -309,7 +312,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
         'ws://127.0.0.1:4321?token=tok-1',
       ),
     );
-    expect(fakeRemoteClient.connect).toHaveBeenCalledWith({
+    expect(fakeRemoteClient.reconnect).toHaveBeenCalledWith({
       wsUrl: 'ws://127.0.0.1:4321?token=tok-1',
     });
     await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
@@ -332,7 +335,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       homedir: '/root',
       shell: '/bin/bash',
     };
-    fakeRemoteClient.connect.mockResolvedValueOnce(info);
+    fakeRemoteClient.reconnect.mockResolvedValueOnce(info);
     fakeRemoteClient.rpc.mockResolvedValueOnce({ entries: [] });
 
     // 不 await、不经额外 render:main 同步栈内背靠背两次 emit
@@ -348,7 +351,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       'gpu-box',
       'ws://127.0.0.1:4321?token=tok-1',
     );
-    expect(fakeRemoteClient.connect).toHaveBeenCalledWith({
+    expect(fakeRemoteClient.reconnect).toHaveBeenCalledWith({
       wsUrl: 'ws://127.0.0.1:4321?token=tok-1',
     });
   });
@@ -356,7 +359,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
   it('handshake rejecting with ProtocolIncompatibleError renders failed · incompatible', async () => {
     const config = makeConfig({ id: 'gpu-box' });
     const { emit } = await renderPage([config]);
-    fakeRemoteClient.connect.mockRejectedValueOnce(
+    fakeRemoteClient.reconnect.mockRejectedValueOnce(
       new ProtocolIncompatibleError(buildIncompatibleDetail(1, 1, 3, 2)),
     );
 
@@ -414,7 +417,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
 
     // 既不重新握手,也不把 UI 复活到 ready —— 行仍是 idle「连接」态
     expect(hostRegistryMock.getOrCreateRemote).not.toHaveBeenCalled();
-    expect(fakeRemoteClient.connect).not.toHaveBeenCalled();
+    expect(fakeRemoteClient.reconnect).not.toHaveBeenCalled();
     expect(screen.queryByText('✓ 已连接')).toBeNull();
     expect(screen.getByText('连接')).toBeInTheDocument();
   });
@@ -440,7 +443,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       homedir: '/root',
       shell: '/bin/bash',
     };
-    fakeRemoteClient.connect.mockResolvedValueOnce(info);
+    fakeRemoteClient.reconnect.mockResolvedValueOnce(info);
     fakeRemoteClient.rpc.mockResolvedValueOnce({ entries: [] });
 
     emit({
