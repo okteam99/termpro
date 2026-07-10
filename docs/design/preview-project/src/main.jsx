@@ -72,6 +72,7 @@ const KNOWN_ROUTES = [
   '/shell/close-install-confirmation',
   '/workspace/add-workspace',
   '/settings/remote-hosts',
+  '/sidebar/machine-groups',
 ];
 
 const DEFAULT_ROUTE = '/workspace/add-workspace';
@@ -88,6 +89,7 @@ const DEVBAR_ROUTES = [
   { path: '/shell/close-install-confirmation', label: 'Close/Install' },
   { path: '/workspace/add-workspace', label: 'Add Workspace' },
   { path: '/settings/remote-hosts', label: 'Remote Hosts' },
+  { path: '/sidebar/machine-groups', label: 'Sidebar · Machine Groups' },
 ];
 
 function PreviewDevBar({ currentPath, onNavigate, statePresets, activeStateKey, onSelectState }) {
@@ -150,6 +152,8 @@ function Sidebar({
   workspaces = DEFAULT_WORKSPACES,
   machines,
   onConnectMachine,
+  onRetryMachine,
+  onSelectWorkspace,
   onAddWorkspace,
   onOpenRemoteHosts,
   onReconnectWorkspace,
@@ -163,7 +167,13 @@ function Sidebar({
       <div className="sidebar-list">
         {machines ? (
           machines.map((m) => (
-            <MachineGroup key={m.id} machine={m} onConnect={onConnectMachine} />
+            <MachineGroup
+              key={m.id}
+              machine={m}
+              onConnect={onConnectMachine}
+              onRetry={onRetryMachine}
+              onSelectWorkspace={onSelectWorkspace}
+            />
           ))
         ) : (
           workspaces.map((item) => (
@@ -190,20 +200,56 @@ function Sidebar({
  * 机器分组:本机组头无状态点;远程组头 = 状态点 + 别名(title 显 addr)。
  * status: 'connected' | 'connecting' | 'disconnected'(未连接·灰)| 'lost'(断线·红)。
  * workspaces 为 null = 未连接,连接后才能看到该机上的 workspace(A 模型核心)。
+ *
+ * machine.runtime(可选 · AC-8 连接生命周期):{stage, percent?, reason?, fast?, arch?} ·
+ * 形状与 /settings/remote-hosts 的 hostRuntime 条目一致(CONNECT_STAGE_LABEL / FAIL_REASONS 复用) ·
+ * stage='failed' → 组头显示原因 + 重试;stage∈连接中各态 → 显示阶段文案(+ deploying 时的 %)。
+ * 不传 runtime 时保持旧有基于 machine.status 的渲染(零回归)。
+ *
+ * machine.foldedLost(可选 · D-8/AC-11):true = 断线后折叠回未连接态外观(隐藏 workspace 列表·
+ * 显示 emptyLabel + 重连入口),区别于旧有「lost 仅整体变灰但仍展开」的呈现(该呈现继续保留·
+ * 供未设置 foldedLost 的既有场景使用,零回归)。
  */
-function MachineGroup({ machine, onConnect }) {
+function MachineGroup({ machine, onConnect, onRetry, onSelectWorkspace }) {
   const isRemote = machine.kind === 'remote';
+  const runtime = machine.runtime;
   const groupClasses = [
     'sidebar-machine-group',
     machine.status === 'lost' ? 'sidebar-machine-group--lost' : '',
   ].filter(Boolean).join(' ');
+
+  function renderRuntimeStatus() {
+    if (runtime.stage === 'failed') {
+      const reason = FAIL_REASONS[runtime.reason] || FAIL_REASONS.unreachable;
+      return (
+        <span className="sidebar-machine-status sidebar-machine-status--fail" title={reason.detail}>
+          <span className="sidebar-machine-status-text">✗ {reason.label}</span>
+          <button className="sidebar-machine-connect" onClick={() => onRetry && onRetry(machine.id)}>重试</button>
+        </span>
+      );
+    }
+    const label = CONNECT_STAGE_LABEL[runtime.stage] || '连接中…';
+    const pct = runtime.stage === 'deploying' && typeof runtime.percent === 'number' ? ` ${runtime.percent}%` : '';
+    return (
+      <span className="sidebar-machine-status sidebar-machine-status--active">
+        <span className="add-ws__spinner add-ws__spinner--sm" />
+        {label}{pct}
+      </span>
+    );
+  }
+
+  const showWorkspaces = machine.workspaces && !machine.foldedLost;
 
   return (
     <div className={groupClasses}>
       <div className="sidebar-machine-header" title={isRemote ? machine.addr : undefined}>
         {isRemote && <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status}`} />}
         <span className="sidebar-machine-label">{isRemote ? machine.alias : machine.label}</span>
-        {isRemote && machine.status === 'disconnected' && (
+        {isRemote && runtime && renderRuntimeStatus()}
+        {isRemote && !runtime && machine.foldedLost && (
+          <button className="sidebar-machine-connect" onClick={() => onConnect && onConnect(machine.id)}>重连</button>
+        )}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'disconnected' && (
           <button
             className="sidebar-machine-connect"
             onClick={() => onConnect && onConnect(machine.id)}
@@ -211,30 +257,65 @@ function MachineGroup({ machine, onConnect }) {
             连接
           </button>
         )}
-        {isRemote && machine.status === 'connecting' && (
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'connecting' && (
           <span className="sidebar-machine-connecting">连接中…</span>
         )}
       </div>
-      {machine.workspaces ? (
-        machine.workspaces.map((ws, i) => <MachineWorkspaceRow key={`${ws.name}-${i}`} ws={ws} />)
+      {showWorkspaces ? (
+        machine.workspaces.map((ws, i) => (
+          <MachineWorkspaceRow
+            key={`${ws.name}-${i}`}
+            ws={ws}
+            onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
+          />
+        ))
       ) : (
-        <div className="sidebar-machine-empty">未连接 · 连接后显示该机上的 workspace</div>
+        <div className="sidebar-machine-empty">
+          {machine.emptyLabel || '未连接 · 连接后显示该机上的 workspace'}
+        </div>
       )}
     </div>
   );
 }
 
-/** 机器组内 workspace 条目;sessions = 会话活动徽标(UI 断开期间会话仍在 Host 上活着)。 */
-function MachineWorkspaceRow({ ws }) {
+/**
+ * 机器组内 workspace 条目。会话徽标(AC-2/D-9)= 本客户端在该 workspace 的活跃 tab 数(hostId-aware) ·
+ * 首连远程机可为 0(显式呈现「0 个标签」· 非隐藏)。
+ * 优先用 ws.tabCount(number,新语义);兼容旧 ws.sessions(string · 既有页面未改动的调用点零回归)。
+ * ws.disconnectedPanel(可选 · D-8):该 workspace 所在机器刚断线且它正是活跃态,行内打「已断开」态标签。
+ */
+function formatTabBadge(ws) {
+  if (typeof ws.tabCount === 'number') {
+    const running = ws.tabRunning || 0;
+    const text = ws.tabCount === 0 ? '0 个标签' : `${ws.tabCount} 个标签${running ? ` · ${running} running` : ''}`;
+    return { text, zero: ws.tabCount === 0 };
+  }
+  if (ws.sessions) return { text: ws.sessions, zero: false };
+  return null;
+}
+
+function MachineWorkspaceRow({ ws, onClick }) {
+  const badge = formatTabBadge(ws);
+  const classes = [
+    'sidebar-item',
+    ws.active ? 'sidebar-item--active' : '',
+    ws.disconnectedPanel ? 'sidebar-item--disconnected' : '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={`sidebar-item${ws.active ? ' sidebar-item--active' : ''}`}>
+    <div className={classes} onClick={onClick} role={onClick ? 'button' : undefined}>
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{ws.name}</span>
+        {ws.disconnectedPanel && <span className="sidebar-item-lost-tag">已断开</span>}
       </div>
       <div className="sidebar-item-meta">
         <span className="sidebar-item-meta-row">
           <span className="sidebar-remote-meta-text">{ws.meta}</span>
-          {ws.sessions && <span className="sidebar-machine-sessions">{ws.sessions}</span>}
+          {badge && (
+            <span className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}>
+              {badge.text}
+            </span>
+          )}
         </span>
       </div>
     </div>
@@ -643,10 +724,27 @@ function Terminal({ scenario, onScenario }) {
   );
 }
 
-function FilePanel({ scenario }) {
+/**
+ * 远程 workspace「文件」= 树浏览 + git 着色(在范围·D-7)。remote=true 时:
+ * 点文件行 / 行内 diff 按钮 / 顶部 Diff 按钮一律**禁用弹窗** + 显示确定性提示
+ * 「远程文件独立窗口暂不支持」(非静默失败·AC-5)。remote 默认 false,其余调用点零变化。
+ */
+function FilePanel({ scenario, remote = false }) {
   const mode = scenario.mode;
+  const [hint, setHint] = useState(false);
+  const hintTimer = useRef(null);
+
+  useEffect(() => () => { if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
+
+  function showRemoteHint() {
+    if (!remote) return;
+    setHint(true);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setHint(false), 1800);
+  }
+
   return (
-    <section className="file-panel" aria-label="File Panel">
+    <section className={`file-panel${remote ? ' file-panel--remote' : ''}`} aria-label="File Panel">
       <div className="file-panel__header">
         <div className="file-panel__seg">
           <button className={`file-panel__seg-btn${mode === 'root' ? ' file-panel__seg-btn--active' : ''}`}>Root</button>
@@ -684,7 +782,14 @@ function FilePanel({ scenario }) {
       <div className="file-panel__meta">
         <span className="file-panel__count">{scenario.rows.length} entries</span>
         <div className="file-panel__meta-actions">
-          <button className="file-panel__diff-btn">Diff</button>
+          <button
+            className="file-panel__diff-btn"
+            onClick={remote ? showRemoteHint : undefined}
+            title={remote ? '远程文件独立窗口暂不支持' : undefined}
+            aria-disabled={remote || undefined}
+          >
+            Diff
+          </button>
           <button className="file-panel__refresh" title="Refresh">⟳</button>
         </div>
       </div>
@@ -692,14 +797,18 @@ function FilePanel({ scenario }) {
 
       <div className="file-panel__tree">
         {scenario.rows.map((row) => (
-          <TreeRow key={`${row.depth}-${row.name}`} row={row} />
+          <TreeRow key={`${row.depth}-${row.name}`} row={row} remote={remote} onFileClick={showRemoteHint} />
         ))}
       </div>
+
+      {remote && hint && (
+        <div className="file-panel__remote-hint" role="status">远程文件独立窗口暂不支持</div>
+      )}
     </section>
   );
 }
 
-function TreeRow({ row }) {
+function TreeRow({ row, remote = false, onFileClick }) {
   const isDir = row.kind === 'dir';
   const classes = [
     'file-panel__row',
@@ -707,23 +816,38 @@ function TreeRow({ row }) {
     row.status ? `file-panel__row--git-${row.status}` : '',
     row.target ? 'file-panel__row--locate-target' : '',
   ].filter(Boolean).join(' ');
+  const fileDisabled = !isDir && remote;
 
   return (
-    <div className={classes} style={{ paddingLeft: 10 + row.depth * 14 }}>
+    <div
+      className={classes}
+      style={{ paddingLeft: 10 + row.depth * 14 }}
+      onClick={fileDisabled ? onFileClick : undefined}
+      title={fileDisabled ? '远程文件独立窗口暂不支持' : undefined}
+    >
       <span className="file-panel__arrow">{isDir ? (row.expanded ? '▾' : '▸') : null}</span>
       <span className="file-panel__name">{row.name}</span>
-      {!isDir && <button className="file-panel__row-action">diff</button>}
+      {!isDir && (
+        <button
+          className="file-panel__row-action"
+          aria-disabled={fileDisabled || undefined}
+          onClick={fileDisabled ? (e) => { e.stopPropagation(); onFileClick(); } : undefined}
+          title={fileDisabled ? '远程文件独立窗口暂不支持' : undefined}
+        >
+          diff
+        </button>
+      )}
     </div>
   );
 }
 
 /** 无 dev 工具栏的纯净终端:新路由背景用,不带预览专属的场景切换控件。 */
-function PlainTerminal() {
+function PlainTerminal({ promptUser = 'liam@local' }) {
   return (
     <div className="terminal-host" aria-label="Terminal">
       <div className="terminal-screen">
         <div className="terminal-line">
-          <span className="terminal-prefix">liam@local</span>
+          <span className="terminal-prefix">{promptUser}</span>
           <span>~ $</span>
         </div>
       </div>
@@ -802,6 +926,11 @@ function listRemoteDir(segments) {
   return REMOTE_DIR_TREE[segments.join('/')] || [];
 }
 
+/** fs.readdir over 远程 host 的错误态 mock(AC-3):键命中即模拟该目录读取失败(权限拒绝)。 */
+const REMOTE_DIR_ERRORS = {
+  'home/liam/.config': 'EACCES: permission denied, scandir \'/home/liam/.config\'',
+};
+
 function formatRemotePath(segments) {
   if (segments.length >= 2 && segments[0] === 'home' && segments[1] === 'liam') {
     const rest = segments.slice(2);
@@ -847,6 +976,9 @@ function AddWorkspaceModal({
   onManageHosts,
   selectedHost,
   dirSegments,
+  dirLoading,
+  dirError,
+  onRetryDir,
   onCrumb,
   onDescend,
   onBackToPick,
@@ -988,21 +1120,39 @@ function AddWorkspaceModal({
                   </span>
                 ))}
               </div>
-              <div className="add-ws__dirlist">
-                {dirs.length === 0 && <div className="add-ws__dir-empty">(空目录)</div>}
-                {dirs.map((name) => (
-                  <div key={name} className="file-panel__row file-panel__row--dir" onClick={() => onDescend(name)}>
-                    <span className="file-panel__arrow">▸</span>
-                    <span className="file-panel__name">{name}</span>
-                  </div>
-                ))}
-              </div>
+              {dirLoading ? (
+                <div className="add-ws__dirlist add-ws__dirlist--loading">
+                  <span className="add-ws__spinner add-ws__spinner--sm" />
+                  <span>正在读取目录…</span>
+                </div>
+              ) : dirError ? (
+                <div className="add-ws__dir-error">
+                  <div className="add-ws__dir-error-text">{dirError}</div>
+                  <button className="add-ws__btn" onClick={onRetryDir}>重试</button>
+                </div>
+              ) : (
+                <div className="add-ws__dirlist">
+                  {dirs.length === 0 && <div className="add-ws__dir-empty">(空目录)</div>}
+                  {dirs.map((name) => (
+                    <div key={name} className="file-panel__row file-panel__row--dir" onClick={() => onDescend(name)}>
+                      <span className="file-panel__arrow">▸</span>
+                      <span className="file-panel__name">{name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="add-ws__pathrow">
                 <input className="file-panel__path-input add-ws__path-input" value={pathDisplay} readOnly />
               </div>
               <div className="add-ws__actions">
                 <button className="add-ws__btn" onClick={onClose}>取消</button>
-                <button className="add-ws__btn add-ws__btn--primary" onClick={onCreate}>在 {selectedHost.alias} 上创建项目</button>
+                <button
+                  className="add-ws__btn add-ws__btn--primary"
+                  onClick={onCreate}
+                  disabled={dirLoading || !!dirError}
+                >
+                  在 {selectedHost.alias} 上创建项目
+                </button>
               </div>
             </div>
           )}
@@ -1018,6 +1168,9 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
   const [step, setStep] = useState('pick');
   const [selectedHostId, setSelectedHostId] = useState(null);
   const [dirSegments, setDirSegments] = useState(['home', 'liam']);
+  const [dirLoading, setDirLoading] = useState(false);
+  const [dirError, setDirError] = useState(null);
+  const dirLoadTimer = useRef(null);
   const [connState, setConnState] = useState({});
   const [extraByMachine, setExtraByMachine] = useState({});
   const [createdMachines, setCreatedMachines] = useState([]);
@@ -1035,10 +1188,28 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
     setCreatedMachines([]);
   }, [devState]);
 
+  useEffect(() => () => { if (dirLoadTimer.current) clearTimeout(dirLoadTimer.current); }, []);
+
+  /** fs.readdir over 该 host client 的加载态模拟(AC-3):落定 segments 前先转圈,命中 REMOTE_DIR_ERRORS 则呈现错误态。 */
+  function loadDir(nextSegments) {
+    setDirSegments(nextSegments);
+    setDirLoading(true);
+    setDirError(null);
+    if (dirLoadTimer.current) clearTimeout(dirLoadTimer.current);
+    dirLoadTimer.current = setTimeout(() => {
+      setDirLoading(false);
+      const key = nextSegments.join('/');
+      if (REMOTE_DIR_ERRORS[key]) setDirError(REMOTE_DIR_ERRORS[key]);
+    }, 350);
+  }
+
   function resetModalFlow() {
     setStep('pick');
     setSelectedHostId(null);
     setDirSegments(['home', 'liam']);
+    setDirLoading(false);
+    setDirError(null);
+    if (dirLoadTimer.current) { clearTimeout(dirLoadTimer.current); dirLoadTimer.current = null; }
   }
 
   function openModal() {
@@ -1058,8 +1229,8 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
 
   function selectHost(id) {
     setSelectedHostId(id);
-    setDirSegments(['home', 'liam']);
     setStep('dir');
+    loadDir(['home', 'liam']);
   }
 
   function backToPick() {
@@ -1181,8 +1352,11 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
           onManageHosts={() => onNavigate('/settings/remote-hosts')}
           selectedHost={selectedHost}
           dirSegments={dirSegments}
-          onCrumb={setDirSegments}
-          onDescend={(name) => setDirSegments((prev) => [...prev, name])}
+          dirLoading={dirLoading}
+          dirError={dirError}
+          onRetryDir={() => loadDir(dirSegments)}
+          onCrumb={loadDir}
+          onDescend={(name) => loadDir([...dirSegments, name])}
           onBackToPick={backToPick}
           onCreate={handleCreate}
         />
@@ -1815,6 +1989,201 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
   );
 }
 
+// ---- F. /sidebar/machine-groups ----
+// Sidebar 机器分组主视图(AC-1/AC-2/AC-8/AC-10/AC-11):本机组置顶 + 远程机组 +
+// 连接生命周期在组头呈现 + 断线确定性回落。dev 顶栏只放页面到不了的态(M=0 / 部署中%快照 /
+// 连接失败 / 断线回落);默认态可真实点「连接」跑完整连接编排(复用 startMachineConnect)。
+
+const SIDEBAR_MG_STATE_PRESETS = [
+  { key: 'idle', label: '默认交互' },
+  { key: 'm0', label: 'M=0 · 纯本机' },
+  { key: 'deploying', label: '部署中快照 · 47%' },
+  { key: 'failed', label: '连接失败' },
+  { key: 'disconnected', label: '断线回落(AC-11)' },
+];
+
+const SIDEBAR_MG_LOCAL_WORKSPACES = [
+  { name: 'TermPro', meta: 'main · ~/apps/okok/TermPro', tabCount: 2, tabRunning: 1 },
+];
+
+const SIDEBAR_MG_MINIPC_WORKSPACES = [
+  { name: 'aon-edge', meta: 'dev · ~/apps/aon-edge', tabCount: 2, tabRunning: 1 },
+  { name: 'ml-lab', meta: 'main · ~/work/ml-lab', tabCount: 0 },
+];
+
+/** 远程 workspace 文件树 mock(供 FilePanel remote=true 演示 D-7:树浏览 + git 着色在范围)。 */
+const SIDEBAR_MG_REMOTE_FILES = [
+  { name: 'src', kind: 'dir', depth: 0, expanded: true, status: 'modified-dim' },
+  { name: 'edge', kind: 'dir', depth: 1, expanded: true, status: 'modified-dim' },
+  { name: 'inference.py', kind: 'file', depth: 2, status: 'modified' },
+  { name: 'config.yaml', kind: 'file', depth: 1, status: 'untracked' },
+  { name: 'README.md', kind: 'file', depth: 0 },
+];
+
+function buildSidebarMgMachines() {
+  return [
+    { id: 'local', kind: 'local', label: '本机', workspaces: SIDEBAR_MG_LOCAL_WORKSPACES.map((w) => ({ ...w })) },
+    {
+      id: 'mini-pc', kind: 'remote', alias: 'mini-pc', addr: 'liam@192.168.1.40', status: 'connected',
+      workspaces: SIDEBAR_MG_MINIPC_WORKSPACES.map((w) => ({ ...w })),
+    },
+    { id: 'dev-server', kind: 'remote', alias: 'dev-server', addr: 'liam@10.0.0.8', status: 'disconnected', workspaces: null },
+  ];
+}
+
+/** 本页专属极简 TabBar:单活跃 tab 跟随当前选中 workspace(+ 远程机小标签),仅作定位锚 · 不是通用 TabBar 的替代。 */
+function MachineGroupsTabBar({ activeWs, activeMachine }) {
+  const label = activeWs ? activeWs.name : '—';
+  const remote = !!(activeMachine && activeMachine.kind === 'remote');
+  return (
+    <div className="tabbar" aria-label="Tabs">
+      <div className="tabbar-tabs">
+        <div className="tabbar-tab tabbar-tab--active">
+          <span className="tab-dot tab-dot--running" />
+          <span className="tab-icon">▱</span>
+          <span className="tabbar-tab-title">{label}</span>
+          {remote && <span className="tabbar-tab-host">{activeMachine.alias}</span>}
+          <button className="tabbar-close-btn tabbar-close-btn--always" title="Close tab">×</button>
+        </div>
+      </div>
+      <div className="tabbar-drag-strip" />
+    </div>
+  );
+}
+
+function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
+  const [devState, setDevState] = useState('idle');
+  const [connState, setConnState] = useState({});
+  const [active, setActive] = useState({ machineId: 'mini-pc', name: 'aon-edge' });
+  const [lostPhase, setLostPhase] = useState(null); // null | 'panel' | 'folded'(D-8 两段式回落)
+  const lostTimer = useRef(null);
+
+  useEffect(() => {
+    setConnState({});
+    setLostPhase(null);
+    if (lostTimer.current) { clearTimeout(lostTimer.current); lostTimer.current = null; }
+
+    if (devState === 'disconnected') {
+      // AC-11 演示:先呈现该 workspace 面板断线态(900ms)· 再确定性回落到本机首个 workspace + 组头折叠
+      setActive({ machineId: 'mini-pc', name: 'aon-edge' });
+      setLostPhase('panel');
+      lostTimer.current = setTimeout(() => {
+        setLostPhase('folded');
+        setActive({ machineId: 'local', name: 'TermPro' });
+      }, 900);
+    } else if (devState === 'idle') {
+      setActive({ machineId: 'mini-pc', name: 'aon-edge' });
+    } else {
+      setActive({ machineId: 'local', name: 'TermPro' });
+    }
+
+    return () => { if (lostTimer.current) clearTimeout(lostTimer.current); };
+  }, [devState]);
+
+  const baseMachines = useMemo(() => buildSidebarMgMachines(), []);
+
+  const machines = useMemo(() => {
+    if (devState === 'm0') {
+      return [{ id: 'local', kind: 'local', label: '本机', workspaces: SIDEBAR_MG_LOCAL_WORKSPACES.map((w) => ({ ...w, active: true })) }];
+    }
+
+    let list = applyConnectionSim(baseMachines, connState);
+
+    if (devState === 'deploying') {
+      list = list.map((m) => (m.id === 'dev-server' ? { ...m, runtime: { stage: 'deploying', percent: 47, arch: 'linux-x64', fast: false } } : m));
+    } else if (devState === 'failed') {
+      list = list.map((m) => (m.id === 'dev-server' ? { ...m, runtime: { stage: 'failed', reason: 'unreachable' } } : m));
+    } else if (devState === 'disconnected') {
+      list = list.map((m) => {
+        if (m.id !== 'mini-pc') return m;
+        if (lostPhase === 'folded') {
+          return { ...m, status: 'lost', foldedLost: true, workspaces: null, emptyLabel: '已断开 · 点击重连' };
+        }
+        return {
+          ...m,
+          status: 'lost',
+          workspaces: m.workspaces.map((ws) => (ws.name === 'aon-edge' ? { ...ws, disconnectedPanel: true } : ws)),
+        };
+      });
+    }
+
+    return list.map((m) => ({
+      ...m,
+      workspaces: m.workspaces
+        ? m.workspaces.map((ws) => ({ ...ws, active: m.id === active.machineId && ws.name === active.name }))
+        : null,
+    }));
+  }, [baseMachines, connState, devState, lostPhase, active]);
+
+  function selectWorkspace(machine, ws) {
+    if (devState === 'disconnected' && lostPhase === 'panel') return; // 断线瞬间锁定选择,等待确定性回落完成
+    setActive({ machineId: machine.id, name: ws.name });
+  }
+
+  function retryMachine() {
+    // 失败态重试:退出快照 preset,回到可真实交互的默认态(点「连接」走完整编排)
+    setDevState('idle');
+  }
+
+  const activeMachine = machines.find((m) => m.id === active.machineId);
+  const activeWs = activeMachine && activeMachine.workspaces ? activeMachine.workspaces.find((w) => w.active) : null;
+  const activeIsRemote = !!(activeMachine && activeMachine.kind === 'remote');
+  const panelDisconnected = devState === 'disconnected' && lostPhase === 'panel' && !!(activeWs && activeWs.disconnectedPanel);
+
+  const remoteScenario = activeIsRemote && activeMachine ? {
+    mode: 'worktree',
+    root: `~/apps/${activeWs ? activeWs.name : ''}`,
+    hint: `${activeMachine.alias} · ${activeMachine.addr}`,
+    rows: SIDEBAR_MG_REMOTE_FILES,
+  } : null;
+
+  return (
+    <PreviewPage
+      currentPath={currentPath}
+      onNavigate={onNavigate}
+      statePresets={SIDEBAR_MG_STATE_PRESETS}
+      activeStateKey={devState}
+      onSelectState={setDevState}
+    >
+      <div className="app-shell">
+        <Sidebar
+          machines={machines}
+          onConnectMachine={(id) => startMachineConnect(setConnState, id)}
+          onRetryMachine={retryMachine}
+          onSelectWorkspace={selectWorkspace}
+          onAddWorkspace={() => onNavigate('/workspace/add-workspace')}
+          onOpenRemoteHosts={() => onNavigate('/settings/remote-hosts')}
+        />
+        <div className="pane-handle" />
+        <main className="main-column">
+          <MachineGroupsTabBar activeWs={activeWs} activeMachine={activeMachine} />
+          <div className="terminal-area">
+            {panelDisconnected ? (
+              <div className="terminal-host" aria-label="Terminal">
+                <div className="terminal-disconnected">
+                  <span className="terminal-disconnected__icon">⚠</span>
+                  <div className="terminal-disconnected__title">与 mini-pc 的连接已断开</div>
+                  <div className="terminal-disconnected__hint">workspace「aon-edge」面板已失联 · 即将回落到本机工作区…</div>
+                </div>
+              </div>
+            ) : (
+              <PlainTerminal promptUser={activeIsRemote && activeMachine ? `liam@${activeMachine.alias}` : 'liam@local'} />
+            )}
+          </div>
+        </main>
+        <div className="pane-handle" />
+        {panelDisconnected ? (
+          <section className="file-panel file-panel--disconnected" aria-label="File Panel">
+            <div className="file-panel__disconnected-note">连接已断开 · 文件树暂不可用</div>
+          </section>
+        ) : (
+          <FilePanel scenario={remoteScenario || scenarios.worktree} remote={activeIsRemote} />
+        )}
+      </div>
+    </PreviewPage>
+  );
+}
+
 function App() {
   const [path, setPath] = useState(() => normalizeInitialPath(window.location.pathname));
   const [scenarioKey, setScenarioKey] = useState('worktree');
@@ -1851,6 +2220,10 @@ function App() {
 
   if (path === '/settings/remote-hosts') {
     return <RemoteHostsPage currentPath={path} onNavigate={navigate} />;
+  }
+
+  if (path === '/sidebar/machine-groups') {
+    return <SidebarMachineGroupsPage currentPath={path} onNavigate={navigate} />;
   }
 
   const scenario = scenarios[scenarioKey];
