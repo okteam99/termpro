@@ -1,4 +1,3 @@
-<!-- TEAMWORK-MACHINE · 机读契约 · MD 预览隐藏 · verify-panorama / ui_design-complete 解析此块 -->
 ---
 pages:
   - {id: sidebar-machine-groups, title: "Sidebar Machine Groups"}
