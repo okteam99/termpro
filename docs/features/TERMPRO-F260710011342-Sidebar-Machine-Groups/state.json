@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": "a373ee8e213ae4c20b6d53e8520e3de053ece987",
   "worktree": {
@@ -101,17 +101,112 @@
       "duration_minutes": 34
     },
     "review": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T03:54:32Z",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "completed_at": "2026-07-10T04:21:31Z",
+      "auto_commit": "c50f6fdbd662ad71eb7b20ddaa4c55cb02c2c116",
+      "artifacts": [
+        "REVIEW.md",
+        "REVIEW-arch.md",
+        "REVIEW-qa.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-07-10T03:54:32Z",
+          "completed_at": "2026-07-10T04:21:31Z",
+          "review_commit": "c50f6fdbd662ad71eb7b20ddaa4c55cb02c2c116",
+          "verdict": "APPROVE",
+          "new_findings_count": 8,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "拖拽重排把本机子集下标当全量数组下标传给 moveWorkspace(多机下本机 ws 非前缀连续时拖错位+持久化)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F2",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "D-7 远程文件禁用漏三个系统打开按钮(openInBrowser/showItemInFolder/openPath 把远程路径交本机 shell)",
+          "source": "arch+external",
+          "round_opened": 1
+        },
+        {
+          "id": "F3",
+          "severity": "MAJOR",
+          "status": "fixed",
+          "title": "import 集门禁(BL004-U-grepgate)整条未实现为 vitest(缺回归护栏·当前 GATE CLEAN 非活 bug)",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F4",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "远程发现 ws 合成默认 tab 致徽标恒非 0(违反 AC-2/D-9 首连可为 0)+ 副作用远程机 auto-spawn PTY",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F5",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "Sidebar remoteConfigs 仅挂载拉一次·会话中增删远程机不刷新(新机不现/已删组仍在)",
+          "source": "external",
+          "round_opened": 1
+        },
+        {
+          "id": "F6",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "v2 remove/rename 对缺失 ws 兜底 {hostId:'local'} 可能把远程删改误发本机",
+          "source": "arch",
+          "round_opened": 1
+        },
+        {
+          "id": "F7",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "TC frontmatter 路径漂移(grepgate/routing/tabBadge/localBaseline 声明的测试文件与实现脱节)",
+          "source": "qa",
+          "round_opened": 1
+        },
+        {
+          "id": "F8",
+          "severity": "NIT",
+          "status": "deferred",
+          "title": "Sidebar 镜像 RemoteHostsPage 握手编排双源(E6 断开在途过滤未复制·窄竞态)·active 回落两处分叉缺交叉注释·空 wsUrl 隐式依赖",
+          "source": "arch+external",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 26
+    },
+    "test": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T03:54:32Z"
+      "started_at": "2026-07-10T04:21:31Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-07-10T01:15:04Z",
   "stage_review_roles": {
@@ -150,12 +245,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T03:54:44Z",
+  "updated_at": "2026-07-10T04:21:40Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:3621180a5bef167ca2669aa168563608d94766679a28969b12c3c20dd90c7222",
+  "_state_checksum": "sha256:32a1e1a32fc392bf45a3aa0c72008050cadf5d64e3e3df841f491f525161c536",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": true,
