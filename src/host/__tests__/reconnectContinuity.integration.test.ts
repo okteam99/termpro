@@ -192,13 +192,17 @@ describe('Reconnect continuity (BL-005 · host 协议侧)', () => {
     const sid = await spawnSession(a);
     a.send({ t: 'pty:input', sessionId: sid, data: 'echo done\n' });
     await waitFor(() => (a.ptyData.get(sid) ?? '').includes('done'), 8000);
-    // 待前台进程名轮询/OSC133 沉降回 idle
-    await delay(2000);
-
-    const { sessions } = (await a.rpc('session.list')) as {
-      sessions: SessionSnapshot[];
-    };
-    const snap = sessions.find((s) => s.sessionId === sid)!;
+    // 待前台进程名轮询/OSC133 沉降回 idle —— 🔴 poll session.list 直到 idle(非固定 delay·
+    // CI 慢环境固定 2s 不够会 flaky:tracker 进程轮询/OSC133 尚未把 running→idle 翻过来)
+    let snap!: SessionSnapshot;
+    const idleDeadline = Date.now() + 8000;
+    while (Date.now() < idleDeadline) {
+      const { sessions } = (await a.rpc('session.list')) as { sessions: SessionSnapshot[] };
+      const found = sessions.find((s) => s.sessionId === sid);
+      if (found) snap = found;
+      if (found && found.state === 'idle') break;
+      await delay(200);
+    }
     expect(snap.state).toBe('idle'); // 当前态(非事件补发)
     // 快照只有当前态字段,无未读 bell/notify 累积计数
     expect(Object.keys(snap).sort()).toEqual([
