@@ -178,6 +178,40 @@ function rowSegments(
   return segs;
 }
 
+/** 跨缩进拼接链最多候选数(限 stat RPC 次数;缝隙拼接每链最多试 MAX-1 次) */
+const MAX_JOIN_PARTS = 6;
+
+/**
+ * Ink/Claude Code 等 TUI 硬折行时给续行加「悬挂缩进」(前导空格,可带 gutter
+ * 竖线),路径在缝隙处被 extractCandidates 切成两个候选。判定 c1→c2 是否构成
+ * 这种「跨缝相邻」:c1 贴其物理行行尾(其后同该行内只有空白),c2 在紧邻的下一
+ * 物理行,行首到 c2 之间只有空白/gutter(空格、│、⎿)。
+ */
+function adjacentAcrossIndent(
+  ll: LogicalLine,
+  c1: { start: number; end: number },
+  c2: { start: number; end: number },
+): boolean {
+  const r1 = ll.pos[c1.end - 1]?.row;
+  const r2 = ll.pos[c2.start]?.row;
+  if (r1 === undefined || r2 !== r1 + 1) return false;
+  let rowBreak = c1.end;
+  while (rowBreak < c2.start && ll.pos[rowBreak].row === r1) rowBreak++;
+  const tail = ll.text.slice(c1.end, rowBreak); // c1 之后到行尾
+  const head = ll.text.slice(rowBreak, c2.start); // 续行行首到 c2
+  return /^ *$/.test(tail) && /^[ │⎿]*$/.test(head);
+}
+
+/** 逻辑行内已命中的 fs 链接(hover 与常驻高亮共用;跨缩进拼接时多段) */
+export interface ResolvedFsLink {
+  abs: string;
+  kind: 'file' | 'dir';
+  /** 各高亮段 index 区间 [start, endExcl)(拼接链接跳过缩进缝 · 单候选仅一段) */
+  parts: Array<[number, number]>;
+  /** 链接文本(各段拼接 · 不含缝隙字符) */
+  text: string;
+}
+
 // OSC 8 超链接(程序用转义序列 ESC]8;;URI ST … 内嵌的可点链接)由 xterm 核心
 // 自带的 OscLinkProvider 处理 —— 它注册早于本文件的 SystemWebLinkProvider,
 // 优先级更高,会抢走同格链接。未给 Terminal 设 linkHandler 时,OscLinkProvider
@@ -359,31 +393,85 @@ export class FsLinkProvider implements ILinkProvider {
     return null;
   }
 
+  /**
+   * 跨缩进拼接(BUG-TERMPRO-B260710093647-001):从候选 i 起沿「贴行尾 + 续行
+   * 缩进候选」链尽量延伸,按最长优先 stat 拼接文本(不含缝隙字符)。
+   * 命中 → 合并为一条链接(consumed 个候选被吞掉);落空 → null(调用方回退
+   * 单候选解析,前缀目录命中仍照旧成链)。stat 是最终 oracle:只有拼出的完整
+   * 路径真实存在才成链,无关缩进行不会误拼。
+   */
+  private async resolveJoinedAcrossIndent(
+    ll: LogicalLine,
+    cands: ReturnType<typeof extractCandidates>,
+    i: number,
+  ): Promise<{ link: ResolvedFsLink; consumed: number } | null> {
+    const chain = [cands[i]];
+    for (let j = i + 1; j < cands.length && chain.length < MAX_JOIN_PARTS; j++) {
+      if (!adjacentAcrossIndent(ll, chain[chain.length - 1], cands[j])) break;
+      chain.push(cands[j]);
+    }
+    for (let n = chain.length; n >= 2; n--) {
+      const parts = chain
+        .slice(0, n)
+        .map((c): [number, number] => [c.start, c.end]);
+      const text = parts.map(([s, e]) => ll.text.slice(s, e)).join('');
+      const hit = await this.resolveCandidateText(text);
+      if (hit) return { link: { ...hit, parts, text }, consumed: n };
+    }
+    return null;
+  }
+
+  /** 解析逻辑行内全部 fs 候选(hover 与常驻高亮共用;拼接命中的候选被吞掉) */
+  async resolveFsCandidates(
+    ll: LogicalLine,
+    cands: ReturnType<typeof extractCandidates>,
+  ): Promise<ResolvedFsLink[]> {
+    const out: ResolvedFsLink[] = [];
+    for (let i = 0; i < cands.length; i++) {
+      const joined = await this.resolveJoinedAcrossIndent(ll, cands, i);
+      if (joined) {
+        out.push(joined.link);
+        i += joined.consumed - 1;
+        continue;
+      }
+      const hit = await this.resolveCandidateSpanning(ll, cands[i]);
+      if (hit) {
+        out.push({
+          abs: hit.abs,
+          kind: hit.kind,
+          parts: [[hit.startIdx, hit.endIdx]],
+          text: ll.text.slice(hit.startIdx, hit.endIdx),
+        });
+      }
+    }
+    return out;
+  }
+
   private async resolve(
     cands: ReturnType<typeof extractCandidates>,
     ll: LogicalLine,
   ): Promise<ILink[] | undefined> {
+    const resolved = await this.resolveFsCandidates(ll, cands);
     const links: ILink[] = [];
-    await Promise.all(
-      cands.map(async (c) => {
-        const hit = await this.resolveCandidateSpanning(ll, c);
-        if (!hit) return;
-        const s = ll.pos[hit.startIdx];
-        const e = ll.pos[hit.endIdx - 1];
-        links.push({
-          // 折行链接:范围跨物理行(x/y 均 1 基)
-          range: {
-            start: { x: s.col + 1, y: s.row + 1 },
-            end: { x: e.col + 1, y: e.row + 1 },
-          },
-          text: ll.text.slice(hit.startIdx, hit.endIdx),
-          decorations: { underline: true, pointerCursor: true },
-          activate: () => {
-            openTarget(this.tabId, hit.abs, hit.kind);
-          },
-        });
-      }),
-    );
+    for (const r of resolved) {
+      const s = ll.pos[r.parts[0][0]];
+      const e = ll.pos[r.parts[r.parts.length - 1][1] - 1];
+      if (!s || !e) continue;
+      links.push({
+        // 折行链接:范围跨物理行(x/y 均 1 基)。拼接链接的 hover 下划线由 xterm
+        // 按 range 起止连画、会盖住中间缩进缝(与 VS Code 折行链接一致);常驻
+        // 高亮走 parts 分段,跳过缝隙。
+        range: {
+          start: { x: s.col + 1, y: s.row + 1 },
+          end: { x: e.col + 1, y: e.row + 1 },
+        },
+        text: r.text,
+        decorations: { underline: true, pointerCursor: true },
+        activate: () => {
+          openTarget(this.tabId, r.abs, r.kind);
+        },
+      });
+    }
     return links.length > 0 ? links : undefined;
   }
 }
@@ -444,22 +532,33 @@ export class LinkHighlighter {
       y = Math.max(y, ll.endRow);
       if (seenStarts.has(ll.startRow)) continue;
       seenStarts.add(ll.startRow);
-      for (const c of extractCandidates(ll.text)) {
-        let startIdx = c.start;
-        let endIdx = c.end;
-        if (c.kind === 'fs') {
-          const hit = await this.provider.resolveCandidateSpanning(ll, c);
-          if (this.epoch !== myEpoch) return; // 已有新一轮扫描
-          if (!hit) continue;
-          startIdx = hit.startIdx; // 硬折行回退后的实际起止
-          endIdx = hit.endIdx;
-        }
-        for (const seg of rowSegments(ll.pos, startIdx, endIdx)) {
+      const cands = extractCandidates(ll.text);
+      for (const c of cands) {
+        if (c.kind !== 'web') continue;
+        for (const seg of rowSegments(ll.pos, c.start, c.end)) {
           hits.push({
             row: seg.row,
             startCol: seg.startCol,
             widthCells: seg.width,
           });
+        }
+      }
+      // fs 候选走与 hover 相同的 resolver(含跨缩进拼接 · 回退);拼接链接按
+      // parts 分段高亮,缩进缝不上色
+      const resolved = await this.provider.resolveFsCandidates(
+        ll,
+        cands.filter((c) => c.kind === 'fs'),
+      );
+      if (this.epoch !== myEpoch) return; // 已有新一轮扫描
+      for (const r of resolved) {
+        for (const [s, e] of r.parts) {
+          for (const seg of rowSegments(ll.pos, s, e)) {
+            hits.push({
+              row: seg.row,
+              startCol: seg.startCol,
+              widthCells: seg.width,
+            });
+          }
         }
       }
     }
