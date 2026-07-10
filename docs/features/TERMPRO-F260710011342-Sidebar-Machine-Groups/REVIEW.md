@@ -40,4 +40,11 @@ decided_at: "2026-07-10T04:05:00Z"
 - F4 → d4-core（远程发现 ws 空 tabs·保首连 0 语义+免 auto-spawn）· F5 → d4-ui（remoteConfigs 刷新）· F6 → d4-core（缺失即 return）· F7 → PMO TC 对齐
 - F8 → deferred（v1 可接受·复用面扩大前收敛单源）
 
-（Round 2 verify 结论待修复完成后追加）
+## Round 2 Verify 结论（三路 APPROVE）
+
+- **architect verify：PASS**。A1（三系统按钮 D-7 守卫·6 真测）+ A5（remove/rename 缺失 return）消解确认·F1 拖拽无新问题。新增 V-1（MINOR·非阻断）：F4 空 tabs 与创建回声竞态致主动创建远程 ws 常态 0 tab，与注释「主动创建保 1 tab」相悖→按方案 a 接受「远程 ws 一律 0 tab 起步」（与 D-9 自洽）+ **注释已修正**。
+- **external 第三视角 verify：APPROVE**（建议放行 ship）。独立复跑门禁（非采信自述）：tsc 0 · vitest 681 passed · import 集零残留。E1（拖拽全量坐标系+前缀不变式双保险·回归测真红→真绿非绿桩）/E2（三按钮真闭环）/E3（空 tabs 真免 auto-spawn）/E4（5s 轮询+stopSync 真闭环）逐条独立验真。F3 import 门禁复核为真两层（遍历 renderer 树 + 守门元测试锁正则不退化五坑）非空桩。新增 V1（info/low）：E4 轮询无条件 setRemoteConfigs 触发重渲·纯性能微噪→**已加 list 等值守卫**。
+
+**收敛**：地基作用域隔离三路一致闭环无 BLOCKER；2 MAJOR（拖拽下标+D-7 三按钮）+ Q1 门禁护栏 + 3 MINOR 全修；F8 NIT deferred；verify 新增 V-1（注释已正）+ V1（性能守卫已加）。三路 verify 一致 APPROVE。
+
+overall_verdict: **APPROVE** · 门禁：tsc 0 错 · vitest 681 passed + 1 skip · import 集零残留 · verify-ac 11/11 真覆盖（TC 无幽灵测试）。

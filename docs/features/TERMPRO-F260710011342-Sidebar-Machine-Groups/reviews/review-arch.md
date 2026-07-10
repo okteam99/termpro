@@ -168,3 +168,54 @@ TECH 落地。protocol.ts 零改、import 集门禁零残留、viewer/* 保留�
 
 verdict: **approve_with_changes** —— 地基（作用域隔离 / 写读分流 / 复合键 / 持久化过滤 / 红线）稳固且验证充分，无
 BLOCKER；1 MAJOR 为已交付守卫的覆盖漏洞（几行可补）、非架构返工，其余 MINOR/NIT 皆可择机。修 A1 后即达合并质量。
+
+---
+
+## verify（修复轮复验 · commit 421854f · 2026-07-10）
+
+- 复验对象: RD「review 修复轮」commit 421854f（只验消解 + 新问题·非重审）
+- 门禁复跑: `tsc --noEmit` 零错 ✅ · import 集门禁（perl 正则）零残留 ✅ · 6 个受影响套件 66 tests passed ✅
+- verify verdict: **PASS（A1/A5 消解确认）· 附 1 新 MINOR（V-1·非阻断）**
+
+### 消解核对
+
+| finding | 处置 | 复验结论 |
+|---|---|---|
+| **A1 (MAJOR)** D-7 三系统打开按钮 | FilePanel.tsx:653-704 三按钮加 `isRemote` 守卫（aria-disabled + title + opacity/cursor + onClick `if(isRemote){showRemoteFileHint();return}` 先于 `window.termpro.open*`）| ✅ **消解**。守卫覆盖全部三入口（openInBrowser/showItemInFolder/openPath）；目录行本身 onClick=handleToggleDir 树浏览不受影响（按钮与行点击分离·注释明述）。`FilePanelRemoteDisabled.test.tsx` 15 tests：3 远程禁用断言 `not.toHaveBeenCalled()`+aria-disabled+提示、3 本机零回归断言 `toHaveBeenCalledWith(正确路径)`、1 条断言「目录行仍可展开」——真覆盖，非仅计数上涨。|
+| **A5 (MINOR)** remove/rename 缺失 ws 兜底 | store.ts:454,488 v2 路径加 `if(!ws) return`（先于 pending 检查与 RPC）；删除 `?? {hostId:'local'}` 兜底 | ✅ **消解**。缺失 ws 静默返回零 RPC·绝不误发本机；v1 路径独立不受影响（其 disposeAndRemove 对缺失 id 天然 no-op）。workspaceCrud.test.ts 补 2 测（不存在 id → 零 RPC）。|
+| A2/A3/A4 (NIT) | deferred（握手镜像双源 v1 可接受 / active 回落分叉 / 空 wsUrl）| ✅ 接受 deferred·均非阻断。|
+
+### 附带修复复验（非我 finding·但触及我评审面·验无新问题）
+
+- **F1 拖拽下标（E1）**: ✅ 无新问题。handleDragOver（Sidebar.tsx:377-400）改用**全量数组下标**（`workspaces.findIndex`）
+  与 moveWorkspace 的全量 splice 语义对齐；配「本机 ws 连续前缀」不变式（`insertLocalWorkspace` store.ts:234-246 +
+  reconcile merge-back 新增本机 ws splice 到首个远程之前 workspaceSync.ts:120-131·远程新增仍 append）。onDragOver 仅挂
+  本机行 + 前缀不变式 = 双保险，本机拖拽被约束在本机区不越界远程组。reconcile 作用域隔离语义未受影响（本机 splice /
+  远程 append 均不跨作用域动数据）。firstRemoteIdx<0 时等价原「append 末尾」，本机零回归保持。
+- **F4 远程发现空 tabs（E3）**: ⚠️ 见 V-1（新 MINOR）。
+
+### 新问题
+
+#### V-1 · F4 空 tabs 与「创建回声」竞态：主动创建的远程 ws 也落 0 tab（与代码注释承诺相悖）
+- severity: MINOR（新引入·非阻断）
+- status: open
+- category: consistency / 竞态
+- file:line 证据:
+  - `src/renderer/state/workspaceSync.ts:15-21`（注释承诺：「用户主动经『添加项目』创建的远程 ws 不走空 tabs 路径·
+    buildDefaultWorkspace 默认 1 tab 不变」）+ :90-99（远程 scope 合成 `tabs:[], activeTabId:null`）
+  - `src/host/workspaceService.ts:104-108`（create → `this.broadcast()` **先于** `return entry`）
+  - `src/renderer/services/hostClient.ts:306-343`（`handle` 按消息到达序处理·`workspace:changed` 早于 `rpc:res`）
+  - `src/renderer/state/store.ts:387-395`（addWorkspace `.then`：`exists=true` → map 分支·**1-tab buildDefaultWorkspace 分支不执行**）
+- description: 主机 `workspace.create` 先广播 `workspace:changed` 再返回 RPC 响应，renderer 按到达序处理 → **回声
+  reconcile（setHostWorkspaces·scope=configId·空 tabs）先于 addWorkspace 的 `.then` 执行**。待 `.then` 运行时
+  `exists===true`，走 map 分支（只更 name/root）→ 1-tab 的 `buildDefaultWorkspace(entry, targetHostId)` 分支永不触达
+  → 主动创建的远程 ws 常态落 **0 tab**（activeTabId=null）。这与 workspaceSync.ts 注释的明文承诺相悖（该承诺假定
+  `.then` 先于回声·实际相反）。对照本机：本机 reconcile 空增分支也合成 1 tab，故本机主动创建恒 1 tab——远程与本机
+  **不一致**。非崩溃（App 显示「⌘T 新建终端」占位·FilePanel 对 null tabId 安全），纯 UX 不一致 + 注释失实。
+- blast radius: 小（仅首次创建落空·用户 ⌘T 即可·后续回声 reconcile「两侧都有」保留 tab）。
+- 建议二选一: (a) 接受「远程 ws 一律 0 tab 起步」语义（与 D-9 首连徽标=0 自洽）·**改正 workspaceSync.ts 注释**（删除
+  「主动创建保 1 tab」的失实承诺）；(b) 若主动创建应带就绪终端·addWorkspace 远程分支在 `exists` 时补 `ensure ≥1 tab`
+  （或 create 成功后 addTab）。推荐 (a)（更简·且远程被动/主动统一 0 tab 起步语义更干净）。
+
+verify 结论: A1/A5 消解**确认到位且真测覆盖**·F1 附带修复无新问题·新增 V-1（MINOR·非阻断·注释/语义二选一收敛）。
+无 BLOCKER/MAJOR 残留。建议本轮或下轮顺手收敛 V-1 注释即可 close。

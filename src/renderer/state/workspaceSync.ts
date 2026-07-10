@@ -16,9 +16,12 @@
 //     tab 数视 scope 而定(review E3):scope='local' → 单 root tab(本机零回归,行为不变);
 //     scope=configId(远程发现)→ **空 tabs**(点开该 ws 再懒建 tab)——否则 setHostWorkspaces
 //     注入的每个远程 ws 恒 tabCount≥1,既违反 AC-2/D-9「首连远程机徽标可为 0」的语义,又会让
-//     用户还没点开就在远程机上被动 spawn 一个 PTY。用户主动经「添加项目」流程创建的远程 ws
-//     不走这条路径(store.addWorkspace 直接用 buildDefaultWorkspace,默认 1 tab 不变——那是
-//     用户主动要的会话,和被动发现语义不同)。
+//     用户还没点开就在远程机上被动 spawn 一个 PTY。
+//     🔴 review V-1 澄清:**远程 ws 一律 0 tab 起步**(与 D-9 首连徽标=0 自洽)。用户经「添加项目」
+//     主动创建的远程 ws,虽 store.addWorkspace 用 buildDefaultWorkspace(1 tab),但主机 workspace.create
+//     的**回声广播先于 addWorkspace 的 .then 到达**(workspaceService 先 broadcast 再 return),回声
+//     reconcile(scope=configId·空 tabs)先落地→.then 走 exists=map 分支→常态仍 0 tab。这是**有意接受**
+//     的一致语义(远程发现/主动创建统一 0 tab·⌘T 即建),非 bug;本机路径(scope='local')始终 1 tab 零回归。
 //   - inScope 有、snapshot 无 → 回收(该 ws 全部 tab 记入 disposedTabIds,移除)。
 //   - 两侧都有 → 仅同步 name/root,保留 tabs/activeTabId/branch 与合并后的数组位置。
 //

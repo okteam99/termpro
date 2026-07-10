@@ -76,3 +76,44 @@ verdict: NEEDS_REVISION
 **最该 ship 前解决**：
 1. **E1（high）**——拖拽重排的子集/全量下标错位，是 BL-004 自己的头号多机场景（连远程机后新增本机项目再拖拽）里可日常复现的静默错序，且随存档持久化。修下标翻译或 addWorkspace 插入位不变式，并补对应单测。
 2. **E2（medium）**——远程 workspace 的 globe/Finder×2 三个系统打开按钮未随 D-7 禁用，把远程路径漏给本机 shell（同名巧合时静默开错本机文件）。按已有 aria-disabled+提示同款补齐，并加测试。
+
+---
+
+## VERIFY 轮（commit 421854f · 第三视角复审修复）
+
+复审姿态=独立重跑真实代码 + 门禁，不采信 RD 自述。tsc `--noEmit` 0 错；`vitest run` 全量 **681 passed / 1 skipped**（本地实跑复现，非转述）。逐条核修法闭环 + 找新问题。
+
+### E1（high）→ **已闭环**（双保险均真实成立）
+- **① 拖拽全量坐标系**（Sidebar.tsx handleDragOver）：`srcIndex/targetIndex` 均改 `workspaces.findIndex`（全量数组），`moveWorkspace(toIndex)` 语义本就是全量 splice 下标——坐标系一致，子集/全量错位根因消除。此修**单独即闭环**，不再依赖任何「本机连续前缀」脆弱假设。
+- **② 连续前缀不变式**（store.insertLocalWorkspace + reconcile scope=local 分支）：本机新建/广播新增插到「首个远程 ws 之前」，无远程时 `firstRemoteIdx<0` 等价原尾插（本机零回归）。作为 belt-and-suspenders。
+- **回归测真**：`SidebarMachineGroups.test.tsx` 新用例刻意造 `[r1,l1,l2]`（远程排前·本机不连续），拖 l2 到 l1 上半 → 断言 `['r1','l2','l1']`。我手算旧代码此场景产 `['l2','r1','l1']`（误动远程 r1）→ 该测对旧码为红、对新码为绿，是**真回归测非绿桩**。且测正确用 `MouseEvent`+`dispatchEvent` 传 clientY（注释明写 RTL eventInit 会静默丢 clientY 只读 accessor 的坑）。
+- **持久化角度**：serialize 保 localWorkspaces 相对序，前缀不变式下顺序正确落盘/hydrate，不再随存档持久错位。✓
+
+### E2（medium）→ **已闭环**
+- FilePanel.tsx 三按钮（isHtml→openInBrowser:650 / isFile→showItemInFolder / isDir→openPath）均加 `aria-disabled + REMOTE_FILE_HINT_TEXT + style + isRemote 早返 showRemoteFileHint()`，与既有 Diff/文件行同款。
+- **关键正确点**：目录行的「Finder 打开」按钮禁用，但目录**展开/收起**（行 onClick=handleToggleDir）不禁——树浏览经 forWorkspace 路远程照常，符合 D-7「只禁文件内容/系统打开入口，不禁树浏览」。
+- `hostClientImportGate.test.ts` 豁免 `components/viewer/`（仍用本机单例）在三按钮补齐后是**安全的**：已无远程路径能到达 openViewerWindow/系统打开（全部入口已 gated）。FilePanelRemoteDisabled.test.tsx 覆盖三按钮 aria-disabled + 不调用系统 API + 弹提示。✓
+
+### E3（low）→ **已闭环**（真免 auto-spawn + 徽标可 0）
+- reconcile 对 `scopeHostId!=='local'`（远程发现）合成 `tabs:[], activeTabId:null`；`scope==='local'` 仍 1 tab（本机零回归）。
+- **免 auto-spawn 验真**：空 tabs → App `activeWs.tabs.map` 无 TerminalView 挂载 → 无 ensureSession → 无 PTY spawn；点开该远程 ws 显示「⌘T 新建终端」空态，用户主动建 tab 才 spawn。语义正确。
+- **两侧都有分支** `{...w,name,root}` 保留 tabs——用户建过 tab 的远程 ws 在后续广播不被清空（无回归）。
+- 测真：workspaceSync.test.ts:227 / workspaceSnapshotScope.test.ts:131 直断 `tabs).toEqual([])`。✓
+
+### E4（low）→ **已闭环**（含删除清理）
+- 5s 轮询 `remoteHost.list()`；消失 id 触发 `stopRemoteWorkspaceSync(id)` + `remoteHostStore.clear(id)`（clear 方法确认存在）+ setRemoteConfigs。测真：新机出现 / 已删机组消失 + `stopRemoteWorkspaceSync` 被调 + runtime['cfg-1'] undefined（用 fake timers 推 5s×2）。✓
+
+### E5/E6（info）→ deferred，同意
+断线竞态窄边界 / Sidebar 握手镜像双源均代码注释自认，v1 阶段可接受。
+
+### 额外正向发现（非我原 findings，RD 顺手修）
+- **A5**：removeWorkspace/renameWorkspace 在 `ws` 已不在 store 时 `if (!ws) return`，删掉了原 `forWorkspace(ws ?? {hostId:'local'})` 的兜底本机误发路径——正确收紧（陈旧 id / 竞态不会把删除误发本机）。✓
+
+### VERIFY 残留（均非 blocker）
+- **V1 · info/low**：E4 轮询每 5s 无条件 `setRemoteConfigs(新数组引用)`，即便 list 内容未变也触发整个 Sidebar 重渲（5s 周期）。不影响正确性（native drag / React state 不受重渲打断，无 interval 泄漏——effect keyed `[]` 只建一个 timer），纯 cosmetic 性能微噪。建议 setRemoteConfigs 前做 id/内容等值守卫再置态。可 defer。
+
+---
+
+## VERIFY 结论
+
+**verdict: APPROVE**。E1(high)/E2(medium) 两条 ship 前必修均真实闭环（修法 + 真回归测双绿·非绿桩），E3/E4 亦真消解，E5/E6 deferred 合理。门禁独立复跑 tsc 0 错 · vitest 681 passed · import 集零残留。唯一残留 V1 为 5s 重渲性能微噪，非 blocker，可 defer。**建议放行 ship**。

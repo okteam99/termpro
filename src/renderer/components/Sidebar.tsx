@@ -205,7 +205,16 @@ export function Sidebar() {
       }
       knownIds.clear();
       nextIds.forEach((id) => knownIds.add(id));
-      setRemoteConfigs(list);
+      // review V1(perf):list 内容等值则不 setState(避免每 5s 轮询无条件新引用触发整个 Sidebar 重渲)。
+      setRemoteConfigs((prev) =>
+        prev.length === list.length &&
+        prev.every((c, i) =>
+          c.id === list[i].id && c.alias === list[i].alias &&
+          c.host === list[i].host && c.port === list[i].port,
+        )
+          ? prev
+          : list,
+      );
     }
 
     void refresh();
