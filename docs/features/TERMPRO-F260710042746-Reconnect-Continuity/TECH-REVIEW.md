@@ -5,11 +5,12 @@ review_round: 1
 reviewers: [architect, qa, external]
 verdict: APPROVE
 per_reviewer_verdict:
-  architect: APPROVE   # Round1 NEEDS_REVISION → 3 high + 3 med + 2 low 全 resolved
-  qa: APPROVE          # Round1 NEEDS_REVISION → 3 high + 6 med + 3 low 全 resolved/addressed
-  external: APPROVE    # Round1 NEEDS_REVISION → 2 high + 3 med + 4 low 全 resolved/addressed
+  architect: APPROVE          # Round1 NEEDS_REVISION → 3 high + 3 med + 2 low 全 resolved（TECH v0.2）
+  qa: APPROVE                 # Round1 NEEDS_REVISION → 3 high + 6 med + 3 low 全 resolved/addressed（TECH v0.2）
+  external_manual: APPROVE    # Round1(g5b-ext) NEEDS_REVISION → 2 high + 3 med + 4 low 全 resolved（TECH v0.2·归位 reviews/blueprint-ext.md）
+  external_degraded: APPROVE  # 官方降级外审(g5b-ext2·审 v0.2)NEEDS_REVISION → 确认 7 high 真解 + 补 1 new high CR-1 + 4 low CR-2~5 → TECH v0.3 收口 → 再验 APPROVE
 reviewed_at: "2026-07-10"
-revision: "TECH v0.2 · TC v0.2"
+revision: "TECH v0.3 · TC v0.3"
 verify_ac: PASS (14/14 · 39 test)
 summary: >
   三视角 blueprint 冷审 Round1 全 NEEDS_REVISION（核心方案对·地基是真·grounding 逐行属实·

@@ -649,13 +649,16 @@ Then A 的 input 被归属守卫拒绝（A 的 sessions Set 已被移除 sid）
 
 ---
 
-### Scenario: TC-030 瞬时断线抑制 full drop（AC-15·QA-10·D-13）
-**优先级**: P0 | **类型**: 功能 | **测试层级**: unit
+### Scenario: TC-030 瞬时断线抑制 full drop（AC-15·QA-10·D-13·CR-1 接线层）
+**优先级**: P0 | **类型**: 功能 | **测试层级**: unit（🔴 **接线层非纯 mock**·覆盖 disconnect-first 自发事件 × Sidebar 900ms 计时器两半接线·消 CR-1 测盲区）
 
 ```gherkin
 Given 远程 host 瞬时断线（未超重连预算·非机器删除）
-When BL-004 断线回落被触发判定
-Then 抑制 full drop（不调 dropHostWorkspaces·不 disposeTerminal·不 drop client）
+ And reconnectController 已同步先占 reconnecting 态（isReconnecting=true）再调 disconnect-first
+When disconnect-first 致 orchestrator 自发广播 disconnected 事件
+ And 时间推进超过 900ms（DISCONNECT_PANEL_MS·隧道重建耗时数秒）
+Then Sidebar 900ms drop 计时器因 isReconnecting gate 不启动 → 不调 stopRemoteWorkspaceSync（抑制 full drop）
+ And reconnectController 的 disconnected 订阅命中再入守卫（不 loop）
  And 该 host workspace 呈「重连中」态保留（非从 Sidebar 消失）·保活终端实例
 ```
 

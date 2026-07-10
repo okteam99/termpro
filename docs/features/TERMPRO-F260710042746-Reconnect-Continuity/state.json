@@ -12,7 +12,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "blueprint",
   "merge_target": "yolo/m5-remote-host",
   "review_base_commit": null,
   "worktree": {
@@ -35,13 +35,50 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T04:29:01Z",
+      "evidence": {},
+      "completed_at": "2026-07-10T05:03:13Z",
+      "auto_commit": "cbd77be",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md",
+        "reviews/goal-qa.md",
+        "reviews/goal-arch.md",
+        "reviews/goal-pl.md",
+        "reviews/goal-qa-r2.md",
+        "YOLO-PREFLIGHT.md"
+      ],
+      "duration_minutes": 34
+    },
+    "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-07-10T05:03:13Z",
+      "evidence": {
+        "panorama_changed": "false"
+      },
+      "completed_at": "2026-07-10T05:22:55Z",
+      "auto_commit": "4062022",
+      "artifacts": [
+        "UI.md"
+      ],
+      "duration_minutes": 19
+    },
+    "blueprint": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-07-10T04:29:01Z"
+      "started_at": "2026-07-10T05:22:55Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal",
+    "ui_design"
+  ],
   "created_at": "2026-07-10T04:29:00Z",
   "stage_review_roles": {
     "goal": [
@@ -79,11 +116,14 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-07-10T04:29:01Z",
+  "updated_at": "2026-07-10T05:23:14Z",
   "updated_by": "pmo",
-  "_state_checksum": "sha256:3381a61cde9496670cda6cc728df1698d70c8fd85434808663bf8c2205b8c54b",
+  "_state_checksum": "sha256:4662814cb06f48c0df0ccd1f771030cea86d5ddfa73db201ef9e74ba51a6ea61",
   "legal_next_stages": [
-    "ui_design",
-    "blueprint"
-  ]
+    "dev"
+  ],
+  "execution_hints": {
+    "ui_design_needed": true,
+    "panorama_changed": false
+  }
 }
