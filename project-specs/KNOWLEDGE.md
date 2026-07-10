@@ -48,6 +48,10 @@
 | GO-021 | state/hydrate | **renderer 对 Host 权威数据(workspace.list)做 v2 hydrate 时,「RPC 读失败」≠「权威真空」**:读失败若被当空注册表,孤儿丢弃逻辑会清空全部视图态,且 hydrate 后的防抖写回会把空态固化落盘(不可逆丢 tab/面板/排序) | 权威读结果用 `null`(失败)区分 `[]`(真空);失败路径不 hydrate、不启动写回订阅(finishHydrate 模式:订阅只在成功路径启动)+ 有限重试;见 `src/renderer/state/persistence.ts` | 2026-07 | TERMPRO-F260709092258 |
 | GO-022 | fs.watch/test | **macOS fs.watch(FSEvents)流异步启动存在死窗口**:调用返回 ≠ 流已在接收;紧跟 watch 之后的首次文件变更可能**永久丢事件**(不补发),高并行负载下高发 —— 任何固定等待预算都救不了(是丢不是慢) | 「watch 后立刻变更」场景用 poke 循环(持续制造新变更直到首事件到达,见 `wsTestHarness.pokeUntilFsEvent`);或等流就绪再做首次变更 | 2026-07 | TERMPRO-F260709092310 |
 | GO-023 | build | **`ws` 的可选原生加速依赖 bufferutil/utf-8-validate 是 try/catch 懒加载**;vite 打包会把可选 require 变成构建期硬解析 → 找不到即构建失败 → host 启动崩(SMOKE_TIMEOUT) | `vite.host.config.ts` 与 `scripts/package-host.mjs` 把二者与 node-pty 一样列 external(运行时 ws 自行 try/catch 兜底) | 2026-07 | TERMPRO-F260709092310 |
+| GO-024 | build | **ssh2 的可选原生依赖 `cpu-features` 会拖垮 electron rebuild**:ssh2 纯 JS(`require('cpu-features')` 在 try/catch 内·缺失即纯 JS 回退),但 electron-forge start/make 默认重建**所有** native 模块,node-gyp 在无构建链环境编译 cpu-features 失败 → start/make 崩 | `forge.config.ts` `rebuildConfig: { onlyModules: ['node-pty'] }` 白名单化——只重建 app 真正需要的 node-pty,不碰 cpu-features(也不误伤 vite/rollup 平台 optional 二进制·那些非 electron rebuild 范畴) | 2026-07 | TERMPRO-F260709180208 |
+| GO-025 | remote/security | **远程机凭据存储语义 = safeStorage 非钥匙串条目**:密码/passphrase 经 `safeStorage.encryptString`→base64 落 `userData/remote-hosts.secrets.json`(密文)·加密密钥在 OS 钥匙串;私钥仅路径引用**内容不入库**;host loopback capability token(经 ws URL 出 main)≠ SSH 登录凭据(永不入 renderer)——两类 secret 边界勿混(ADR-001·上游 Q-003 措辞已注 safeStorage) | 见 `src/main/remote/credentialStore.ts`·`setSecret` 在 `!isEncryptionAvailable` 时抛错拒存不明文兜底;save 前置校验 isAvailable() 防 has* 旗标与密文不符 | 2026-07 | TERMPRO-F260709180208 |
+| GO-026 | remote/concurrency | **远程 host「认领驻留进程」reap 必须双因子身份核验防兄弟误杀**:configId 只在 env 不进 argv 时,`ps`/`/proc/cmdline` 对同机所有 host 签名相同 → 按 pid+`host.js` 签名 kill 会误杀兄弟 host。且认领握手在 renderer 会致 livelock(main emit verifying 后不等反馈) | ① host 启动注 `--host-tag <configId>` 显式 argv(仅自证不入 token 闸)·reap 唯一放行=cmdline argv 分词**全等**本 configId(非裸 substring);② 认领验证**前移 main**(storedToken 自建 node-ws 探测 host.info·probe 失败同栈回收不 livelock)·见 `src/main/remote/residency.ts` | 2026-07 | TERMPRO-F260709180208 |
+| GO-027 | remote/deploy | **远端部署锁用非递归 mkdir 保原子**,但锁目录父目录(`~/.termpro-host/bundle`)首装不存在 → 非递归 mkdir 连环 ENOENT → waitForPeer 轮询永不出现的 .ready → 120s deployFailed(桩测全 mock exec 掩盖·测绿产红)。且「锁存在但 meta 缺失」若恒判 age=0 会致 meta-less 锁**永久 wedge** | 取锁前 `mkdir -p "${dataDir}/bundle"`(锁目录本身仍非递归保原子);meta 缺失改按**锁目录 mtime**(`stat -c %Y`/`-f %m` 跨平台)兜底陈旧判定,不永久 wedge;远端路径 shell 命令统一双引号(远端 $HOME 含空格即破)·见 `src/main/remote/deploy.ts` | 2026-07 | TERMPRO-F260709180208 |
 
 ---
 
@@ -93,6 +97,9 @@
 - **notify**: GO-012, GO-014, GO-016
 - **test**: GO-017
 - **lifecycle**: GO-019
+- **remote/security**: GO-025
+- **remote/concurrency**: GO-026
+- **remote/deploy**: GO-027, GO-024(build)
 - **发版**: PR-001
 - **歧义**: FA-001
 - **拒绝**: OS-001, OS-002, OS-003, OS-004, OS-005

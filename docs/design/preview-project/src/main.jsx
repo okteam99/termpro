@@ -1197,14 +1197,112 @@ const REMOTE_HOSTS_STATE_PRESETS = [
   { key: 'default', label: '默认' },
   { key: 'empty', label: '空态' },
   { key: 'test-fail', label: '测试失败' },
+  { key: 'deploying', label: '部署中 · 63%' },
+  { key: 'node-missing', label: '失败 · 缺 Node' },
+  { key: 'incompatible', label: '失败 · 版本不兼容' },
+  { key: 'lost', label: '连接已断开' },
 ];
 
-/** 「远程机」管理 modal:最近使用快捷区(只读)+ 手动添加区(增/改/删/测试连接)。 */
+/**
+ * 失败原因口径:「测试连接」(仅认证 + 可达探测)与「连接」(完整部署编排)共用同一分类文案(AC-2)。
+ * nodeMissing / incompatible 只会在「连接」的部署/握手阶段出现,测试连接不会触发这两类。
+ */
+const FAIL_REASONS = {
+  unreachable: { label: '不可达', detail: 'ssh: connect to host: Connection refused' },
+  auth: { label: '认证失败', detail: 'Permission denied (publickey)' },
+  timeout: { label: '超时', detail: 'Connection timed out (10s)' },
+  nodeMissing: {
+    label: '缺少 Node.js 运行时',
+    detail: '远端未检测到 node ≥ 20',
+    guidance: '请在远端机器安装 Node.js 20 或更高版本后重试连接',
+  },
+  incompatible: {
+    label: '版本不兼容',
+    detail: '远端 host v0.2.1 与当前应用 v0.3.12 协议不兼容 · 已断开',
+  },
+};
+
+/** 连接生命周期(AC-5)进行中各态的徽标文案;ready/failed/lost 另有专属徽标(见 renderStageBadge)。 */
+const CONNECT_STAGE_LABEL = {
+  connecting: '连接中…',
+  deploying: '部署中…',
+  starting: '启动 host…',
+  claiming: '认领中…',
+  verifying: '握手校验…',
+};
+
+function isActiveStage(stage) {
+  return stage === 'connecting' || stage === 'deploying' || stage === 'starting'
+    || stage === 'claiming' || stage === 'verifying';
+}
+
+function hasProgressPanel(stage) {
+  return stage === 'deploying' || stage === 'starting' || stage === 'claiming' || stage === 'verifying';
+}
+
+function hostDotModifier(host, runtime) {
+  if (runtime && runtime.stage) {
+    if (runtime.stage === 'failed' || runtime.stage === 'lost') return 'fail';
+    if (isActiveStage(runtime.stage)) return 'active';
+  }
+  return host.status === 'connected' ? 'connected' : 'disconnected';
+}
+
+/**
+ * 「连接」编排模拟(mock 定时器,镜像 add-workspace 页已用户确认的部署时序):
+ * fast(曾成功连接过 · lastUsed 有值)→ connecting → claiming → verifying → ready(认领驻留进程 · 跳过上传,AC-13);
+ * 否则走首次部署全链路 → connecting → deploying(0~100%)→ starting → verifying → ready(AC-4)。
+ * 失败/断线态不由本函数产生 —— 由顶栏 preset 注入(见 RemoteHostsPage 的 devState 分支)。
+ */
+function beginHostConnect(host, setHostRuntime, onReady) {
+  const id = host.id;
+  const fast = !!host.lastUsed;
+  setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'connecting', fast } }));
+
+  window.setTimeout(() => {
+    if (fast) {
+      setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'claiming', fast: true } }));
+      window.setTimeout(() => {
+        setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'verifying', fast: true } }));
+        window.setTimeout(() => {
+          setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+          onReady(id);
+        }, 550);
+      }, 500);
+      return;
+    }
+
+    setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'deploying', percent: 0, arch: 'darwin-arm64', fast: false } }));
+    let pct = 0;
+    const timer = window.setInterval(() => {
+      pct = Math.min(100, pct + 25);
+      if (pct < 100) {
+        setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'deploying', percent: pct, arch: 'darwin-arm64', fast: false } }));
+        return;
+      }
+      window.clearInterval(timer);
+      setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'starting', arch: 'darwin-arm64', fast: false } }));
+      window.setTimeout(() => {
+        setHostRuntime((prev) => ({ ...prev, [id]: { stage: 'verifying', arch: 'darwin-arm64', fast: false } }));
+        window.setTimeout(() => {
+          setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+          onReady(id);
+        }, 550);
+      }, 450);
+    }, 260);
+  }, 500);
+}
+
+/** 「远程机」管理 modal:最近使用快捷区(一键连接)+ 手动添加区(增/改/删/测试连接/连接生命周期)。 */
 function RemoteHostsModal({
   recentHosts,
   manualHosts,
   testState,
+  testFailReason,
   onTest,
+  hostRuntime,
+  onConnect,
+  onDisconnect,
   deleteConfirmId,
   onRequestDelete,
   onCancelDelete,
@@ -1225,22 +1323,136 @@ function RemoteHostsModal({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  function renderTestArea(host, extraActions) {
-    const state = testState[host.id];
-    if (state === 'testing') {
-      return <span className="remote-hosts__badge remote-hosts__badge--pending">测试连接中…</span>;
+  function renderStageBadge(runtime) {
+    if (runtime.stage === 'failed') {
+      const reason = FAIL_REASONS[runtime.reason] || FAIL_REASONS.unreachable;
+      return <span className="remote-hosts__badge remote-hosts__badge--fail">✗ {reason.label}</span>;
     }
-    if (state === 'ok') {
-      return <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连通 · 384ms</span>;
+    if (runtime.stage === 'lost') {
+      return <span className="remote-hosts__badge remote-hosts__badge--lost">⚠ 连接已断开</span>;
     }
-    if (state === 'fail') {
-      return <span className="remote-hosts__badge remote-hosts__badge--fail">✗ 连接失败 · Permission denied (publickey)</span>;
+    const label = CONNECT_STAGE_LABEL[runtime.stage] || '连接中…';
+    const pct = runtime.stage === 'deploying' && typeof runtime.percent === 'number' ? ` ${runtime.percent}%` : '';
+    return (
+      <span className="remote-hosts__badge remote-hosts__badge--active">
+        <span className="add-ws__spinner add-ws__spinner--sm" />
+        {label}{pct}
+      </span>
+    );
+  }
+
+  function renderActionButtons(host, stage, compact) {
+    const buttons = [];
+    if (stage === 'ready') {
+      buttons.push(<button key="disc" className="remote-hosts__action" onClick={() => onDisconnect(host.id)}>断开</button>);
+    } else if (stage === 'failed') {
+      buttons.push(<button key="retry" className="remote-hosts__action remote-hosts__action--primary" onClick={() => onConnect(host)}>重试</button>);
+    } else if (stage === 'lost') {
+      buttons.push(<button key="reconn" className="remote-hosts__action remote-hosts__action--primary" onClick={() => onConnect(host)}>重连</button>);
+    } else {
+      buttons.push(<button key="conn" className="remote-hosts__action remote-hosts__action--primary" onClick={() => onConnect(host)}>连接</button>);
     }
+    if (!compact) {
+      if (stage === 'idle' || stage === 'ready') {
+        buttons.push(<button key="test" className="remote-hosts__action" onClick={() => onTest(host.id)}>测试连接</button>);
+      }
+      buttons.push(<button key="edit" className="remote-hosts__action" onClick={() => onOpenEdit(host)}>编辑</button>);
+      buttons.push(<button key="del" className="remote-hosts__action remote-hosts__action--danger" onClick={() => onRequestDelete(host.id)}>删除</button>);
+    }
+    return buttons;
+  }
+
+  /** 行内状态/动作区:连接生命周期(非闲置)优先于测试态;两者共用 FAIL_REASONS 口径(AC-2)。 */
+  function renderStatusArea(host, runtime, compact) {
+    if (runtime && runtime.stage) {
+      if (isActiveStage(runtime.stage)) {
+        return renderStageBadge(runtime);
+      }
+      return (
+        <span className="remote-hosts__row-actions">
+          {renderStageBadge(runtime)}
+          {renderActionButtons(host, runtime.stage, compact)}
+        </span>
+      );
+    }
+    if (!compact) {
+      const testStatus = testState[host.id];
+      if (testStatus === 'testing') {
+        return (
+          <span className="remote-hosts__badge remote-hosts__badge--pending">
+            <span className="add-ws__spinner add-ws__spinner--sm" />
+            测试连接中…
+          </span>
+        );
+      }
+      if (testStatus === 'ok') {
+        return <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连通 · 384ms</span>;
+      }
+      if (testStatus === 'fail') {
+        const reason = FAIL_REASONS[testFailReason[host.id]] || FAIL_REASONS.auth;
+        return <span className="remote-hosts__badge remote-hosts__badge--fail">✗ {reason.label} · {reason.detail}</span>;
+      }
+    }
+    const stage = host.status === 'connected' ? 'ready' : 'idle';
     return (
       <span className="remote-hosts__row-actions">
-        <button className="remote-hosts__action" onClick={() => onTest(host.id)}>测试连接</button>
-        {extraActions}
+        {stage === 'ready' && <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连接</span>}
+        {renderActionButtons(host, stage, compact)}
       </span>
+    );
+  }
+
+  /** 部署进度(AC-4):快路径(fast)呈现「认领驻留进程」单行提示;否则三段 stepper(上传/启动/握手),上传段带百分比。 */
+  function renderProgressPanel(runtime) {
+    if (runtime.fast) {
+      const verifying = runtime.stage === 'verifying';
+      return (
+        <div className="remote-hosts__progress-claim">
+          <span className="add-ws__spinner add-ws__spinner--sm" />
+          {verifying ? '已认领运行中的 host 进程 · 握手校验…' : '发现已运行的 host 进程 · 认领中…'}
+        </div>
+      );
+    }
+    const steps = [
+      { key: 'upload', label: '上传 bundle' },
+      { key: 'start', label: '启动 host' },
+      { key: 'verify', label: '握手验证' },
+    ];
+    const order = ['deploying', 'starting', 'verifying'];
+    const idx = order.indexOf(runtime.stage);
+    return (
+      <>
+        {runtime.arch && <div className="remote-hosts__progress-arch">已探测远端架构 · {runtime.arch}</div>}
+        <div className="remote-hosts__progress">
+          {steps.map((s, i) => {
+            const state = i < idx ? 'done' : i === idx ? 'active' : 'pending';
+            return (
+              <React.Fragment key={s.key}>
+                {i > 0 && <span className="remote-hosts__progress-connector" />}
+                <span className={`remote-hosts__progress-step remote-hosts__progress-step--${state}`}>
+                  {state === 'done' && <span className="remote-hosts__progress-check">✓</span>}
+                  {state === 'active' && <span className="add-ws__spinner add-ws__spinner--sm" />}
+                  {state === 'pending' && <span className="remote-hosts__progress-dot-pending" />}
+                  {s.label}
+                  {state === 'active' && s.key === 'upload' && typeof runtime.percent === 'number' && (
+                    <span className="remote-hosts__progress-percent"> {runtime.percent}%</span>
+                  )}
+                </span>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+
+  function renderFailDetail(runtime) {
+    const reason = FAIL_REASONS[runtime.reason] || FAIL_REASONS.unreachable;
+    return (
+      <div className="remote-hosts__fail-detail">
+        <span className="remote-hosts__fail-detail-code">{reason.detail}</span>
+        {reason.guidance && <span>{reason.guidance}</span>}
+      </div>
     );
   }
 
@@ -1253,7 +1465,7 @@ function RemoteHostsModal({
         <div className="remote-hosts__header">
           <div>
             <div className="remote-hosts__title">远程机</div>
-            <div className="remote-hosts__subtitle">SSH 密钥或密码登录 · 密码凭据存入系统钥匙串</div>
+            <div className="remote-hosts__subtitle">SSH 密钥或密码登录 · 密码/私钥密码存入系统钥匙串</div>
           </div>
           <button className="remote-hosts__close" onClick={onClose} title="关闭">×</button>
         </div>
@@ -1270,17 +1482,22 @@ function RemoteHostsModal({
                 <div className="remote-hosts__section">
                   <div className="remote-hosts__section-title">最近使用</div>
                   <div className="remote-hosts__list">
-                    {recentHosts.map((h) => (
-                      <div key={h.id} className="remote-hosts__row">
-                        <span className={`remote-hosts__dot remote-hosts__dot--${h.status}`} />
-                        <span className="remote-hosts__alias">{h.alias}</span>
-                        <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
-                        <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
-                        <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
-                        <span className="remote-hosts__last-used">{h.lastUsed}</span>
-                        {renderTestArea(h)}
-                      </div>
-                    ))}
+                    {recentHosts.map((h) => {
+                      const runtime = hostRuntime[h.id];
+                      return (
+                        <div key={h.id} className="remote-hosts__entry">
+                          <div className="remote-hosts__row">
+                            <span className={`remote-hosts__dot remote-hosts__dot--${hostDotModifier(h, runtime)}`} />
+                            <span className="remote-hosts__alias">{h.alias}</span>
+                            <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
+                            <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
+                            <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
+                            <span className="remote-hosts__last-used">{h.lastUsed}</span>
+                            {renderStatusArea(h, runtime, true)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1288,31 +1505,35 @@ function RemoteHostsModal({
               <div className="remote-hosts__section">
                 <div className="remote-hosts__section-title">手动添加</div>
                 <div className="remote-hosts__list">
-                  {manualHosts.map((h) => (
-                    <div key={h.id} className="remote-hosts__row">
-                      {deleteConfirmId === h.id ? (
-                        <span className="remote-hosts__confirm">
-                          <span className="remote-hosts__confirm-text">确认删除?</span>
-                          <button className="remote-hosts__action remote-hosts__action--danger" onClick={() => onConfirmDelete(h.id)}>是</button>
-                          <button className="remote-hosts__action" onClick={onCancelDelete}>否</button>
-                        </span>
-                      ) : (
-                        <>
-                          <span className={`remote-hosts__dot remote-hosts__dot--${h.status}`} />
-                          <span className="remote-hosts__alias">{h.alias}</span>
-                          <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
-                          <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
-                          <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
-                          {renderTestArea(h, (
+                  {manualHosts.map((h) => {
+                    const runtime = hostRuntime[h.id];
+                    return (
+                      <div key={h.id} className="remote-hosts__entry">
+                        <div className="remote-hosts__row">
+                          {deleteConfirmId === h.id ? (
+                            <span className="remote-hosts__confirm">
+                              <span className="remote-hosts__confirm-text">
+                                确认删除 {h.alias}?将同时清除已存凭据{(runtime || h.status === 'connected') ? ' · 将先断开当前连接' : ''}
+                              </span>
+                              <button className="remote-hosts__action remote-hosts__action--danger" onClick={() => onConfirmDelete(h.id)}>是</button>
+                              <button className="remote-hosts__action" onClick={onCancelDelete}>否</button>
+                            </span>
+                          ) : (
                             <>
-                              <button className="remote-hosts__action" onClick={() => onOpenEdit(h)}>编辑</button>
-                              <button className="remote-hosts__action remote-hosts__action--danger" onClick={() => onRequestDelete(h.id)}>删除</button>
+                              <span className={`remote-hosts__dot remote-hosts__dot--${hostDotModifier(h, runtime)}`} />
+                              <span className="remote-hosts__alias">{h.alias}</span>
+                              <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
+                              <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
+                              <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
+                              {renderStatusArea(h, runtime, false)}
                             </>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  ))}
+                          )}
+                        </div>
+                        {runtime && hasProgressPanel(runtime.stage) && renderProgressPanel(runtime)}
+                        {runtime && runtime.stage === 'failed' && renderFailDetail(runtime)}
+                      </div>
+                    );
+                  })}
                   {manualHosts.length === 0 && <div className="remote-hosts__section-empty">暂无手动添加的远程机</div>}
                 </div>
               </div>
@@ -1363,14 +1584,25 @@ function RemoteHostsModal({
                         <span className="remote-hosts__field-hint">密码存入 macOS 钥匙串,不明文落盘</span>
                       </label>
                     ) : (
-                      <label className="remote-hosts__field remote-hosts__field--wide">
-                        <span>私钥路径</span>
-                        <input
-                          value={formValues.identityFile}
-                          onChange={(e) => onFormChange({ ...formValues, identityFile: e.target.value })}
-                          placeholder="默认使用 ssh config / agent"
-                        />
-                      </label>
+                      <>
+                        <label className="remote-hosts__field remote-hosts__field--wide">
+                          <span>私钥路径</span>
+                          <input
+                            value={formValues.identityFile}
+                            onChange={(e) => onFormChange({ ...formValues, identityFile: e.target.value })}
+                            placeholder="例如 ~/.ssh/id_ed25519"
+                          />
+                        </label>
+                        <label className="remote-hosts__field remote-hosts__field--wide">
+                          <span>私钥密码(可选)</span>
+                          <input
+                            type="password"
+                            value={formValues.passphrase}
+                            onChange={(e) => onFormChange({ ...formValues, passphrase: e.target.value })}
+                          />
+                          <span className="remote-hosts__field-hint">加密私钥的 passphrase · 存入系统钥匙串,不明文落盘</span>
+                        </label>
+                      </>
                     )}
                   </div>
                   <div className="remote-hosts__form-actions">
@@ -1395,22 +1627,45 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
   const [connState, setConnState] = useState({});
   const [manualHosts, setManualHosts] = useState(DEFAULT_MANUAL_HOSTS);
   const [testState, setTestState] = useState({});
+  const [testFailReason, setTestFailReason] = useState({});
+  const [hostRuntime, setHostRuntime] = useState({});
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [formMode, setFormMode] = useState(null);
   const [formHostId, setFormHostId] = useState(null);
-  const [formValues, setFormValues] = useState({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', password: '' });
+  const [formValues, setFormValues] = useState({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', passphrase: '', password: '' });
 
   useEffect(() => {
     setManualHosts(devState === 'empty' ? [] : DEFAULT_MANUAL_HOSTS);
-    setTestState(devState === 'test-fail' ? { 'mini-pc': 'fail' } : {});
     setDeleteConfirmId(null);
     setFormMode(null);
     setFormHostId(null);
     setConnState({});
     setModalOpen(true);
+
+    if (devState === 'test-fail') {
+      setTestState({ 'vps-hk': 'fail' });
+      setTestFailReason({ 'vps-hk': 'auth' });
+    } else {
+      setTestState({});
+      setTestFailReason({});
+    }
+
+    // 顶栏 preset:注入页面难自然触达的连接生命周期态(部署中快照/失败分类/断线待重连);
+    // 真实点击「连接/重试/重连」走 beginHostConnect 演示成功路径(见下方 handleConnect)。
+    if (devState === 'deploying') {
+      setHostRuntime({ 'gpu-box': { stage: 'deploying', percent: 63, arch: 'darwin-arm64', fast: false } });
+    } else if (devState === 'node-missing') {
+      setHostRuntime({ 'vps-hk': { stage: 'failed', reason: 'nodeMissing' } });
+    } else if (devState === 'incompatible') {
+      setHostRuntime({ 'gpu-box': { stage: 'failed', reason: 'incompatible' } });
+    } else if (devState === 'lost') {
+      setHostRuntime({ 'mini-pc': { stage: 'lost' } });
+    } else {
+      setHostRuntime({});
+    }
   }, [devState]);
 
-  // 最近使用 = 手动添加主机中 lastUsed 有值的子集(只读快捷区)
+  // 最近使用 = 手动添加主机中 lastUsed 有值的子集(只读快捷区 + 一键连接,AC-7)
   const recentHosts = manualHosts.filter((h) => h.lastUsed);
   // 空态引导:无远程机且未展开表单时显示;点「添加远程机」→ 展开表单,保存后真实落入手动区
   const showEmptyState = manualHosts.length === 0 && !formMode;
@@ -1422,10 +1677,26 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
     }, 600);
   }
 
+  /** 「连接」(AC-4/AC-5/AC-13):清掉过期测试徽标,交给 beginHostConnect 走 mock 时序,ready 后回写 manualHosts。 */
+  function handleConnect(host) {
+    setTestState((prev) => { const next = { ...prev }; delete next[host.id]; return next; });
+    beginHostConnect(host, setHostRuntime, (id) => {
+      setManualHosts((prev) => prev.map((h) => (
+        h.id === id ? { ...h, status: 'connected', lastUsed: h.lastUsed || '刚刚' } : h
+      )));
+    });
+  }
+
+  /** 「断开」(AC-5 · ready → idle):清运行态,行回落到未连接展示。 */
+  function handleDisconnect(id) {
+    setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setManualHosts((prev) => prev.map((h) => (h.id === id ? { ...h, status: 'disconnected' } : h)));
+  }
+
   function openAddForm() {
     setFormMode('add');
     setFormHostId(null);
-    setFormValues({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', password: '' });
+    setFormValues({ alias: '', host: '', user: '', port: '22', auth: 'key', identityFile: '', passphrase: '', password: '' });
   }
 
   function openEditForm(host) {
@@ -1438,6 +1709,7 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
       port: String(host.port),
       auth: host.auth || 'key',
       identityFile: host.identityFile || '',
+      passphrase: '',
       // 密码不回显明文:回填占位圆点,表示钥匙串里已有凭据
       password: host.auth === 'password' ? '••••••••' : '',
     });
@@ -1481,7 +1753,10 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
   function requestDelete(id) { setDeleteConfirmId(id); }
   function cancelDelete() { setDeleteConfirmId(null); }
   function confirmDelete(id) {
+    // AC-14:删除随清 safeStorage 凭据(mock 侧同步清运行态/测试态,防孤儿展示态)
     setManualHosts((prev) => prev.filter((h) => h.id !== id));
+    setHostRuntime((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setTestState((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setDeleteConfirmId(null);
   }
 
@@ -1516,7 +1791,11 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
           recentHosts={recentHosts}
           manualHosts={manualHosts}
           testState={testState}
+          testFailReason={testFailReason}
           onTest={runTest}
+          hostRuntime={hostRuntime}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
           deleteConfirmId={deleteConfirmId}
           onRequestDelete={requestDelete}
           onCancelDelete={cancelDelete}

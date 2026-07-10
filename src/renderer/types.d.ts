@@ -1,3 +1,10 @@
+import type {
+  RemoteEvent,
+  RemoteHostConfig,
+  RemoteHostConfigInput,
+  TestResult,
+} from '../shared/remoteHost';
+
 export {};
 
 declare global {
@@ -49,6 +56,20 @@ declare global {
       getPathForFile(file: File): string;
       /** 发起原生拖出(把本地文件/目录拖到 Finder 等) */
       startFileDrag(path: string): void;
+      /** 远程机管理与连接编排(BL-003)· 无 get-secret 通道(AC-3) */
+      remoteHost: {
+        list(): Promise<RemoteHostConfig[]>;
+        save(payload: {
+          config: RemoteHostConfigInput;
+          password?: string;
+          passphrase?: string;
+        }): Promise<RemoteHostConfig>;
+        delete(payload: { id: string }): Promise<void>;
+        test(payload: { id: string }): Promise<TestResult>;
+        connect(payload: { id: string }): void;
+        disconnect(payload: { id: string }): void;
+        onEvent(callback: (e: RemoteEvent) => void): () => void;
+      };
     };
   }
 }
