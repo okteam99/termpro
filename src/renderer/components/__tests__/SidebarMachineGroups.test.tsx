@@ -6,7 +6,7 @@
 // window.termpro.remoteHost 用内存态假配置,store 直接 setState 种子(复刻
 // notificationBadge.test.ts / RemoteHostsPage.test.tsx 既有模式)。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import type { RemoteHostConfig } from '../../../shared/remoteHost';
 
@@ -255,5 +255,99 @@ describe('AC-11 · 断线两段式回落', () => {
     // folded 阶段:组头折叠,workspace 行消失,呈现"已断开 · 点击重连"
     expect(screen.queryByText('aon-edge')).not.toBeInTheDocument();
     expect(screen.getByText('已断开 · 点击重连')).toBeInTheDocument();
+  });
+});
+
+describe('E1 · 本机组内拖拽落位映射到全量数组坐标(review 修 · 与 d4-core 双保险)', () => {
+  it('远程已连 + 本机 ws 在全量数组内不连续(远程项目排前面)→ 拖拽仍落在正确全量位置,不误动远程项目', async () => {
+    // 全量数组刻意让本机 ws 不是前缀连续(远程 ws 排最前),复刻 review 描述的"子集下标≠全量下标"场景。
+    useAppStore.setState({
+      workspaces: [
+        remoteWs('r1', 'aon-edge', 'cfg-1', 0),
+        localWs('l1', 'TermPro'),
+        localWs('l2', 'aon-core'),
+      ],
+      activeWorkspaceId: 'l1',
+    });
+    useRemoteHostRuntimeStore.setState({
+      runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } },
+    });
+    installTermpro(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
+
+    render(<Sidebar />);
+    await screen.findByText('aon-edge');
+
+    const l2Row = screen.getByText('aon-core').closest('.sidebar-item') as HTMLElement;
+    const l1Row = screen.getByText('TermPro').closest('.sidebar-item') as HTMLElement;
+    expect(l2Row).toBeTruthy();
+    expect(l1Row).toBeTruthy();
+
+    // 🔴 不能用 fireEvent.dragOver(el, {clientY}) 的 eventInit 简写——RTL 对未识别的 dragover
+    // 事件类型退回普通 MouseEvent,clientY 是只读 accessor,Object.assign 式合并会静默丢弃
+    // (探测实测:eventInit 传的 clientY 在处理函数里恒读到 undefined)。改用构造函数传参 +
+    // dispatchEvent,clientY 才会真正生效。
+    const dataTransfer = { effectAllowed: '', setData: vi.fn(), getData: vi.fn() };
+    const dragStartEvent = new MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragStartEvent, 'dataTransfer', { value: dataTransfer });
+    fireEvent(l2Row, dragStartEvent);
+
+    vi.spyOn(l1Row, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      bottom: 140,
+      height: 40,
+      left: 0,
+      right: 200,
+      width: 200,
+      x: 0,
+      y: 100,
+      toJSON() {
+        return {};
+      },
+    });
+    // clientY 105 < midY(120) → 拖到 l1 上半部 → 插到 l1 之前
+    const dragOverEvent = new MouseEvent('dragover', {
+      bubbles: true,
+      cancelable: true,
+      clientY: 105,
+    });
+    Object.defineProperty(dragOverEvent, 'dataTransfer', { value: dataTransfer });
+    fireEvent(l1Row, dragOverEvent);
+
+    const ids = useAppStore.getState().workspaces.map((w) => w.id);
+    // 远程项目 r1 全局位置不受本机组内重排影响(仍在最前);本机子集内 l2 排到 l1 之前。
+    expect(ids).toEqual(['r1', 'l2', 'l1']);
+  });
+});
+
+describe('E4 · Sidebar 会话中远程机配置列表轮询刷新(review 修)', () => {
+  it('list 变化后远程组更新:新机出现;已删机器组消失 + 触发 stopRemoteWorkspaceSync', async () => {
+    vi.useFakeTimers();
+    let currentList: RemoteHostConfig[] = [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })];
+    installTermpro(async () => currentList);
+    useRemoteHostRuntimeStore.setState({
+      runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } },
+    });
+
+    render(<Sidebar />);
+    await vi.waitFor(() => expect(screen.getByText('mini-pc')).toBeInTheDocument());
+
+    // 新增一台远程机配置(模拟用户在「远程机」管理页新增,list 下次轮询会拿到它)
+    currentList = [...currentList, makeConfig({ id: 'cfg-2', alias: 'dev-server' })];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.getByText('dev-server')).toBeInTheDocument();
+
+    // 删除 mini-pc(cfg-1)→ 下次轮询后该机组消失,且触发 stopRemoteWorkspaceSync 清理其 sync/runtime
+    currentList = currentList.filter((c) => c.id !== 'cfg-1');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.queryByText('mini-pc')).not.toBeInTheDocument();
+    expect(screen.getByText('dev-server')).toBeInTheDocument();
+    expect(useRemoteHostRuntimeStore.getState().runtime['cfg-1']).toBeUndefined();
+
+    const { stopRemoteWorkspaceSync } = await import('../../services/remoteWorkspaceSync');
+    expect(stopRemoteWorkspaceSync).toHaveBeenCalledWith('cfg-1');
   });
 });

@@ -218,13 +218,33 @@ describe('reconcileWorkspaces 作用域隔离(scopeHostId)', () => {
     expect(r.workspaces.find((w) => w.id === 'r3')).toEqual(local[3]);
   });
 
-  it('远程快照新增条目合成 hostId=scopeHostId(不是 local)', () => {
+  it('review E3: 远程快照新增条目合成 hostId=scopeHostId(不是 local)· 空 tabs(不 auto-spawn PTY)', () => {
     const local = [ws('l1', 'l1', '/l1', ['t1'])];
     const snap = [entry('r9', 'new-proj', '/home/r9')];
     const r = reconcileWorkspaces(local, 'l1', snap, 'cfg-1');
     const r9 = r.workspaces.find((w) => w.id === 'r9')!;
     expect(r9.hostId).toBe('cfg-1');
-    expect(r9.tabs).toHaveLength(1);
+    expect(r9.tabs).toEqual([]); // 远程发现:空 tabs 视图,点开才懒建(AC-2/D-9「首连可为 0」)
+    expect(r9.activeTabId).toBeNull();
+  });
+
+  it('review E3(对照): 本机快照(scope=local)新增条目仍合成默认单 tab,行为不变', () => {
+    const local: WorkspaceState[] = [];
+    const snap = [entry('l9', 'new-local-proj', '/home/l9')];
+    const r = reconcileWorkspaces(local, null, snap, 'local');
+    const l9 = r.workspaces.find((w) => w.id === 'l9')!;
+    expect(l9.tabs).toHaveLength(1);
+    expect(l9.activeTabId).toBe(l9.tabs[0].id);
+  });
+
+  it('review E1(同根因): 已连远程机时,本机快照新增 ws(同机多窗口广播)仍插在本机前缀内,不排到远程后面', () => {
+    const local = [
+      ws('l1', 'l1', '/l1', ['t1']),
+      ws('r1', 'r1', '/r1', ['s1'], undefined, 'cfg-1'),
+    ];
+    const snap = [entry('l1', 'l1', '/l1'), entry('l2', 'l2', '/l2')]; // 另一窗口新建了 l2
+    const r = reconcileWorkspaces(local, 'l1', snap, 'local');
+    expect(r.workspaces.map((w) => w.id)).toEqual(['l1', 'l2', 'r1']); // l2 插在 r1 之前
   });
 
   it('BL004-U-active-fallback-local-first(architect NIT-N3): 本作用域内已无候选 → 复位落本机首个(非 null)', () => {

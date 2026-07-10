@@ -20,6 +20,12 @@ import type { MachineWorkspaceRowData } from './MachineWorkspaceRow';
 /** 断线两段式回落(D-8/AC-11)的 panel 阶段时长:UI 先亮断线态,再确定性折叠组头。 */
 const DISCONNECT_PANEL_MS = 900;
 
+/** 远程机配置列表轮询间隔(E4):remoteHost:save/delete 是纯 request-response IPC,main 不推
+ *  「配置列表已变」广播事件——Sidebar 常驻挂载,若只在挂载时拉一次,会话中在「远程机」管理页
+ *  新增/删除远程机后 Sidebar 分组不会更新(新机不出现·已删机组残留)。轻量轮询兜底,不新增
+ *  IPC 通道(main/preload 改动不在本 Feature write scope 内)。 */
+const REMOTE_CONFIG_POLL_MS = 5000;
+
 /** Small pencil icon 12×12 */
 function PencilIcon() {
   return (
@@ -179,13 +185,34 @@ export function Sidebar() {
 
   const [remoteConfigs, setRemoteConfigs] = useState<RemoteHostConfig[]>([]);
 
+  // 🔴 E4 修复:轮询而非一次性拉取——「远程机」管理页新增/删除配置不会推事件到 Sidebar,
+  // 只挂载时拉一次会导致会话中新机不出现、已删机组残留(其 sync/runtime 也不会被清)。
   useEffect(() => {
     let alive = true;
-    window.termpro.remoteHost.list().then((list) => {
-      if (alive) setRemoteConfigs(list);
-    });
+    const knownIds = new Set<string>();
+
+    async function refresh() {
+      const list = await window.termpro.remoteHost.list();
+      if (!alive) return;
+      const nextIds = new Set(list.map((c) => c.id));
+      // 配置已从列表消失(被删除)→ 清理该机残留 sync 订阅 + runtime 展示态 + client(防已删
+      // 机器组常驻 Sidebar、其 remoteWorkspaceSync 悬挂订阅不退)。
+      for (const id of knownIds) {
+        if (!nextIds.has(id)) {
+          stopRemoteWorkspaceSync(id);
+          useRemoteHostRuntimeStore.getState().clear(id);
+        }
+      }
+      knownIds.clear();
+      nextIds.forEach((id) => knownIds.add(id));
+      setRemoteConfigs(list);
+    }
+
+    void refresh();
+    const timer = setInterval(() => void refresh(), REMOTE_CONFIG_POLL_MS);
     return () => {
       alive = false;
+      clearInterval(timer);
     };
   }, []);
 
@@ -347,29 +374,28 @@ export function Sidebar() {
     setDraggingId(null);
   }
 
-  function handleDragOver(
-    e: React.DragEvent<HTMLDivElement>,
-    localWorkspaces: WorkspaceState[],
-    targetWsId: string,
-    targetIndex: number,
-  ) {
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>, targetWsId: string) {
     e.preventDefault();
     const srcId = draggingWsId.current;
     if (!srcId || srcId === targetWsId) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
-    const insertIndex = e.clientY < midY ? targetIndex : targetIndex + 1;
+    const before = e.clientY < midY;
 
-    const srcIndex = localWorkspaces.findIndex((w) => w.id === srcId);
-    if (srcIndex < 0) return;
+    // 🔴 E1 修复:必须用全量 workspaces 数组下标(moveWorkspace 的 toIndex 语义 = 全量数组
+    // splice 下标),不能用本机子集(localWorkspaces)渲染下标直接当全量下标——当本机 ws 在
+    // 全量数组里不连续时(例如远程机已连接、随后新建本机项目 append 到远程 ws 之后)子集下标
+    // ≠全量下标,会把本机项目拖到错误的全局位置(甚至越过远程组的项目)。
+    const srcIndex = workspaces.findIndex((w) => w.id === srcId);
+    const targetIndex = workspaces.findIndex((w) => w.id === targetWsId);
+    if (srcIndex < 0 || targetIndex < 0) return;
 
+    const insertIndex = before ? targetIndex : targetIndex + 1;
     let dest = insertIndex;
     if (srcIndex < insertIndex) dest = insertIndex - 1;
     if (dest === srcIndex) return;
 
-    // 本机组内重排:local 子集内下标即目标全局下标(本机 workspace 在 bootstrap/hydrate 时
-    // 先于任何远程发现写入 store,常态下连续排在数组前部;跨 host 交叉重排非本 Feature 范围)。
     moveWorkspace(srcId, dest < 0 ? 0 : dest);
   }
 
@@ -494,7 +520,7 @@ export function Sidebar() {
                       onClick={() => handleSelectWorkspace(machine, row)}
                       onDragStart={(e) => handleDragStart(e, ws.id)}
                       onDragEnd={handleDragEnd}
-                      onDragOver={(e) => handleDragOver(e, localWorkspaces, ws.id, idx)}
+                      onDragOver={(e) => handleDragOver(e, ws.id)}
                     >
                       <div className="sidebar-item-name-row">
                         <span className="sidebar-item-name">{ws.name}</span>

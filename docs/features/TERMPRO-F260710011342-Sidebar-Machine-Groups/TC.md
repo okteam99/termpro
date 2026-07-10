@@ -46,13 +46,13 @@ tests:
     level: component
     priority: P0
   - id: BL004-U-badge-zero
-    file: src/renderer/state/__tests__/tabBadge.test.ts
+    file: src/renderer/components/__tests__/MachineWorkspaceRow.test.tsx
     function: "formatTabBadge(0) 显式渲染 0 + zero 修饰符 · 不被 falsy 吞"
     covers_ac: [AC-2]
     level: unit
     priority: P0
   - id: BL004-U-badge-semantic
-    file: src/renderer/state/__tests__/tabBadge.test.ts
+    file: src/renderer/components/__tests__/MachineWorkspaceRow.test.tsx
     function: "徽标=本客户端活跃 tab 数 · 忽略主机侧非本客户端会话"
     covers_ac: [AC-2]
     level: unit
@@ -82,25 +82,25 @@ tests:
     level: component
     priority: P0
   - id: BL004-I-route-terminal
-    file: src/renderer/services/__tests__/remoteWorkspaceRouting.test.ts
-    function: "远程 workspace 终端 pty.spawn 走该机 client 非本地"
+    file: src/renderer/terminal/__tests__/sessionRouteCompositeKey.test.ts
+    function: "远程 workspace 终端会话按 (hostId,sessionId) 复合键路由该机 client 非本地"
     covers_ac: [AC-5]
     level: integration
     priority: P0
   - id: BL004-I-route-fs
-    file: src/renderer/services/__tests__/remoteWorkspaceRouting.test.ts
-    function: "远程 workspace FilePanel fs.readdir/watch/realpath 走该机 client"
+    file: src/renderer/filepanel/__tests__/deps.test.ts
+    function: "makeHostDeps(resolveClient) call-time 解析 · FilePanel fs 走当前 ws host client"
     covers_ac: [AC-5]
     level: integration
     priority: P0
   - id: BL004-I-route-git
-    file: src/renderer/services/__tests__/remoteWorkspaceRouting.test.ts
-    function: "App.tsx 分支刷新 git.info + terminalLinks fs.stat 走该机 client"
+    file: src/renderer/state/__tests__/hostClientImportGate.test.ts
+    function: "import 集门禁+tsc 静态保证 App.tsx git.info/terminalLinks 无裸 hostClient·必经 forWorkspace(该机 client)"
     covers_ac: [AC-5]
     level: integration
     priority: P0
   - id: BL004-U-grepgate
-    file: src/renderer/services/__tests__/hostConsumerGrepGate.test.ts
+    file: src/renderer/state/__tests__/hostClientImportGate.test.ts
     function: "src/renderer 无残留裸 hostClient. 消费 · 除豁免清单"
     covers_ac: [AC-5]
     level: unit
@@ -118,7 +118,7 @@ tests:
     level: unit
     priority: P0
   - id: BL004-U-local-baseline
-    file: src/renderer/state/__tests__/localRegressionBaseline.test.ts
+    file: src/renderer/services/__tests__/hostClientEmbeddedRegression.test.ts
     function: "本机路径 host 调用序列与改造前基线等价 · 0 新增"
     covers_ac: [AC-6]
     level: unit

@@ -12,7 +12,13 @@
 // 数组末尾」这个合理默认即可)→ active 只在「原 active 属本作用域且被删」时复位。
 //
 // 作用域内三分支(以 id 为键,非整体替换):
-//   - snapshot 有、inScope 无 → 合成默认视图(单 root tab、hostId=scopeHostId、不改 active、追加末尾)。
+//   - snapshot 有、inScope 无 → 合成默认视图(hostId=scopeHostId、不改 active、追加末尾)。
+//     tab 数视 scope 而定(review E3):scope='local' → 单 root tab(本机零回归,行为不变);
+//     scope=configId(远程发现)→ **空 tabs**(点开该 ws 再懒建 tab)——否则 setHostWorkspaces
+//     注入的每个远程 ws 恒 tabCount≥1,既违反 AC-2/D-9「首连远程机徽标可为 0」的语义,又会让
+//     用户还没点开就在远程机上被动 spawn 一个 PTY。用户主动经「添加项目」流程创建的远程 ws
+//     不走这条路径(store.addWorkspace 直接用 buildDefaultWorkspace,默认 1 tab 不变——那是
+//     用户主动要的会话,和被动发现语义不同)。
 //   - inScope 有、snapshot 无 → 回收(该 ws 全部 tab 记入 disposedTabIds,移除)。
 //   - 两侧都有 → 仅同步 name/root,保留 tabs/activeTabId/branch 与合并后的数组位置。
 //
@@ -70,19 +76,32 @@ export function reconcileWorkspaces(
   // 快照新增的 id → 合成默认视图,hostId=scopeHostId,追加到(本作用域协调结果的)末尾
   for (const entry of snapshot) {
     if (inScopeIds.has(entry.id)) continue;
-    const tab = makeTab(entry.root);
-    reconciled.push({
-      id: entry.id,
-      name: entry.name,
-      root: entry.root,
-      hostId: scopeHostId,
-      tabs: [tab],
-      activeTabId: tab.id,
-    });
+    if (scopeHostId === LOCAL_HOST_ID) {
+      const tab = makeTab(entry.root);
+      reconciled.push({
+        id: entry.id,
+        name: entry.name,
+        root: entry.root,
+        hostId: scopeHostId,
+        tabs: [tab],
+        activeTabId: tab.id,
+      });
+    } else {
+      // 远程发现(review E3):空 tabs 视图,不 auto-spawn PTY,徽标可为 0
+      reconciled.push({
+        id: entry.id,
+        name: entry.name,
+        root: entry.root,
+        hostId: scopeHostId,
+        tabs: [],
+        activeTabId: null,
+      });
+    }
   }
 
   // ② merge-back:按 local 原位次把 reconciled 结果填回本作用域槽位,作用域外原位透传;
-  //    本作用域新增条目(local 中原本不存在的 id)追加到整个数组末尾(NIT-N2)。
+  //    本作用域新增条目(local 中原本不存在的 id)追加(NIT-N2:交错作用域下落位语义不唯一,
+  //    取「该作用域组内末尾」这个合理默认)。
   const reconciledById = new Map(reconciled.map((w) => [w.id, w]));
   const placedIds = new Set<string>();
   const workspaces: WorkspaceState[] = [];
@@ -98,8 +117,19 @@ export function reconcileWorkspaces(
       workspaces.push(w); // 作用域外原位透传
     }
   }
-  for (const r of reconciled) {
-    if (!placedIds.has(r.id)) workspaces.push(r);
+  const newEntries = reconciled.filter((r) => !placedIds.has(r.id));
+  if (scopeHostId === LOCAL_HOST_ID) {
+    // review E1 同根因:新增本机 ws(如同机多窗口广播新建)插到首个远程 ws 之前,
+    // 维持「本机 ws 连续前缀」不变式——否则整体数组尾插会把它排到已存在的远程 ws 之后,
+    // Sidebar 拖拽的「本机子集下标 → 全量下标」映射即错位。
+    const firstRemoteIdx = workspaces.findIndex((w) => w.hostId !== LOCAL_HOST_ID);
+    if (firstRemoteIdx < 0) {
+      workspaces.push(...newEntries);
+    } else {
+      workspaces.splice(firstRemoteIdx, 0, ...newEntries);
+    }
+  } else {
+    workspaces.push(...newEntries); // 远程发现新增:整体数组末尾(N2 合理默认)
   }
 
   // ③ active 守卫:仅当原 active 属本作用域、且被本作用域快照删除时才复位;否则 active 原样

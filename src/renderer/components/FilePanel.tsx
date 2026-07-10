@@ -650,9 +650,17 @@ export function FilePanel() {
               {isHtml && (
                 <button
                   className="file-panel__row-action"
-                  title="用系统默认浏览器打开"
+                  aria-disabled={isRemote ? 'true' : undefined}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '用系统默认浏览器打开'}
+                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    // 远程 ws 的路径是该机上的路径,交给本机 openInBrowser 会静默作用于
+                    // 本机同名(但无关)文件——D-7 一律禁用 + 提示,而非静默走错文件。
+                    if (isRemote) {
+                      showRemoteFileHint();
+                      return;
+                    }
                     window.termpro.openInBrowser(node.absPath);
                   }}
                 >
@@ -662,9 +670,15 @@ export function FilePanel() {
               {isFile && (
                 <button
                   className="file-panel__row-action"
-                  title="在 Finder 中显示(跳转所在目录)"
+                  aria-disabled={isRemote ? 'true' : undefined}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '在 Finder 中显示(跳转所在目录)'}
+                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (isRemote) {
+                      showRemoteFileHint();
+                      return;
+                    }
                     window.termpro.showItemInFolder(node.absPath);
                   }}
                 >
@@ -674,9 +688,17 @@ export function FilePanel() {
               {isDir && !isErr && (
                 <button
                   className="file-panel__row-action"
-                  title="在 Finder 中打开"
+                  aria-disabled={isRemote ? 'true' : undefined}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '在 Finder 中打开'}
+                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    // 目录展开/收起(行点击 handleToggleDir)不受影响——这个按钮是「本机
+                    // Finder 打开」,是本地 OS 动作,与树浏览是两回事,D-7 同样要禁用。
+                    if (isRemote) {
+                      showRemoteFileHint();
+                      return;
+                    }
                     window.termpro.openPath(node.absPath);
                   }}
                 >

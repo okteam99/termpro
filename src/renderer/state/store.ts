@@ -224,6 +224,23 @@ function resolveActiveWs(
   );
 }
 
+/**
+ * 新建本机 ws 插入时维持「本机 ws 是数组连续前缀」不变式(review E1):插到首个非本机 ws
+ * 之前,而不是整体数组末尾。Sidebar 拖拽把「本机子集下标」映射回「全量数组下标」依赖此前缀,
+ * 若本机 ws 在远程 ws 已存在时被 append 到末尾(如 [L0,L1,R0,L2]),下标映射即错位。
+ * 还没有远程 ws 时,firstRemoteIdx=-1,等价于原来的「append 到末尾」,本机零回归。
+ */
+function insertLocalWorkspace(
+  workspaces: WorkspaceState[],
+  ws: WorkspaceState,
+): WorkspaceState[] {
+  const firstRemoteIdx = workspaces.findIndex((w) => w.hostId !== LOCAL_HOST_ID);
+  if (firstRemoteIdx < 0) return [...workspaces, ws];
+  const next = [...workspaces];
+  next.splice(firstRemoteIdx, 0, ws);
+  return next;
+}
+
 /** 由注册表记录合成默认单 tab 视图(新建 / 快照新增 / 注册表有存档无);hostId 默认 'local'(本机调用零改) */
 function buildDefaultWorkspace(
   entry: WorkspaceEntry,
@@ -366,7 +383,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         { id: crypto.randomUUID(), name: basename(root), root },
         LOCAL_HOST_ID,
       );
-      set((s) => ({ workspaces: [...s.workspaces, ws], activeWorkspaceId: ws.id }));
+      set((s) => ({
+        workspaces: insertLocalWorkspace(s.workspaces, ws),
+        activeWorkspaceId: ws.id,
+      }));
       return;
     }
     // v2:等待确认式 RPC + 防重复提交
@@ -390,7 +410,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? s.workspaces.map((w) =>
               w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,
             )
-          : [...s.workspaces, buildDefaultWorkspace(entry, targetHostId)];
+          : targetHostId === LOCAL_HOST_ID
+            ? insertLocalWorkspace(s.workspaces, buildDefaultWorkspace(entry, targetHostId))
+            : [...s.workspaces, buildDefaultWorkspace(entry, targetHostId)]; // 远程 ws 仍 append
         return { workspaces, activeWorkspaceId: entry.id, creatingWorkspace: false };
       });
     } catch (err) {
@@ -429,10 +451,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     // v2:按 ws.hostId 路由(forWorkspace) + 等待确认式 RPC + 防重复提交
+    // review A5:ws 已不在 store(竞态/重复点击/陈旧 id)→ 无路由依据,直接返回,
+    // 绝不兜底 { hostId: 'local' }(那会把本该发往未知 host 的删除误发到本机)。
+    if (!ws) return;
     if (get().pendingWorkspaceIds.includes(id)) return;
     set((s) => ({ pendingWorkspaceIds: [...s.pendingWorkspaceIds, id] }));
     try {
-      await hostRegistry.forWorkspace(ws ?? { hostId: LOCAL_HOST_ID }).rpc('workspace.remove', { id });
+      await hostRegistry.forWorkspace(ws).rpc('workspace.remove', { id });
       // 成功才本地回收;回声 workspace:changed 再次协调为幂等 no-op
       disposeAndRemove();
     } catch (err) {
@@ -460,12 +485,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     // v2:按 ws.hostId 路由(forWorkspace) + 等待确认式 RPC + 防重复提交
+    // review A5:ws 已不在 store → 无路由依据,直接返回,绝不兜底本机误发。
+    if (!ws) return;
     if (get().pendingWorkspaceIds.includes(id)) return;
     set((s) => ({ pendingWorkspaceIds: [...s.pendingWorkspaceIds, id] }));
     try {
-      const entry = await hostRegistry
-        .forWorkspace(ws ?? { hostId: LOCAL_HOST_ID })
-        .rpc('workspace.update', { id, name });
+      const entry = await hostRegistry.forWorkspace(ws).rpc('workspace.update', { id, name });
       set((s) => ({
         workspaces: s.workspaces.map((w) =>
           w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,

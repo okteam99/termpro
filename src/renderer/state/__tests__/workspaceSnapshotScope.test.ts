@@ -61,7 +61,9 @@ describe('BL004-U-snapshot-scope-local: 本机快照不误删/不误抢远程 ws
       entry('l3', 'L3', '/l3'),
     ]);
     const s = useAppStore.getState();
-    expect(s.workspaces.map((w) => w.id)).toEqual(['l1', 'l2', 'r1', 'r2', 'l3']);
+    // review E1 同根因:新增本机 ws 插到首个远程 ws 之前,维持本机 ws 连续前缀不变式
+    // (不是整体数组末尾 · 否则 Sidebar 拖拽的子集下标→全量下标映射会错位)
+    expect(s.workspaces.map((w) => w.id)).toEqual(['l1', 'l2', 'l3', 'r1', 'r2']);
     expect(s.workspaces.find((w) => w.id === 'r1')?.hostId).toBe('cfg-1');
     expect(s.workspaces.find((w) => w.id === 'r2')?.hostId).toBe('cfg-2');
     expect(s.activeWorkspaceId).toBe('r1'); // 远程 active 不被抢回
@@ -110,7 +112,26 @@ describe('BL004-U-snapshot-scope-remote: 远程 per-host 快照只协调该机,�
     const s = useAppStore.getState();
     const r4 = s.workspaces.find((w) => w.id === 'r4')!;
     expect(r4.hostId).toBe('cfg-1');
-    expect(r4.tabs).toHaveLength(1);
+    expect(r4.tabs).toEqual([]); // review E3
+  });
+
+  it('review E3: setHostWorkspaces 注入远程 ws 后 tabCount=0(不 auto-spawn PTY · 徽标语义 D-9)', () => {
+    useAppStore.setState({
+      persistMode: 'v2',
+      workspaces: [ws('l1', 'L1', '/l1', ['t1'])],
+      activeWorkspaceId: 'l1',
+    });
+    useAppStore
+      .getState()
+      .setHostWorkspaces('cfg-9', [entry('r9', 'R9', '/r9'), entry('r10', 'R10', '/r10')]);
+    const s = useAppStore.getState();
+    const remoteWs = s.workspaces.filter((w) => w.hostId === 'cfg-9');
+    expect(remoteWs).toHaveLength(2);
+    for (const w of remoteWs) {
+      expect(w.tabs).toEqual([]); // tabCount=0,徽标应显式渲染 0(不是 falsy 吞掉)
+      expect(w.activeTabId).toBeNull();
+    }
+    expect(disposeTerminal).not.toHaveBeenCalled(); // 纯新增,不涉及回收
   });
 
   it('setHostWorkspaces 不受 persistMode 门控(v1 fallback 下远程发现照常生效)', () => {
