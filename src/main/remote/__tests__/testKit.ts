@@ -117,11 +117,14 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
   };
 }
 
-/** 便捷:`node -v` → v20.x,`uname -sm` → Darwin arm64,其余走默认(code0 空输出)。 */
+/** 便捷:node 探测 → v20.x @ /usr/bin/node,`uname -sm` → Darwin arm64,其余走默认(code0 空输出)。 */
 export function healthyExecHandlers(overrides: ExecHandler[] = []): ExecHandler[] {
   return [
     (cmd) => (cmd === 'echo $HOME' ? { code: 0, stdout: '/home/tester\n', stderr: '' } : null),
-    (cmd) => (cmd === 'node -v' ? { code: 0, stdout: 'v20.11.0\n', stderr: '' } : null),
+    (cmd) =>
+      cmd.includes('command -v node')
+        ? { code: 0, stdout: 'v20.11.0 /usr/bin/node\n', stderr: '' }
+        : null,
     (cmd) => (cmd === 'uname -sm' ? { code: 0, stdout: 'Darwin arm64\n', stderr: '' } : null),
     ...overrides,
   ];

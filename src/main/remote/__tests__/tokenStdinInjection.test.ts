@@ -17,6 +17,7 @@ describe('AC-8 buildStartCommand', () => {
       dataDir: '/home/tester/.termpro-host',
       appVersion: '1.2.3',
       configId: 'vps-hk',
+      nodePath: '/opt/homebrew/bin/node',
     });
     expect(cmd).toContain('--token-stdin');
     expect(cmd).toContain('--host-tag "vps-hk"');
@@ -24,10 +25,34 @@ describe('AC-8 buildStartCommand', () => {
     expect(cmd).toContain('"/home/tester/.termpro-host/bundle/1.2.3/host.js"');
     expect(cmd).toContain('"/home/tester/.termpro-host/hosts/vps-hk/host.port"');
     expect(cmd).toContain('"/home/tester/.termpro-host/hosts/vps-hk/host.log"');
-    expect(cmd).toContain('setsid nohup env');
+    // node 用探测解析出的绝对路径(非交互 PATH 不可依赖),双引号包裹
+    expect(cmd).toContain('"/opt/homebrew/bin/node"');
+    // darwin 无 setsid:恒前缀改为按需降级($s 惯用式),整体 sh -c 单引号包裹
+    expect(cmd).toContain("sh -c '");
+    expect(cmd).toContain('command -v setsid');
+    expect(cmd).toContain('$s nohup env');
     expect(cmd).toContain('< /dev/stdin');
+    // sh -c 单引号体内不得再有单引号(外层登录 shell 可能是 fish/csh)
+    expect(cmd.slice(cmd.indexOf("sh -c '") + 7, -1)).not.toContain("'");
     // A6:远端 Origin 白名单经 env 注入(host.ts 已实现按逗号分隔解析)
     expect(cmd).toContain('TERMPRO_ALLOWED_ORIGINS=');
+  });
+
+  it('nodePath 缺省回落裸 node;含双引号/换行的异常路径被剥除,不破坏命令边界', () => {
+    const fallback = buildStartCommand({
+      dataDir: '/d',
+      appVersion: '1.0.0',
+      configId: 'a',
+    });
+    expect(fallback).toContain('"node"');
+    const hostile = buildStartCommand({
+      dataDir: '/d',
+      appVersion: '1.0.0',
+      configId: 'a',
+      nodePath: '/tmp/x"; rm -rf /; echo "\n/pwn/node',
+    });
+    expect(hostile).not.toContain('"; rm');
+    expect(hostile).not.toContain('\n');
   });
 
   it('A6 buildStartCommand 可注入自定义 allowedOrigins(main.ts 按打包/dev 场景算出)', () => {
@@ -67,7 +92,10 @@ describe('AC-8 T-018 端到端(编排器层):token 只经 execDetached stdin 参
       const routed = createRoutedSsh({
         execHandlers: [
           (cmd) => (cmd === 'echo $HOME' ? { code: 0, stdout: '/home/tester\n', stderr: '' } : null),
-          (cmd) => (cmd === 'node -v' ? { code: 0, stdout: 'v20.11.0\n', stderr: '' } : null),
+          (cmd) =>
+            cmd.includes('command -v node')
+              ? { code: 0, stdout: 'v20.11.0 /usr/bin/node\n', stderr: '' }
+              : null,
           (cmd) => (cmd === 'uname -sm' ? { code: 0, stdout: 'Darwin arm64\n', stderr: '' } : null),
         ],
         sftpReadFile: (p) => {

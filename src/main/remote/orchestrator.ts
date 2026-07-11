@@ -28,6 +28,7 @@ import type {
 import type { ConnectSsh, SshAuth, SshConnectionLike } from './ssh';
 import type { CredentialStore, HostConfigStore } from './credentialStore';
 import { detectArch } from './hostBundle';
+import { NODE_PROBE_COMMAND, pickBestNode } from './nodeProbe';
 import { resolveResidency, type BuiltTunnel } from './residency';
 import { deployBundle } from './deploy';
 import { probeHostInfo as defaultProbeHostInfo, type ProbeResult } from './probeHostInfo';
@@ -144,11 +145,6 @@ export function classifyConnectError(err: unknown): FailReason {
   return 'internal';
 }
 
-function parseNodeMajor(stdout: string): number | null {
-  const match = stdout.trim().match(/^v?(\d+)\./);
-  return match ? Number(match[1]) : null;
-}
-
 function expandHome(p: string): string {
   if (p === '~') return os.homedir();
   if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
@@ -177,22 +173,32 @@ function buildAuth(config: RemoteHostConfig, credentials: CredentialStore): SshA
  * 🔴 A7/E6:全部远端路径统一双引号包裹(防路径含空格/特殊字符破坏 shell 解析)。
  * 🔴 A6:注入 TERMPRO_ALLOWED_ORIGINS(host.ts 侧已实现按逗号分隔解析,见
  * host.ts:61-72)。
+ * 🔴 darwin 远端修复:macOS 无 setsid(util-linux 专属),恒前缀 setsid 会
+ * `command not found` 启动必败——`$s` 惯用式按远端实际有无 setsid 降级为裸
+ * nohup。整条 sh -c 单引号包裹(内部无单引号),外层登录 shell 为 fish/csh
+ * 时 `$s`/POSIX 语法也不会被错误解释。
+ * 🔴 node 用 nodeProbe 解析出的【绝对路径】(非交互 PATH 常无 node,见
+ * NODE_PROBE_COMMAND 注释);双引号/换行剥除防拼接破界。
  */
 export function buildStartCommand(opts: {
   dataDir: string;
   appVersion: string;
   configId: string;
   allowedOrigins?: string;
+  /** 远端 node 绝对路径(nodeProbe 解析);缺省 'node' 仅供测试兜底,生产恒传。 */
+  nodePath?: string;
 }): string {
   const portFile = `${opts.dataDir}/hosts/${opts.configId}/host.port`;
   const logFile = `${opts.dataDir}/hosts/${opts.configId}/host.log`;
   const entry = `${opts.dataDir}/bundle/${opts.appVersion}/host.js`;
   const allowedOrigins = opts.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
+  const nodeBin = (opts.nodePath ?? 'node').replace(/["'\r\n]/g, '');
   return (
-    `setsid nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
+    `sh -c 's=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
+    `$s nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
     `TERMPRO_HOST_PORT_FILE="${portFile}" TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
-    `node "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${opts.configId}" ` +
-    `> "${logFile}" 2>&1 < /dev/stdin &`
+    `"${nodeBin}" "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${opts.configId}" ` +
+    `> "${logFile}" 2>&1 < /dev/stdin &'`
   );
 }
 
@@ -507,10 +513,22 @@ export class RemoteHostOrchestrator {
       }
       const dataDir = `${home}/.termpro-host`;
 
-      const nodeRes = await ssh.exec('node -v');
-      const nodeMajor = parseNodeMajor(nodeRes.stdout);
-      if (nodeRes.code !== 0 || nodeMajor === null || nodeMajor < MIN_NODE_MAJOR) {
+      // 🔴 探测不走裸 `node -v`(exec 通道是非交互 shell,nvm/fnm/Homebrew 装的
+      // node 全在它 PATH 之外):NODE_PROBE_COMMAND 收集 PATH/login-shell/常见
+      // 安装位置全部候选,TS 侧选最高 major;绝对路径贯穿到启动命令(见 nodeProbe.ts)。
+      const nodeRes = await ssh.exec(NODE_PROBE_COMMAND);
+      const nodeBest = pickBestNode(nodeRes.stdout);
+      if (nodeBest === null) {
         this.failSession(configId, 'nodeMissing');
+        ssh.close();
+        return;
+      }
+      if (nodeBest.major < MIN_NODE_MAJOR) {
+        this.failSession(
+          configId,
+          'nodeMissing',
+          `已找到 node ${nodeBest.version}(${nodeBest.path}),但需要 ≥ ${MIN_NODE_MAJOR}`,
+        );
         ssh.close();
         return;
       }
@@ -600,6 +618,7 @@ export class RemoteHostOrchestrator {
             appVersion: this.deps.appVersion,
             configId,
             allowedOrigins: this.deps.allowedOrigins,
+            nodePath: nodeBest.path,
           }),
           newToken,
         );

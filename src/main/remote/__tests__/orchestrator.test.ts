@@ -64,7 +64,10 @@ function makeHarness(opts: {
 function healthyDefaults() {
   return [
     (cmd: string) => (cmd === 'echo $HOME' ? { code: 0, stdout: '/home/tester\n', stderr: '' } : null),
-    (cmd: string) => (cmd === 'node -v' ? { code: 0, stdout: 'v20.11.0\n', stderr: '' } : null),
+    (cmd: string) =>
+      cmd.includes('command -v node')
+        ? { code: 0, stdout: 'v20.11.0 /usr/bin/node\n', stderr: '' }
+        : null,
     (cmd: string) => (cmd === 'uname -sm' ? { code: 0, stdout: 'Darwin arm64\n', stderr: '' } : null),
   ];
 }
@@ -217,11 +220,11 @@ describe('AC-13 认领驻留进程(不重启)', () => {
 });
 
 describe('AC-11 缺 node / node<20 中止,无半成品', () => {
-  it('T-023 node 缺失(command not found)→ failed·nodeMissing', async () => {
+  it('T-023 node 缺失(探测无任何候选)→ failed·nodeMissing', async () => {
     const routed = createRoutedSsh({
       execHandlers: [
         (cmd) => (cmd === 'echo $HOME' ? { code: 0, stdout: '/home/tester\n', stderr: '' } : null),
-        (cmd) => (cmd === 'node -v' ? { code: 127, stdout: '', stderr: 'command not found' } : null),
+        (cmd) => (cmd.includes('command -v node') ? { code: 0, stdout: '', stderr: '' } : null),
       ],
     });
     const h = makeHarness({ connectSshImpl: async () => routed });
@@ -235,11 +238,14 @@ describe('AC-11 缺 node / node<20 中止,无半成品', () => {
     expect(routed.execDetached).not.toHaveBeenCalled();
   });
 
-  it('T-024 node18(< 20)→ failed·nodeMissing,无半成品', async () => {
+  it('T-024 node18(< 20)→ failed·nodeMissing,detail 携带实测版本与路径,无半成品', async () => {
     const routed = createRoutedSsh({
       execHandlers: [
         (cmd) => (cmd === 'echo $HOME' ? { code: 0, stdout: '/home/tester\n', stderr: '' } : null),
-        (cmd) => (cmd === 'node -v' ? { code: 0, stdout: 'v18.19.0\n', stderr: '' } : null),
+        (cmd) =>
+          cmd.includes('command -v node')
+            ? { code: 0, stdout: 'v18.19.0 /usr/bin/node\n', stderr: '' }
+            : null,
       ],
     });
     const h = makeHarness({ connectSshImpl: async () => routed });
@@ -249,7 +255,48 @@ describe('AC-11 缺 node / node<20 中止,无半成品', () => {
 
     const failEvent = h.events.find((e) => e.stage === 'failed');
     expect(failEvent?.reason).toBe('nodeMissing');
+    // 「装了但过旧」与「没装」文案分离:detail 报实测版本 + 路径,不误导用户去重装
+    expect(failEvent?.detail).toContain('v18.19.0');
+    expect(failEvent?.detail).toContain('/usr/bin/node');
     expect(routed.sftpWriteDir).not.toHaveBeenCalled();
+  });
+
+  it('多候选(PATH v18 + nvm v20)→ 选最高 major 到 ready,启动命令引用选中绝对路径', async () => {
+    const nvmNode = '/home/tester/.nvm/versions/node/v20.11.0/bin/node';
+    let started = false;
+    const routed = createRoutedSsh({
+      execHandlers: [
+        (cmd) => (cmd === 'echo $HOME' ? { code: 0, stdout: '/home/tester\n', stderr: '' } : null),
+        (cmd) =>
+          cmd.includes('command -v node')
+            ? { code: 0, stdout: `v18.19.0 /usr/bin/node\nv20.11.0 ${nvmNode}\n`, stderr: '' }
+            : null,
+        (cmd) => (cmd === 'uname -sm' ? { code: 0, stdout: 'Darwin arm64\n', stderr: '' } : null),
+      ],
+      sftpReadFile: (p) => {
+        if (p.endsWith('host.port')) {
+          return started ? bufferOf({ port: 5555, pid: 4242, hostTag: 'vps-hk' }) : null;
+        }
+        return null; // 无既有 bundle → 走首次部署
+      },
+    });
+    const originalExecDetached = routed.execDetached;
+    routed.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+      started = true;
+      return originalExecDetached(cmd, stdin);
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    // PATH 里的 v18 不应导致误拒:nodeMissing 不出现,流程走到 ready
+    expect(h.events.find((e) => e.reason === 'nodeMissing')).toBeUndefined();
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    // 启动命令必须引用选中的 nvm 绝对路径(非裸 node),且带 setsid 降级前缀
+    const startCmd = (routed.execDetached as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(startCmd).toContain(`"${nvmNode}"`);
+    expect(startCmd).toContain('command -v setsid');
   });
 });
 

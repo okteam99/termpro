@@ -120,7 +120,9 @@ export const FAIL_REASON_COPY: Record<FailReason, FailReasonCopy> = {
   timeout: { label: '超时', detail: 'Connection timed out（10s）' },
   nodeMissing: {
     label: '缺少 Node.js 运行时',
-    detail: '远端未检测到 node ≥ 20',
+    // 探测已覆盖 login shell 与常见安装位置(nvm/fnm/Homebrew/volta · nodeProbe.ts),
+    // 走到这里就是真没装/真过旧;版本过旧时 runtime detail 会携带实测版本与路径覆盖此行。
+    detail: '在远端 PATH、登录 shell 及常见安装位置(nvm / fnm / Homebrew / volta)均未找到 node',
     guidance: '请在远端机器安装 Node.js 20 或更高版本后重试连接',
   },
   archUnsupported: {
