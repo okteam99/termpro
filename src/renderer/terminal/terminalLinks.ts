@@ -100,6 +100,50 @@ function reachesRightEdge(line: IBufferLine | undefined): boolean {
   return !!chars && chars !== ' ';
 }
 
+/**
+ * 行尾「斜杠断点」检测:忽略尾随空白后,最后一个字符是否为 '/';是则返回
+ * 空隙格数(右缘起的空白 cell 数),否则 null。配合 leadingPathSegmentLength
+ * 识别 Claude Code 等 TUI 的【斜杠感知折行】——长路径不按字符折到行宽,而是
+ * 在 '/' 边界断行,因此被折首行常差几列不铺满,reachesRightEdge 恒 false,
+ * 三行路径一行都拼不起来(只剩前缀目录可点)。
+ */
+function trailingSlashGap(line: IBufferLine | undefined): number | null {
+  if (!line || line.length === 0) return null;
+  for (let x = line.length - 1; x >= 0; x--) {
+    const chars = line.getCell(x)?.getChars() ?? '';
+    if (!chars || chars === ' ') continue;
+    return chars === '/' ? line.length - 1 - x : null;
+  }
+  return null;
+}
+
+/**
+ * 续行首段长度:跳过悬挂缩进/gutter(空格、│、⎿)后,路径字符 run 到第一个
+ * '/'(含)为止;无斜杠则取整个 run。CJK/无路径字符打头 → 0。
+ */
+function leadingPathSegmentLength(line: IBufferLine | undefined): number {
+  if (!line) return 0;
+  const { text } = lineToString(line);
+  const m = /^[ │⎿]*([\w.@%+-]+\/|[\w.@%+-]+|\/)/.exec(text);
+  return m ? m[1].length : 0;
+}
+
+/**
+ * 硬折行「上一行 prevY 与下一行同属一条逻辑行」判定:
+ * ① 铺满到最后一列(reachesRightEdge · 字符级折行);或
+ * ② 斜杠折行:prevY 以 '/' 收尾留有空隙,且续行首段【放不下】该空隙
+ *   (seg > gap,贪婪打包不变式——正因放不下才换行)。反之(seg ≤ gap)
+ *   说明那不是折行,而是两行各自独立的内容(如目录列表短行),不得合并,
+ *   否则 `src/`+`renderer/` 这类同级条目会被 stat 命中误拼成一条链接。
+ */
+function hardFoldContinues(buf: BufferLike, prevY: number): boolean {
+  const prev = buf.getLine(prevY);
+  if (reachesRightEdge(prev)) return true;
+  const gap = trailingSlashGap(prev);
+  if (gap === null) return false;
+  return leadingPathSegmentLength(buf.getLine(prevY + 1)) > gap;
+}
+
 interface CellPos {
   row: number;
   col: number;
@@ -123,24 +167,26 @@ interface BufferLike {
 
 /**
  * 以任一物理行为起点拼出完整逻辑行(长 URL / 长路径折行场景)。
- * 两种折行都跟随:
+ * 三种折行都跟随:
  * - 软折行:终端 auto-wrap,续行 isWrapped=true;
- * - 硬折行:TUI(Ink/Claude Code)自行折到终端宽度发真实换行,续行 isWrapped=false
- *   但被折首行铺满到行尾(reachesRightEdge)——据此把相邻行视作续接。
+ * - 硬折行(字符级):TUI(Ink/Claude Code)自行折到终端宽度发真实换行,续行
+ *   isWrapped=false 但被折首行铺满到行尾(reachesRightEdge);
+ * - 硬折行(斜杠级):TUI 在 '/' 边界断长路径,被折行差几列不铺满——按
+ *   hardFoldContinues 的贪婪打包不变式(续行首段放不下空隙)识别。
  */
 function buildLogicalLine(buf: BufferLike, row: number): LogicalLine | null {
   let start = row;
   while (start > 0 && start > row - MAX_LOGICAL_ROWS) {
     const cur = buf.getLine(start);
-    // 本行是续行(软),或上一行铺满到行尾(硬)→ 上一行属于同一逻辑行
-    if (!cur?.isWrapped && !reachesRightEdge(buf.getLine(start - 1))) break;
+    // 本行是续行(软),或上一行构成硬折行断点 → 上一行属于同一逻辑行
+    if (!cur?.isWrapped && !hardFoldContinues(buf, start - 1)) break;
     start--;
   }
   let end = row;
   while (end + 1 < buf.length && end - start < MAX_LOGICAL_ROWS) {
     const next = buf.getLine(end + 1);
-    // 下一行是续行(软),或本行铺满到行尾(硬)→ 下一行属于同一逻辑行
-    if (!next?.isWrapped && !reachesRightEdge(buf.getLine(end))) break;
+    // 下一行是续行(软),或本行构成硬折行断点 → 下一行属于同一逻辑行
+    if (!next?.isWrapped && !hardFoldContinues(buf, end)) break;
     end++;
   }
   let text = '';

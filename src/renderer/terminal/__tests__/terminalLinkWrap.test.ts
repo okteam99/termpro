@@ -231,6 +231,53 @@ describe('wrapped path links', () => {
     }
   });
 
+  // 斜杠级硬折行(Claude Code 真实形状):TUI 在 '/' 边界断长路径,被折行差几列
+  // 不铺满(reachesRightEdge 恒 false)——按贪婪打包不变式(续行首段放不下空隙)
+  // 识别为同一逻辑行,3 行拼成一条链接。
+  it('slash-boundary hard wrap (rows end short of edge): 3-row path joined into one link', async () => {
+    const cols = 40;
+    const p1 = '/Users/liam/';
+    const p2 = 'apps/okok/supersdk/.worktree/F1/dd/';
+    const p3 = 'CW-App-Settings';
+    const full = p1 + p2 + p3;
+    const line1 = 'x'.repeat(24) + ' ' + p1; // 37 列 · gap=3 < 续行首段 apps/(5)
+    const line2 = '  ' + p2; // 37 列 · gap=3 < 续行首段 CW-App-Settings(15)
+    const line3 = '  ' + p3;
+    expect(line1.length).toBe(37);
+    expect(line2.length).toBe(37);
+    statExisting({ [full]: 'dir', '/Users/liam': 'dir' }); // 前缀也真实存在,整条须压过
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2 + '\r\n' + line3, r));
+    expect(term.buffer.active.getLine(1)?.isWrapped).toBe(false);
+    for (const y of [1, 2, 3]) {
+      const links = await provide(term, y);
+      expect(links).toHaveLength(1);
+      expect(links[0].text).toBe(full);
+      expect(links[0].range).toMatchObject({
+        start: { x: 26, y: 1 },
+        end: { x: 2 + p3.length, y: 3 },
+      });
+    }
+  });
+
+  // 贪婪打包不变式的反面:行尾虽以 '/' 收尾但空隙塞得下续行首段 → 不是折行,
+  // 是两行独立内容(目录列表同级条目)——即便拼接路径真实存在也不得误拼。
+  it('short dir entry ending with slash + indented sibling: NOT merged even if joined path exists', async () => {
+    const cols = 40;
+    const line1 = '  docs/features/'; // gap=24 ≥ 续行首段 CW-Settings(11)→ 非折行
+    const line2 = '  CW-Settings';
+    statExisting({
+      '/home/u/docs/features': 'dir',
+      '/home/u/docs/features/CW-Settings': 'dir', // 拼接路径存在 · 仍不该拼
+    });
+    const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe('docs/features/');
+    expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } });
+  });
+
   it('no regression (upward): a real path is not swallowed by a coincidentally full line above it', async () => {
     const above = 'Some long status line that fills up to'; // 38 chars -> pad to 38? make exactly 38
     const filler = 'x'.repeat(38 - above.length);
