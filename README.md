@@ -75,32 +75,32 @@ Need a disposable SSH host to try TermPro's remote features — or just a Node.j
 **Image**: [`bdpgogoup/node-ssh`](https://hub.docker.com/r/bdpgogoup/node-ssh)
 
 ```bash
-# Quick start: user dev / password dev123, SSH on localhost:2222
+# Quick start: root login with password dev123, SSH on localhost:2222
 docker run -d --name node-ssh \
-  -e SSH_USER=dev -e SSH_PASSWORD=dev123 \
+  -e SSH_PASSWORD=dev123 \
   -p 2222:22 bdpgogoup/node-ssh
 
-ssh dev@127.0.0.1 -p 2222   # then: node -v → v22.x
+ssh root@127.0.0.1 -p 2222   # then: node -v → v22.x
 ```
 
 Everything is set at `docker run` time via env vars:
 
 | Env | Default | Meaning |
 |---|---|---|
-| `SSH_USER` | `dev` | Login user, created on startup (`root` also supported) |
+| `SSH_USER` | `root` | Login user; any other name is created on startup with passwordless `sudo` |
 | `SSH_PASSWORD` | random, printed in `docker logs` | Login password |
 | `SSH_PORT` | `22` | sshd listen port **inside** the container |
 | `SSH_AUTHORIZED_KEYS` | — | Public key(s) written to `~/.ssh/authorized_keys` |
 
 ```bash
-# Key-based login, custom in-container port
+# Non-root user with key-based login, custom in-container port
 docker run -d --name node-ssh \
   -e SSH_USER=alice -e SSH_PORT=2222 \
   -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" \
   -p 2222:2222 bdpgogoup/node-ssh
 ```
 
-The login user gets passwordless `sudo`; SFTP is enabled. Build source: [`docker/node-ssh/`](docker/node-ssh/).
+SFTP is enabled. Build source: [`docker/node-ssh/`](docker/node-ssh/).
 
 ## Concepts
 

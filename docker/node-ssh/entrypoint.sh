@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # node-ssh entrypoint: create the SSH user from env, then run sshd in foreground.
-#   SSH_USER            login user, created if missing (default: dev; "root" allowed)
+#   SSH_USER            login user (default: root; other names are created with sudo)
 #   SSH_PASSWORD        login password (default: random, printed to container log)
 #   SSH_PORT            sshd listen port inside the container (default: 22)
 #   SSH_AUTHORIZED_KEYS optional public key(s) written to ~/.ssh/authorized_keys
 set -euo pipefail
 
-SSH_USER="${SSH_USER:-dev}"
+SSH_USER="${SSH_USER:-root}"
 SSH_PORT="${SSH_PORT:-22}"
 
 GENERATED_PASSWORD=0
