@@ -48,20 +48,25 @@ jobs:
       - name: 安装依赖(node-pty 按 runner 平台自动取预编译/源码编译)
         run: npm ci
 
+      # 🔴 必须 --tar 后上传 tar.gz(host-package.yml 同款):upload/download-artifact
+      # 走 zip,不保留文件权限 —— 裸目录上传会丢 node-pty spawn-helper 执行位,
+      # 打进 app 的 bundle 部署到 darwin 远端后 pty.spawn 必挂 posix_spawnp failed
+      # (0.3.42/0.3.43 事故根因;linux 远端 forkpty 不用 helper,故仅 darwin 中招)。
       - name: 打包 standalone host 产物
         run: |
           node scripts/package-host.mjs \
             --out out/host-bundle-${{ matrix.arch }} \
-            --platform ${{ matrix.arch }}
+            --platform ${{ matrix.arch }} \
+            --tar out/host-bundle-${{ matrix.arch }}.tar.gz
 
       - name: 验证产物(真实进程 + WS 握手 + PTY 真实 spawn)
         run: node scripts/verify-host-artifact.mjs --dir out/host-bundle-${{ matrix.arch }}
 
-      - name: 上传产物
+      - name: 上传产物(tar.gz 保权限)
         uses: actions/upload-artifact@v5
         with:
           name: host-bundle-${{ matrix.arch }}
-          path: out/host-bundle-${{ matrix.arch }}
+          path: out/host-bundle-${{ matrix.arch }}.tar.gz
           retention-days: 14
 
   build-macos:
@@ -127,24 +132,35 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p resources/host-bundles
+          extract() { # $1=arch;tar 解包保留执行位(cp -R 裸目录的旧口径丢 spawn-helper 0755)
+            local tgz="/tmp/host-bundle-$1/host-bundle-$1.tar.gz"
+            [ -f "$tgz" ] || return 1
+            mkdir -p "resources/host-bundles/$1"
+            tar -xzf "$tgz" -C "resources/host-bundles/$1" --strip-components 1
+          }
           missing_required=()
           for arch in darwin-arm64 linux-x64; do
-            if [ -d "/tmp/host-bundle-$arch" ]; then
-              cp -R "/tmp/host-bundle-$arch" "resources/host-bundles/$arch"
+            if extract "$arch"; then
               echo "[host-bundles] $arch: 就绪"
             else
               echo "::error::host bundle missing for required arch: $arch"
               missing_required+=("$arch")
             fi
           done
-          if [ -d /tmp/host-bundle-linux-arm64 ]; then
-            cp -R /tmp/host-bundle-linux-arm64 resources/host-bundles/linux-arm64
+          if extract linux-arm64; then
             echo "[host-bundles] linux-arm64: 就绪"
           else
             echo "::warning::linux-arm64 host bundle missing — 运行时 detectArch 命中该架构时走手装引导降级阀,不阻断本次发版"
           fi
           if [ ${#missing_required[@]} -gt 0 ]; then
             echo "::error::required host bundle(s) missing, failing release: ${missing_required[*]}"
+            exit 1
+          fi
+          # 🔴 最后一道闸:spawn-helper 丢执行位 → darwin 远端 pty.spawn 必挂
+          # posix_spawnp failed,且要到用户真连远程机才暴露 —— 在发版前直接 fail。
+          helper="resources/host-bundles/darwin-arm64/node_modules/node-pty/build/Release/spawn-helper"
+          if [ ! -x "$helper" ]; then
+            echo "::error::spawn-helper 非可执行(打包链丢执行位):$helper"
             exit 1
           fi
 
