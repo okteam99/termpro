@@ -583,6 +583,13 @@
   }
 }
 
+/* 组头机器类别图标:本机=显示器 / 远程=云 */
+.sidebar-machine-icon {
+  flex: none;
+  display: block;
+  opacity: 0.8;
+}
+
 .sidebar-machine-label {
   flex: 1;
   min-width: 0;
@@ -630,6 +637,11 @@
   padding: 0 5px;
   opacity: 0.85;
   white-space: nowrap;
+}
+
+/* 徽章位于名称行(第一行)时右对齐 */
+.sidebar-item-name-row .sidebar-machine-sessions {
+  margin-left: auto;
 }
 
 /* 断线机器组:条目整体变灰 */

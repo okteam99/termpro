@@ -64,8 +64,8 @@ describe('MachineGroup · 已连接展开(AC-2)', () => {
     );
     expect(screen.getByText('aon-edge')).toBeInTheDocument();
     expect(screen.getByText('ml-lab')).toBeInTheDocument();
-    expect(screen.getByText('0 个标签')).toBeInTheDocument();
-    expect(screen.getByText('2 个标签 · 1 running')).toBeInTheDocument();
+    expect(screen.getByText('0 session')).toBeInTheDocument();
+    expect(screen.getByText('2 session · 1 running')).toBeInTheDocument();
   });
 
   it('点击 workspace 行 → onSelectWorkspace(machine, ws)', () => {

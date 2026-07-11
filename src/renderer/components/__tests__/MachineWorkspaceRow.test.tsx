@@ -27,21 +27,21 @@ function row(overrides: Partial<MachineWorkspaceRowData> = {}): MachineWorkspace
 }
 
 describe('formatTabBadge(BL004-U-badge-zero / BL004-U-badge-semantic)', () => {
-  it('tabCount=0 → 显式渲染"0 个标签" · zero=true(不被 `{n && ...}` 吞掉)', () => {
+  it('tabCount=0 → 显式渲染"0 session" · zero=true(不被 `{n && ...}` 吞掉)', () => {
     const badge = formatTabBadge({ tabCount: 0 });
-    expect(badge.text).toBe('0 个标签');
+    expect(badge.text).toBe('0 session');
     expect(badge.zero).toBe(true);
   });
 
   it('tabCount>0 且无 running → 只显总数', () => {
     const badge = formatTabBadge({ tabCount: 2 });
-    expect(badge.text).toBe('2 个标签');
+    expect(badge.text).toBe('2 session');
     expect(badge.zero).toBe(false);
   });
 
   it('tabCount>0 含 running → 附带 running 计数', () => {
     const badge = formatTabBadge({ tabCount: 3, tabRunning: 1 });
-    expect(badge.text).toBe('3 个标签 · 1 running');
+    expect(badge.text).toBe('3 session · 1 running');
     expect(badge.zero).toBe(false);
   });
 
@@ -50,20 +50,20 @@ describe('formatTabBadge(BL004-U-badge-zero / BL004-U-badge-semantic)', () => {
     // 这本身就是对该语义的结构性保证:无论主机侧状态如何,调用方只能传本客户端 tab 数。
     const badge = formatTabBadge({ tabCount: 0, tabRunning: 0 });
     expect(badge.zero).toBe(true);
-    expect(badge.text).toBe('0 个标签');
+    expect(badge.text).toBe('0 session');
   });
 });
 
 describe('<MachineWorkspaceRow>', () => {
   it('tabCount=0 渲染 .sidebar-machine-sessions--zero 修饰符(灰态非隐藏)', () => {
     render(<MachineWorkspaceRow ws={row({ tabCount: 0 })} />);
-    const badge = screen.getByText('0 个标签');
+    const badge = screen.getByText('0 session');
     expect(badge).toHaveClass('sidebar-machine-sessions--zero');
   });
 
   it('tabCount>0 不带 zero 修饰符', () => {
     render(<MachineWorkspaceRow ws={row({ tabCount: 2, tabRunning: 1 })} />);
-    const badge = screen.getByText('2 个标签 · 1 running');
+    const badge = screen.getByText('2 session · 1 running');
     expect(badge).not.toHaveClass('sidebar-machine-sessions--zero');
   });
 

@@ -182,7 +182,7 @@ describe('AC-10 · M=0 纯本机退化态', () => {
 });
 
 describe('AC-2 · 连接后展开 workspace + 会话徽标(含 0)', () => {
-  it('runtime ready → 展开该机 workspace,首连 0 tab 显式渲染"0 个标签"', async () => {
+  it('runtime ready → 展开该机 workspace,首连 0 tab 显式渲染"0 session"', async () => {
     useAppStore.setState({
       workspaces: [remoteWs('r1', 'aon-edge', 'cfg-1', 0)],
       activeWorkspaceId: 'r1',
@@ -198,7 +198,7 @@ describe('AC-2 · 连接后展开 workspace + 会话徽标(含 0)', () => {
     });
 
     expect(await screen.findByText('aon-edge')).toBeInTheDocument();
-    const badge = screen.getByText('0 个标签');
+    const badge = screen.getByText('0 session');
     expect(badge).toHaveClass('sidebar-machine-sessions--zero');
   });
 });

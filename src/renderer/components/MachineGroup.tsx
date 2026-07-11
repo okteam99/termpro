@@ -24,6 +24,48 @@ const CONNECT_STAGE_LABEL: Record<string, string> = {
   verifying: '握手校验…',
 };
 
+/** 本机组头图标:显示器(与远程的云图标区分机器类别) */
+export function LocalMachineIcon() {
+  return (
+    <svg
+      className="sidebar-machine-icon"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  );
+}
+
+/** 远程机组头图标:云 */
+export function RemoteMachineIcon() {
+  return (
+    <svg
+      className="sidebar-machine-icon"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+    </svg>
+  );
+}
+
 export interface MachineInfo {
   /** 'local' | RemoteHostConfig.id */
   id: string;
@@ -107,6 +149,7 @@ export function MachineGroup({
         {isRemote && (
           <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status ?? 'disconnected'}`} />
         )}
+        {isRemote ? <RemoteMachineIcon /> : <LocalMachineIcon />}
         <span className="sidebar-machine-label">
           {isRemote ? machine.alias : (machine.label ?? '本机')}
         </span>

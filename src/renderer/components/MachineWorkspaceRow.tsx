@@ -25,8 +25,8 @@ export function formatTabBadge(ws: TabBadgeInput): TabBadge {
   const running = ws.tabRunning ?? 0;
   const text =
     ws.tabCount === 0
-      ? '0 个标签'
-      : `${ws.tabCount} 个标签${running ? ` · ${running} running` : ''}`;
+      ? '0 session'
+      : `${ws.tabCount} session${running ? ` · ${running} running` : ''}`;
   return { text, zero: ws.tabCount === 0 };
 }
 
@@ -65,16 +65,14 @@ export function MachineWorkspaceRow({ ws, onClick }: MachineWorkspaceRowProps) {
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{ws.name}</span>
         {ws.disconnectedPanel && <span className="sidebar-item-lost-tag">已断开</span>}
+        <span
+          className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}
+        >
+          {badge.text}
+        </span>
       </div>
       <div className="sidebar-item-meta">
-        <span className="sidebar-item-meta-row">
-          <span className="sidebar-remote-meta-text">{ws.meta}</span>
-          <span
-            className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}
-          >
-            {badge.text}
-          </span>
-        </span>
+        <span className="sidebar-remote-meta-text">{ws.meta}</span>
       </div>
     </div>
   );

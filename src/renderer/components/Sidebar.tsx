@@ -16,7 +16,7 @@ import { RenameModal } from './RenameModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SettingsEntry } from './SettingsEntry';
 import { AddWorkspaceModal } from './AddWorkspaceModal';
-import { MachineGroup, type MachineInfo } from './MachineGroup';
+import { LocalMachineIcon, MachineGroup, type MachineInfo } from './MachineGroup';
 import type { MachineWorkspaceRowData } from './MachineWorkspaceRow';
 
 /** 断线两段式回落(D-8/AC-11)的 panel 阶段时长:UI 先亮断线态,再确定性折叠组头。 */
@@ -589,6 +589,7 @@ export function Sidebar() {
             machine.workspaces && machine.workspaces.length > 0 ? (
               <div key={machine.id} className="sidebar-machine-group" data-testid="machine-group" data-machine-id="local">
                 <div className="sidebar-machine-header">
+                  <LocalMachineIcon />
                   <span className="sidebar-machine-label">{machine.label}</span>
                 </div>
                 {machine.workspaces.map((row, idx) => {
