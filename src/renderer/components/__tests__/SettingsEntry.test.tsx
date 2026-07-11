@@ -118,7 +118,7 @@ describe('settingsEntry_pin_bottom_bar_toggle', () => {
 
     fireEvent.click(screen.getByTitle('Settings'));
     const toggle = screen.getByRole('menuitemcheckbox');
-    expect(toggle).toHaveTextContent('底部输入栏固定');
+    expect(toggle).toHaveTextContent('Pin bottom bar');
     expect(toggle).toHaveAttribute('aria-checked', 'true');
 
     fireEvent.click(toggle);
@@ -211,7 +211,7 @@ describe('aboutModal_shows_version_from_bridge', () => {
     fireEvent.click(screen.getByTitle('Settings'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
-    expect(screen.getByText('版本 0.3.12')).toBeInTheDocument();
+    expect(screen.getByText('Version 0.3.12')).toBeInTheDocument();
   });
 });
 
@@ -224,7 +224,7 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
     fireEvent.click(screen.getByTitle('Settings'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
-    expect(screen.getByText('版本未知')).toBeInTheDocument();
+    expect(screen.getByText('Version unknown')).toBeInTheDocument();
   });
 
   it('shows 版本未知 when window.termpro is undefined (bridge absent)', () => {
@@ -233,7 +233,7 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
     fireEvent.click(screen.getByTitle('Settings'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
-    expect(screen.getByText('版本未知')).toBeInTheDocument();
+    expect(screen.getByText('Version unknown')).toBeInTheDocument();
   });
 });
 
@@ -252,7 +252,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     // Modal open
-    const closeBtn = screen.getByTitle('关闭');
+    const closeBtn = screen.getByTitle('Close');
     expect(closeBtn).toBeInTheDocument();
 
     fireEvent.click(closeBtn);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { t } from '../../shared/i18n';
 import { useAppStore } from '../state/store';
 import { RemoteHostsPage } from './settings/RemoteHostsPage';
 
@@ -95,7 +96,7 @@ interface AboutModalProps {
 
 /** About 弹窗:展示应用名 + 当前版本(version 为空 → 「版本未知」)。Esc / 遮罩 / × 关闭。 */
 export function AboutModal({ version, onClose }: AboutModalProps) {
-  const versionText = version ? `版本 ${version}` : '版本未知';
+  const versionText = version ? t('Version {version}', { version }) : t('Version unknown');
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -118,7 +119,7 @@ export function AboutModal({ version, onClose }: AboutModalProps) {
           className="about-close"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onClick={onClose}
-          title="关闭"
+          title={t('Close')}
         >
           ×
         </button>
@@ -207,12 +208,14 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
             aria-checked={pinBottomBar}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => setPinBottomBar(!pinBottomBar)}
-            title="向上滚动查看历史时,把底部输入栏固定在视口底部(可见可输入)"
+            title={t(
+              'Keep the bottom input bar pinned to the viewport when scrolling up through history (visible and typeable)',
+            )}
           >
             <span className="settings-menu-icon">
               <BottomBarIcon />
             </span>
-            <span className="settings-menu-label">底部输入栏固定</span>
+            <span className="settings-menu-label">{t('Pin bottom bar')}</span>
             <span
               className="settings-switch"
               data-on={pinBottomBar ? 'true' : 'false'}
@@ -230,7 +233,7 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
             <span className="settings-menu-icon">
               <ServerIcon />
             </span>
-            <span className="settings-menu-label">Remote Hosts</span>
+            <span className="settings-menu-label">{t('Remote Hosts')}</span>
           </button>
           <button
             className="settings-menu-item"
@@ -241,7 +244,7 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
             <span className="settings-menu-icon">
               <InfoIcon />
             </span>
-            <span className="settings-menu-label">About</span>
+            <span className="settings-menu-label">{t('About')}</span>
           </button>
         </div>
       )}
@@ -250,20 +253,20 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
         className={`settings-entry${menuOpen ? ' settings-entry--open' : ''}`}
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         onClick={() => setMenuOpen((v) => !v)}
-        title="Settings"
+        title={t('Settings')}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
       >
         <span className="settings-avatar">
           <PersonIcon />
         </span>
-        <span className="settings-entry-label">Settings</span>
+        <span className="settings-entry-label">{t('Settings')}</span>
         {devChannel && (
           <span
             className="sidebar-dev-badge"
-            title="开发渠道构建,独立数据目录,不检查更新"
+            title={t('Dev-channel build, separate data directory, no update checks')}
           >
-            DEV
+            {t('DEV')}
           </span>
         )}
         <span className="settings-entry-chevron">⌄</span>

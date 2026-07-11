@@ -27,25 +27,25 @@ describe('MachineGroup · 未连接(AC-1)', () => {
   it('显别名 + 连接入口按钮,不展开 workspace 行', () => {
     render(<MachineGroup machine={remoteMachine()} />);
     expect(screen.getByText('mini-pc')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument();
     expect(screen.queryByTestId('machine-workspace-row')).not.toBeInTheDocument();
   });
 
   it('点击「连接」→ onConnect(machineId)', () => {
     const onConnect = vi.fn();
     render(<MachineGroup machine={remoteMachine()} onConnect={onConnect} />);
-    fireEvent.click(screen.getByRole('button', { name: '连接' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
     expect(onConnect).toHaveBeenCalledWith('cfg-1');
   });
 
   it('本机组(kind=local)无 dot、无连接入口,只显标签', () => {
     render(
       <MachineGroup
-        machine={{ id: 'local', kind: 'local', label: '本机', workspaces: [] }}
+        machine={{ id: 'local', kind: 'local', label: 'Local', workspaces: [] }}
       />,
     );
-    expect(screen.getByText('本机')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '连接' })).not.toBeInTheDocument();
+    expect(screen.getByText('Local')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
   });
 });
 
@@ -85,7 +85,7 @@ describe('MachineGroup · 连接生命周期(AC-8)', () => {
     render(
       <MachineGroup machine={remoteMachine({ runtime: { configId: 'cfg-1', stage: 'connecting' } })} />,
     );
-    expect(screen.getByText(/连接中…/)).toBeInTheDocument();
+    expect(screen.getByText(/Connecting…/)).toBeInTheDocument();
   });
 
   it('deploying → 文案 + 百分比', () => {
@@ -96,7 +96,7 @@ describe('MachineGroup · 连接生命周期(AC-8)', () => {
         })}
       />,
     );
-    expect(screen.getByText(/部署中…/)).toBeInTheDocument();
+    expect(screen.getByText(/Deploying…/)).toBeInTheDocument();
     expect(screen.getByText(/47%/)).toBeInTheDocument();
   });
 
@@ -111,7 +111,7 @@ describe('MachineGroup · 连接生命周期(AC-8)', () => {
       />,
     );
     expect(screen.getByText(/不可达/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRetry).toHaveBeenCalledWith('cfg-1');
   });
 });
@@ -131,7 +131,7 @@ describe('MachineGroup · 断线两段式回落(AC-11/D-8)', () => {
     );
     expect(container.querySelector('.sidebar-machine-group--lost')).toBeInTheDocument();
     expect(screen.getByText('aon-edge')).toBeInTheDocument();
-    expect(screen.getByText('已断开')).toBeInTheDocument();
+    expect(screen.getByText('Disconnected')).toBeInTheDocument();
   });
 
   it('folded 阶段:workspaces=null + foldedLost → "已断开 · 点击重连" + 重连按钮', () => {
@@ -141,15 +141,15 @@ describe('MachineGroup · 断线两段式回落(AC-11/D-8)', () => {
         machine={remoteMachine({
           status: 'lost',
           foldedLost: true,
-          emptyLabel: '已断开 · 点击重连',
+          emptyLabel: 'Disconnected · Click to reconnect',
           workspaces: null,
         })}
         onConnect={onConnect}
       />,
     );
-    expect(screen.getByText('已断开 · 点击重连')).toBeInTheDocument();
+    expect(screen.getByText('Disconnected · Click to reconnect')).toBeInTheDocument();
     expect(screen.queryByTestId('machine-workspace-row')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重连' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
     expect(onConnect).toHaveBeenCalledWith('cfg-1');
   });
 });

@@ -76,7 +76,7 @@ describe('<MachineWorkspaceRow>', () => {
     const { container } = render(
       <MachineWorkspaceRow ws={row({ active: true, disconnectedPanel: true })} />,
     );
-    expect(screen.getByText('已断开')).toBeInTheDocument();
+    expect(screen.getByText('Disconnected')).toBeInTheDocument();
     expect(container.querySelector('.sidebar-item--disconnected')).toBeInTheDocument();
   });
 

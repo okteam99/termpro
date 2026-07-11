@@ -4,6 +4,7 @@
 // 生产 workspace 行的 tabCount 恒为数字(派生自 store 的 ws.tabs),故本文件只保留数字分支。
 
 import './Sidebar.css';
+import { t } from '../../shared/i18n';
 
 /** 徽标输入:tabCount = 本客户端在该 workspace 的活跃 tab 数(hostId-aware · ws.tabs.length)。 */
 export interface TabBadgeInput {
@@ -25,8 +26,10 @@ export function formatTabBadge(ws: TabBadgeInput): TabBadge {
   const running = ws.tabRunning ?? 0;
   const text =
     ws.tabCount === 0
-      ? '0 session'
-      : `${ws.tabCount} session${running ? ` · ${running} running` : ''}`;
+      ? t('0 session')
+      : running
+        ? t('{count} session · {running} running', { count: ws.tabCount, running })
+        : t('{count} session', { count: ws.tabCount });
   return { text, zero: ws.tabCount === 0 };
 }
 
@@ -43,14 +46,17 @@ export interface MachineWorkspaceRowData extends TabBadgeInput {
 export interface MachineWorkspaceRowProps {
   ws: MachineWorkspaceRowData;
   onClick?: () => void;
+  /** 行右上角 hover 显现的 × 删除钮(与本机行同款);缺省不渲染 */
+  onRemove?: () => void;
 }
 
-export function MachineWorkspaceRow({ ws, onClick }: MachineWorkspaceRowProps) {
+export function MachineWorkspaceRow({ ws, onClick, onRemove }: MachineWorkspaceRowProps) {
   const badge = formatTabBadge(ws);
   const classes = [
     'sidebar-item',
     ws.active ? 'sidebar-item--active' : '',
     ws.disconnectedPanel ? 'sidebar-item--disconnected' : '',
+    onRemove ? 'sidebar-item--removable' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -64,7 +70,9 @@ export function MachineWorkspaceRow({ ws, onClick }: MachineWorkspaceRowProps) {
     >
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{ws.name}</span>
-        {ws.disconnectedPanel && <span className="sidebar-item-lost-tag">已断开</span>}
+        {ws.disconnectedPanel && (
+          <span className="sidebar-item-lost-tag">{t('Disconnected')}</span>
+        )}
         <span
           className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}
         >
@@ -74,6 +82,18 @@ export function MachineWorkspaceRow({ ws, onClick }: MachineWorkspaceRowProps) {
       <div className="sidebar-item-meta">
         <span className="sidebar-remote-meta-text">{ws.meta}</span>
       </div>
+      {onRemove && (
+        <button
+          className="sidebar-remove-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          title={t('Remove workspace')}
+        >
+          &times;
+        </button>
+      )}
     </div>
   );
 }

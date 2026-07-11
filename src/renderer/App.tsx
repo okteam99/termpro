@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { hostRegistry } from './services/hostRegistry';
+import { t } from '../shared/i18n';
 import { selectActiveWorkspace, useAppStore } from './state/store';
 import { initPersistence } from './state/persistence';
 import { initSessionEvents } from './services/sessionEvents';
@@ -49,7 +50,7 @@ export default function App() {
   useEffect(() => {
     hostRegistry.local().connect().then(setHostInfo, (e) => setError(String(e)));
     return hostRegistry.local().onDown(() =>
-      setError('Host 进程已退出,⌘R 重载窗口可恢复'),
+      setError(t('Host process exited — press ⌘R to reload the window')),
     );
   }, []);
 
@@ -126,14 +127,14 @@ export default function App() {
   if (error) {
     return (
       <div className="app-shell">
-        <div className="placeholder">Host 连接失败:{error}</div>
+        <div className="placeholder">{t('Host connection failed: {error}', { error })}</div>
       </div>
     );
   }
   if (!hostInfo || !hydrated) {
     return (
       <div className="app-shell">
-        <div className="placeholder">连接 Host…</div>
+        <div className="placeholder">{t('Connecting to host…')}</div>
       </div>
     );
   }
@@ -164,10 +165,10 @@ export default function App() {
             />
           ))}
           {activeWs && activeWs.tabs.length === 0 && (
-            <div className="placeholder">⌘T 新建终端</div>
+            <div className="placeholder">{t('⌘T for a new terminal')}</div>
           )}
           {!activeWs && (
-            <div className="placeholder">在左侧添加一个 Workspace 开始</div>
+            <div className="placeholder">{t('Add a workspace on the left to get started')}</div>
           )}
         </div>
       </div>

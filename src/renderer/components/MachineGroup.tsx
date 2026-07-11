@@ -9,6 +9,7 @@ import {
   type MachineWorkspaceRowData,
 } from './MachineWorkspaceRow';
 import { FAIL_REASON_COPY, type RemoteEvent } from '../../shared/remoteHost';
+import { t } from '../../shared/i18n';
 
 /**
  * 连接生命周期(AC-8)进行中各态的徽标文案。
@@ -17,11 +18,11 @@ import { FAIL_REASON_COPY, type RemoteEvent } from '../../shared/remoteHost';
  * shared/remoteHost.ts 的 RemoteStage 枚举驱动,新增/改 stage 文案需同步两处,防措辞漂移。
  */
 const CONNECT_STAGE_LABEL: Record<string, string> = {
-  connecting: '连接中…',
-  deploying: '部署中…',
-  starting: '启动 host…',
-  claiming: '认领中…',
-  verifying: '握手校验…',
+  connecting: t('Connecting…'),
+  deploying: t('Deploying…'),
+  starting: t('Starting host…'),
+  claiming: t('Claiming…'),
+  verifying: t('Verifying handshake…'),
 };
 
 /** 本机组头图标:显示器(与远程的云图标区分机器类别) */
@@ -93,6 +94,8 @@ export interface MachineGroupProps {
   onConnect?: (machineId: string) => void;
   onRetry?: (machineId: string) => void;
   onSelectWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
+  /** 行级 × 删除钮(与本机行同款);缺省不渲染 */
+  onRemoveWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
   /** BL-005 AC-6:reconnecting 态「立即重试」→ reconnectController.manualRetry(复位退避即刻再试) */
   onManualRetry?: (machineId: string) => void;
 }
@@ -102,6 +105,7 @@ export function MachineGroup({
   onConnect,
   onRetry,
   onSelectWorkspace,
+  onRemoveWorkspace,
   onManualRetry,
 }: MachineGroupProps) {
   const isRemote = machine.kind === 'remote';
@@ -123,12 +127,12 @@ export function MachineGroup({
         >
           <span className="sidebar-machine-status-text">✗ {reason.label}</span>
           <button className="sidebar-machine-connect" onClick={() => onRetry?.(machine.id)}>
-            重试
+            {t('Retry')}
           </button>
         </span>
       );
     }
-    const label = CONNECT_STAGE_LABEL[rt.stage] ?? '连接中…';
+    const label = CONNECT_STAGE_LABEL[rt.stage] ?? t('Connecting…');
     const pct =
       rt.stage === 'deploying' && typeof rt.percent === 'number' ? ` ${rt.percent}%` : '';
     return (
@@ -151,35 +155,35 @@ export function MachineGroup({
         )}
         {isRemote ? <RemoteMachineIcon /> : <LocalMachineIcon />}
         <span className="sidebar-machine-label">
-          {isRemote ? machine.alias : (machine.label ?? '本机')}
+          {isRemote ? machine.alias : (machine.label ?? t('Local'))}
         </span>
         {/* BL-005:重连中——琥珀脉冲 + 「重连中…」文案(区别于确定断线的 lost·保活不折叠·AC-6/15) */}
         {isRemote && machine.status === 'reconnecting' && (
           <span className="sidebar-machine-status sidebar-machine-status--active">
             <span className="add-ws__spinner add-ws__spinner--sm" />
-            重连中…
+            {t('Reconnecting…')}
             <button
               className="sidebar-machine-connect"
-              title="立即重试(复位退避即刻再连)"
+              title={t('Retry now (reset backoff and reconnect immediately)')}
               onClick={(e) => { e.stopPropagation(); onManualRetry?.(machine.id); }}
             >
-              立即重试
+              {t('Retry now')}
             </button>
           </span>
         )}
         {isRemote && machine.status !== 'reconnecting' && runtime && renderRuntimeStatus(runtime)}
         {isRemote && !runtime && machine.foldedLost && (
           <button className="sidebar-machine-connect" onClick={() => onConnect?.(machine.id)}>
-            重连
+            {t('Reconnect')}
           </button>
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'disconnected' && (
           <button className="sidebar-machine-connect" onClick={() => onConnect?.(machine.id)}>
-            连接
+            {t('Connect')}
           </button>
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'connecting' && (
-          <span className="sidebar-machine-connecting">连接中…</span>
+          <span className="sidebar-machine-connecting">{t('Connecting…')}</span>
         )}
       </div>
       {showWorkspaces && machine.workspaces ? (
@@ -188,11 +192,12 @@ export function MachineGroup({
             key={ws.id}
             ws={ws}
             onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
+            onRemove={onRemoveWorkspace ? () => onRemoveWorkspace(machine, ws) : undefined}
           />
         ))
       ) : (
         <div className="sidebar-machine-empty">
-          {machine.emptyLabel ?? '未连接 · 连接后显示该机上的 workspace'}
+          {machine.emptyLabel ?? t('Not connected · Connect to see its workspaces')}
         </div>
       )}
     </div>

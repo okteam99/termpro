@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hostRegistry } from '../services/hostRegistry';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
 import type { DirEntry, GitFileStatus } from '../../shared/protocol';
+import { t } from '../../shared/i18n';
 import { gitStatusClass, joinPath } from '../filepanel/core';
 import { registerFilePanelLocateHandler } from '../filepanel/locateRegistry';
 import { useFilePanel } from '../filepanel/useFilePanel';
@@ -24,7 +25,8 @@ const dragState: { path: string | null; ts: number } = { path: null, ts: 0 };
 // 远程 workspace 文件禁用提示(D-7):点顶部 Diff / 行内 diff / 文件行三个入口
 // 触发同一条确定性提示,1.8s 后自动消失(非 modal,不打断操作)。
 const REMOTE_FILE_HINT_MS = 1_800;
-const REMOTE_FILE_HINT_TEXT = '远程文件独立窗口暂不支持';
+const REMOTE_FILE_HINT_TEXT = t("Remote files aren't supported in a separate window yet");
+const UNREADABLE_LABEL = t('(unreadable)');
 
 /** 行级动作:文件夹图标 11×11 */
 function FolderIcon() {
@@ -145,7 +147,7 @@ export function FilePanel() {
       if (entry.kind === 'dir' && expanded.has(absPath)) {
         if (errPaths.has(absPath)) {
           rows.push({
-            entry: { name: '(unreadable)', kind: 'other' },
+            entry: { name: UNREADABLE_LABEL, kind: 'other' },
             absPath: absPath + '/__err__',
             depth: depth + 1,
           });
@@ -336,7 +338,7 @@ export function FilePanel() {
   if (!workspace) {
     return (
       <div className="file-panel">
-        <div className="file-panel__empty">No session</div>
+        <div className="file-panel__empty">{t('No session')}</div>
       </div>
     );
   }
@@ -384,13 +386,13 @@ export function FilePanel() {
             className={`file-panel__seg-btn${mode === 'root' ? ' file-panel__seg-btn--active' : ''}`}
             onClick={handleModeRoot}
           >
-            Root
+            {t('Root')}
           </button>
           <button
             className={`file-panel__seg-btn${mode === 'worktree' ? ' file-panel__seg-btn--active' : ''}`}
             onClick={handleModeWorktree}
           >
-            WorkTree
+            {t('WorkTree')}
           </button>
         </div>
       </div>
@@ -411,7 +413,7 @@ export function FilePanel() {
                 title={rootInputDraft}
               />
               <button className="file-panel__ctrl-btn" onClick={() => void handleRootChoose()}>
-                Choose…
+                {t('Choose…')}
               </button>
             </div>
             {/* Row 2: autoRoot hint + Apply button */}
@@ -424,7 +426,7 @@ export function FilePanel() {
                 onClick={handleRootApply}
                 disabled={applyDisabled}
               >
-                Apply
+                {t('Apply')}
               </button>
             </div>
           </>
@@ -442,7 +444,7 @@ export function FilePanel() {
               <button
                 className="file-panel__ctrl-btn file-panel__ctrl-btn--icon"
                 onClick={handleRefresh}
-                title="Reload worktrees"
+                title={t('Reload worktrees')}
               >
                 ⟳
               </button>
@@ -451,8 +453,11 @@ export function FilePanel() {
             <div className="file-panel__ctrl-row file-panel__ctrl-row--hint">
               <span className="file-panel__hint">
                 {isGitRepo && selectedWt
-                  ? `${selectedWt.branch ?? 'detached'} · ${selectedWt.head}`
-                  : 'not a git repo'}
+                  ? t('{branch} · {head}', {
+                      branch: selectedWt.branch ?? t('detached'),
+                      head: selectedWt.head,
+                    })
+                  : t('not a git repo')}
               </span>
             </div>
           </>
@@ -461,12 +466,14 @@ export function FilePanel() {
 
       {/* Meta row: entry count + Diff button + refresh */}
       <div className="file-panel__meta">
-        <span className="file-panel__count">{topEntries.length} entries</span>
+        <span className="file-panel__count">
+          {t('{count} entries', { count: topEntries.length })}
+        </span>
         <div className="file-panel__meta-actions">
           {isGitRepo && (
             <button
               className="file-panel__diff-btn"
-              title={isRemote ? REMOTE_FILE_HINT_TEXT : '打开 Diff 视图'}
+              title={isRemote ? REMOTE_FILE_HINT_TEXT : t('Open diff view')}
               aria-disabled={isRemote ? 'true' : undefined}
               style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
               onClick={() => {
@@ -484,10 +491,10 @@ export function FilePanel() {
                 });
               }}
             >
-              Diff
+              {t('Diff')}
             </button>
           )}
-          <button className="file-panel__refresh" onClick={handleRefresh} title="Refresh">
+          <button className="file-panel__refresh" onClick={handleRefresh} title={t('Refresh')}>
             ⟳
           </button>
         </div>
@@ -525,7 +532,7 @@ export function FilePanel() {
       >
         {rows.map((node) => {
           const isDir = node.entry.kind === 'dir';
-          const isErr = node.entry.name === '(unreadable)';
+          const isErr = node.entry.name === UNREADABLE_LABEL;
           const isExpanded = expanded.has(node.absPath);
           const paddingLeft = 10 + node.depth * 14;
 
@@ -644,14 +651,14 @@ export function FilePanel() {
                     });
                   }}
                 >
-                  diff
+                  {t('diff')}
                 </button>
               )}
               {isHtml && (
                 <button
                   className="file-panel__row-action"
                   aria-disabled={isRemote ? 'true' : undefined}
-                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '用系统默认浏览器打开'}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : t('Open with default browser')}
                   style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -671,7 +678,7 @@ export function FilePanel() {
                 <button
                   className="file-panel__row-action"
                   aria-disabled={isRemote ? 'true' : undefined}
-                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '在 Finder 中显示(跳转所在目录)'}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : t('Show in Finder')}
                   style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -689,7 +696,7 @@ export function FilePanel() {
                 <button
                   className="file-panel__row-action"
                   aria-disabled={isRemote ? 'true' : undefined}
-                  title={isRemote ? REMOTE_FILE_HINT_TEXT : '在 Finder 中打开'}
+                  title={isRemote ? REMOTE_FILE_HINT_TEXT : t('Open in Finder')}
                   style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={(e) => {
                     e.stopPropagation();

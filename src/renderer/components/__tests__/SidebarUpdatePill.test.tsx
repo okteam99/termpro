@@ -83,13 +83,13 @@ describe('Sidebar UpdatePill copy', () => {
     const available = render(<Sidebar />);
 
     const availablePill = screen.getByRole('button', {
-      name: /新版本 v0\.4\.0/,
+      name: /New version v0\.4\.0/,
     });
     expect(availablePill).toHaveAttribute(
       'title',
-      expect.stringContaining('确认'),
+      expect.stringContaining('confirm'),
     );
-    expect(availablePill.getAttribute('title')).not.toContain('自动重启');
+    expect(availablePill.getAttribute('title')).not.toContain('automatically restart');
 
     available.unmount();
     cleanup();
@@ -101,9 +101,9 @@ describe('Sidebar UpdatePill copy', () => {
     });
     render(<Sidebar />);
 
-    const downloadingPill = screen.getByRole('button', { name: /下载中 42%/ });
-    expect(downloadingPill).toHaveTextContent('完成后确认安装');
-    expect(downloadingPill).not.toHaveTextContent('完成后自动重启');
+    const downloadingPill = screen.getByRole('button', { name: /Downloading 42%/ });
+    expect(downloadingPill).toHaveTextContent('confirm to install when done');
+    expect(downloadingPill).not.toHaveTextContent('automatically restart when done');
 
     cleanup();
 
@@ -111,7 +111,7 @@ describe('Sidebar UpdatePill copy', () => {
     render(<Sidebar />);
 
     const confirmingPill = screen.getByRole('button', {
-      name: /等待确认安装/,
+      name: /Waiting to confirm install/,
     });
     expect(confirmingPill).toBeDisabled();
   });

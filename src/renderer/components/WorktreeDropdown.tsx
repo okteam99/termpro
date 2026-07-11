@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { WorktreeInfo } from '../../shared/protocol';
+import { t } from '../../shared/i18n';
 import { worktreeLabel } from '../filepanel/core';
 import './WorktreeDropdown.css';
 
@@ -60,7 +61,7 @@ function CopyIcon() {
 
 /** 工作区分支展示:detached 显式标注短 SHA(触发器与列表统一口径) */
 function branchText(wt: WorktreeInfo): string {
-  return wt.branch ?? `detached · ${wt.head}`;
+  return wt.branch ?? t('detached · {head}', { head: wt.head });
 }
 
 interface MenuPos {
@@ -232,7 +233,7 @@ export function WorktreeDropdown({ worktrees, selectedPath, mainPath, disabled, 
     return (
       <div className="wt-dd wt-dd--disabled">
         <div className="wt-dd__trigger wt-dd__trigger--disabled">
-          <span className="wt-dd__trigger-text">not a git repo</span>
+          <span className="wt-dd__trigger-text">{t('not a git repo')}</span>
         </div>
       </div>
     );
@@ -304,7 +305,7 @@ export function WorktreeDropdown({ worktrees, selectedPath, mainPath, disabled, 
                     type="button"
                     className={`wt-dd__copy${copied ? ' wt-dd__copy--done' : ''}`}
                     onClick={(e) => handleCopy(wt.path, e)}
-                    title={copied ? '已复制路径' : '复制工作区路径'}
+                    title={copied ? t('Copied path') : t('Copy workspace path')}
                   >
                     {copied ? <CheckIcon /> : <CopyIcon />}
                   </button>

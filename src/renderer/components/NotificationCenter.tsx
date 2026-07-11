@@ -1,17 +1,18 @@
 import './NotificationCenter.css';
 import { useEffect, useRef } from 'react';
+import { t } from '../../shared/i18n';
 import { useAppStore } from '../state/store';
 
-/** Compute relative time string (Chinese) from a timestamp */
+/** Compute relative time string from a timestamp */
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return t('Just now');
+  if (minutes < 60) return t('{minutes} min ago', { minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return t('{hours} hr ago', { hours });
   const days = Math.floor(hours / 24);
-  return `${days} 天前`;
+  return t('{days} d ago', { days });
 }
 
 /** Kind indicator dot color class */
@@ -77,21 +78,21 @@ export function NotificationCenter({ open, onClose }: Props) {
     >
       {/* Header */}
       <div className="nc-header">
-        <span className="nc-title">通知</span>
+        <span className="nc-title">{t('Notifications')}</span>
         <div className="nc-header-actions">
           <button
             className="nc-action-btn"
             onClick={() => markAllNotificationsRead()}
-            title="全部已读"
+            title={t('Mark all as read')}
           >
-            全部已读
+            {t('Mark all as read')}
           </button>
           <button
             className="nc-action-btn"
             onClick={() => clearNotifications()}
-            title="清空"
+            title={t('Clear')}
           >
-            清空
+            {t('Clear')}
           </button>
         </div>
       </div>
@@ -99,7 +100,7 @@ export function NotificationCenter({ open, onClose }: Props) {
       {/* List */}
       <div className="nc-list">
         {notifications.length === 0 ? (
-          <div className="nc-empty">暂无通知</div>
+          <div className="nc-empty">{t('No notifications')}</div>
         ) : (
           notifications.map((n) => (
             <div

@@ -1,5 +1,6 @@
 import './Sidebar.css';
 import { useEffect, useRef, useState } from 'react';
+import { t } from '../../shared/i18n';
 import { useAppStore, tildify } from '../state/store';
 import type { WorkspaceState } from '../state/store';
 import { hostRegistry } from '../services/hostRegistry';
@@ -91,18 +92,20 @@ function UpdatePill() {
   const percent = ev.state === 'downloading' ? ev.percent : undefined;
   const label =
     ev.state === 'available'
-      ? `⬆ 新版本 v${ev.version} — 下载后确认安装`
+      ? t('⬆ New version v{version} available — download, then confirm to install', {
+          version: ev.version ?? '',
+        })
       : ev.state === 'checking'
-        ? '正在连接更新源…'
+        ? t('Connecting to update source…')
         : ev.state === 'confirming'
-          ? '等待确认安装…'
+          ? t('Waiting to confirm install…')
         : ev.state === 'downloading'
           ? percent != null
-            ? `下载中 ${percent}%(完成后确认安装)`
-            : '下载中(完成后确认安装)…'
+            ? t('Downloading {percent}% (confirm to install when done)', { percent })
+            : t('Downloading… (confirm to install when done)')
           : ev.state === 'restarting'
-            ? '即将重启完成升级…'
-            : '自动升级失败,已打开发布页';
+            ? t('Restarting to finish the update…')
+            : t('Auto-update failed — opened the release page');
 
   const progressStyle: React.CSSProperties =
     percent != null
@@ -132,7 +135,7 @@ function UpdatePill() {
         ev.state === 'restarting'
       }
       onClick={() => window.termpro.installUpdate()}
-      title="下载新版本，完成后确认安装并重启"
+      title={t('Download the new version, then confirm to install and restart')}
     >
       {label}
     </button>
@@ -399,11 +402,19 @@ export function Sidebar() {
     setAddModalOpen(true);
   }
 
-  function handleRemove(e: React.MouseEvent, id: string, name: string) {
-    e.stopPropagation();
-    if (window.confirm(`Remove workspace "${name}"? Terminal sessions will be closed.`)) {
+  function confirmRemove(id: string, name: string) {
+    if (
+      window.confirm(
+        t('Remove workspace "{name}"? Terminal sessions will be closed.', { name }),
+      )
+    ) {
       void removeWorkspace(id);
     }
+  }
+
+  function handleRemove(e: React.MouseEvent, id: string, name: string) {
+    e.stopPropagation();
+    confirmRemove(id, name);
   }
 
   function openRenameModal(e: React.MouseEvent, id: string) {
@@ -478,7 +489,7 @@ export function Sidebar() {
   const localMachine: MachineInfo = {
     id: 'local',
     kind: 'local',
-    label: '本机',
+    label: t('Local'),
     workspaces: localWorkspaces.map((w) => toRowData(w, activeWorkspaceId, false)),
   };
 
@@ -533,7 +544,7 @@ export function Sidebar() {
         addr,
         status: 'lost',
         foldedLost: true,
-        emptyLabel: '已断开 · 点击重连',
+        emptyLabel: t('Disconnected · Click to reconnect'),
         workspaces: null,
       };
     }
@@ -562,7 +573,7 @@ export function Sidebar() {
           className="sidebar-bell-btn"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onClick={() => setNcOpen((v) => !v)}
-          title="通知"
+          title={t('Notifications')}
         >
           <BellIcon />
           {unreadCount > 0 && (
@@ -573,7 +584,7 @@ export function Sidebar() {
           className="sidebar-add-btn"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onClick={handleAdd}
-          title="Add workspace"
+          title={t('Add workspace')}
         >
           +
         </button>
@@ -611,7 +622,7 @@ export function Sidebar() {
                           className="sidebar-edit-btn no-drag"
                           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                           onClick={(e) => openRenameModal(e, ws.id)}
-                          title="Rename workspace"
+                          title={t('Rename workspace')}
                         >
                           <PencilIcon />
                         </button>
@@ -621,7 +632,7 @@ export function Sidebar() {
                         className="sidebar-remove-btn"
                         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                         onClick={(e) => handleRemove(e, ws.id, ws.name)}
-                        title="Remove workspace"
+                        title={t('Remove workspace')}
                       >
                         &times;
                       </button>
@@ -637,9 +648,9 @@ export function Sidebar() {
               </div>
             ) : (
               <div key={machine.id} className="sidebar-empty" data-testid="machine-group" data-machine-id="local">
-                <span className="sidebar-empty-text">No workspaces</span>
+                <span className="sidebar-empty-text">{t('No workspaces')}</span>
                 <button className="sidebar-add-ws-btn" onClick={handleAdd}>
-                  Add Workspace
+                  {t('Add Workspace')}
                 </button>
               </div>
             )
@@ -651,6 +662,7 @@ export function Sidebar() {
               onRetry={handleConnectMachine}
               onManualRetry={(id) => reconnectController.manualRetry(id)}
               onSelectWorkspace={handleSelectWorkspace}
+              onRemoveWorkspace={(_m, ws) => confirmRemove(ws.id, ws.name)}
             />
           ),
         )}
@@ -665,7 +677,7 @@ export function Sidebar() {
       {/* Rename modal — rendered at sidebar root level */}
       {editingWorkspace && (
         <RenameModal
-          title="重命名 Workspace"
+          title={t('Rename Workspace')}
           initialValue={editingWorkspace.name}
           onSave={(name) => handleModalSave(editingWorkspace.id, name)}
           onClose={handleModalClose}

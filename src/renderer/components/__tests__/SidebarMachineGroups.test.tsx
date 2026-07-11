@@ -163,7 +163,7 @@ describe('AC-1 · 本机组置顶 + 远程机组未连接态', () => {
     expect(screen.getByText('aon-core')).toBeInTheDocument();
 
     // 两个远程机组各有一个"连接"入口,workspace 行数为 0(未展开)
-    expect(screen.getAllByRole('button', { name: '连接' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Connect' })).toHaveLength(2);
     expect(screen.queryByTestId('machine-workspace-row')).not.toBeInTheDocument();
   });
 });
@@ -214,14 +214,14 @@ describe('AC-8 · 组头连接生命周期', () => {
     act(() => {
       useRemoteHostRuntimeStore.getState().applyEvent({ configId: 'cfg-1', stage: 'deploying', percent: 47 });
     });
-    expect(screen.getByText(/部署中…/)).toBeInTheDocument();
+    expect(screen.getByText(/Deploying…/)).toBeInTheDocument();
     expect(screen.getByText(/47%/)).toBeInTheDocument();
 
     act(() => {
       useRemoteHostRuntimeStore.getState().applyEvent({ configId: 'cfg-1', stage: 'failed', reason: 'unreachable' });
     });
     expect(screen.getByText(/不可达/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });
 
@@ -246,7 +246,7 @@ describe('AC-11 · 断线两段式回落', () => {
 
     // panel 阶段:仍展开,行内"已断开"标签
     expect(screen.getByText('aon-edge')).toBeInTheDocument();
-    expect(screen.getByText('已断开')).toBeInTheDocument();
+    expect(screen.getByText('Disconnected')).toBeInTheDocument();
 
     act(() => {
       vi.advanceTimersByTime(900);
@@ -254,7 +254,7 @@ describe('AC-11 · 断线两段式回落', () => {
 
     // folded 阶段:组头折叠,workspace 行消失,呈现"已断开 · 点击重连"
     expect(screen.queryByText('aon-edge')).not.toBeInTheDocument();
-    expect(screen.getByText('已断开 · 点击重连')).toBeInTheDocument();
+    expect(screen.getByText('Disconnected · Click to reconnect')).toBeInTheDocument();
   });
 });
 

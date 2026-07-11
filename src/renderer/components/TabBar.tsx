@@ -1,5 +1,6 @@
 import './TabBar.css';
 import { useState, useEffect, useRef } from 'react';
+import { t } from '../../shared/i18n';
 import {
   useAppStore,
   selectActiveWorkspace,
@@ -210,14 +211,14 @@ export function TabBar() {
               {tab.exited && (
                 <span className="tabbar-tab-exited-hint">
                   {typeof tab.exitCode === 'number'
-                    ? `exit ${tab.exitCode}`
-                    : 'exited'}
+                    ? t('exit {code}', { code: tab.exitCode })
+                    : t('exited')}
                 </span>
               )}
               <button
                 className={`tabbar-close-btn${isActive ? ' tabbar-close-btn--always' : ''}`}
                 onClick={(e) => handleClose(e, tab.id)}
-                title="Close tab"
+                title={t('Close tab')}
               >
                 &times;
               </button>
@@ -226,7 +227,7 @@ export function TabBar() {
         })}
 
         {/* 新建标签按钮 */}
-        <button className="tabbar-add-btn" onClick={handleAdd} title="New tab">
+        <button className="tabbar-add-btn" onClick={handleAdd} title={t('New tab')}>
           +
         </button>
 
@@ -236,7 +237,7 @@ export function TabBar() {
             ref={dropBtnRef}
             className="tabbar-dropdown-btn"
             onClick={() => setMenuOpen((v) => !v)}
-            title="New tab options"
+            title={t('New tab options')}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             ▾
@@ -248,14 +249,14 @@ export function TabBar() {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={handleMenuAddRoot}
               >
-                新 Tab（workspace 根）
+                {t('New tab (workspace root)')}
               </button>
               <button
                 className="tabbar-dropdown-item"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={handleAddWithDir}
               >
-                新 Tab（选择目录…）
+                {t('New tab (choose directory…)')}
               </button>
             </div>
           )}
@@ -271,13 +272,13 @@ export function TabBar() {
       {/* Tab 改名 modal:留空保存 = 恢复默认名 */}
       {renamingTabId &&
         (() => {
-          const tab = ws.tabs.find((t) => t.id === renamingTabId);
+          const tab = ws.tabs.find((tb) => tb.id === renamingTabId);
           if (!tab) return null;
           return (
             <RenameModal
-              title="重命名 Tab"
+              title={t('Rename Tab')}
               initialValue={tab.customName ?? ''}
-              placeholder="留空恢复默认名"
+              placeholder={t('Leave empty to restore default name')}
               allowEmpty
               onSave={(v) => updateTab(tab.id, { customName: v || undefined })}
               onClose={() => setRenamingTabId(null)}

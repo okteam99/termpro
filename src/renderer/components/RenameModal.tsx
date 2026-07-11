@@ -1,5 +1,6 @@
 import './RenameModal.css';
 import { useRef, useState } from 'react';
+import { t } from '../../shared/i18n';
 
 interface RenameModalProps {
   title: string;
@@ -66,10 +67,10 @@ export function RenameModal({
         />
         <div className="rename-modal-actions">
           <button className="rename-modal-cancel" onClick={onClose}>
-            取消
+            {t('Cancel')}
           </button>
           <button className="rename-modal-save" onClick={handleSave}>
-            保存
+            {t('Save')}
           </button>
         </div>
       </div>

@@ -130,7 +130,7 @@ describe('远程 workspace:文件三入口禁用(D-7)', () => {
     fireEvent.click(diffBtn);
 
     expect(window.termpro.openViewerWindow).not.toHaveBeenCalled();
-    expect(screen.getByText('远程文件独立窗口暂不支持')).toBeInTheDocument();
+    expect(screen.getByText("Remote files aren't supported in a separate window yet")).toBeInTheDocument();
   });
 
   it('文件行本身:点击不调用 openViewerWindow,弹提示', () => {
@@ -141,7 +141,7 @@ describe('远程 workspace:文件三入口禁用(D-7)', () => {
     fireEvent.click(fileRow);
 
     expect(window.termpro.openViewerWindow).not.toHaveBeenCalled();
-    expect(screen.getByText('远程文件独立窗口暂不支持')).toBeInTheDocument();
+    expect(screen.getByText("Remote files aren't supported in a separate window yet")).toBeInTheDocument();
   });
 
   it('行内 diff 按钮:点击不调用 openViewerWindow,弹提示', () => {
@@ -152,7 +152,7 @@ describe('远程 workspace:文件三入口禁用(D-7)', () => {
     fireEvent.click(rowDiffBtn);
 
     expect(window.termpro.openViewerWindow).not.toHaveBeenCalled();
-    expect(screen.getByText('远程文件独立窗口暂不支持')).toBeInTheDocument();
+    expect(screen.getByText("Remote files aren't supported in a separate window yet")).toBeInTheDocument();
   });
 
   it('系统浏览器打开(html 文件行 globe 按钮):aria-disabled + 不调用 openInBrowser + 弹提示', () => {
@@ -165,7 +165,7 @@ describe('远程 workspace:文件三入口禁用(D-7)', () => {
     fireEvent.click(globeBtn);
 
     expect(window.termpro.openInBrowser).not.toHaveBeenCalled();
-    expect(screen.getByText('远程文件独立窗口暂不支持')).toBeInTheDocument();
+    expect(screen.getByText("Remote files aren't supported in a separate window yet")).toBeInTheDocument();
   });
 
   it('Finder 中显示(文件行按钮):aria-disabled + 不调用 showItemInFolder + 弹提示', () => {
@@ -178,7 +178,7 @@ describe('远程 workspace:文件三入口禁用(D-7)', () => {
     fireEvent.click(folderShowBtn);
 
     expect(window.termpro.showItemInFolder).not.toHaveBeenCalled();
-    expect(screen.getByText('远程文件独立窗口暂不支持')).toBeInTheDocument();
+    expect(screen.getByText("Remote files aren't supported in a separate window yet")).toBeInTheDocument();
   });
 
   it('Finder 中打开(目录行按钮):aria-disabled + 不调用 openPath + 弹提示,但行本身仍可展开', () => {
@@ -190,7 +190,7 @@ describe('远程 workspace:文件三入口禁用(D-7)', () => {
     fireEvent.click(folderOpenBtn);
 
     expect(window.termpro.openPath).not.toHaveBeenCalled();
-    expect(screen.getByText('远程文件独立窗口暂不支持')).toBeInTheDocument();
+    expect(screen.getByText("Remote files aren't supported in a separate window yet")).toBeInTheDocument();
     // 按钮点击 stopPropagation,不应连带触发行的 toggleDir
     expect(toggleDir).not.toHaveBeenCalled();
   });
@@ -216,13 +216,13 @@ describe('远程 workspace:文件三入口禁用(D-7)', () => {
     try {
       render(<FilePanel />);
       fireEvent.click(screen.getByRole('button', { name: 'Diff' }));
-      expect(screen.getByText('远程文件独立窗口暂不支持')).toBeInTheDocument();
+      expect(screen.getByText("Remote files aren't supported in a separate window yet")).toBeInTheDocument();
 
       act(() => {
         vi.advanceTimersByTime(1_800);
       });
 
-      expect(screen.queryByText('远程文件独立窗口暂不支持')).not.toBeInTheDocument();
+      expect(screen.queryByText("Remote files aren't supported in a separate window yet")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -242,7 +242,7 @@ describe('本机 workspace:零回归', () => {
     expect(window.termpro.openViewerWindow).toHaveBeenCalledWith(
       expect.objectContaining({ mode: 'diff', toplevel: '/repo' }),
     );
-    expect(screen.queryByText('远程文件独立窗口暂不支持')).not.toBeInTheDocument();
+    expect(screen.queryByText("Remote files aren't supported in a separate window yet")).not.toBeInTheDocument();
   });
 
   it('文件行点击正常打开查看器(无禁用)', () => {

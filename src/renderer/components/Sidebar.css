@@ -644,6 +644,11 @@
   margin-left: auto;
 }
 
+/* 行带 × 删除钮(远程行):名称行常驻预留 × 的位置,徽标不被 hover 显现的 × 压住 */
+.sidebar-item--removable .sidebar-item-name-row {
+  padding-right: 16px;
+}
+
 /* 断线机器组:条目整体变灰 */
 .sidebar-machine-group--lost .sidebar-item {
   opacity: 0.45;
