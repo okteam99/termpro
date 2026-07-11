@@ -95,6 +95,8 @@ export class HostClient {
   private workspaceListeners = new Set<(workspaces: WorkspaceEntry[]) => void>();
   // BL-005:远程 client(reconnectable)transport 断开/心跳判死 → 非终结,触发重连编排。
   private reconnectNeededListeners = new Set<() => void>();
+  // 心跳探活往返耗时(ms)订阅者(组头连接延迟展示;仅 reconnectable client 产生数据)
+  private rttListeners = new Set<(ms: number) => void>();
   // 主动 teardown(reconnect/dispose 内 close 旧 transport)期间抑制自身 onClose 分叉,防 loop。
   private tearingDown = false;
   private heartbeat: Heartbeat | null = null;
@@ -126,6 +128,14 @@ export class HostClient {
     this.reconnectNeededListeners.add(cb);
     return () => {
       this.reconnectNeededListeners.delete(cb);
+    };
+  }
+
+  /** 订阅心跳探活 RTT(ms;每拍成功回调一次·仅 reconnectable client),返回退订函数。 */
+  onRtt(cb: (ms: number) => void): () => void {
+    this.rttListeners.add(cb);
+    return () => {
+      this.rttListeners.delete(cb);
     };
   }
 
@@ -203,6 +213,7 @@ export class HostClient {
     this.heartbeat = new Heartbeat(readHeartbeatEnv(), {
       probe: () => this.rpc('host.info', undefined),
       onDead: () => this.handleHeartbeatDead(),
+      onAlive: (ms) => this.rttListeners.forEach((cb) => cb(ms)),
     });
     this.heartbeat.start();
   }

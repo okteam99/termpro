@@ -6,6 +6,12 @@ import { zh } from '../i18n.zh';
 const initial = getLocale();
 afterEach(() => setLocale(initial));
 
+describe('测试环境确定性(opus 评审 P1-2)', () => {
+  it('vitest 下初始 locale 恒 en——Node 21+ navigator.language 反映宿主 LANG,不钉死则 zh 开发机上 node 环境断言会红', () => {
+    expect(initial).toBe('en');
+  });
+});
+
 describe('resolveLocale', () => {
   it('zh 前缀(任意大小写/地区变体)→ zh-CN', () => {
     expect(resolveLocale('zh')).toBe('zh-CN');

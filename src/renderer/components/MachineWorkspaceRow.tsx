@@ -6,6 +6,26 @@
 import './Sidebar.css';
 import { t } from '../../shared/i18n';
 
+/** Small pencil icon 12×12(本机/远程 workspace 行共用;Sidebar 从这里 import) */
+export function PencilIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M8.5 1.5 L10.5 3.5 L4 10 L1.5 10.5 L2 8 Z" />
+      <line x1="7" y1="3" x2="9" y2="5" />
+    </svg>
+  );
+}
+
 /** 徽标输入:tabCount = 本客户端在该 workspace 的活跃 tab 数(hostId-aware · ws.tabs.length)。 */
 export interface TabBadgeInput {
   tabCount: number;
@@ -48,9 +68,11 @@ export interface MachineWorkspaceRowProps {
   onClick?: () => void;
   /** 行右上角 hover 显现的 × 删除钮(与本机行同款);缺省不渲染 */
   onRemove?: () => void;
+  /** 名称旁 hover 显现的铅笔重命名钮(与本机行同款);缺省不渲染 */
+  onRename?: () => void;
 }
 
-export function MachineWorkspaceRow({ ws, onClick, onRemove }: MachineWorkspaceRowProps) {
+export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: MachineWorkspaceRowProps) {
   const badge = formatTabBadge(ws);
   const classes = [
     'sidebar-item',
@@ -70,6 +92,18 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove }: MachineWorkspaceR
     >
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{ws.name}</span>
+        {onRename && (
+          <button
+            className="sidebar-edit-btn no-drag"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRename();
+            }}
+            title={t('Rename workspace')}
+          >
+            <PencilIcon />
+          </button>
+        )}
         {ws.disconnectedPanel && (
           <span className="sidebar-item-lost-tag">{t('Disconnected')}</span>
         )}

@@ -84,6 +84,8 @@ export interface MachineInfo {
   runtime?: RemoteEvent;
   /** true = 断线后已折叠回未连接态外观(D-8 folded 阶段);与"从未连接"灰态视觉区分(仍标红点) */
   foldedLost?: boolean;
+  /** 最近一次心跳探活 RTT(ms);仅 connected 态展示于圆点右侧 */
+  rttMs?: number;
   emptyLabel?: string;
   /** null = 未连接(不展开);数组(含空数组)= 已连接,渲染其 workspace 行 */
   workspaces: MachineWorkspaceRowData[] | null;
@@ -96,6 +98,8 @@ export interface MachineGroupProps {
   onSelectWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
   /** 行级 × 删除钮(与本机行同款);缺省不渲染 */
   onRemoveWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
+  /** 行级铅笔重命名钮(与本机行同款);缺省不渲染 */
+  onRenameWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
   /** BL-005 AC-6:reconnecting 态「立即重试」→ reconnectController.manualRetry(复位退避即刻再试) */
   onManualRetry?: (machineId: string) => void;
 }
@@ -106,6 +110,7 @@ export function MachineGroup({
   onRetry,
   onSelectWorkspace,
   onRemoveWorkspace,
+  onRenameWorkspace,
   onManualRetry,
 }: MachineGroupProps) {
   const isRemote = machine.kind === 'remote';
@@ -150,10 +155,13 @@ export function MachineGroup({
   return (
     <div className={groupClasses} data-testid="machine-group" data-machine-id={machine.id}>
       <div className="sidebar-machine-header" title={isRemote ? machine.addr : undefined}>
+        {isRemote ? <RemoteMachineIcon /> : <LocalMachineIcon />}
         {isRemote && (
           <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status ?? 'disconnected'}`} />
         )}
-        {isRemote ? <RemoteMachineIcon /> : <LocalMachineIcon />}
+        {isRemote && machine.status === 'connected' && machine.rttMs !== undefined && (
+          <span className="sidebar-machine-rtt">{Math.round(machine.rttMs)}ms</span>
+        )}
         <span className="sidebar-machine-label">
           {isRemote ? machine.alias : (machine.label ?? t('Local'))}
         </span>
@@ -193,6 +201,7 @@ export function MachineGroup({
             ws={ws}
             onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
             onRemove={onRemoveWorkspace ? () => onRemoveWorkspace(machine, ws) : undefined}
+            onRename={onRenameWorkspace ? () => onRenameWorkspace(machine, ws) : undefined}
           />
         ))
       ) : (

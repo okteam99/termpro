@@ -584,7 +584,7 @@ export function Sidebar() {
           className="sidebar-add-btn"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onClick={handleAdd}
-          title={t('Add workspace')}
+          title={t('Add Workspace')}
         >
           +
         </button>
@@ -622,7 +622,7 @@ export function Sidebar() {
                           className="sidebar-edit-btn no-drag"
                           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                           onClick={(e) => openRenameModal(e, ws.id)}
-                          title={t('Rename workspace')}
+                          title={t('Rename Workspace')}
                         >
                           <PencilIcon />
                         </button>

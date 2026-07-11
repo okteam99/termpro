@@ -18,10 +18,14 @@ interface RemoteHostRuntimeState {
    * gate 到 `!isReconnecting(configId)`——reconnecting 期不启动 full-drop 倒计时(抑制 AC-15)。
    */
   reconnecting: Record<string, boolean>;
+  /** configId → 最近一次心跳探活 RTT(ms;组头连接延迟展示,展示 gate 在 connected 态)。 */
+  rtt: Record<string, number>;
   /** 写入/覆盖某 configId 的运行态(main 推送事件 与 renderer 本地握手结果共用同一落点)。 */
   applyEvent(e: RemoteEvent): void;
   /** 清空某 configId 运行态(手动断开/删除后回落 idle,不留孤儿展示态)。 */
   clear(configId: string): void;
+  /** 写入某 configId 的最近 RTT(hostClient 心跳 onRtt 驱动)。 */
+  setRtt(configId: string, ms: number): void;
   /** 置/清某 configId 的 reconnecting 态(reconnectController 单源驱动)。 */
   setReconnecting(configId: string, on: boolean): void;
   /** 查询某 configId 是否 reconnecting(Sidebar drop 计时器 gate·CR-1)。 */
@@ -31,6 +35,7 @@ interface RemoteHostRuntimeState {
 export const useRemoteHostRuntimeStore = create<RemoteHostRuntimeState>((set, get) => ({
   runtime: {},
   reconnecting: {},
+  rtt: {},
   applyEvent(e) {
     set((s) => ({ runtime: { ...s.runtime, [e.configId]: e } }));
   },
@@ -38,13 +43,19 @@ export const useRemoteHostRuntimeStore = create<RemoteHostRuntimeState>((set, ge
     set((s) => {
       const hasRuntime = configId in s.runtime;
       const hasReconnecting = configId in s.reconnecting;
-      if (!hasRuntime && !hasReconnecting) return s;
+      const hasRtt = configId in s.rtt;
+      if (!hasRuntime && !hasReconnecting && !hasRtt) return s;
       const runtime = { ...s.runtime };
       delete runtime[configId];
       const reconnecting = { ...s.reconnecting };
       delete reconnecting[configId];
-      return { runtime, reconnecting };
+      const rtt = { ...s.rtt };
+      delete rtt[configId];
+      return { runtime, reconnecting, rtt };
     });
+  },
+  setRtt(configId, ms) {
+    set((s) => ({ rtt: { ...s.rtt, [configId]: ms } }));
   },
   setReconnecting(configId, on) {
     set((s) => {

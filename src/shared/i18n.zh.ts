@@ -271,4 +271,35 @@ export const zh: Record<string, string> = {
     '本机凭据加密不可用,无法安全保存密码',
   'Found node {version} ({path}), but ≥ {major} is required':
     '已找到 node {version}({path}),但需要 ≥ {major}',
+
+  // --- opus 评审 P1-1 补漏(阶段2 t() 化后漏进字典的 key)---
+  'Host': '主机',
+  'User': '用户',
+  'Port': '端口',
+  'No workspaces': '暂无 Workspace',
+  'Add Workspace': '添加 Workspace',
+  'Remove workspace': '移除 Workspace',
+  'Remove workspace "{name}"? Terminal sessions will be closed.':
+    '移除 Workspace“{name}”？其终端会话将被关闭。',
+  'New tab': '新 Tab',
+  'New tab options': '新 Tab 选项',
+  'Close tab': '关闭 Tab',
+  'No session': '无会话',
+  'Refresh': '刷新',
+  'Apply': '应用',
+  'Choose…': '选择…',
+  'Reload worktrees': '重新加载 worktree',
+  'not a git repo': '非 git 仓库',
+  '(unreadable)': '(不可读)',
+  '{count} entries': '{count} 项',
+  'About': '关于',
+  'Settings': '设置',
+  '‹ OUTLINE': '‹ 大纲',
+  // 以下 key 有意留英(两端同文案),勿当漏项:
+  //   '0 session' / '{count} session' / '{count} session · {running} running'
+  //     —— 用户指定徽章用 "N session"(2026-07-11);
+  //   'Rename workspace'(已统一为 'Rename Workspace',无小写调用点);
+  //   'DEV'(渠道徽标)/ 'Root' / 'WorkTree' / 'Diff' / 'diff' / 'detached' /
+  //   'detached · {head}' / '{branch} · {head}' / 'exit {code}' / 'exited'
+  //     —— git/终端术语与纯插值,不译。
 };

@@ -4,7 +4,9 @@
 // locale 一次定死随系统语言,会话中不切换(无需响应式/重渲染钩子):
 //  - renderer:模块加载时 navigator.language 自检(Electron renderer 反映系统语言);
 //  - main:app ready 后显式 setLocale(resolveLocale(app.getLocale()))(见 main.ts);
-//  - 测试(node/jsdom):navigator 缺失或 en-US → 'en',断言天然确定性(不读 LANG 等环境变量)。
+//  - 测试:🔴 Node 21+ 全局 navigator.language 反映宿主 LANG(zh 开发机上 node 环境测试
+//    会拿到 'zh-CN',jsdom 才恒 'en-US')——故 VITEST 下强制 'en' 钉死断言确定性
+//    (opus 评审 P1-2;测试内可用 setLocale 显式切换)。
 
 import { zh } from './i18n.zh';
 
@@ -15,8 +17,14 @@ export function resolveLocale(raw: string | null | undefined): Locale {
   return /^zh/i.test(raw ?? '') ? 'zh-CN' : 'en';
 }
 
-let locale: Locale =
-  typeof navigator !== 'undefined' ? resolveLocale(navigator.language) : 'en';
+const isVitest =
+  typeof process !== 'undefined' && !!(process as { env?: Record<string, string | undefined> }).env?.VITEST;
+
+let locale: Locale = isVitest
+  ? 'en'
+  : typeof navigator !== 'undefined'
+    ? resolveLocale(navigator.language)
+    : 'en';
 
 export function setLocale(next: Locale): void {
   locale = next;

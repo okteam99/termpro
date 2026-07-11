@@ -25,6 +25,8 @@ export interface HeartbeatDeps {
   probe: () => Promise<unknown>;
   /** 判定断线回调(一次性,判死即触发)。 */
   onDead: () => void;
+  /** 每次探活成功回调,携带该次 probe 往返耗时(ms)——组头连接延迟展示的数据源。 */
+  onAlive?: (rttMs: number) => void;
   /** 计时器注入(默认全局 setTimeout;单测走 vi.useFakeTimers 亦可不注入)。 */
   setTimer?: (fn: () => void, ms: number) => TimerHandle;
   clearTimer?: (h: TimerHandle) => void;
@@ -80,6 +82,7 @@ export class Heartbeat {
       this.die();
     }, this.cfg.timeoutMs);
 
+    const startedAt = Date.now();
     try {
       await this.deps.probe();
       if (settled || !this.running) return;
@@ -88,6 +91,7 @@ export class Heartbeat {
         this.clearTimer(this.timeoutTimer);
         this.timeoutTimer = null;
       }
+      this.deps.onAlive?.(Date.now() - startedAt);
       this.scheduleNext();
     } catch {
       // probe 抛错(传输错误/rpc 超时)同样判死
