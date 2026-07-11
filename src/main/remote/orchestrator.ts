@@ -267,9 +267,18 @@ export class RemoteHostOrchestrator {
     if (existingConnect) return existingConnect;
 
     const session = this.ensureSession(configId);
-    if (ACTIVE_STAGES.has(session.stage)) {
-      // 已在连接中或已就绪:不重复编排(ARCH-B3 语义扩展——不仅并发调用复用同一
-      // Promise,处于活跃阶段时的新调用也是 no-op,由用户走 disconnect 再 connect)。
+    if (session.stage === 'ready') {
+      // 🔴 陈旧 ready 自愈:renderer 只在自认为「未连接」时才发 connect(Sidebar 的
+      // Connect/重连/重试按钮;RemoteHostsPage 在 ready 态只给 Disconnect)。此时 main
+      // 若仍停在 ready(WS 已死但 main 无心跳感知,renderer 重连预算耗尽已 drop),
+      // 原 no-op 会让「点 Connect 永远没反应」——reconnectController 的 disconnect-first
+      // 注释指的就是同一坑,但手动按钮不走它。改为等价 disconnect-first:同步关掉
+      // 陈旧传输 → 广播 disconnected → 照常走 runConnect 重建。
+      this.closeSessionTransport(session);
+      this.safeEmit(configId, { stage: 'disconnected' });
+    } else if (ACTIVE_STAGES.has(session.stage)) {
+      // 在途编排(connecting/deploying/…):不重复编排(ARCH-B3)——阶段自身有界超时,
+      // 会以 failed/ready 事件收场,renderer 很快能听到。
       return Promise.resolve();
     }
 

@@ -347,6 +347,26 @@ describe('AC-12 认证失败改配置重试 / 断开后手动重连', () => {
     await h.orchestrator.connect('vps-hk');
     expect(h.events.at(-1)?.stage).toBe('ready');
   });
+
+  it('🔴 陈旧 ready 自愈:ready 态再次 connect() 不再静默 no-op——等价 disconnect-first 重建至 ready', async () => {
+    // 场景:WS 已死但 main 无感知(无隧道 close 事件),renderer 已 drop 显示「未连接」,
+    // 用户点 Connect。旧行为命中 ACTIVE 守卫 no-op → 点了永远没反应。
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    const eventsBefore = h.events.length;
+
+    const routed2 = createFreshDeploySsh('vps-hk');
+    h.connectSsh.mockImplementationOnce(async () => routed2);
+    await h.orchestrator.connect('vps-hk');
+
+    const seq = h.events.slice(eventsBefore).map((e) => e.stage);
+    expect(seq[0]).toBe('disconnected'); // disconnect-first 复位
+    expect(seq.at(-1)).toBe('ready'); // 隧道重建成功
+  });
 });
 
 describe('AC-14 删除随删清凭据 + 活跃连接先断开', () => {
