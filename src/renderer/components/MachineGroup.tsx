@@ -156,15 +156,15 @@ export function MachineGroup({
     <div className={groupClasses} data-testid="machine-group" data-machine-id={machine.id}>
       <div className="sidebar-machine-header" title={isRemote ? machine.addr : undefined}>
         {isRemote ? <RemoteMachineIcon /> : <LocalMachineIcon />}
+        <span className="sidebar-machine-label">
+          {isRemote ? machine.alias : (machine.label ?? t('Local'))}
+        </span>
         {isRemote && (
           <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status ?? 'disconnected'}`} />
         )}
         {isRemote && machine.status === 'connected' && machine.rttMs !== undefined && (
           <span className="sidebar-machine-rtt">{Math.round(machine.rttMs)}ms</span>
         )}
-        <span className="sidebar-machine-label">
-          {isRemote ? machine.alias : (machine.label ?? t('Local'))}
-        </span>
         {/* BL-005:重连中——琥珀脉冲 + 「重连中…」文案(区别于确定断线的 lost·保活不折叠·AC-6/15) */}
         {isRemote && machine.status === 'reconnecting' && (
           <span className="sidebar-machine-status sidebar-machine-status--active">

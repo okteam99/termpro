@@ -104,20 +104,22 @@ describe('MachineGroup · 已连接展开(AC-2)', () => {
 });
 
 describe('MachineGroup · 组头连接延迟(心跳 RTT)', () => {
-  it('connected + rttMs → 圆点在云图标之后,延迟毫秒数紧随圆点', () => {
+  it('connected + rttMs → 顺序:云图标 → 机器名 → 圆点 → 延迟毫秒数', () => {
     const { container } = render(
       <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 12, workspaces: [] })} />,
     );
     const rtt = screen.getByText('12ms');
     expect(rtt).toHaveClass('sidebar-machine-rtt');
-    // 顺序断言:icon → dot → rtt
+    // 顺序断言:icon → label → dot → rtt
     const header = container.querySelector('.sidebar-machine-header')!;
     const children = Array.from(header.children);
     const iconIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-icon'));
+    const labelIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-label'));
     const dotIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-dot'));
     const rttIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-rtt'));
     expect(iconIdx).toBeGreaterThanOrEqual(0);
-    expect(dotIdx).toBe(iconIdx + 1);
+    expect(labelIdx).toBe(iconIdx + 1);
+    expect(dotIdx).toBe(labelIdx + 1);
     expect(rttIdx).toBe(dotIdx + 1);
   });
 
