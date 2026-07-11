@@ -110,7 +110,7 @@ describe('MachineGroup · 连接生命周期(AC-8)', () => {
         onRetry={onRetry}
       />,
     );
-    expect(screen.getByText(/不可达/)).toBeInTheDocument();
+    expect(screen.getByText(/Unreachable/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRetry).toHaveBeenCalledWith('cfg-1');
   });

@@ -369,7 +369,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       tunnel: { localPort: 1, token: 't' },
     });
 
-    await waitFor(() => expect(screen.getByText('✗ 版本不兼容')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✗ Incompatible version')).toBeInTheDocument());
   });
 
   it('ready → disconnect returns to idle, notifies main, and drops the remote client', async () => {
@@ -468,7 +468,7 @@ describe('failure_classification_and_retry', () => {
 
     emit({ configId: 'vps-hk', stage: 'failed', reason: 'auth' });
 
-    await waitFor(() => expect(screen.getByText('✗ 认证失败')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✗ Authentication failed')).toBeInTheDocument());
     expect(screen.getByText(/Permission denied/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Retry'));
@@ -519,7 +519,7 @@ describe('test_connection_badge_states', () => {
     bridge.test.mockResolvedValueOnce({ ok: false, reason: 'timeout' });
 
     fireEvent.click(screen.getByText('Test connection'));
-    await waitFor(() => expect(screen.getByText(/✗ 超时/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/✗ Timed out/)).toBeInTheDocument());
   });
 });
 

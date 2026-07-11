@@ -1,3 +1,5 @@
+import { t } from '../shared/i18n';
+
 export type ExitConfirmationKind = 'close-window' | 'app-quit' | 'install-update';
 
 export interface ExitConfirmationRequest {
@@ -51,10 +53,11 @@ export function buildExitConfirmationOptions(
   if (request.kind === 'close-window') {
     return {
       type: 'warning',
-      title: '关闭主窗口？',
-      message:
-        '关闭后再打开，Tab 内容可能丢失。取消后 Workspace、Tab 和 Terminal 视图保持可用。',
-      buttons: ['取消', '关闭窗口'],
+      title: t('Close the main window?'),
+      message: t(
+        'Tab content may be lost after closing and reopening. Cancel to keep Workspace, Tab, and Terminal views available.',
+      ),
+      buttons: [t('Cancel'), t('Close Window')],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
@@ -63,10 +66,11 @@ export function buildExitConfirmationOptions(
   if (request.kind === 'app-quit') {
     return {
       type: 'warning',
-      title: '退出 TermPro？',
-      message:
-        '退出后再打开，Tab 内容可能丢失。确认退出前会保留原有状态落盘机会。',
-      buttons: ['取消', '退出'],
+      title: t('Quit TermPro?'),
+      message: t(
+        'Tab content may be lost after quitting and reopening. State still gets a chance to persist before exit.',
+      ),
+      buttons: [t('Cancel'), t('Quit')],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
@@ -75,10 +79,12 @@ export function buildExitConfirmationOptions(
   return {
     type: 'warning',
     title: request.version
-      ? `安装 v${request.version} 并重启？`
-      : '安装更新并重启？',
-    message: '升级包已下载完成。确认后 TermPro 会重启并交给 Squirrel.Mac 完成安装。',
-    buttons: ['稍后', '安装并重启'],
+      ? t('Install v{version} and restart?', { version: request.version })
+      : t('Install the update and restart?'),
+    message: t(
+      'The update has been downloaded. After confirming, TermPro restarts and hands off to Squirrel.Mac to finish installing.',
+    ),
+    buttons: [t('Later'), t('Install and Restart')],
     defaultId: 0,
     cancelId: 0,
     noLink: true,

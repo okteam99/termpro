@@ -3,6 +3,8 @@
 // main 产（orchestrator emit RemoteEvent）· renderer 消费（RemoteHostsPage 派生 FAIL_REASONS）。
 // 🔴 零 Node / 零 Electron import —— shared 层纪律（既能被 host 打包链引，也能被 renderer bundle 引）。
 
+import { t } from './i18n';
+
 /** 连接生命周期阶段（与 PRD 状态机 / UI.md 状态徽标一一对应）。 */
 export type RemoteStage =
   | 'idle'
@@ -114,27 +116,47 @@ export interface FailReasonCopy {
   guidance?: string;
 }
 
+// 🔴 模块级求值时序:t() 在 const 初始化时执行——renderer 侧安全(ESM 保证 ./i18n 先求值,
+// 其内已按 navigator.language 定死 locale);main 虽 import 本模块但不消费 FAIL_REASON_COPY
+// (grep 单源核实),setLocale 晚于本模块求值无影响。若未来 main 要消费,改为 getter/函数。
 export const FAIL_REASON_COPY: Record<FailReason, FailReasonCopy> = {
-  unreachable: { label: '不可达', detail: 'Connection refused / 主机不可达' },
-  auth: { label: '认证失败', detail: 'Permission denied（检查密钥 / 密码 / 用户名）' },
-  timeout: { label: '超时', detail: 'Connection timed out（10s）' },
+  unreachable: {
+    label: t('Unreachable'),
+    detail: t('Connection refused / host unreachable'),
+  },
+  auth: {
+    label: t('Authentication failed'),
+    detail: t('Permission denied (check key / password / username)'),
+  },
+  timeout: { label: t('Timed out'), detail: t('Connection timed out (10s)') },
   nodeMissing: {
-    label: '缺少 Node.js 运行时',
+    label: t('Node.js runtime missing'),
     // 探测已覆盖 login shell 与常见安装位置(nvm/fnm/Homebrew/volta · nodeProbe.ts),
     // 走到这里就是真没装/真过旧;版本过旧时 runtime detail 会携带实测版本与路径覆盖此行。
-    detail: '在远端 PATH、登录 shell 及常见安装位置(nvm / fnm / Homebrew / volta)均未找到 node',
-    guidance: '请在远端机器安装 Node.js 20 或更高版本后重试连接',
+    detail: t(
+      'node not found on the remote PATH, login shell, or common install locations (nvm / fnm / Homebrew / volta)',
+    ),
+    guidance: t('Install Node.js 20 or newer on the remote machine, then retry'),
   },
   archUnsupported: {
-    label: '架构不支持',
-    detail: '该远端架构暂无内置 host 产物',
-    guidance: '请在远端执行 `npm i -g termpro-host` 手动安装后重试',
+    label: t('Unsupported architecture'),
+    detail: t('No bundled host build for this remote architecture'),
+    guidance: t('Run `npm i -g termpro-host` on the remote machine, then retry'),
   },
-  deployFailed: { label: '部署失败', detail: '上传 host 产物中断（网络 / 磁盘 / 权限）' },
-  startFailed: { label: '启动失败', detail: '远端 host 进程未能拉起' },
+  deployFailed: {
+    label: t('Deploy failed'),
+    detail: t('Host bundle upload interrupted (network / disk / permissions)'),
+  },
+  startFailed: {
+    label: t('Start failed'),
+    detail: t('Remote host process failed to start'),
+  },
   incompatible: {
-    label: '版本不兼容',
-    detail: '远端 host 与当前应用协议版本不兼容 · 已断开',
+    label: t('Incompatible version'),
+    detail: t('Remote host protocol version is incompatible with this app · disconnected'),
   },
-  internal: { label: '内部错误', detail: '连接编排异常（详见应用日志）' },
+  internal: {
+    label: t('Internal error'),
+    detail: t('Connection orchestration error (see app logs)'),
+  },
 };

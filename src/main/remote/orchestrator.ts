@@ -31,6 +31,7 @@ import { detectArch } from './hostBundle';
 import { NODE_PROBE_COMMAND, pickBestNode } from './nodeProbe';
 import { resolveResidency, type BuiltTunnel } from './residency';
 import { deployBundle } from './deploy';
+import { t } from '../../shared/i18n';
 import { probeHostInfo as defaultProbeHostInfo, type ProbeResult } from './probeHostInfo';
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
@@ -533,7 +534,11 @@ export class RemoteHostOrchestrator {
         this.failSession(
           configId,
           'nodeMissing',
-          `已找到 node ${nodeBest.version}(${nodeBest.path}),但需要 ≥ ${MIN_NODE_MAJOR}`,
+          t('Found node {version} ({path}), but ≥ {major} is required', {
+            version: nodeBest.version,
+            path: nodeBest.path,
+            major: MIN_NODE_MAJOR,
+          }),
         );
         ssh.close();
         return;

@@ -4,6 +4,7 @@
 
 import { ipcMain } from 'electron';
 import { REMOTE_HOST_CHANNELS } from '../../shared/remoteHost';
+import { t } from '../../shared/i18n';
 import type { RemoteHostConfigInput } from '../../shared/remoteHost';
 import type { RemoteHostOrchestrator } from './orchestrator';
 import type { CredentialStore, HostConfigStore } from './credentialStore';
@@ -49,7 +50,9 @@ export function registerRemoteHostIpc(
     // 落盘(实际从未写入密文)。改为落盘前置校验,凭据请求了加密但加密不可用时
     // 直接拒绝整个 save(不产生半成品配置)。
     if ((hasPassword || hasPassphrase) && !credentials.isAvailable()) {
-      throw new Error('本机凭据加密不可用,无法安全保存密码');
+      throw new Error(
+        t('Local credential encryption is unavailable — cannot store the password safely'),
+      );
     }
 
     const saved = configStore.save({

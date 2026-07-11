@@ -30,7 +30,7 @@ import { RemoteHostOrchestrator } from './remote/orchestrator';
 import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
-import { resolveLocale, setLocale } from '../shared/i18n';
+import { resolveLocale, setLocale, t } from '../shared/i18n';
 
 if (started) {
   app.quit();
@@ -274,9 +274,9 @@ ipcMain.handle('tab:context-menu', (event) => {
       }
     };
     const menu = Menu.buildFromTemplate([
-      { label: '重命名…', click: () => done('rename') },
+      { label: t('Rename…'), click: () => done('rename') },
       { type: 'separator' },
-      { label: '关闭 Tab', click: () => done('close') },
+      { label: t('Close Tab'), click: () => done('close') },
     ]);
     const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     menu.popup({
@@ -300,14 +300,14 @@ ipcMain.handle(
       };
       const menu = Menu.buildFromTemplate([
         {
-          label: '复制',
+          label: t('Copy'),
           enabled: !!opts?.hasSelection,
           click: () => done('copy'),
         },
-        { label: '粘贴', click: () => done('paste') },
+        { label: t('Paste'), click: () => done('paste') },
         { type: 'separator' },
-        { label: '全选', click: () => done('selectAll') },
-        { label: '清屏', click: () => done('clear') },
+        { label: t('Select All'), click: () => done('selectAll') },
+        { label: t('Clear Screen'), click: () => done('clear') },
       ]);
       const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
       // callback 在菜单关闭时触发;延后一拍让 click 先落

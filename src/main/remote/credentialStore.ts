@@ -10,6 +10,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { RemoteHostConfig, RemoteHostConfigInput } from '../../shared/remoteHost';
+import { t } from '../../shared/i18n';
 
 const SECRETS_FILE = 'remote-hosts.secrets.json';
 const CONFIG_FILE = 'remote-hosts.json';
@@ -71,7 +72,9 @@ export class CredentialStore {
   /** 加密→base64→落盘。safeStorage 不可用时抛错,绝不明文落盘(AC-3)。 */
   setSecret(key: string, plaintext: string): void {
     if (!this.isAvailable()) {
-      throw new Error('本机凭据加密不可用,无法安全保存密码');
+      throw new Error(
+        t('Local credential encryption is unavailable — cannot store the password safely'),
+      );
     }
     const encrypted = this.deps.safeStorage.encryptString(plaintext);
     const map = this.readAll();

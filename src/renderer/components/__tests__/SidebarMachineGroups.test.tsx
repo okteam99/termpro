@@ -220,7 +220,7 @@ describe('AC-8 · 组头连接生命周期', () => {
     act(() => {
       useRemoteHostRuntimeStore.getState().applyEvent({ configId: 'cfg-1', stage: 'failed', reason: 'unreachable' });
     });
-    expect(screen.getByText(/不可达/)).toBeInTheDocument();
+    expect(screen.getByText(/Unreachable/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

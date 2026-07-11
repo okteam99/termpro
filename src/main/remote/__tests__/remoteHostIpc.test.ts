@@ -93,7 +93,7 @@ describe('A9 remoteHostIpc.save 前置校验 safeStorage 可用性', () => {
           password: 'secret',
         },
       ),
-    ).toThrow(/加密不可用/);
+    ).toThrow(/encryption is unavailable/);
 
     expect(configStore.list()).toEqual([]);
   });

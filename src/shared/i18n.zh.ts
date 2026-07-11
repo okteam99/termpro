@@ -213,4 +213,62 @@ export const zh: Record<string, string> = {
 
   // --- bottomBarPin ---
   '↓ Back to bottom': '↓ 回到底部',
+
+  // --- shared/remoteHost FAIL_REASON_COPY ---
+  'Unreachable': '不可达',
+  'Connection refused / host unreachable': 'Connection refused / 主机不可达',
+  'Authentication failed': '认证失败',
+  'Permission denied (check key / password / username)':
+    'Permission denied（检查密钥 / 密码 / 用户名）',
+  'Timed out': '超时',
+  'Connection timed out (10s)': 'Connection timed out（10s）',
+  'Node.js runtime missing': '缺少 Node.js 运行时',
+  'node not found on the remote PATH, login shell, or common install locations (nvm / fnm / Homebrew / volta)':
+    '在远端 PATH、登录 shell 及常见安装位置(nvm / fnm / Homebrew / volta)均未找到 node',
+  'Install Node.js 20 or newer on the remote machine, then retry':
+    '请在远端机器安装 Node.js 20 或更高版本后重试连接',
+  'Unsupported architecture': '架构不支持',
+  'No bundled host build for this remote architecture': '该远端架构暂无内置 host 产物',
+  'Run `npm i -g termpro-host` on the remote machine, then retry':
+    '请在远端执行 `npm i -g termpro-host` 手动安装后重试',
+  'Deploy failed': '部署失败',
+  'Host bundle upload interrupted (network / disk / permissions)':
+    '上传 host 产物中断（网络 / 磁盘 / 权限）',
+  'Start failed': '启动失败',
+  'Remote host process failed to start': '远端 host 进程未能拉起',
+  'Incompatible version': '版本不兼容',
+  'Remote host protocol version is incompatible with this app · disconnected':
+    '远端 host 与当前应用协议版本不兼容 · 已断开',
+  'Internal error': '内部错误',
+  'Connection orchestration error (see app logs)': '连接编排异常（详见应用日志）',
+
+  // --- main/exitConfirmation ---
+  'Close the main window?': '关闭主窗口？',
+  'Tab content may be lost after closing and reopening. Cancel to keep Workspace, Tab, and Terminal views available.':
+    '关闭后再打开，Tab 内容可能丢失。取消后 Workspace、Tab 和 Terminal 视图保持可用。',
+  'Close Window': '关闭窗口',
+  'Quit TermPro?': '退出 TermPro？',
+  'Tab content may be lost after quitting and reopening. State still gets a chance to persist before exit.':
+    '退出后再打开，Tab 内容可能丢失。确认退出前会保留原有状态落盘机会。',
+  'Quit': '退出',
+  'Install v{version} and restart?': '安装 v{version} 并重启？',
+  'Install the update and restart?': '安装更新并重启？',
+  'The update has been downloaded. After confirming, TermPro restarts and hands off to Squirrel.Mac to finish installing.':
+    '升级包已下载完成。确认后 TermPro 会重启并交给 Squirrel.Mac 完成安装。',
+  'Later': '稍后',
+  'Install and Restart': '安装并重启',
+
+  // --- main/main 右键菜单 ---
+  'Rename…': '重命名…',
+  'Close Tab': '关闭 Tab',
+  'Copy': '复制',
+  'Paste': '粘贴',
+  'Select All': '全选',
+  'Clear Screen': '清屏',
+
+  // --- main/remote 凭据与编排 ---
+  'Local credential encryption is unavailable — cannot store the password safely':
+    '本机凭据加密不可用,无法安全保存密码',
+  'Found node {version} ({path}), but ≥ {major} is required':
+    '已找到 node {version}({path}),但需要 ≥ {major}',
 };

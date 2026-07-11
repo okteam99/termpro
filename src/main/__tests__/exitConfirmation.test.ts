@@ -20,16 +20,16 @@ function deferred<T>() {
 describe('exit confirmation dialog options', () => {
   it('confirmExit_close_window_cancel_and_confirm_copy', async () => {
     const close = buildExitConfirmationOptions({ kind: 'close-window' });
-    expect(close.title).toBe('关闭主窗口？');
-    expect(close.message).toContain('关闭后再打开，Tab 内容可能丢失');
-    expect(close.buttons).toEqual(['取消', '关闭窗口']);
+    expect(close.title).toBe('Close the main window?');
+    expect(close.message).toContain('Tab content may be lost after closing and reopening');
+    expect(close.buttons).toEqual(['Cancel', 'Close Window']);
     expect(close.defaultId).toBe(0);
     expect(close.cancelId).toBe(0);
 
     const quit = buildExitConfirmationOptions({ kind: 'app-quit' });
-    expect(quit.title).toBe('退出 TermPro？');
-    expect(quit.message).toContain('退出后再打开，Tab 内容可能丢失');
-    expect(quit.buttons).toEqual(['取消', '退出']);
+    expect(quit.title).toBe('Quit TermPro?');
+    expect(quit.message).toContain('Tab content may be lost after quitting and reopening');
+    expect(quit.buttons).toEqual(['Cancel', 'Quit']);
 
     const confirmExit = vi
       .fn()
