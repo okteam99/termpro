@@ -47,6 +47,13 @@ export function LocalMachineIcon() {
   );
 }
 
+/** 连接延迟分级:<200ms 绿 · 200-499ms 琥珀 · ≥500ms 红(圆点与毫秒数同色) */
+export function rttTier(ms: number): 'good' | 'fair' | 'poor' {
+  if (ms < 200) return 'good';
+  if (ms < 500) return 'fair';
+  return 'poor';
+}
+
 /** 远程机组头图标:云 */
 export function RemoteMachineIcon() {
   return (
@@ -100,6 +107,8 @@ export interface MachineGroupProps {
   onRemoveWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
   /** 行级铅笔重命名钮(与本机行同款);缺省不渲染 */
   onRenameWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
+  /** 已连接但该机 0 个 workspace 时的「添加项目」入口;缺省渲染纯文案不可点 */
+  onAddWorkspace?: (machineId: string) => void;
   /** BL-005 AC-6:reconnecting 态「立即重试」→ reconnectController.manualRetry(复位退避即刻再试) */
   onManualRetry?: (machineId: string) => void;
 }
@@ -111,6 +120,7 @@ export function MachineGroup({
   onSelectWorkspace,
   onRemoveWorkspace,
   onRenameWorkspace,
+  onAddWorkspace,
   onManualRetry,
 }: MachineGroupProps) {
   const isRemote = machine.kind === 'remote';
@@ -163,11 +173,17 @@ export function MachineGroup({
         <span className="sidebar-machine-label" title={rawName}>
           {displayName}
         </span>
-        {isRemote && (
-          <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status ?? 'disconnected'}`} />
-        )}
-        {isRemote && machine.status === 'connected' && machine.rttMs !== undefined && (
-          <span className="sidebar-machine-rtt">{Math.round(machine.rttMs)}ms</span>
+        {/* connected 且有 RTT:单一小圆点并入延迟单元(圆点=毫秒数同色,按分级上色);
+            其余状态维持原语义状态圆点 */}
+        {isRemote && machine.status === 'connected' && machine.rttMs !== undefined ? (
+          <span className={`sidebar-machine-rtt sidebar-machine-rtt--${rttTier(machine.rttMs)}`}>
+            <span className="sidebar-machine-rtt-dot" />
+            {Math.round(machine.rttMs)}ms
+          </span>
+        ) : (
+          isRemote && (
+            <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status ?? 'disconnected'}`} />
+          )
         )}
         {/* BL-005:重连中——琥珀脉冲 + 「重连中…」文案(区别于确定断线的 lost·保活不折叠·AC-6/15) */}
         {isRemote && machine.status === 'reconnecting' && (
@@ -199,15 +215,25 @@ export function MachineGroup({
         )}
       </div>
       {showWorkspaces && machine.workspaces ? (
-        machine.workspaces.map((ws) => (
-          <MachineWorkspaceRow
-            key={ws.id}
-            ws={ws}
-            onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
-            onRemove={onRemoveWorkspace ? () => onRemoveWorkspace(machine, ws) : undefined}
-            onRename={onRenameWorkspace ? () => onRenameWorkspace(machine, ws) : undefined}
-          />
-        ))
+        machine.workspaces.length > 0 ? (
+          machine.workspaces.map((ws) => (
+            <MachineWorkspaceRow
+              key={ws.id}
+              ws={ws}
+              onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
+              onRemove={onRemoveWorkspace ? () => onRemoveWorkspace(machine, ws) : undefined}
+              onRename={onRenameWorkspace ? () => onRenameWorkspace(machine, ws) : undefined}
+            />
+          ))
+        ) : (
+          // 已连接但 0 个 workspace:此前什么都不渲染(看似没反应)→ 给「添加项目」入口
+          <button
+            className="sidebar-machine-empty sidebar-machine-empty--action"
+            onClick={() => onAddWorkspace?.(machine.id)}
+          >
+            {t('No projects on this machine yet · Add one')}
+          </button>
+        )
       ) : (
         <div className="sidebar-machine-empty">
           {machine.emptyLabel ?? t('Not connected · Connect to see its workspaces')}

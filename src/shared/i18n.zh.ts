@@ -30,6 +30,7 @@ export const zh: Record<string, string> = {
   'Connect': '连接',
   'Reconnecting…': '重连中…',
   'Not connected · Connect to see its workspaces': '未连接 · 连接后显示该机上的 workspace',
+  'No projects on this machine yet · Add one': '此机器暂无项目 · 添加一个',
 
   // --- MachineWorkspaceRow ---
   'Disconnected': '已断开',

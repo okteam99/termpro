@@ -169,6 +169,8 @@ export function Sidebar() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [ncOpen, setNcOpen] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  // 「机器组空态添加项目」入口:预选该机直达目录浏览器(undefined = 常规从选机开始)
+  const [addModalHost, setAddModalHost] = useState<string | undefined>(undefined);
   const bellRef = useRef<HTMLButtonElement>(null);
 
   // Track the id of the workspace currently being dragged (本机组内拖拽排序)
@@ -672,6 +674,10 @@ export function Sidebar() {
               onSelectWorkspace={handleSelectWorkspace}
               onRemoveWorkspace={(_m, ws) => confirmRemove(ws.id, ws.name)}
               onRenameWorkspace={(_m, ws) => setEditingId(ws.id)}
+              onAddWorkspace={(id) => {
+                setAddModalHost(id);
+                setAddModalOpen(true);
+              }}
             />
           ),
         )}
@@ -694,7 +700,15 @@ export function Sidebar() {
       )}
 
       {/* 添加项目 modal(D-4/AC-3/AC-4):选机器(本机置顶+已连接远程机)→ 本机对话框 / 远程目录浏览器 */}
-      {addModalOpen && <AddWorkspaceModal onClose={() => setAddModalOpen(false)} />}
+      {addModalOpen && (
+        <AddWorkspaceModal
+          initialHostId={addModalHost}
+          onClose={() => {
+            setAddModalOpen(false);
+            setAddModalHost(undefined);
+          }}
+        />
+      )}
     </aside>
   );
 }

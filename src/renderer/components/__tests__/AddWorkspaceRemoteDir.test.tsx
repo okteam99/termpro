@@ -183,6 +183,27 @@ describe('新建目录 · 远程机浏览器内联创建', () => {
   });
 });
 
+describe('initialHostId · 机器组空态入口直达目录浏览器', () => {
+  it('传入已连接机 configId → 跳过选机步,直接加载该机 homedir', async () => {
+    remoteClient.rpc.mockResolvedValue({ entries: [] });
+
+    render(<AddWorkspaceModal onClose={vi.fn()} initialHostId="cfg-1" />);
+
+    // 未点任何机器行,直接进入目录步(出现返回钮 + 该机目录已开始加载)
+    expect(await screen.findByText('(empty directory)')).toBeInTheDocument();
+    expect(remoteClient.rpc).toHaveBeenCalledWith('fs.readdir', { path: '/home/liam' });
+  });
+
+  it('传入未连接/未知机 → 留在选机步(不静默指向错误机器)', async () => {
+    useRemoteHostRuntimeStore.setState({ runtime: {} }); // cfg-1 未连接
+    render(<AddWorkspaceModal onClose={vi.fn()} initialHostId="cfg-1" />);
+
+    // 仍是选机步:能看到「本机」行,未发起远程 readdir
+    expect(await screen.findByText(/Local directory|本地目录/)).toBeInTheDocument();
+    expect(remoteClient.rpc).not.toHaveBeenCalled();
+  });
+});
+
 describe('AC-4 · 确认创建落该远程机组', () => {
   it('workspace.create 调用落在远程 client · 本地 client 未被调用 · 创建后关闭 modal', async () => {
     remoteClient.rpc.mockImplementation(async (method: string) => {

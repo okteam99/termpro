@@ -80,6 +80,8 @@ function buildCrumbs(path: string): Crumb[] {
 
 export interface AddWorkspaceModalProps {
   onClose(): void;
+  /** 传入已连接远程机 configId → 跳过选机步,直达该机目录浏览器(机器组空态入口用) */
+  initialHostId?: string;
 }
 
 type Step = 'pick' | 'dir';
@@ -88,7 +90,7 @@ type Step = 'pick' | 'dir';
  * 「添加项目」modal:第一步选机器(本机置顶 + 已连接远程机,D-4)→
  * 本机原生目录对话框 / 远程目录浏览器(加载/空/错误态,AC-3)→ 落该机组(AC-4)。
  */
-export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
+export function AddWorkspaceModal({ onClose, initialHostId }: AddWorkspaceModalProps) {
   const addWorkspace = useAppStore((s) => s.addWorkspace);
   const creatingWorkspace = useAppStore((s) => s.creatingWorkspace);
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
@@ -110,11 +112,21 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
   useEffect(() => {
     let alive = true;
     window.termpro.remoteHost.list().then((list) => {
-      if (alive) setRemoteConfigs(list);
+      if (!alive) return;
+      setRemoteConfigs(list);
+      // 空态入口预选:该机在列且已连接 → 跳过选机步直达目录浏览器;否则留在选机步
+      if (
+        initialHostId &&
+        list.some((h) => h.id === initialHostId) &&
+        useRemoteHostRuntimeStore.getState().runtime[initialHostId]?.stage === 'ready'
+      ) {
+        selectHost(initialHostId);
+      }
     });
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时一次(initialHostId 不随生命周期变化)
   }, []);
 
   // Esc 关闭;RemoteHostsPage 叠层在上时让位——同一次 Esc 只关顶层(它自带 Esc 监听),

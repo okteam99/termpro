@@ -636,6 +636,22 @@
   color: var(--fg-dim);
 }
 
+/* 已连接但 0 workspace 的「添加项目」入口(button 形态复用空态样式,hover 提亮) */
+.sidebar-machine-empty--action {
+  display: block;
+  width: calc(100% - 16px);
+  text-align: left;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sidebar-machine-empty--action:hover {
+  color: var(--fg);
+  background: var(--bg-active);
+}
+
 /* 会话活动徽标:UI 断开期间会话仍在 Host 上活着 */
 .sidebar-machine-sessions {
   flex: none;
@@ -658,12 +674,35 @@
   padding-right: 16px;
 }
 
-/* 组头连接延迟(心跳 RTT·仅 connected 态,位于圆点右侧) */
+/* 组头连接延迟(心跳 RTT·仅 connected 态):小圆点 + 毫秒数一体,同色分级
+   <200ms 绿 · 200-499ms 琥珀 · ≥500ms 红 */
 .sidebar-machine-rtt {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
-  color: var(--fg-dim);
   font-family: Menlo, Monaco, 'SF Mono', monospace;
+}
+
+.sidebar-machine-rtt-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.sidebar-machine-rtt--good {
+  color: var(--green);
+}
+
+.sidebar-machine-rtt--fair {
+  color: #e5a04a;
+}
+
+.sidebar-machine-rtt--poor {
+  color: var(--red);
 }
 
 /* 断线机器组:条目整体变灰 */

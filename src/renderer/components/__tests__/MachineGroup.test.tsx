@@ -104,23 +104,64 @@ describe('MachineGroup · 已连接展开(AC-2)', () => {
 });
 
 describe('MachineGroup · 组头连接延迟(心跳 RTT)', () => {
-  it('connected + rttMs → 顺序:云图标 → 机器名 → 圆点 → 延迟毫秒数', () => {
+  it('connected + rttMs → 顺序:云图标 → 机器名 → 延迟单元(内含同色小圆点)', () => {
     const { container } = render(
-      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 12, workspaces: [] })} />,
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 12, workspaces: null })} />,
     );
     const rtt = screen.getByText('12ms');
     expect(rtt).toHaveClass('sidebar-machine-rtt');
-    // 顺序断言:icon → label → dot → rtt
+    // 圆点并入延迟单元(同色 currentColor),不再渲染独立状态圆点
+    expect(rtt.querySelector('.sidebar-machine-rtt-dot')).toBeInTheDocument();
+    expect(container.querySelector('.sidebar-machine-dot')).not.toBeInTheDocument();
     const header = container.querySelector('.sidebar-machine-header')!;
     const children = Array.from(header.children);
     const iconIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-icon'));
     const labelIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-label'));
-    const dotIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-dot'));
     const rttIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-rtt'));
     expect(iconIdx).toBeGreaterThanOrEqual(0);
     expect(labelIdx).toBe(iconIdx + 1);
-    expect(dotIdx).toBe(labelIdx + 1);
-    expect(rttIdx).toBe(dotIdx + 1);
+    expect(rttIdx).toBe(labelIdx + 1);
+  });
+
+  it('延迟分级配色:<200 绿(good) · 200-499 琥珀(fair) · ≥500 红(poor)', () => {
+    const { rerender } = render(
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 12, workspaces: null })} />,
+    );
+    expect(screen.getByText('12ms')).toHaveClass('sidebar-machine-rtt--good');
+    rerender(
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 244, workspaces: null })} />,
+    );
+    expect(screen.getByText('244ms')).toHaveClass('sidebar-machine-rtt--fair');
+    rerender(
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 500, workspaces: null })} />,
+    );
+    expect(screen.getByText('500ms')).toHaveClass('sidebar-machine-rtt--poor');
+  });
+
+  it('已连接 + 0 workspace → 渲染「添加项目」入口,点击回调 machineId', () => {
+    const onAddWorkspace = vi.fn();
+    render(
+      <MachineGroup
+        machine={remoteMachine({ status: 'connected', workspaces: [] })}
+        onAddWorkspace={onAddWorkspace}
+      />,
+    );
+    const entry = screen.getByRole('button', { name: /No projects on this machine yet/ });
+    fireEvent.click(entry);
+    expect(onAddWorkspace).toHaveBeenCalledWith('cfg-1');
+  });
+
+  it('已连接且有 workspace 行 → 不渲染「添加项目」空态入口', () => {
+    render(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'connected',
+          workspaces: [{ id: 'w1', name: 'aon-edge', meta: 'x', active: false, tabCount: 0 }],
+        })}
+        onAddWorkspace={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/No projects on this machine yet/)).not.toBeInTheDocument();
   });
 
   it('机器名超过 10 字符 → 截断加省略号,全名保留在 title', () => {
