@@ -88,6 +88,32 @@ function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
+/**
+ * 🔴 全新远端部署必挂修复(0.3.33「部署失败 No such file」):上传前须创建的
+ * 远端目录全集。此前只收集 remoteDir + 每个文件的【直接】父目录——bundle 里
+ * `node_modules/node-pty/...` 这类「中间层无直接文件」的目录(`node_modules/`、
+ * `build/`)不会进 mkdir 列表;SFTP mkdir 非递归,首个深层 mkdir(如
+ * `<tmp>/node_modules/node-pty`)因父级缺失返回 NO_SUCH_FILE(OpenSSH 原话
+ * "No such file")→ 部署 100% 失败。isEnoent 修复(7fa5580)让首连走到部署
+ * 阶段后,这颗一直被前置 bug 遮蔽的雷才暴露。
+ *
+ * 只补 remoteDir【以内】的祖先——remoteDir 自身的父链由调用方保证
+ * (deploy.ts 已 `mkdir -p ${dataDir}/bundle`)。不能越界向上:对已存在目录
+ * mkdir,OpenSSH 返回的是 FAILURE(message "Failure"),isEexist 识别不了,
+ * 反而致败。返回按长度升序(父路径恒短于子路径,先建父)。
+ */
+export function planRemoteDirs(remoteDir: string, posixRelFiles: string[]): string[] {
+  const dirs = new Set<string>([remoteDir]);
+  for (const rel of posixRelFiles) {
+    let d = path.posix.dirname(`${remoteDir}/${rel}`);
+    while (d.length > remoteDir.length) {
+      dirs.add(d);
+      d = path.posix.dirname(d);
+    }
+  }
+  return [...dirs].sort((a, b) => a.length - b.length);
+}
+
 /** ssh2 SFTP 状态码(SFTP.js STATUS_CODE.NO_SUCH_FILE;err.code 是数字,非字符串)。 */
 const SFTP_NO_SUCH_FILE = 2;
 
@@ -111,6 +137,7 @@ export function isEnoent(err: unknown): boolean {
 export class SshConnection implements SshConnectionLike {
   private readonly client: Client;
   private queue: Promise<void> = Promise.resolve();
+  private sftpCached: Promise<SFTPWrapper> | null = null;
 
   private constructor(client: Client) {
     this.client = client;
@@ -164,13 +191,33 @@ export class SshConnection implements SshConnectionLike {
     return run;
   }
 
+  /**
+   * 🔴 SFTP channel 复用(channel 泄漏修复):此前每次 sftp 操作都
+   * `client.sftp()` 新开一条 subsystem channel 且从不关闭——OpenSSH 默认
+   * `MaxSessions=10`,orchestrator 启动阶段 pollPortFile 每 300ms 一次
+   * sftpReadFile,几秒内即把并发 channel 耗尽,第 11 条起 channel open 直接
+   * 失败。改为整条连接复用同一条 SFTP channel;channel close/error(含连接
+   * 断开)后失效缓存,下一次操作重开。
+   */
   private sftp(): Promise<SFTPWrapper> {
-    return new Promise((resolve, reject) => {
+    if (this.sftpCached) return this.sftpCached;
+    const created: Promise<SFTPWrapper> = new Promise((resolve, reject) => {
       this.client.sftp((err, sftp) => {
-        if (err) reject(err);
-        else resolve(sftp);
+        if (err) return reject(err);
+        const invalidate = () => {
+          if (this.sftpCached === created) this.sftpCached = null;
+        };
+        sftp.on('close', invalidate);
+        sftp.on('error', invalidate);
+        resolve(sftp);
       });
     });
+    // 打开失败同样失效缓存,避免 rejected promise 永久卡死后续所有 sftp 操作
+    created.catch(() => {
+      if (this.sftpCached === created) this.sftpCached = null;
+    });
+    this.sftpCached = created;
+    return created;
   }
 
   exec(cmd: string): Promise<ExecResult> {
@@ -249,13 +296,7 @@ export class SshConnection implements SshConnectionLike {
     return this.serialize(async () => {
       const sftp = await this.sftp();
       const files = listFilesRecursive(localDir);
-      const dirs = new Set<string>();
-      dirs.add(remoteDir);
-      for (const f of files) {
-        const remoteFile = `${remoteDir}/${toPosix(f)}`;
-        dirs.add(path.posix.dirname(remoteFile));
-      }
-      const sortedDirs = [...dirs].sort((a, b) => a.length - b.length);
+      const sortedDirs = planRemoteDirs(remoteDir, files.map(toPosix));
       for (const d of sortedDirs) {
         await mkdirRemote(sftp, d);
       }

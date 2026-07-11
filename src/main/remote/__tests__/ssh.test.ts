@@ -2,7 +2,8 @@
 // (含 ENOENT 等真实失败)都当 EEXIST 吞掉——否则会掩盖如 A1 那类「父目录缺失」的
 // bug(sftpWriteDir 的 mkdir 链静默跳过而非报错)。
 import { describe, it, expect, afterEach } from 'vitest';
-import { isEexist, isEnoent, buildKeepaliveConfig } from '../ssh';
+import { EventEmitter } from 'node:events';
+import { isEexist, isEnoent, buildKeepaliveConfig, planRemoteDirs, SshConnection } from '../ssh';
 
 // 🔴 首连必挂回归:ssh2 SFTP 错误的 code 是【数字】状态码(NO_SUCH_FILE = 2),
 // isEnoent 必须认得它,否则全新远端读 .ready/host.port 抛「No such file」而非返回 null。
@@ -54,6 +55,95 @@ describe('A8/E5 isEexist 窄化', () => {
   it('undefined/null → false', () => {
     expect(isEexist(undefined)).toBe(false);
     expect(isEexist(null)).toBe(false);
+  });
+});
+
+// 🔴 全新远端部署必挂回归(0.3.33「部署失败 No such file」):bundle 里
+// node_modules/node-pty/... 这类「中间层无直接文件」的祖先目录必须进 mkdir 列表
+// (SFTP mkdir 非递归,漏一级即 NO_SUCH_FILE)。
+describe('planRemoteDirs 补全中间祖先目录', () => {
+  it('真实 bundle 布局:node_modules/、build/ 无直接文件也必须被创建,且父先于子', () => {
+    const dirs = planRemoteDirs('/data/bundle/.tmp-1', [
+      'host.js',
+      'node_modules/node-pty/package.json',
+      'node_modules/node-pty/lib/index.js',
+      'node_modules/node-pty/build/Release/pty.node',
+    ]);
+    expect(dirs).toEqual([
+      '/data/bundle/.tmp-1',
+      '/data/bundle/.tmp-1/node_modules',
+      '/data/bundle/.tmp-1/node_modules/node-pty',
+      '/data/bundle/.tmp-1/node_modules/node-pty/lib',
+      '/data/bundle/.tmp-1/node_modules/node-pty/build',
+      '/data/bundle/.tmp-1/node_modules/node-pty/build/Release',
+    ]);
+  });
+
+  it('全部文件在根 → 只建 remoteDir 本身', () => {
+    expect(planRemoteDirs('/d/.tmp-x', ['a.js', 'b.js'])).toEqual(['/d/.tmp-x']);
+  });
+
+  it('绝不越界到 remoteDir 之上(其父链由 deploy.ts mkdir -p 保证;越界 mkdir 已存在目录会得不可识别的 FAILURE)', () => {
+    const dirs = planRemoteDirs('/home/u/.termpro-host/bundle/.tmp-1', ['x/y/z.js']);
+    for (const d of dirs) {
+      expect(d.startsWith('/home/u/.termpro-host/bundle/.tmp-1')).toBe(true);
+    }
+  });
+
+  it('任意父目录都排在其子目录之前(长度升序 ⇒ 先建父)', () => {
+    const dirs = planRemoteDirs('/r', ['a/b/c/d/e.js', 'a/f.js', 'g/h/i.js']);
+    for (let i = 0; i < dirs.length; i++) {
+      for (let j = i + 1; j < dirs.length; j++) {
+        expect(dirs[j].startsWith(`${dirs[i]}/`) || !dirs[i].startsWith(`${dirs[j]}/`)).toBe(true);
+      }
+    }
+    expect(dirs).toContain('/r/a/b');
+    expect(dirs).toContain('/r/a/b/c');
+    expect(dirs).toContain('/r/g/h');
+  });
+});
+
+// 🔴 SFTP channel 泄漏回归:同一连接上的多次 sftp 操作必须复用同一条 channel
+// (此前每次新开且不关,pollPortFile 轮询几秒即耗尽 OpenSSH MaxSessions=10);
+// channel close 后须重开而非用死缓存。
+describe('SshConnection SFTP channel 复用', () => {
+  interface FakeSftp extends EventEmitter {
+    readFile: (p: string, cb: (err: Error | null, data?: Buffer) => void) => void;
+  }
+  function makeFakeClient() {
+    const wrappers: FakeSftp[] = [];
+    return {
+      wrappers,
+      sftp(cb: (err: Error | undefined, sftp: FakeSftp) => void) {
+        const w = Object.assign(new EventEmitter(), {
+          readFile: (_p: string, done: (err: Error | null, data?: Buffer) => void) =>
+            done(null, Buffer.from('ok')),
+        }) as FakeSftp;
+        wrappers.push(w);
+        cb(undefined, w);
+      },
+    };
+  }
+  // 构造器仅 TS 层 private(生产恒走 SshConnection.connect);测试注入 fake client
+  const construct = (client: unknown): SshConnection =>
+    new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
+
+  it('连续多次 sftp 操作只开一条 channel', async () => {
+    const client = makeFakeClient();
+    const conn = construct(client);
+    await conn.sftpReadFile('/a');
+    await conn.sftpReadFile('/b');
+    await conn.sftpReadFile('/c');
+    expect(client.wrappers.length).toBe(1);
+  });
+
+  it('channel close 后缓存失效,下一次操作重开(而非用死 channel)', async () => {
+    const client = makeFakeClient();
+    const conn = construct(client);
+    await conn.sftpReadFile('/a');
+    client.wrappers[0].emit('close');
+    await conn.sftpReadFile('/b');
+    expect(client.wrappers.length).toBe(2);
   });
 });
 
