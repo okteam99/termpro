@@ -123,6 +123,16 @@ describe('MachineGroup · 组头连接延迟(心跳 RTT)', () => {
     expect(rttIdx).toBe(dotIdx + 1);
   });
 
+  it('机器名超过 10 字符 → 截断加省略号,全名保留在 title', () => {
+    render(
+      <MachineGroup
+        machine={remoteMachine({ alias: 'production-eu-west-1', status: 'connected', workspaces: [] })}
+      />,
+    );
+    expect(screen.getByText('production…')).toBeInTheDocument();
+    expect(screen.getByText('production…')).toHaveAttribute('title', 'production-eu-west-1');
+  });
+
   it('rttMs 缺省或非 connected 态 → 不渲染延迟', () => {
     const { rerender } = render(
       <MachineGroup machine={remoteMachine({ status: 'connected', workspaces: [] })} />,

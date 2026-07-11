@@ -152,12 +152,16 @@ export function MachineGroup({
   // machine.workspaces===null = 未连接分支(AC-1);!==null(含空数组)= 已连接分支渲染行(可能 0 行)
   const showWorkspaces = machine.workspaces !== null && !machine.foldedLost;
 
+  // 机器名最多 10 个字符,超出截断加省略号(全名在组头 title=addr 悬浮可见)
+  const rawName = isRemote ? (machine.alias ?? '') : (machine.label ?? t('Local'));
+  const displayName = rawName.length > 10 ? `${rawName.slice(0, 10)}…` : rawName;
+
   return (
     <div className={groupClasses} data-testid="machine-group" data-machine-id={machine.id}>
       <div className="sidebar-machine-header" title={isRemote ? machine.addr : undefined}>
         {isRemote ? <RemoteMachineIcon /> : <LocalMachineIcon />}
-        <span className="sidebar-machine-label">
-          {isRemote ? machine.alias : (machine.label ?? t('Local'))}
+        <span className="sidebar-machine-label" title={rawName}>
+          {displayName}
         </span>
         {isRemote && (
           <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status ?? 'disconnected'}`} />

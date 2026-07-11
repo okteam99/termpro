@@ -590,12 +590,21 @@
   opacity: 0.8;
 }
 
+/* 机器名不撑开(圆点/延迟紧随其后);超长由 JS 截断 10 字符,这里仅留收缩兜底 */
 .sidebar-machine-label {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 名称不再 flex:1 撑开后,状态徽标/连接按钮改由自身推到右侧(仅组头直接子级,
+   不影响嵌在 status 内的重试按钮) */
+.sidebar-machine-header > .sidebar-machine-status,
+.sidebar-machine-header > .sidebar-machine-connect,
+.sidebar-machine-header > .sidebar-machine-connecting {
+  margin-left: auto;
 }
 
 .sidebar-machine-connect {
