@@ -58,6 +58,34 @@ async function defaultSleep(ms: number): Promise<void> {
 type LockOutcome = 'acquired' | 'waitForPeer';
 
 /**
+ * 列出远端已完成部署(有 .ready)的版本号,单次网络往返。
+ * 不用 shell glob(zsh -c 下空匹配会让整行报错中断),用 `ls -1 | while read`
+ * 的 POSIX 口径;`ls -1` 不含点前缀条目,`.tmp-*`/`.deploying-*` 天然被排除。
+ * bundle 目录缺失/为空 → 空列表(cd 失败即无输出,`; true` 归一化退出码)。
+ */
+async function listReadyVersions(ssh: SshConnectionLike, dataDir: string): Promise<string[]> {
+  const res = await ssh.exec(
+    `cd "${dataDir}/bundle" 2>/dev/null && ls -1 | while read -r v; do [ -f "$v/.ready" ] && echo "$v"; done; true`,
+  );
+  return res.stdout
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((v) => /^\d+(\.\d+)*$/.test(v));
+}
+
+/** 点分数字版本比较(app 版本恒为 x.y.z 纯数字段):a>b 返回正数。 */
+function compareDotted(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/**
  * 🔴 A5/E2 修复(部署锁互斥被击穿):此前 `tryMkdir` 成功后再单独一次 exec 写
  * meta.json——两次独立网络往返之间存在窗口:另一 App 实例 B 若恰好在 A 的 mkdir
  * 成功、meta 尚未写入之间读取 meta,会读到 null → 旧逻辑把「meta 缺失」当
@@ -177,8 +205,9 @@ async function waitForReady(
 }
 
 /**
- * 版本隔离部署主流程(TECH SSH-5 五步):
- *   1. .ready 已存在 → skip(幂等 · AC-13)
+ * 版本隔离部署主流程(TECH SSH-5 五步 + 版本单调闸):
+ *   1. .ready 已存在 → skip(幂等 · AC-13,同版本不重复部署)
+ *   1.5 版本单调闸:远端已有更高版本 .ready → 拒绝部署更低版本(见下方注释)
  *   2. 取部署锁(mkdir O_EXCL 等价);EEXIST 且未陈旧 → 轮询等 .ready;陈旧 → break-and-reacquire
  *   3. 上传到 .tmp-<v>-<rand>/(进度%)
  *   4. 仅当目标不存在时 rename(失败即视为并发赢家已落地,弃 tmp 复用赢家产物)
@@ -194,6 +223,22 @@ export async function deployBundle(opts: DeployOptions): Promise<DeployResult> {
   const alreadyReady = (await opts.ssh.sftpReadFile(readyFile)) !== null;
   if (alreadyReady) {
     return { skipped: true };
+  }
+
+  // 🔴 版本单调闸(用户规则 2026-07):远端已有【更高版本】完成部署时,拒绝把
+  // 更低版本铺上去——旧安装版 app 只能复用它已有的 bundle(上方 .ready 快路径),
+  // 不能向已前进的远端写旧产物(0.3.42/0.3.43 坏 spawn-helper 借旧 app 重新扩散
+  // 的事故路径)。开发逃生阀:TERMPRO_DEPLOY_ALLOW_OLDER=1(如在旧分支调远程)。
+  if (process.env.TERMPRO_DEPLOY_ALLOW_OLDER !== '1') {
+    const newer = (await listReadyVersions(opts.ssh, opts.dataDir))
+      .filter((v) => compareDotted(v, opts.appVersion) > 0)
+      .sort(compareDotted)
+      .pop();
+    if (newer !== undefined) {
+      throw new Error(
+        `deployBlockedByNewerVersion: remote already has v${newer} (this app is v${opts.appVersion}) — upgrade the app to connect, or set TERMPRO_DEPLOY_ALLOW_OLDER=1 to override`,
+      );
+    }
   }
 
   // 🔴 BLOCKER 修复(A1/E1):全新远端机 ${dataDir}/bundle 父目录尚不存在时,锁目录

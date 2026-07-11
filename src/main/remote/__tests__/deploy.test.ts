@@ -1,9 +1,9 @@
 // AC-4 版本隔离部署三段进度 + 幂等 + 并发 O_EXCL 锁 + 陈旧锁 break-and-reacquire;
 // AC-11 缺 node / node<20 由 orchestrator 层探测(exec 桩),此处补两条部署前置断言。
 // AC-13 快路径跳过上传可观测。
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { deployBundle } from '../deploy';
-import { createRoutedSsh, bufferOf } from './testKit';
+import { createRoutedSsh, bufferOf, type ExecHandler } from './testKit';
 
 const DATA_DIR = '/home/tester/.termpro-host';
 const APP_VERSION = '1.2.3';
@@ -351,5 +351,73 @@ describe('AC-4 deployBundle', () => {
     expect(rmLockCalled).toBe(true);
     expect(result.skipped).toBe(false);
     expect(ssh.sftpWriteDir).toHaveBeenCalled();
+  });
+});
+
+// 版本单调闸:远端已有更高版本 .ready → 拒绝部署更低版本(同版本幂等由 T-009 的
+// .ready 快路径覆盖)。防「旧安装版 app 把旧/坏 bundle 铺回已前进的远端」
+// (0.3.42/0.3.43 spawn-helper 事故的扩散路径)。
+describe('部署版本单调闸(只允许更高版本)', () => {
+  const listRoute =
+    (versions: string[]): ExecHandler =>
+    (cmd) =>
+      cmd.includes('while read -r v')
+        ? { code: 0, stdout: versions.map((v) => `${v}\n`).join(''), stderr: '' }
+        : null;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('远端已有更高版本 → 抛 deployBlockedByNewerVersion,不上传不取锁', async () => {
+    const ssh = createRoutedSsh({ execHandlers: [listRoute(['1.0.0', '1.2.4'])] });
+    await expect(
+      deployBundle({
+        ssh,
+        dataDir: DATA_DIR,
+        appVersion: APP_VERSION, // 1.2.3
+        localBundleDir: '/local/bundle/darwin-arm64',
+      }),
+    ).rejects.toThrow(/deployBlockedByNewerVersion.*v1\.2\.4/);
+    expect(ssh.sftpWriteDir).not.toHaveBeenCalled();
+    expect(ssh.execCalls.some((c) => c.includes('.deploying-'))).toBe(false);
+  });
+
+  it('数字段比较而非字典序:app 0.3.9 被远端 0.3.10 拦下(字典序会误放行)', async () => {
+    const ssh = createRoutedSsh({ execHandlers: [listRoute(['0.3.10'])] });
+    await expect(
+      deployBundle({
+        ssh,
+        dataDir: DATA_DIR,
+        appVersion: '0.3.9',
+        localBundleDir: '/local/bundle/darwin-arm64',
+      }),
+    ).rejects.toThrow(/deployBlockedByNewerVersion.*v0\.3\.10/);
+  });
+
+  it('反向不误伤:app 0.3.10 对远端 0.3.9 正常部署(字典序会误拦)', async () => {
+    const ssh = createRoutedSsh({ execHandlers: [listRoute(['0.3.9'])] });
+    const result = await deployBundle({
+      ssh,
+      dataDir: DATA_DIR,
+      appVersion: '0.3.10',
+      localBundleDir: '/local/bundle/darwin-arm64',
+    });
+    expect(result.skipped).toBe(false);
+    expect(ssh.sftpWriteDir).toHaveBeenCalled();
+  });
+
+  it('逃生阀 TERMPRO_DEPLOY_ALLOW_OLDER=1:跳过闸门(连版本列举都不发起)照常部署', async () => {
+    vi.stubEnv('TERMPRO_DEPLOY_ALLOW_OLDER', '1');
+    const ssh = createRoutedSsh({ execHandlers: [listRoute(['9.9.9'])] });
+    const result = await deployBundle({
+      ssh,
+      dataDir: DATA_DIR,
+      appVersion: APP_VERSION,
+      localBundleDir: '/local/bundle/darwin-arm64',
+    });
+    expect(result.skipped).toBe(false);
+    expect(ssh.sftpWriteDir).toHaveBeenCalled();
+    expect(ssh.execCalls.some((c) => c.includes('while read -r v'))).toBe(false);
   });
 });
