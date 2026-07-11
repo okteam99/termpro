@@ -53,6 +53,27 @@ describe('extractCandidates', () => {
     expect(texts('at src/x.ts:10,')).toEqual(['src/x.ts:10']);
   });
 
+  it('URL 紧跟半角括号注释:未闭合 `(` 起截断,不吞括号及其后内容', () => {
+    // 真实 case:MR 链接后紧跟「(feature → staging)」注释
+    expect(texts('MR:https://github.com/okteam99/cpshub/pull/52(feature → staging)')).toEqual([
+      'https://github.com/okteam99/cpshub/pull/52',
+    ]);
+    // 多段:配平的保留,未闭合的截断
+    expect(texts('https://x.com/a(b)c(d oops')).toEqual(['https://x.com/a(b)c']);
+  });
+
+  it('括号平衡的 URL 本体不受影响(Wikipedia 式);包裹括号仍剔除', () => {
+    expect(texts('see https://en.wikipedia.org/wiki/Bracket_(disambiguation) ok')).toEqual([
+      'https://en.wikipedia.org/wiki/Bracket_(disambiguation)',
+    ]);
+    // 平衡括号 + 尾部句点:只剔句点
+    expect(texts('read https://en.wikipedia.org/wiki/Foo_(bar).')).toEqual([
+      'https://en.wikipedia.org/wiki/Foo_(bar)',
+    ]);
+    // URL 被括号整体包裹:右括号多余 → 照旧剔除
+    expect(texts('(https://example.com/a)')).toEqual(['https://example.com/a']);
+  });
+
   it('URL 内部路径不重复产出;噪音不命中', () => {
     expect(texts('https://x.com/a/b/c plain words and/or nothing')).toEqual([
       'https://x.com/a/b/c',

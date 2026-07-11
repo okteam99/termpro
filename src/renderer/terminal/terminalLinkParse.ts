@@ -1,6 +1,6 @@
 // 终端链接候选提取(纯函数,可单测,零依赖)。
 // 三类:file:// URL、绝对/~/.// 路径、含斜杠的相对路径;
-// http(s) 链接只记录占位范围(由 WebLinksAddon 渲染,这里避免重叠)。
+// http(s) 链接的激活与高亮由 SystemWebLinkProvider 消费(terminalLinks.ts)。
 
 export interface LinkCandidate {
   /** 原文(含可能的 :line:col 后缀) */
@@ -8,7 +8,7 @@ export interface LinkCandidate {
   /** string 索引区间 [start, end) */
   start: number;
   end: number;
-  /** web=http(s)(激活由 WebLinksAddon 负责,这里只用于上色);fs=文件/路径 */
+  /** web=http(s)(SystemWebLinkProvider 激活+上色);fs=文件/路径 */
   kind: 'web' | 'fs';
 }
 
@@ -23,10 +23,34 @@ const FILE_URL_RE = /file:\/\/\S+/g;
 const PATH_RE =
   /((?:~|\.{1,2})?\/[\w.@%+-]+(?:\/[\w.@%+-]+)*\/?|(?<![\w/.~-])[\w.@%+-]+(?:\/[\w.@%+-]+)+\/?)(?::\d+(?::\d+)?)?/g;
 
+/**
+ * 未闭合 `(` 起截断(web URL 用):终端里常见 `…/pull/52(feature → staging)`
+ * 这类「URL 紧跟括号注释」,HTTP_RE 的非空白贪婪会把 `(feature` 吞进链接。
+ * 括号平衡的 URL(Wikipedia 式 `…/wiki/Foo_(bar)`)不受影响——只在扫完仍
+ * 未配对的第一个 `(` 处截断。中间的裸 `)`(无配对 `(`)不触发截断,尾部的
+ * 交给 trimTrailingPunct。
+ */
+export function cutAtUnmatchedOpenParen(s: string): string {
+  const stack: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') stack.push(i);
+    else if (s[i] === ')' && stack.length > 0) stack.pop();
+  }
+  return stack.length > 0 ? s.slice(0, stack[0]) : s;
+}
+
 /** 去掉尾部标点(保留 :line:col 数字后缀);跨缩进拼接的派生续接段复用 */
 export function trimTrailingPunct(s: string): string {
   let out = s;
   while (out && /[)\]}>.,;:'"`!?]$/.test(out) && !/:\d+$/.test(out)) {
+    // 尾部 `)` 仅在「多余」(右括号数 > 左括号数)时才修剪:配平的是 URL 本体
+    // (如 wiki/Foo_(bar));fs 候选字符集不含括号,不受此分支影响。
+    if (
+      out.endsWith(')') &&
+      (out.match(/\(/g)?.length ?? 0) >= (out.match(/\)/g) ?? []).length
+    ) {
+      break;
+    }
     out = out.slice(0, -1);
   }
   return out;
@@ -49,9 +73,9 @@ export function extractCandidates(text: string): LinkCandidate[] {
     out.push({ text: str, start, end, kind });
   };
 
-  // http(s):产出 web 候选(激活归 WebLinksAddon,高亮用)
+  // http(s):产出 web 候选(激活/高亮均由 SystemWebLinkProvider 消费)
   for (const m of text.matchAll(HTTP_RE)) {
-    push(m[0], m.index ?? 0, 'web');
+    push(cutAtUnmatchedOpenParen(m[0]), m.index ?? 0, 'web');
   }
   for (const m of text.matchAll(FILE_URL_RE)) {
     push(m[0], m.index ?? 0, 'fs');
