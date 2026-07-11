@@ -52,11 +52,15 @@ export function mapSessionCwdToWorkspace(
   cwd: string,
 ): WorkspaceState | null {
   let best: WorkspaceState | null = null;
+  let bestLen = -1; // 归一化 root 长度(比较基准统一用归一化值,不混用原始 w.root)
   for (const w of workspaces) {
     if (w.hostId !== hostId) continue;
     const root = w.root.endsWith('/') ? w.root.slice(0, -1) : w.root;
     if (cwd !== root && !cwd.startsWith(root + '/')) continue;
-    if (!best || root.length > best.root.length) best = w;
+    if (root.length > bestLen) {
+      best = w;
+      bestLen = root.length;
+    }
   }
   return best;
 }

@@ -187,6 +187,35 @@ describe('readoptRemoteSessions:同 configId 串行化', () => {
     warnSpy.mockRestore();
   });
 
+  it('drop 竞态回归网(review P2-1):收养在途时该 host 全部 ws 被 drop → rebuild 现读 store 落空,不重建 tab', async () => {
+    useAppStore.setState({
+      workspaces: [ws({ id: 'w1', root: '/home/liam/proj' })],
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const results: Array<string | null> = [];
+    // fake 模拟 readoptHost 在途(session.list 已发未回),放行后走真 rebuildTab hook——
+    // 若有人把 rebuildTabForSnapshot 改成缓存 workspaces 快照而非现读 getState(),本测即红。
+    const fake = vi.fn(
+      async (
+        _configId: string,
+        hooks?: { rebuildTab?: (h: string, s: SessionSnapshot) => string | null },
+      ) => {
+        await gate;
+        results.push(hooks?.rebuildTab?.('cfg-1', snap({})) ?? null);
+      },
+    );
+
+    const p = readoptRemoteSessions('cfg-1', fake as never);
+    // 在途期间 drop:stopRemoteWorkspaceSync 的 ② dropHostWorkspaces 效果(该 host ws 全移除)
+    useAppStore.setState({ workspaces: [] });
+    release();
+    await p;
+
+    expect(results).toEqual([null]); // ws 已不在 → 跳过,不把 tab 重建回已 drop 的 host 视图
+    expect(useAppStore.getState().workspaces).toHaveLength(0);
+  });
+
   it('不同 configId 互不阻塞', async () => {
     const order: string[] = [];
     let release!: () => void;
