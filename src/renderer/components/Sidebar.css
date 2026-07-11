@@ -644,9 +644,17 @@
   margin-left: auto;
 }
 
-/* 行带 × 删除钮(远程行):名称行常驻预留 × 的位置,徽标不被 hover 显现的 × 压住 */
+/* 行带 × 删除钮(本机/远程行):名称行常驻预留 × 的位置,徽标不被 hover 显现的 × 压住 */
 .sidebar-item--removable .sidebar-item-name-row {
   padding-right: 16px;
+}
+
+/* 组头连接延迟(心跳 RTT·仅 connected 态,位于圆点右侧) */
+.sidebar-machine-rtt {
+  flex: none;
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-family: Menlo, Monaco, 'SF Mono', monospace;
 }
 
 /* 断线机器组:条目整体变灰 */

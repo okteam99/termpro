@@ -18,7 +18,11 @@ import { NotificationCenter } from './NotificationCenter';
 import { SettingsEntry } from './SettingsEntry';
 import { AddWorkspaceModal } from './AddWorkspaceModal';
 import { LocalMachineIcon, MachineGroup, type MachineInfo } from './MachineGroup';
-import type { MachineWorkspaceRowData } from './MachineWorkspaceRow';
+import {
+  PencilIcon,
+  formatTabBadge,
+  type MachineWorkspaceRowData,
+} from './MachineWorkspaceRow';
 
 /** 断线两段式回落(D-8/AC-11)的 panel 阶段时长:UI 先亮断线态,再确定性折叠组头。 */
 const DISCONNECT_PANEL_MS = 900;
@@ -28,26 +32,6 @@ const DISCONNECT_PANEL_MS = 900;
  *  新增/删除远程机后 Sidebar 分组不会更新(新机不出现·已删机组残留)。轻量轮询兜底,不新增
  *  IPC 通道(main/preload 改动不在本 Feature write scope 内)。 */
 const REMOTE_CONFIG_POLL_MS = 5000;
-
-/** Small pencil icon 12×12 */
-function PencilIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="M8.5 1.5 L10.5 3.5 L4 10 L1.5 10.5 L2 8 Z" />
-      <line x1="7" y1="3" x2="9" y2="5" />
-    </svg>
-  );
-}
 
 /** Bell icon 13×13 */
 function BellIcon() {
@@ -175,6 +159,8 @@ export function Sidebar() {
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
   const reconnectingMap = useRemoteHostRuntimeStore((s) => s.reconnecting);
   const applyRuntimeEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
+  const rttMap = useRemoteHostRuntimeStore((s) => s.rtt);
+  const setRtt = useRemoteHostRuntimeStore((s) => s.setRtt);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
@@ -302,6 +288,7 @@ export function Sidebar() {
   // 完成的握手,只要 runtime 落到 ready 就触发一次,重入由 remoteWorkspaceSync 内部去重。
   const syncedHosts = useRef<Set<string>>(new Set());
   const reconnectWired = useRef<Set<string>>(new Set());
+  const rttWired = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const [configId, evt] of Object.entries(runtimeMap)) {
       if (evt.stage === 'ready') {
@@ -320,6 +307,20 @@ export function Sidebar() {
             reconnectController.onDisconnected(configId),
           );
           if (unsub) reconnectWired.current.add(configId);
+        }
+        // 订该 client 的心跳 RTT(仅订一次;client 实例跨重连复用)→ 组头连接延迟展示。
+        // 心跳首拍在 interval(5s)后才有值:接线时立即种一发,连上即见延迟。
+        if (!rttWired.current.has(configId)) {
+          const client = hostRegistry.forHostId(configId);
+          if (client?.onRtt) {
+            rttWired.current.add(configId);
+            client.onRtt((ms) => setRtt(configId, ms));
+            const t0 = Date.now();
+            void client.rpc('host.info', undefined).then(
+              () => setRtt(configId, Date.now() - t0),
+              () => undefined,
+            );
+          }
         }
       } else {
         syncedHosts.current.delete(configId);
@@ -519,6 +520,7 @@ export function Sidebar() {
         alias: cfg.alias,
         addr,
         status: 'connected',
+        rttMs: rttMap[cfg.id],
         workspaces: wsForHost.map((w) => toRowData(w, activeWorkspaceId, false)),
       };
     }
@@ -606,11 +608,12 @@ export function Sidebar() {
                 {machine.workspaces.map((row, idx) => {
                   const ws = localWorkspaces[idx];
                   const isDragging = ws.id === draggingId;
+                  const badge = formatTabBadge(row);
                   return (
                     <div
                       key={ws.id}
                       draggable
-                      className={`sidebar-item${row.active ? ' sidebar-item--active' : ''}${isDragging ? ' sidebar-item--dragging' : ''}`}
+                      className={`sidebar-item sidebar-item--removable${row.active ? ' sidebar-item--active' : ''}${isDragging ? ' sidebar-item--dragging' : ''}`}
                       onClick={() => handleSelectWorkspace(machine, row)}
                       onDragStart={(e) => handleDragStart(e, ws.id)}
                       onDragEnd={handleDragEnd}
@@ -626,6 +629,11 @@ export function Sidebar() {
                         >
                           <PencilIcon />
                         </button>
+                        <span
+                          className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}
+                        >
+                          {badge.text}
+                        </span>
                       </div>
                       <span className="sidebar-item-meta">{row.meta}</span>
                       <button
@@ -663,6 +671,7 @@ export function Sidebar() {
               onManualRetry={(id) => reconnectController.manualRetry(id)}
               onSelectWorkspace={handleSelectWorkspace}
               onRemoveWorkspace={(_m, ws) => confirmRemove(ws.id, ws.name)}
+              onRenameWorkspace={(_m, ws) => setEditingId(ws.id)}
             />
           ),
         )}

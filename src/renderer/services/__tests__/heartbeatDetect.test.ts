@@ -49,6 +49,23 @@ describe('app_heartbeat_timeout_detects_disconnect_within_bounded_T (T-026)', ()
     expect(onDead).toHaveBeenCalledTimes(1);
   });
 
+  it('probe 正常回应 → onAlive 携带该拍往返耗时(组头 RTT 展示的数据源)', async () => {
+    const cfg: HeartbeatConfig = { intervalMs: 100, timeoutMs: 200 };
+    const onAlive = vi.fn();
+    const hb = new Heartbeat(cfg, {
+      // probe 耗时 50ms 才回(fake timers 下 Date.now 同步推进,RTT 恰为 50)
+      probe: () => new Promise((resolve) => { setTimeout(() => resolve({ ok: true }), 50); }),
+      onDead: vi.fn(),
+      onAlive,
+    });
+    hb.start();
+
+    await vi.advanceTimersByTimeAsync(160); // interval(100) + probe 耗时(50)
+    expect(onAlive).toHaveBeenCalledTimes(1);
+    expect(onAlive).toHaveBeenCalledWith(50);
+    hb.stop();
+  });
+
   it('stop 后不再判死(避免退订后仍触发)', async () => {
     const cfg: HeartbeatConfig = { intervalMs: 100, timeoutMs: 100 };
     const onDead = vi.fn();

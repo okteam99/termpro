@@ -78,6 +78,61 @@ describe('MachineGroup · 已连接展开(AC-2)', () => {
     fireEvent.click(screen.getByText('aon-edge'));
     expect(onSelectWorkspace).toHaveBeenCalledWith(machine, machine.workspaces?.[0]);
   });
+
+  it('行级铅笔/× → onRenameWorkspace/onRemoveWorkspace,且不触发行选中(stopPropagation)', () => {
+    const onSelectWorkspace = vi.fn();
+    const onRenameWorkspace = vi.fn();
+    const onRemoveWorkspace = vi.fn();
+    const machine = remoteMachine({
+      status: 'connected',
+      workspaces: [{ id: 'w1', name: 'aon-edge', meta: 'x', active: false, tabCount: 0 }],
+    });
+    render(
+      <MachineGroup
+        machine={machine}
+        onSelectWorkspace={onSelectWorkspace}
+        onRenameWorkspace={onRenameWorkspace}
+        onRemoveWorkspace={onRemoveWorkspace}
+      />,
+    );
+    fireEvent.click(screen.getByTitle('Rename workspace'));
+    expect(onRenameWorkspace).toHaveBeenCalledWith(machine, machine.workspaces?.[0]);
+    fireEvent.click(screen.getByTitle('Remove workspace'));
+    expect(onRemoveWorkspace).toHaveBeenCalledWith(machine, machine.workspaces?.[0]);
+    expect(onSelectWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe('MachineGroup · 组头连接延迟(心跳 RTT)', () => {
+  it('connected + rttMs → 圆点在云图标之后,延迟毫秒数紧随圆点', () => {
+    const { container } = render(
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 12, workspaces: [] })} />,
+    );
+    const rtt = screen.getByText('12ms');
+    expect(rtt).toHaveClass('sidebar-machine-rtt');
+    // 顺序断言:icon → dot → rtt
+    const header = container.querySelector('.sidebar-machine-header')!;
+    const children = Array.from(header.children);
+    const iconIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-icon'));
+    const dotIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-dot'));
+    const rttIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-rtt'));
+    expect(iconIdx).toBeGreaterThanOrEqual(0);
+    expect(dotIdx).toBe(iconIdx + 1);
+    expect(rttIdx).toBe(dotIdx + 1);
+  });
+
+  it('rttMs 缺省或非 connected 态 → 不渲染延迟', () => {
+    const { rerender } = render(
+      <MachineGroup machine={remoteMachine({ status: 'connected', workspaces: [] })} />,
+    );
+    expect(document.querySelector('.sidebar-machine-rtt')).not.toBeInTheDocument();
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({ status: 'reconnecting', rttMs: 12, workspaces: [] })}
+      />,
+    );
+    expect(document.querySelector('.sidebar-machine-rtt')).not.toBeInTheDocument();
+  });
 });
 
 describe('MachineGroup · 连接生命周期(AC-8)', () => {
