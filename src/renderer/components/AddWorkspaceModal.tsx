@@ -100,6 +100,11 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
   const [dirLoading, setDirLoading] = useState(false);
   const [dirError, setDirError] = useState<string | null>(null);
   const [remoteHostsOpen, setRemoteHostsOpen] = useState(false);
+  // 「新建目录」内联编辑器(远程机浏览器专用;本机走原生对话框,自带新建)
+  const [newDirOpen, setNewDirOpen] = useState(false);
+  const [newDirName, setNewDirName] = useState('');
+  const [newDirBusy, setNewDirBusy] = useState(false);
+  const [newDirError, setNewDirError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -133,9 +138,16 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
   // 🔴 hostId 显式传参(不读 selectedHostId state):selectHost 里 setSelectedHostId(id) 后
   // 紧接着同步调用 loadDir——此刻组件尚未重渲染,state 闭包仍是上一轮的旧值(经典 stale
   // closure),读 selectedHostId 会在"刚选中机器的第一次加载"上恒读到 null 而静默 no-op。
+  function resetNewDir() {
+    setNewDirOpen(false);
+    setNewDirName('');
+    setNewDirError(null);
+  }
+
   async function loadDir(hostId: string, path: string) {
     const client = hostRegistry.forHostId(hostId);
     setCurrentPath(path);
+    resetNewDir();
     if (!client) {
       // E8 同型:目录浏览期间目标机断开——不静默,呈现错误态(不兜底本机浏览远程路径)
       setDirLoading(false);
@@ -184,6 +196,34 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
     if (!selectedHostId || dirLoading || !!dirError || creatingWorkspace) return;
     await addWorkspace(currentPath, selectedHostId);
     onClose();
+  }
+
+  async function handleMkdir() {
+    const name = newDirName.trim();
+    if (!name || !selectedHostId || newDirBusy) return;
+    if (name === '.' || name === '..' || name.includes('/')) {
+      setNewDirError('目录名不能是 . / .. 或包含 /');
+      return;
+    }
+    const client = hostRegistry.forHostId(selectedHostId);
+    if (!client) {
+      setNewDirError('目标机器已断开');
+      return;
+    }
+    setNewDirBusy(true);
+    setNewDirError(null);
+    const target = joinPath([...splitPath(currentPath), name]);
+    try {
+      await client.rpc('fs.mkdir', { path: target });
+    } catch (err) {
+      console.warn('[AddWorkspaceModal] fs.mkdir failed:', selectedHostId, target, err);
+      setNewDirError(err instanceof Error ? err.message : String(err));
+      setNewDirBusy(false);
+      return;
+    }
+    setNewDirBusy(false);
+    // 创建即进入新目录:底部路径落在新目录上,直接点「创建项目」即注册于此
+    await loadDir(selectedHostId, target);
   }
 
   const crumbs = step === 'dir' ? buildCrumbs(currentPath) : [];
@@ -325,6 +365,49 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
                 />
               </div>
               <div className="add-ws__actions">
+                {newDirOpen ? (
+                  <div className="add-ws__newdir">
+                    <input
+                      className="add-ws__newdir-input"
+                      placeholder="新目录名"
+                      value={newDirName}
+                      autoFocus
+                      disabled={newDirBusy}
+                      onChange={(e) => {
+                        setNewDirName(e.target.value);
+                        setNewDirError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleMkdir();
+                        if (e.key === 'Escape') {
+                          // 只关内联编辑器,不让 document 层 Esc 监听连带关掉整个 modal
+                          e.stopPropagation();
+                          resetNewDir();
+                        }
+                      }}
+                    />
+                    <button
+                      className="add-ws__btn"
+                      onClick={() => void handleMkdir()}
+                      disabled={newDirBusy || !newDirName.trim()}
+                    >
+                      {newDirBusy ? '创建中…' : '创建'}
+                    </button>
+                    <button className="add-ws__btn" onClick={resetNewDir} disabled={newDirBusy}>
+                      ✕
+                    </button>
+                    {newDirError && <span className="add-ws__newdir-error">{newDirError}</span>}
+                  </div>
+                ) : (
+                  <button
+                    className="add-ws__btn add-ws__btn--newdir"
+                    onClick={() => setNewDirOpen(true)}
+                    disabled={dirLoading || !!dirError}
+                    title="在当前目录下新建文件夹"
+                  >
+                    + 新建目录
+                  </button>
+                )}
                 <button className="add-ws__btn" onClick={onClose}>
                   取消
                 </button>

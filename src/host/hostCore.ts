@@ -18,6 +18,7 @@ import {
   copyInto,
   homeDir,
   listDir,
+  makeDir,
   moveInto,
   readBinaryFile,
   readTextFile,
@@ -258,6 +259,9 @@ async function handleRpc(
         result = await moveInto(p.src, p.destDir);
         break;
       }
+      case 'fs.mkdir':
+        await makeDir((msg.params as { path: string }).path);
+        break;
       case 'fs.copy': {
         const p = msg.params as { src: string; destDir: string };
         result = await copyInto(p.src, p.destDir);

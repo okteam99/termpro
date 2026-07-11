@@ -125,6 +125,11 @@ export async function writeTextFile(
   await fs.writeFile(path, content, 'utf8');
 }
 
+/** 新建单层目录:不递归(父目录由浏览器保证存在,防手滑把整链路径落地) */
+export async function makeDir(path: string): Promise<void> {
+  await fs.mkdir(path);
+}
+
 // ---- 拖拽:移动 / 复制 --------------------------------------------------
 
 /** 路径是否存在(含断链符号链接,故用 lstat) */

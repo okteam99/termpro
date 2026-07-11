@@ -169,6 +169,8 @@ export interface RpcMethods {
     params: { src: string; destDir: string };
     result: { dst: string };
   };
+  /** 新建单层目录(目录浏览器「新建目录」用);父目录须已存在,已存在/无权限抛错 */
+  'fs.mkdir': { params: { path: string }; result: undefined };
   /** 读 ref 下的文件内容(不存在/二进制 → null) */
   'git.show': {
     params: { toplevel: string; ref: string; path: string };

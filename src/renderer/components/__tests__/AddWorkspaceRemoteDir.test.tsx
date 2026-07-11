@@ -128,6 +128,61 @@ describe('AC-3 · 远程目录 EACCES 错误态', () => {
   });
 });
 
+describe('新建目录 · 远程机浏览器内联创建', () => {
+  it('输入名字回车 → fs.mkdir 落远程 client → 自动进入新目录', async () => {
+    const readdirPaths: string[] = [];
+    remoteClient.rpc.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'fs.readdir') {
+        readdirPaths.push((params as { path: string }).path);
+        return { entries: [] };
+      }
+      if (method === 'fs.mkdir') return undefined;
+      return {};
+    });
+
+    render(<AddWorkspaceModal onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('mini-pc'));
+    await screen.findByText('(空目录)');
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 新建目录' }));
+    const input = screen.getByPlaceholderText('新目录名');
+    fireEvent.change(input, { target: { value: 'proj' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(remoteClient.rpc).toHaveBeenCalledWith('fs.mkdir', { path: '/home/liam/proj' }),
+    );
+    // 创建后自动导航进新目录(底部路径即新目录,可直接创建项目)
+    await waitFor(() => expect(readdirPaths).toContain('/home/liam/proj'));
+    expect(screen.queryByPlaceholderText('新目录名')).not.toBeInTheDocument();
+  });
+
+  it('fs.mkdir reject → 内联错误文案,编辑器保持打开,不导航', async () => {
+    remoteClient.rpc.mockImplementation(async (method: string) => {
+      if (method === 'fs.readdir') return { entries: [] };
+      if (method === 'fs.mkdir') {
+        throw new Error("EEXIST: file already exists, mkdir '/home/liam/proj'");
+      }
+      return {};
+    });
+
+    render(<AddWorkspaceModal onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('mini-pc'));
+    await screen.findByText('(空目录)');
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 新建目录' }));
+    const input = screen.getByPlaceholderText('新目录名');
+    fireEvent.change(input, { target: { value: 'proj' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(await screen.findByText(/EEXIST/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('新目录名')).toBeInTheDocument();
+    // 仍停在原目录(fs.readdir 只有进入时那一次)
+    const readdirCalls = remoteClient.rpc.mock.calls.filter(([m]) => m === 'fs.readdir');
+    expect(readdirCalls).toHaveLength(1);
+  });
+});
+
 describe('AC-4 · 确认创建落该远程机组', () => {
   it('workspace.create 调用落在远程 client · 本地 client 未被调用 · 创建后关闭 modal', async () => {
     remoteClient.rpc.mockImplementation(async (method: string) => {

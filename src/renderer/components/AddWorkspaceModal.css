@@ -362,8 +362,62 @@
 
 .add-ws__actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* 「新建目录」触发钮 / 内联编辑器:靠左,取消/创建保持靠右 */
+.add-ws__btn--newdir {
+  margin-right: auto;
+  color: var(--fg-dim);
+  border-style: dashed;
+}
+
+.add-ws__btn--newdir:hover {
+  color: var(--fg);
+}
+
+.add-ws__btn--newdir:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.add-ws__newdir {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+.add-ws__newdir-input {
+  height: 28px;
+  width: 150px;
+  flex: none;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.add-ws__newdir-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.add-ws__newdir-error {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--red);
+  font-family: Menlo, Monaco, 'SF Mono', monospace;
+  font-size: 11px;
 }
 
 .add-ws__spinner {
