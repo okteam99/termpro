@@ -100,6 +100,11 @@ export class HostClient {
   // 主动 teardown(reconnect/dispose 内 close 旧 transport)期间抑制自身 onClose 分叉,防 loop。
   private tearingDown = false;
   private heartbeat: Heartbeat | null = null;
+  // 握手期(connect 发起 → host.info 响应落地)。host 侧 ws 门控要求 host.info-first:
+  // 响应回来前任何插话都会被判违规断连(wsServer TC-A05)。ws open 后 transport 即非空,
+  // 若不设此闸,握手窗口内消费方 rpc/post 会直接上线,高延迟链路(SSH 隧道合帧)下
+  // 恰好撞进门控 → 连接被 host 掐死 → 挂起 RPC 吊满 15s 超时(m-sg fs.readdir 案)。
+  private handshaking = false;
 
   /**
    * reconnectable(BL-005 · AC-10):远程 client 置 true —— transport onClose / 心跳判死走
@@ -185,11 +190,16 @@ export class HostClient {
   private markDown(): void {
     if (this.down) return;
     this.down = true;
+    this.rejectPending('host process exited');
+    this.downListeners.forEach((cb) => cb());
+  }
+
+  /** 拒绝全部挂起 RPC(断链/teardown 时调用):快速失败,绝不留到 15s rpc timeout。 */
+  private rejectPending(message: string): void {
     for (const p of this.pending.values()) {
-      p.reject(new Error('host process exited'));
+      p.reject(new Error(message));
     }
     this.pending.clear();
-    this.downListeners.forEach((cb) => cb());
   }
 
   /**
@@ -202,6 +212,9 @@ export class HostClient {
     if (this.tearingDown) return;
     if (this.reconnectable) {
       this.stopHeartbeat();
+      // 🔴 挂起 RPC 立即拒绝(非终结·down 不置):响应已随连接死亡,不拒则调用方
+      // 吊满 RPC_TIMEOUT 才收到「rpc timeout」——错误面目全非且慢 15s(m-sg 案)。
+      this.rejectPending('host connection lost');
       this.reconnectNeededListeners.forEach((cb) => cb());
     } else {
       this.markDown();
@@ -237,13 +250,26 @@ export class HostClient {
   connect(opts?: { wsUrl?: string }): Promise<HostInfo> {
     if (this.connectPromise) return this.connectPromise;
     const wsUrl = opts?.wsUrl ?? readRemoteWsEnv();
-    this.connectPromise = wsUrl
+    this.handshaking = true;
+    const p = wsUrl
       ? this.connectViaWebSocket(wsUrl)
       : this.connectViaMessagePort();
-    // 失败不缓存,允许重试
-    this.connectPromise.catch(() => {
-      this.connectPromise = null;
-    });
+    this.connectPromise = p;
+    // 开闸/清缓存都做 promise 同一性守卫:reconnect() 可能在 p 未落定时顶掉 connectPromise
+    // 开新握手,旧 p 迟到的落定不得动新握手的闸与缓存。开闸注册先于任何消费方 rpc 链
+    // (它们在 connect 返回后才 .then 上来),重入回调运行时恒见 handshaking=false,不死循环。
+    p.then(
+      () => {
+        if (this.connectPromise === p) this.handshaking = false;
+      },
+      () => {
+        // 失败不缓存,允许重试
+        if (this.connectPromise === p) {
+          this.handshaking = false;
+          this.connectPromise = null;
+        }
+      },
+    );
     // 远程 client 连上后启动 app 层心跳(冻结 TCP 下比 onclose 更快判死·AC-13)
     if (this.reconnectable) {
       this.connectPromise.then(
@@ -273,6 +299,8 @@ export class HostClient {
     }
     this.transport = null;
     this.tearingDown = false;
+    // tearingDown 抑制了 onClose 分叉 → 挂起 RPC 不会被 handleTransportClose 拒绝,这里补上
+    this.rejectPending('host connection lost');
     // 复位陈旧握手态(connectPromise 陈旧早返是复用实例重连卡死的根因·硬门④)
     this.down = false;
     this.connectPromise = null;
@@ -300,6 +328,8 @@ export class HostClient {
     this.reconnectPromise = null;
     this.down = false;
     this.tearingDown = false;
+    this.handshaking = false;
+    this.rejectPending('host connection lost');
   }
 
   private connectViaMessagePort(): Promise<HostInfo> {
@@ -368,6 +398,15 @@ export class HostClient {
     method: M,
     params: RpcMethods[M]['params'],
   ): Promise<RpcMethods[M]['result']> {
+    // 握手期入闸:host.info(握手本身)放行,其余排队到握手落定后重入。
+    // 若不闸,ws open 之后 host.info 响应之前的消费方 RPC 会撞 host 的 host.info-first
+    // 门控被断连;握手失败则以 connect 的真实错误拒绝(而非 15s 后的 rpc timeout)。
+    if (this.handshaking && method !== 'host.info') {
+      const cp = this.connectPromise;
+      if (cp) {
+        return cp.then(() => this.rpc(method, params));
+      }
+    }
     const transport = this.transport;
     if (!transport) return Promise.reject(new Error('host not connected'));
     if (this.down) return Promise.reject(new Error('host process exited'));
@@ -419,6 +458,9 @@ export class HostClient {
   }
 
   private post(msg: ClientMessage): void {
+    // 握手期丢弃(与 transport 未建时的静默丢弃同语义):pty input/resize/ack 插话
+    // 同样会撞 host.info-first 门控;resize 丢失由重连后 session.attach 带 cols/rows 纠正。
+    if (this.handshaking) return;
     this.transport?.send(msg);
   }
 
