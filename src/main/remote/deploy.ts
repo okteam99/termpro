@@ -58,15 +58,19 @@ async function defaultSleep(ms: number): Promise<void> {
 type LockOutcome = 'acquired' | 'waitForPeer';
 
 /**
- * 列出远端已完成部署(有 .ready)的版本号,单次网络往返。
- * 不用 shell glob(zsh -c 下空匹配会让整行报错中断),用 `ls -1 | while read`
- * 的 POSIX 口径;`ls -1` 不含点前缀条目,`.tmp-*`/`.deploying-*` 天然被排除。
- * bundle 目录缺失/为空 → 空列表(cd 失败即无输出,`; true` 归一化退出码)。
+ * 列出远端已完成部署(有 .ready)的版本号所用的 shell 一行命令(纯函数,供
+ * 集成测试对真实 sh/zsh 执行验证)。要点:
+ * - 不用 shell glob:zsh -c 下空匹配会让整行报错中断,`ls | while read` 是 POSIX 口径;
+ * - `command ls`:防用户 .zshenv 等对 ls 的别名/函数覆盖(如追加分类符)污染输出(P3 加固);
+ * - `ls -1` 不含点前缀条目,`.tmp-*`/`.deploying-*` 天然被排除;
+ * - bundle 目录缺失/为空 → 无输出,`; true` 归一化退出码。
  */
+export function listReadyVersionsCommand(dataDir: string): string {
+  return `cd "${dataDir}/bundle" 2>/dev/null && command ls -1 | while read -r v; do [ -f "$v/.ready" ] && echo "$v"; done; true`;
+}
+
 async function listReadyVersions(ssh: SshConnectionLike, dataDir: string): Promise<string[]> {
-  const res = await ssh.exec(
-    `cd "${dataDir}/bundle" 2>/dev/null && ls -1 | while read -r v; do [ -f "$v/.ready" ] && echo "$v"; done; true`,
-  );
+  const res = await ssh.exec(listReadyVersionsCommand(dataDir));
   return res.stdout
     .split('\n')
     .map((s) => s.trim())
@@ -229,6 +233,14 @@ export async function deployBundle(opts: DeployOptions): Promise<DeployResult> {
   // 更低版本铺上去——旧安装版 app 只能复用它已有的 bundle(上方 .ready 快路径),
   // 不能向已前进的远端写旧产物(0.3.42/0.3.43 坏 spawn-helper 借旧 app 重新扩散
   // 的事故路径)。开发逃生阀:TERMPRO_DEPLOY_ALLOW_OLDER=1(如在旧分支调远程)。
+  //
+  // 边界口径(opus 评审 P2/P3,勿误当强保证):
+  // - 尽力而为的 TOCTOU 检查,只拦【已 .ready】的更高版本;不与并发在传的部署
+  //   互斥(两个不同版本 app 对全新机竞速时双双落地)——部署按版本目录隔离、
+  //   互不覆盖,竞速无跨版本污染,故不加锁,保持闸门零额外往返;
+  // - 版本比较只认纯数字 x.y.z(发布版恒如此);预发布形如 1.2.3-beta 的
+  //   appVersion 比较为 NaN → 判「不更高」→ 闸门放行,属有意 fail-open
+  //   (非发布构建不受闸门约束)。
   if (process.env.TERMPRO_DEPLOY_ALLOW_OLDER !== '1') {
     const newer = (await listReadyVersions(opts.ssh, opts.dataDir))
       .filter((v) => compareDotted(v, opts.appVersion) > 0)

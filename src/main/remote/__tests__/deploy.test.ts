@@ -2,7 +2,11 @@
 // AC-11 缺 node / node<20 由 orchestrator 层探测(exec 桩),此处补两条部署前置断言。
 // AC-13 快路径跳过上传可观测。
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { deployBundle } from '../deploy';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { deployBundle, listReadyVersionsCommand } from '../deploy';
 import { createRoutedSsh, bufferOf, type ExecHandler } from './testKit';
 
 const DATA_DIR = '/home/tester/.termpro-host';
@@ -419,5 +423,93 @@ describe('部署版本单调闸(只允许更高版本)', () => {
     expect(result.skipped).toBe(false);
     expect(ssh.sftpWriteDir).toHaveBeenCalled();
     expect(ssh.execCalls.some((c) => c.includes('while read -r v'))).toBe(false);
+  });
+});
+
+// opus 评审 P2:shell 一行命令此前零执行级覆盖(mock 只匹配 JS 侧字符串)。
+// 这里对真实 sh -c(及本机存在时的 zsh -c)跑 listReadyVersionsCommand,
+// 覆盖:有/无 .ready、点前缀 tmp 目录被排除、空目录、目录缺失、退出码归一。
+describe('listReadyVersionsCommand 真实 shell 集成', () => {
+  const shells = ['/bin/sh', ...(existsSync('/bin/zsh') ? ['/bin/zsh'] : [])];
+
+  function makeFixture(): string {
+    const root = mkdtempSync(join(tmpdir(), 'termpro-deploy-it-'));
+    mkdirSync(join(root, 'bundle', '0.3.9'), { recursive: true });
+    writeFileSync(join(root, 'bundle', '0.3.9', '.ready'), '');
+    mkdirSync(join(root, 'bundle', '0.3.10'), { recursive: true }); // 无 .ready → 不该出现
+    mkdirSync(join(root, 'bundle', '.tmp-9.9.9-abc'), { recursive: true }); // 点前缀 → ls -1 不可见
+    writeFileSync(join(root, 'bundle', '.tmp-9.9.9-abc', '.ready'), '');
+    return root;
+  }
+
+  it.each(shells)('%s:只列出有 .ready 的非点前缀条目;缺失/空目录 → 空输出且退出 0', (shell) => {
+    const root = makeFixture();
+    try {
+      const out = execFileSync(shell, ['-c', listReadyVersionsCommand(root)], { encoding: 'utf8' });
+      expect(out.split('\n').filter(Boolean)).toEqual(['0.3.9']);
+
+      const emptyRoot = mkdtempSync(join(tmpdir(), 'termpro-deploy-it-empty-'));
+      mkdirSync(join(emptyRoot, 'bundle'));
+      const outEmpty = execFileSync(shell, ['-c', listReadyVersionsCommand(emptyRoot)], {
+        encoding: 'utf8',
+      });
+      expect(outEmpty.trim()).toBe('');
+      rmSync(emptyRoot, { recursive: true, force: true });
+
+      // 目录缺失:cd 失败被 2>/dev/null 吞掉,`; true` 保证退出 0(execFileSync 不抛)
+      const outMissing = execFileSync(
+        shell,
+        ['-c', listReadyVersionsCommand(join(root, 'no-such-dir'))],
+        { encoding: 'utf8' },
+      );
+      expect(outMissing.trim()).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('版本单调闸 · 评审补充回归', () => {
+  const listRoute =
+    (stdout: string): ExecHandler =>
+    (cmd) =>
+      cmd.includes('while read -r v') ? { code: 0, stdout, stderr: '' } : null;
+
+  it('多个更高版本 → 报最高的那个(sort 路径)', async () => {
+    const ssh = createRoutedSsh({ execHandlers: [listRoute('1.2.4\n1.10.0\n1.2.5\n')] });
+    await expect(
+      deployBundle({
+        ssh,
+        dataDir: DATA_DIR,
+        appVersion: APP_VERSION, // 1.2.3
+        localBundleDir: '/local/bundle/darwin-arm64',
+      }),
+    ).rejects.toThrow(/v1\.10\.0/);
+  });
+
+  it('对抗性 stdout(泄漏 .tmp 行/含空格行)被正则过滤,合法更高版本仍拦截', async () => {
+    const ssh = createRoutedSsh({
+      execHandlers: [listRoute('.tmp-8.8.8-abc\nhello world\n9.9.9\nnot-a-version\n')],
+    });
+    await expect(
+      deployBundle({
+        ssh,
+        dataDir: DATA_DIR,
+        appVersion: APP_VERSION,
+        localBundleDir: '/local/bundle/darwin-arm64',
+      }),
+    ).rejects.toThrow(/deployBlockedByNewerVersion.*v9\.9\.9/);
+  });
+
+  it('纯垃圾 stdout → 视作无部署版本,正常放行', async () => {
+    const ssh = createRoutedSsh({ execHandlers: [listRoute('garbage\n.tmp-9.9.9-x\n')] });
+    const result = await deployBundle({
+      ssh,
+      dataDir: DATA_DIR,
+      appVersion: APP_VERSION,
+      localBundleDir: '/local/bundle/darwin-arm64',
+    });
+    expect(result.skipped).toBe(false);
+    expect(ssh.sftpWriteDir).toHaveBeenCalled();
   });
 });
