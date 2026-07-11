@@ -399,9 +399,16 @@ export function isEexist(err: unknown): boolean {
   return msg.includes('file exists') || msg.includes('already exists');
 }
 
+/**
+ * 🔴 必须显式传 mode 保留本地权限位:ssh2 fastPut 不传 opts.mode 时不做 fchmod,
+ * 远端按服务端默认(0644)落盘 —— bundle 里 node-pty 的 spawn-helper 丢执行位后,
+ * darwin 远端每次 pty.spawn 都被 posix_spawn EACCES 拒绝,抛「posix_spawnp failed.」
+ * (Linux 远端走 forkpty 不用 helper,故此前 linux 部署掩盖了该缺陷)。
+ */
 function putFile(sftp: SFTPWrapper, localPath: string, remotePath: string): Promise<void> {
+  const mode = fs.statSync(localPath).mode & 0o777;
   return new Promise((resolve, reject) => {
-    sftp.fastPut(localPath, remotePath, (err) => {
+    sftp.fastPut(localPath, remotePath, { mode }, (err) => {
       if (err) return reject(err);
       resolve();
     });

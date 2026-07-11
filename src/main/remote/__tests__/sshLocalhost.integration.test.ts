@@ -61,6 +61,10 @@ describe('AC-4 真机 ssh localhost 兜底', () => {
     fs.writeFileSync(path.join(localDir, 'hello.txt'), 'hello sftp roundtrip');
     fs.mkdirSync(path.join(localDir, 'sub'));
     fs.writeFileSync(path.join(localDir, 'sub', 'nested.txt'), 'nested content');
+    // 🔴 执行位真机回归(posix_spawnp failed):模拟 spawn-helper 的 0o755 必须在
+    // SFTP 上传后原样保留,否则 darwin 远端 posix_spawn 直接 EACCES。
+    fs.writeFileSync(path.join(localDir, 'spawn-helper'), '#!/bin/sh\n');
+    fs.chmodSync(path.join(localDir, 'spawn-helper'), 0o755);
 
     const progressSamples: number[] = [];
     await conn.sftpWriteDir(localDir, remoteDir, (pct) => progressSamples.push(pct));
@@ -73,6 +77,10 @@ describe('AC-4 真机 ssh localhost 兜底', () => {
 
     const missing = await conn.sftpReadFile(path.join(remoteDir, 'does-not-exist.txt'));
     expect(missing).toBeNull();
+
+    // 上传后的 spawn-helper 仍可执行(localhost 的「远端」就是本机 fs,直接 stat)
+    const helperMode = fs.statSync(path.join(remoteDir, 'spawn-helper')).mode & 0o777;
+    expect(helperMode).toBe(0o755);
 
     // forwardOut 往返:本地起一个 echo TCP 服务当「远端服务」,经隧道转发验证收发
     await new Promise<void>((resolve, reject) => {

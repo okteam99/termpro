@@ -3,6 +3,9 @@
 // bug(sftpWriteDir 的 mkdir 链静默跳过而非报错)。
 import { describe, it, expect, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { isEexist, isEnoent, buildKeepaliveConfig, planRemoteDirs, SshConnection } from '../ssh';
 
 // 🔴 首连必挂回归:ssh2 SFTP 错误的 code 是【数字】状态码(NO_SUCH_FILE = 2),
@@ -144,6 +147,61 @@ describe('SshConnection SFTP channel 复用', () => {
     client.wrappers[0].emit('close');
     await conn.sftpReadFile('/b');
     expect(client.wrappers.length).toBe(2);
+  });
+});
+
+// 🔴 darwin 远端 pty.spawn 必挂回归(posix_spawnp failed):sftpWriteDir 上传必须
+// 显式携带本地 mode —— ssh2 fastPut 缺省不 fchmod,spawn-helper 丢 0o755 执行位后
+// 远端 Mac 每次 pty.spawn 被 posix_spawn EACCES 拒绝(Linux 走 forkpty 无此依赖,
+// 此前 linux 部署一直掩盖该缺陷)。
+describe('sftpWriteDir 保留本地权限位(spawn-helper 执行位)', () => {
+  interface FakePut {
+    remote: string;
+    mode: number | undefined;
+  }
+  function makeFakeClient() {
+    const puts: FakePut[] = [];
+    return {
+      puts,
+      sftp(cb: (err: Error | undefined, sftp: unknown) => void) {
+        const w = Object.assign(new EventEmitter(), {
+          mkdir: (_p: string, done: (err?: Error) => void) => done(undefined),
+          fastPut: (
+            _local: string,
+            remote: string,
+            opts: { mode?: number } | undefined,
+            done: (err?: Error) => void,
+          ) => {
+            puts.push({ remote, mode: opts?.mode });
+            done(undefined);
+          },
+        });
+        cb(undefined, w);
+      },
+    };
+  }
+  const construct = (client: unknown): SshConnection =>
+    new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
+
+  it('0o755 可执行文件与 0o644 普通文件的 mode 原样传给 fastPut', async () => {
+    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-mode-src-'));
+    try {
+      fs.mkdirSync(path.join(localDir, 'build'));
+      fs.writeFileSync(path.join(localDir, 'build', 'spawn-helper'), 'bin');
+      fs.chmodSync(path.join(localDir, 'build', 'spawn-helper'), 0o755);
+      fs.writeFileSync(path.join(localDir, 'host.js'), 'js');
+      fs.chmodSync(path.join(localDir, 'host.js'), 0o644);
+
+      const client = makeFakeClient();
+      const conn = construct(client);
+      await conn.sftpWriteDir(localDir, '/r/.tmp-1', () => {});
+
+      const byName = new Map(client.puts.map((p) => [p.remote.split('/').pop(), p.mode]));
+      expect(byName.get('spawn-helper')).toBe(0o755);
+      expect(byName.get('host.js')).toBe(0o644);
+    } finally {
+      fs.rmSync(localDir, { recursive: true, force: true });
+    }
   });
 });
 
