@@ -10,7 +10,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd
 
-COPY sshd.conf /etc/ssh/sshd_config.d/10-node-ssh.conf
+COPY sshd.conf /etc/ssh/sshd_config.d/10-termpro-node.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 

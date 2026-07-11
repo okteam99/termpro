@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# node-ssh entrypoint: create the SSH user from env, then run sshd in foreground.
+# termpro-node entrypoint: create the SSH user from env, then run sshd in foreground.
 #   SSH_USER            login user (default: root; other names are created with sudo)
 #   SSH_PASSWORD        login password (default: random, printed to container log)
 #   SSH_PORT            sshd listen port inside the container (default: 22)
@@ -41,7 +41,7 @@ if [ -n "${SSH_AUTHORIZED_KEYS:-}" ]; then
 fi
 
 echo "=============================================="
-echo " node-ssh ready"
+echo " termpro-node ready"
 echo "   node:     $(node -v)   npm: $(npm -v)"
 echo "   user:     $SSH_USER"
 if [ "$GENERATED_PASSWORD" = "1" ]; then

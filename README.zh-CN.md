@@ -64,13 +64,13 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个
 
 想要一台随开随用的 SSH 主机来体验 TermPro 的远程能力,或单纯需要一个能 SSH 上去的 Node.js 环境?我们发布了现成镜像(Node.js 22 + sshd,支持 `linux/amd64` 与 `linux/arm64`):
 
-**镜像地址**:[`bdpgogoup/node-ssh`](https://hub.docker.com/r/bdpgogoup/node-ssh)
+**镜像地址**:[`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
 
 ```bash
 # 快速开始:root 登录 / 密码 dev123,SSH 暴露在 localhost:2222
-docker run -d --name node-ssh \
+docker run -d --name termpro-node \
   -e SSH_PASSWORD=dev123 \
-  -p 2222:22 bdpgogoup/node-ssh
+  -p 2222:22 bdpgogoup/termpro-node
 
 ssh root@127.0.0.1 -p 2222   # 登录后:node -v → v22.x
 ```
@@ -86,13 +86,13 @@ ssh root@127.0.0.1 -p 2222   # 登录后:node -v → v22.x
 
 ```bash
 # 非 root 用户 + 公钥免密登录 + 自定义容器内端口
-docker run -d --name node-ssh \
+docker run -d --name termpro-node \
   -e SSH_USER=alice -e SSH_PORT=2222 \
   -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" \
-  -p 2222:2222 bdpgogoup/node-ssh
+  -p 2222:2222 bdpgogoup/termpro-node
 ```
 
-SFTP 可用。构建源码见 [`docker/node-ssh/`](docker/node-ssh/)。
+SFTP 可用。构建源码见 [`docker/termpro-node/`](docker/termpro-node/)。
 
 ## 概念模型
 

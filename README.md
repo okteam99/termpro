@@ -72,13 +72,13 @@ To run from source, see [Development](#development).
 
 Need a disposable SSH host to try TermPro's remote features — or just a Node.js box reachable over SSH? We publish a ready-made image (Node.js 22 + sshd, `linux/amd64` + `linux/arm64`):
 
-**Image**: [`bdpgogoup/node-ssh`](https://hub.docker.com/r/bdpgogoup/node-ssh)
+**Image**: [`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
 
 ```bash
 # Quick start: root login with password dev123, SSH on localhost:2222
-docker run -d --name node-ssh \
+docker run -d --name termpro-node \
   -e SSH_PASSWORD=dev123 \
-  -p 2222:22 bdpgogoup/node-ssh
+  -p 2222:22 bdpgogoup/termpro-node
 
 ssh root@127.0.0.1 -p 2222   # then: node -v → v22.x
 ```
@@ -94,13 +94,13 @@ Everything is set at `docker run` time via env vars:
 
 ```bash
 # Non-root user with key-based login, custom in-container port
-docker run -d --name node-ssh \
+docker run -d --name termpro-node \
   -e SSH_USER=alice -e SSH_PORT=2222 \
   -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" \
-  -p 2222:2222 bdpgogoup/node-ssh
+  -p 2222:2222 bdpgogoup/termpro-node
 ```
 
-SFTP is enabled. Build source: [`docker/node-ssh/`](docker/node-ssh/).
+SFTP is enabled. Build source: [`docker/termpro-node/`](docker/termpro-node/).
 
 ## Concepts
 
