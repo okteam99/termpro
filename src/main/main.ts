@@ -30,6 +30,7 @@ import { RemoteHostOrchestrator } from './remote/orchestrator';
 import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
+import { resolveLocale, setLocale } from '../shared/i18n';
 
 if (started) {
   app.quit();
@@ -551,6 +552,8 @@ const createWindow = () => {
 };
 
 app.on('ready', () => {
+  // 默认文案随系统语言(en 为源文案,zh 查字典)——须在 buildMenu/任何 dialog 之前定死
+  setLocale(resolveLocale(app.getLocale()));
   // dev 模式 Dock 图标(打包版由 packagerConfig.icon 提供)
   if (!app.isPackaged && process.platform === 'darwin') {
     const devIcon = path.join(__dirname, '../../assets/icon.png');
