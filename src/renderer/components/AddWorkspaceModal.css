@@ -172,6 +172,22 @@
   cursor: not-allowed;
 }
 
+/* 「添加远程机」入口行:虚线弱化(次级动作),hover 提亮 */
+.add-ws__host-list--add-remote {
+  border-style: dashed;
+}
+
+.add-ws__host-row--add,
+.add-ws__host-row--add .add-ws__host-alias {
+  color: var(--fg-dim);
+  font-weight: 500;
+}
+
+.add-ws__host-row--add:hover,
+.add-ws__host-row--add:hover .add-ws__host-alias {
+  color: var(--fg);
+}
+
 .add-ws__host-dot {
   width: 7px;
   height: 7px;

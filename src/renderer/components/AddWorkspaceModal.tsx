@@ -3,12 +3,15 @@
 // 与预览的关键差异(D-4 已定):第一步只列「本机 + 已连接远程机」——未连接的远程机不可选
 // (选机器发起完整连接编排出范围,归 Sidebar 组头「连接」入口 AC-8);目录浏览用真实
 // hostRegistry.forHostId(configId).rpc('fs.readdir') 替代预览的静态 mock 树。
+// 「添加远程机」入口不违背 D-4:它只是就地挂载 RemoteHostsPage(连接编排仍归该弹层),
+// 关闭后刷新配置列表,新连上的机器即出现在「已连接远程机」组。
 
 import './AddWorkspaceModal.css';
 import { useEffect, useState } from 'react';
 import { useAppStore, tildify } from '../state/store';
 import { hostRegistry } from '../services/hostRegistry';
 import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
+import { RemoteHostsPage } from './settings/RemoteHostsPage';
 import type { DirEntry } from '../../shared/protocol';
 import type { RemoteHostConfig } from '../../shared/remoteHost';
 
@@ -28,6 +31,24 @@ function LocalMachineIcon() {
       <rect x="1.5" y="2.5" width="11" height="7.5" rx="1.2" />
       <line x1="5" y1="12" x2="9" y2="12" />
       <line x1="7" y1="10" x2="7" y2="12" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <line x1="7" y1="2.5" x2="7" y2="11.5" />
+      <line x1="2.5" y1="7" x2="11.5" y2="7" />
     </svg>
   );
 }
@@ -78,6 +99,7 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
   const [dirEntries, setDirEntries] = useState<DirEntry[]>([]);
   const [dirLoading, setDirLoading] = useState(false);
   const [dirError, setDirError] = useState<string | null>(null);
+  const [remoteHostsOpen, setRemoteHostsOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -89,13 +111,21 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
     };
   }, []);
 
+  // Esc 关闭;RemoteHostsPage 叠层在上时让位——同一次 Esc 只关顶层(它自带 Esc 监听),
+  // 本层 gate 在按键时刻的 remoteHostsOpen 上,不会被同一事件连带关掉。
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !remoteHostsOpen) onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, remoteHostsOpen]);
+
+  function closeRemoteHosts() {
+    setRemoteHostsOpen(false);
+    // 弹层里可能刚增/删/连了机器:刷新配置列表(连接态走 runtime store,本就是活订阅)
+    void window.termpro.remoteHost.list().then(setRemoteConfigs);
+  }
 
   const connectedHosts = remoteConfigs.filter((h) => runtimeMap[h.id]?.stage === 'ready');
   const selectedHost = remoteConfigs.find((h) => h.id === selectedHostId) ?? null;
@@ -216,9 +246,22 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
                   </div>
                 </div>
               )}
+              <div className="add-ws__host-list add-ws__host-list--add-remote">
+                <button
+                  className="add-ws__host-row add-ws__host-row--add"
+                  onClick={() => setRemoteHostsOpen(true)}
+                >
+                  <span className="add-ws__local-icon">
+                    <PlusIcon />
+                  </span>
+                  <span className="add-ws__host-alias">添加远程机</span>
+                  <span className="add-ws__host-addr">SSH 密钥或密码登录</span>
+                  <span className="add-ws__host-chevron">›</span>
+                </button>
+              </div>
               {connectedHosts.length === 0 && (
                 <div className="add-ws__hint">
-                  暂无已连接的远程机 · 先在 Sidebar 机器组或「远程机」管理页连接后再来这里选
+                  暂无已连接的远程机 · 添加并连接后即可在此选择远程目录
                 </div>
               )}
             </div>
@@ -297,6 +340,8 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
           )}
         </div>
       </div>
+      {/* 「远程机」管理弹层就地叠加(同 z-index · DOM 靠后者在上);关闭后刷新配置列表 */}
+      {remoteHostsOpen && <RemoteHostsPage onClose={closeRemoteHosts} />}
     </div>
   );
 }
