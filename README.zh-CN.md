@@ -60,6 +60,40 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个
 
 从源码运行见 [开发](#开发)。
 
+## SSH 沙箱镜像(Docker)
+
+想要一台随开随用的 SSH 主机来体验 TermPro 的远程能力,或单纯需要一个能 SSH 上去的 Node.js 环境?我们发布了现成镜像(Node.js 22 + sshd,支持 `linux/amd64` 与 `linux/arm64`):
+
+**镜像地址**:[`bdpgogoup/node-ssh`](https://hub.docker.com/r/bdpgogoup/node-ssh)
+
+```bash
+# 快速开始:用户 dev / 密码 dev123,SSH 暴露在 localhost:2222
+docker run -d --name node-ssh \
+  -e SSH_USER=dev -e SSH_PASSWORD=dev123 \
+  -p 2222:22 bdpgogoup/node-ssh
+
+ssh dev@127.0.0.1 -p 2222   # 登录后:node -v → v22.x
+```
+
+用户名、密码、端口都在 `docker run` 时用环境变量指定:
+
+| 环境变量 | 默认值 | 含义 |
+|---|---|---|
+| `SSH_USER` | `dev` | 登录用户,启动时自动创建(也支持 `root`) |
+| `SSH_PASSWORD` | 随机生成,打印在 `docker logs` | 登录密码 |
+| `SSH_PORT` | `22` | sshd 在**容器内**监听的端口 |
+| `SSH_AUTHORIZED_KEYS` | — | 公钥,写入 `~/.ssh/authorized_keys` 实现免密登录 |
+
+```bash
+# 公钥免密登录 + 自定义容器内端口
+docker run -d --name node-ssh \
+  -e SSH_USER=alice -e SSH_PORT=2222 \
+  -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" \
+  -p 2222:2222 bdpgogoup/node-ssh
+```
+
+登录用户自带免密 `sudo`,SFTP 可用。构建源码见 [`docker/node-ssh/`](docker/node-ssh/)。
+
 ## 概念模型
 
 | 概念 | 含义 | 对应 UI |
