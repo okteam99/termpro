@@ -67,12 +67,14 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个
 **镜像地址**:[`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
 
 ```bash
-# 快速开始:root 登录 / 密码 dev123,SSH 暴露在 localhost:2222
+# 快速开始:root 登录 / 密码 dev123,SSH 暴露在 localhost:2222,
+# 宿主机 ~/host-workspace 挂载到容器 /workspace(默认工作目录)
 docker run -d --name termpro-node \
   -e SSH_PASSWORD=dev123 \
+  -v ~/host-workspace:/workspace \
   -p 2222:22 bdpgogoup/termpro-node
 
-ssh root@127.0.0.1 -p 2222   # 登录后:node -v → v22.x
+ssh root@127.0.0.1 -p 2222   # 登录即在 /workspace;node -v → v22.x
 ```
 
 用户名、密码、端口都在 `docker run` 时用环境变量指定:
@@ -92,7 +94,7 @@ docker run -d --name termpro-node \
   -p 2222:2222 bdpgogoup/termpro-node
 ```
 
-SFTP 可用。构建源码见 [`docker/termpro-node/`](docker/termpro-node/)。
+SFTP 可用。默认工作目录为 `/workspace`,SSH 登录后直接落在这里,用 `-v` 把宿主机目录挂载到它即可共享文件。构建源码见 [`docker/termpro-node/`](docker/termpro-node/)。
 
 ## 概念模型
 

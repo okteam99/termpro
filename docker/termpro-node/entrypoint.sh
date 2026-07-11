@@ -32,6 +32,11 @@ echo "$SSH_USER:$SSH_PASSWORD" | chpasswd
 
 HOME_DIR="$(getent passwd "$SSH_USER" | cut -d: -f6)"
 
+# Login shells start in /workspace (see /etc/profile.d/10-termpro-workspace.sh).
+# Non-recursive chown so a mounted host volume's contents are left untouched.
+mkdir -p /workspace
+chown "$SSH_USER" /workspace 2>/dev/null || true
+
 if [ -n "${SSH_AUTHORIZED_KEYS:-}" ]; then
     mkdir -p "$HOME_DIR/.ssh"
     printf '%s\n' "$SSH_AUTHORIZED_KEYS" > "$HOME_DIR/.ssh/authorized_keys"
@@ -50,6 +55,7 @@ else
     echo "   password: (from SSH_PASSWORD env)"
 fi
 echo "   port:     $SSH_PORT (in-container; map it with -p <host>:$SSH_PORT)"
+echo "   workdir:  /workspace (login shells start here; mount with -v <host-dir>:/workspace)"
 echo "=============================================="
 
 exec /usr/sbin/sshd -D -e -p "$SSH_PORT"

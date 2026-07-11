@@ -75,12 +75,14 @@ Need a disposable SSH host to try TermPro's remote features — or just a Node.j
 **Image**: [`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
 
 ```bash
-# Quick start: root login with password dev123, SSH on localhost:2222
+# Quick start: root login with password dev123, SSH on localhost:2222,
+# host ~/host-workspace mounted at /workspace (the default working directory)
 docker run -d --name termpro-node \
   -e SSH_PASSWORD=dev123 \
+  -v ~/host-workspace:/workspace \
   -p 2222:22 bdpgogoup/termpro-node
 
-ssh root@127.0.0.1 -p 2222   # then: node -v → v22.x
+ssh root@127.0.0.1 -p 2222   # lands in /workspace; node -v → v22.x
 ```
 
 Everything is set at `docker run` time via env vars:
@@ -100,7 +102,7 @@ docker run -d --name termpro-node \
   -p 2222:2222 bdpgogoup/termpro-node
 ```
 
-SFTP is enabled. Build source: [`docker/termpro-node/`](docker/termpro-node/).
+SFTP is enabled. The default working directory is `/workspace` — login shells start there, so mount a host folder onto it with `-v` to share files. Build source: [`docker/termpro-node/`](docker/termpro-node/).
 
 ## Concepts
 
