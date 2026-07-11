@@ -31,7 +31,12 @@ describe('AC-8 buildStartCommand', () => {
     expect(cmd).toContain("sh -c '");
     expect(cmd).toContain('command -v setsid');
     expect(cmd).toContain('$s nohup env');
-    expect(cmd).toContain('< /dev/stdin');
+    // token 注入:先 t=$(cat) 同步收完 stdin 再经机内管道喂 node——
+    // 禁 `< /dev/stdin`(sh 秒退后 sshd 拆会话 stdin,晚到的 token 必丢,
+    // 高 RTT 远端 100% 复现空 token fail-closed 拒启)
+    expect(cmd).toContain('t=$(cat);');
+    expect(cmd).toContain('printf %s "$t" |');
+    expect(cmd).not.toContain('/dev/stdin');
     // sh -c 单引号体内不得再有单引号(外层登录 shell 可能是 fish/csh)
     expect(cmd.slice(cmd.indexOf("sh -c '") + 7, -1)).not.toContain("'");
     // A6:远端 Origin 白名单经 env 注入(host.ts 已实现按逗号分隔解析)

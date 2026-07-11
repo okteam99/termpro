@@ -38,6 +38,7 @@ interface Harness {
 function makeHarness(opts: {
   connectSshImpl?: (o: unknown) => Promise<RoutedSsh>;
   probeImpl?: (localPort: number, token: string) => Promise<{ ok: boolean; compatible?: boolean; detail?: string }>;
+  startTimeoutMs?: number;
 } = {}): Harness {
   const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
   const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage() });
@@ -56,6 +57,7 @@ function makeHarness(opts: {
     appVersion: '1.0.0',
     probeHostInfo: probe as never,
     sleep: async () => undefined,
+    ...(opts.startTimeoutMs !== undefined ? { startTimeoutMs: opts.startTimeoutMs } : {}),
   });
   orchestrator.onEvent((e) => events.push(e));
   return { orchestrator, configStore, credentials, events, probe, connectSsh };
@@ -483,6 +485,52 @@ describe('AC-6 版本不兼容 → failed·incompatible + 断开(main 前移探�
     const forwardResults = (routed.forwardOut as ReturnType<typeof vi.fn>).mock.results;
     const lastServer = forwardResults.at(-1)?.value as unknown as { closed: boolean };
     expect(lastServer.closed).toBe(true);
+  });
+});
+
+describe('startFailed·port 文件超时 → detail 拼入远端 host.log 尾部', () => {
+  it('host 启动即崩(端口文件永不出现)时,failed 事件 detail 携带 host.log 崩因', async () => {
+    // 真实案例:token 经 `后台进程 < /dev/stdin &` 注入在高 RTT 远端必丢,
+    // host fail-closed 拒启,崩因只落在 host.log —— UI 必须能看到它。
+    const ssh = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      sftpReadFile: (p) => {
+        if (p.endsWith('host.log')) {
+          return Buffer.from(
+            '[host] refusing empty token from --token-stdin: blank/whitespace-only token\n',
+            'utf8',
+          );
+        }
+        return null; // .ready 缺 → 走部署;host.port 永不出现 → 超时
+      },
+    });
+    const h = makeHarness({ connectSshImpl: async () => ssh, startTimeoutMs: 0 });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    const failEvent = h.events.at(-1);
+    expect(failEvent?.stage).toBe('failed');
+    expect(failEvent?.reason).toBe('startFailed');
+    expect(failEvent?.detail).toContain('port file did not appear before timeout');
+    expect(failEvent?.detail).toContain('refusing empty token');
+    expect(ssh.close).toHaveBeenCalled();
+  });
+
+  it('host.log 也不存在(sftp 读回 null)时,detail 维持超时主因,不额外拼接', async () => {
+    const ssh = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      sftpReadFile: () => null,
+    });
+    const h = makeHarness({ connectSshImpl: async () => ssh, startTimeoutMs: 0 });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    const failEvent = h.events.at(-1);
+    expect(failEvent?.stage).toBe('failed');
+    expect(failEvent?.reason).toBe('startFailed');
+    expect(failEvent?.detail).toBe('port file did not appear before timeout');
   });
 });
 

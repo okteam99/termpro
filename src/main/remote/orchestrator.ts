@@ -179,6 +179,12 @@ function buildAuth(config: RemoteHostConfig, credentials: CredentialStore): SshA
  * 时 `$s`/POSIX 语法也不会被错误解释。
  * 🔴 node 用 nodeProbe 解析出的【绝对路径】(非交互 PATH 常无 node,见
  * NODE_PROBE_COMMAND 注释);双引号/换行剥除防拼接破界。
+ * 🔴 token 注入不可用 `后台进程 < /dev/stdin &`:sh 秒退后 sshd 随即拆会话
+ *  stdin,经 SSH channel 晚到(甚至已缓冲)的 token 数据不会进入已后台化进程
+ * ——远端 macOS sshd 实测必丢,host 读到空 token fail-closed 拒启(表现为
+ * 「port file did not appear before timeout」)。必须先 `t=$(cat)` 同步收完
+ *  stdin(阻塞到 execDetached half-close 的 EOF,保证 token 已落地),再经
+ *  机内管道喂给 node。printf 为 POSIX sh 内建,token 不上 argv(ps 不可见)。
  */
 export function buildStartCommand(opts: {
   dataDir: string;
@@ -194,11 +200,11 @@ export function buildStartCommand(opts: {
   const allowedOrigins = opts.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
   const nodeBin = (opts.nodePath ?? 'node').replace(/["'\r\n]/g, '');
   return (
-    `sh -c 's=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
-    `$s nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
+    `sh -c 't=$(cat); s=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
+    `printf %s "$t" | $s nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
     `TERMPRO_HOST_PORT_FILE="${portFile}" TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
     `"${nodeBin}" "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${opts.configId}" ` +
-    `> "${logFile}" 2>&1 < /dev/stdin &'`
+    `> "${logFile}" 2>&1 &'`
   );
 }
 
@@ -635,7 +641,23 @@ export class RemoteHostOrchestrator {
         sleep,
       );
       if (!portRaw) {
-        this.failSession(configId, 'startFailed', 'port file did not appear before timeout');
+        // 超时主因之外,把远端 host.log 尾部拼进 detail(host 启动即崩时,崩因只落
+        // 在这份被启动命令重定向的日志里,不捞回来 UI 只剩一句自说自话的 timeout)。
+        let detail = 'port file did not appear before timeout';
+        try {
+          const log = await ssh.sftpReadFile(`${hostDir}/host.log`);
+          const tail = log
+            ?.toString('utf8')
+            .trim()
+            .split('\n')
+            .slice(-3)
+            .join(' | ')
+            .slice(-400);
+          if (tail) detail += ` · host.log: ${tail}`;
+        } catch {
+          /* 日志读取失败不掩盖超时主因 */
+        }
+        this.failSession(configId, 'startFailed', detail);
         ssh.close();
         return;
       }
