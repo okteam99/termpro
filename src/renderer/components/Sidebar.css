@@ -652,16 +652,27 @@
   background: var(--bg-active);
 }
 
-/* 会话活动徽标:UI 断开期间会话仍在 Host 上活着 */
+/* 会话活动徽标:UI 断开期间会话仍在 Host 上活着。图标 + 数字,无外框 */
 .sidebar-machine-sessions {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 10px;
   color: var(--green);
-  border: 1px solid rgba(152, 195, 121, 0.35);
-  border-radius: 8px;
-  padding: 0 5px;
   opacity: 0.85;
   white-space: nowrap;
+}
+
+/* 徽标内单项(图标+数字一体) */
+.sidebar-badge-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.sidebar-badge-stat svg {
+  flex: none;
 }
 
 /* 徽章位于名称行(第一行)时右对齐 */
@@ -713,7 +724,6 @@
 /* 会话徽标 = 0(D-9 首连远程机可为 0):去掉绿色强调,与「有活跃标签」的徽标视觉区分 */
 .sidebar-machine-sessions--zero {
   color: var(--fg-dim);
-  border-color: var(--border);
   opacity: 0.7;
 }
 

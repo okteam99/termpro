@@ -41,6 +41,7 @@ export interface TabBadge {
 /**
  * 会话徽标(AC-2/D-9):本客户端在该 workspace 的活跃 tab 数,首连远程机可为 0。
  * 🔴 必须显式处理 0 —— `{tabCount && ...}` 会把 0 当 falsy 吞掉,违反「0 也要可见」的设计决策。
+ * 视觉呈现已改图标 + 数字(SessionBadge);本函数产出的文本降级为 tooltip/aria-label。
  */
 export function formatTabBadge(ws: TabBadgeInput): TabBadge {
   const running = ws.tabRunning ?? 0;
@@ -51,6 +52,63 @@ export function formatTabBadge(ws: TabBadgeInput): TabBadge {
         ? t('{count} session · {running} running', { count: ws.tabCount, running })
         : t('{count} session', { count: ws.tabCount });
   return { text, zero: ws.tabCount === 0 };
+}
+
+/** 会话计数图标:小终端窗(>_) */
+function SessionsGlyph() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="1" y="1.5" width="10" height="9" rx="1.5" />
+      <path d="M3.2 4.5 L5.2 6 L3.2 7.5" />
+      <line x1="6.4" y1="8" x2="8.6" y2="8" />
+    </svg>
+  );
+}
+
+/** running 计数图标:实心播放三角 */
+function RunningGlyph() {
+  return (
+    <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+      <path d="M3.5 2.2 L10 6 L3.5 9.8 Z" />
+    </svg>
+  );
+}
+
+/**
+ * 会话徽标(图标形态):终端图标+session 数,有 running 再补 播放图标+running 数。
+ * 无外框;语义文本(formatTabBadge)保留在 title/aria-label 上。0 会话仍显式渲染(灰态)。
+ */
+export function SessionBadge({ ws }: { ws: TabBadgeInput }) {
+  const badge = formatTabBadge(ws);
+  const running = ws.tabRunning ?? 0;
+  return (
+    <span
+      className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}
+      title={badge.text}
+      aria-label={badge.text}
+    >
+      <span className="sidebar-badge-stat">
+        <SessionsGlyph />
+        {ws.tabCount}
+      </span>
+      {running > 0 && (
+        <span className="sidebar-badge-stat">
+          <RunningGlyph />
+          {running}
+        </span>
+      )}
+    </span>
+  );
 }
 
 export interface MachineWorkspaceRowData extends TabBadgeInput {
@@ -73,7 +131,6 @@ export interface MachineWorkspaceRowProps {
 }
 
 export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: MachineWorkspaceRowProps) {
-  const badge = formatTabBadge(ws);
   const classes = [
     'sidebar-item',
     ws.active ? 'sidebar-item--active' : '',
@@ -107,11 +164,7 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: Machine
         {ws.disconnectedPanel && (
           <span className="sidebar-item-lost-tag">{t('Disconnected')}</span>
         )}
-        <span
-          className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}
-        >
-          {badge.text}
-        </span>
+        <SessionBadge ws={ws} />
       </div>
       <div className="sidebar-item-meta">
         <span className="sidebar-remote-meta-text">{ws.meta}</span>

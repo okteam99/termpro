@@ -20,7 +20,7 @@ import { AddWorkspaceModal } from './AddWorkspaceModal';
 import { LocalMachineIcon, MachineGroup, type MachineInfo } from './MachineGroup';
 import {
   PencilIcon,
-  formatTabBadge,
+  SessionBadge,
   type MachineWorkspaceRowData,
 } from './MachineWorkspaceRow';
 
@@ -610,7 +610,6 @@ export function Sidebar() {
                 {machine.workspaces.map((row, idx) => {
                   const ws = localWorkspaces[idx];
                   const isDragging = ws.id === draggingId;
-                  const badge = formatTabBadge(row);
                   return (
                     <div
                       key={ws.id}
@@ -631,11 +630,7 @@ export function Sidebar() {
                         >
                           <PencilIcon />
                         </button>
-                        <span
-                          className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}
-                        >
-                          {badge.text}
-                        </span>
+                        <SessionBadge ws={row} />
                       </div>
                       <span className="sidebar-item-meta">{row.meta}</span>
                       <button

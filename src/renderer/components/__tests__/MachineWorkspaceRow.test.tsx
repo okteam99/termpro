@@ -57,14 +57,23 @@ describe('formatTabBadge(BL004-U-badge-zero / BL004-U-badge-semantic)', () => {
 describe('<MachineWorkspaceRow>', () => {
   it('tabCount=0 渲染 .sidebar-machine-sessions--zero 修饰符(灰态非隐藏)', () => {
     render(<MachineWorkspaceRow ws={row({ tabCount: 0 })} />);
-    const badge = screen.getByText('0 session');
+    // 图标形态:语义文本在 aria-label/title 上,数字为可见文本
+    const badge = screen.getByLabelText('0 session');
     expect(badge).toHaveClass('sidebar-machine-sessions--zero');
+    expect(badge).toHaveTextContent('0');
   });
 
-  it('tabCount>0 不带 zero 修饰符', () => {
+  it('tabCount>0 不带 zero 修饰符;running>0 补第二个计数', () => {
     render(<MachineWorkspaceRow ws={row({ tabCount: 2, tabRunning: 1 })} />);
-    const badge = screen.getByText('2 session · 1 running');
+    const badge = screen.getByLabelText('2 session · 1 running');
     expect(badge).not.toHaveClass('sidebar-machine-sessions--zero');
+    expect(badge.querySelectorAll('.sidebar-badge-stat')).toHaveLength(2);
+  });
+
+  it('running=0 只渲染 session 计数一项(不显 0 running)', () => {
+    render(<MachineWorkspaceRow ws={row({ tabCount: 2, tabRunning: 0 })} />);
+    const badge = screen.getByLabelText('2 session');
+    expect(badge.querySelectorAll('.sidebar-badge-stat')).toHaveLength(1);
   });
 
   it('active=true → sidebar-item--active', () => {

@@ -198,7 +198,8 @@ describe('AC-2 · 连接后展开 workspace + 会话徽标(含 0)', () => {
     });
 
     expect(await screen.findByText('aon-edge')).toBeInTheDocument();
-    const badge = screen.getByText('0 session');
+    // 图标形态徽标:语义文本在 aria-label/title 上
+    const badge = screen.getByLabelText('0 session');
     expect(badge).toHaveClass('sidebar-machine-sessions--zero');
   });
 });
