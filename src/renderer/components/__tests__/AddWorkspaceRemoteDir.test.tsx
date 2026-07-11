@@ -92,11 +92,11 @@ describe('AC-3 · 远程目录浏览器加载态', () => {
     render(<AddWorkspaceModal onClose={vi.fn()} />);
     fireEvent.click(await screen.findByText('mini-pc'));
 
-    expect(await screen.findByText('正在读取目录…')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /上创建项目/ })).toBeDisabled();
+    expect(await screen.findByText('Reading directory…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Create project on/ })).toBeDisabled();
 
     resolveReaddir({ entries: [] });
-    await waitFor(() => expect(screen.getByText('(空目录)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('(empty directory)')).toBeInTheDocument());
   });
 });
 
@@ -107,7 +107,7 @@ describe('AC-3 · 远程空目录态', () => {
     render(<AddWorkspaceModal onClose={vi.fn()} />);
     fireEvent.click(await screen.findByText('mini-pc'));
 
-    expect(await screen.findByText('(空目录)')).toBeInTheDocument();
+    expect(await screen.findByText('(empty directory)')).toBeInTheDocument();
     expect(screen.queryByText(/EACCES/)).not.toBeInTheDocument();
   });
 });
@@ -122,9 +122,9 @@ describe('AC-3 · 远程目录 EACCES 错误态', () => {
     fireEvent.click(await screen.findByText('mini-pc'));
 
     expect(await screen.findByText(/EACCES/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
-    expect(screen.queryByText('(空目录)')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /上创建项目/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText('(empty directory)')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Create project on/ })).toBeDisabled();
   });
 });
 
@@ -142,10 +142,10 @@ describe('新建目录 · 远程机浏览器内联创建', () => {
 
     render(<AddWorkspaceModal onClose={vi.fn()} />);
     fireEvent.click(await screen.findByText('mini-pc'));
-    await screen.findByText('(空目录)');
+    await screen.findByText('(empty directory)');
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 新建目录' }));
-    const input = screen.getByPlaceholderText('新目录名');
+    fireEvent.click(screen.getByRole('button', { name: '+ New folder' }));
+    const input = screen.getByPlaceholderText('New directory name');
     fireEvent.change(input, { target: { value: 'proj' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
@@ -154,7 +154,7 @@ describe('新建目录 · 远程机浏览器内联创建', () => {
     );
     // 创建后自动导航进新目录(底部路径即新目录,可直接创建项目)
     await waitFor(() => expect(readdirPaths).toContain('/home/liam/proj'));
-    expect(screen.queryByPlaceholderText('新目录名')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('New directory name')).not.toBeInTheDocument();
   });
 
   it('fs.mkdir reject → 内联错误文案,编辑器保持打开,不导航', async () => {
@@ -168,15 +168,15 @@ describe('新建目录 · 远程机浏览器内联创建', () => {
 
     render(<AddWorkspaceModal onClose={vi.fn()} />);
     fireEvent.click(await screen.findByText('mini-pc'));
-    await screen.findByText('(空目录)');
+    await screen.findByText('(empty directory)');
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 新建目录' }));
-    const input = screen.getByPlaceholderText('新目录名');
+    fireEvent.click(screen.getByRole('button', { name: '+ New folder' }));
+    const input = screen.getByPlaceholderText('New directory name');
     fireEvent.change(input, { target: { value: 'proj' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(await screen.findByText(/EEXIST/)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('新目录名')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('New directory name')).toBeInTheDocument();
     // 仍停在原目录(fs.readdir 只有进入时那一次)
     const readdirCalls = remoteClient.rpc.mock.calls.filter(([m]) => m === 'fs.readdir');
     expect(readdirCalls).toHaveLength(1);
@@ -196,9 +196,9 @@ describe('AC-4 · 确认创建落该远程机组', () => {
     const onClose = vi.fn();
     render(<AddWorkspaceModal onClose={onClose} />);
     fireEvent.click(await screen.findByText('mini-pc'));
-    await screen.findByText('(空目录)');
+    await screen.findByText('(empty directory)');
 
-    fireEvent.click(screen.getByRole('button', { name: /上创建项目/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Create project on/ }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(remoteClient.rpc).toHaveBeenCalledWith(

@@ -5,6 +5,7 @@ import { hostClient } from '../../services/hostClient';
 import type { Monaco } from '../../monaco/setup';
 import type * as monacoNs from 'monaco-editor';
 import type { GitStatusEntry, GitFileStatus } from '../../../shared/protocol';
+import { t } from '../../../shared/i18n';
 
 interface Props {
   toplevel: string;
@@ -177,7 +178,7 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
           if (sideEpochRef.current !== epoch) return;
         }
         if (!monacoRef.current || !diffEditorRef.current) {
-          setSideState({ phase: 'error', message: 'Monaco 加载失败' });
+          setSideState({ phase: 'error', message: t('Monaco failed to load') });
           return;
         }
       }
@@ -203,9 +204,11 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
               .rpc('fs.readFile', { path: joinPath(toplevel, entry.path) })
               .then((r) => {
                 if (r.content === null) {
-                  if (r.binary) throw new Error('二进制文件,无法预览');
+                  if (r.binary) throw new Error(t('Binary file, cannot preview'));
                   throw new Error(
-                    `文件过大(${(r.size / 1024 / 1024).toFixed(1)} MB > 2MB)`,
+                    t('File too large ({size} MB > 2MB)', {
+                      size: (r.size / 1024 / 1024).toFixed(1),
+                    }),
                   );
                 }
                 return { content: r.content };
@@ -217,7 +220,12 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
       if (origResult.status === 'rejected') {
         setSideState({
           phase: 'error',
-          message: `原始内容加载失败:${origResult.reason instanceof Error ? origResult.reason.message : String(origResult.reason)}`,
+          message: t('Failed to load original content: {error}', {
+            error:
+              origResult.reason instanceof Error
+                ? origResult.reason.message
+                : String(origResult.reason),
+          }),
         });
         return;
       }
@@ -271,7 +279,7 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
 
   const modeLabel = baseRef
     ? `vs ${baseRef}(merge-base)`
-    : '未提交变更(vs HEAD)';
+    : t('Uncommitted changes(vs HEAD)');
 
   return (
     <div className="diff-layout">
@@ -283,7 +291,7 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
           <button
             className="diff-files__reload"
             onClick={handleReload}
-            title="重新加载变更列表"
+            title={t('Reload changed files list')}
           >
             ⟳
           </button>
@@ -291,13 +299,13 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
 
         {/* List body */}
         {listPhase === 'loading' && (
-          <div className="diff-files__message">加载中…</div>
+          <div className="diff-files__message">{t('Loading…')}</div>
         )}
         {listPhase === 'error' && (
           <div className="diff-files__message diff-files__message--error">{listError}</div>
         )}
         {listPhase === 'ready' && entries.length === 0 && (
-          <div className="diff-files__message">无变更</div>
+          <div className="diff-files__message">{t('No changes')}</div>
         )}
         {listPhase === 'ready' && entries.map((entry) => (
           <div
@@ -320,11 +328,11 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
         {(sideState.phase !== 'idle' || (listPhase === 'ready' && entries.length === 0)) && (
           <div className="viewer-message">
             {sideState.phase === 'loading'
-              ? '加载中…'
+              ? t('Loading…')
               : sideState.phase === 'error'
               ? sideState.message
               : listPhase === 'ready' && entries.length === 0
-              ? '无变更'
+              ? t('No changes')
               : null}
           </div>
         )}

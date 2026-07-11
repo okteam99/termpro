@@ -14,6 +14,7 @@ import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
 import { RemoteHostsPage } from './settings/RemoteHostsPage';
 import type { DirEntry } from '../../shared/protocol';
 import type { RemoteHostConfig } from '../../shared/remoteHost';
+import { t } from '../../shared/i18n';
 
 function LocalMachineIcon() {
   return (
@@ -151,7 +152,7 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
     if (!client) {
       // E8 同型:目录浏览期间目标机断开——不静默,呈现错误态(不兜底本机浏览远程路径)
       setDirLoading(false);
-      setDirError('目标机器已断开');
+      setDirError(t('Target host is disconnected'));
       return;
     }
     setDirLoading(true);
@@ -202,12 +203,12 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
     const name = newDirName.trim();
     if (!name || !selectedHostId || newDirBusy) return;
     if (name === '.' || name === '..' || name.includes('/')) {
-      setNewDirError('目录名不能是 . / .. 或包含 /');
+      setNewDirError(t('Directory name cannot be . / .. or contain /'));
       return;
     }
     const client = hostRegistry.forHostId(selectedHostId);
     if (!client) {
-      setNewDirError('目标机器已断开');
+      setNewDirError(t('Target host is disconnected'));
       return;
     }
     setNewDirBusy(true);
@@ -240,10 +241,12 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
       <div className="add-ws__card" onMouseDown={(e) => e.stopPropagation()}>
         <div className="add-ws__header">
           <div>
-            <div className="add-ws__title">添加项目</div>
-            <div className="add-ws__subtitle">项目注册在所选机器上 · 任何设备连接后可见</div>
+            <div className="add-ws__title">{t('Add Project')}</div>
+            <div className="add-ws__subtitle">
+              {t('Project registers on the selected host · visible after any device connects')}
+            </div>
           </div>
-          <button className="add-ws__close" onClick={onClose} title="关闭">
+          <button className="add-ws__close" onClick={onClose} title={t('Close')}>
             ×
           </button>
         </div>
@@ -260,14 +263,16 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
                   <span className="add-ws__local-icon">
                     <LocalMachineIcon />
                   </span>
-                  <span className="add-ws__host-alias">本机</span>
-                  <span className="add-ws__host-addr">{window.termpro.platform} · 本地目录</span>
+                  <span className="add-ws__host-alias">{t('Local')}</span>
+                  <span className="add-ws__host-addr">
+                    {t('{platform} · Local directory', { platform: window.termpro.platform })}
+                  </span>
                   <span className="add-ws__host-chevron">›</span>
                 </button>
               </div>
               {connectedHosts.length > 0 && (
                 <div className="add-ws__host-group">
-                  <div className="add-ws__host-group-title">已连接远程机</div>
+                  <div className="add-ws__host-group-title">{t('Connected remote hosts')}</div>
                   <div className="add-ws__host-list">
                     {connectedHosts.map((h) => (
                       <button
@@ -294,14 +299,16 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
                   <span className="add-ws__local-icon">
                     <PlusIcon />
                   </span>
-                  <span className="add-ws__host-alias">添加远程机</span>
-                  <span className="add-ws__host-addr">SSH 密钥或密码登录</span>
+                  <span className="add-ws__host-alias">{t('Add remote host')}</span>
+                  <span className="add-ws__host-addr">{t('SSH key or password login')}</span>
                   <span className="add-ws__host-chevron">›</span>
                 </button>
               </div>
               {connectedHosts.length === 0 && (
                 <div className="add-ws__hint">
-                  暂无已连接的远程机 · 添加并连接后即可在此选择远程目录
+                  {t(
+                    'No connected remote hosts yet · Add and connect one to pick a remote directory here',
+                  )}
                 </div>
               )}
             </div>
@@ -311,7 +318,7 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
             <div className="add-ws__panel">
               <div className="add-ws__dirhead">
                 <button className="add-ws__back" onClick={backToPick}>
-                  ‹ 返回
+                  {t('‹ Back')}
                 </button>
                 <span className="add-ws__machine-chip add-ws__machine-chip--connected">
                   <span className="add-ws__machine-dot" />
@@ -331,18 +338,18 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
               {dirLoading ? (
                 <div className="add-ws__dirlist add-ws__dirlist--loading">
                   <span className="add-ws__spinner add-ws__spinner--sm" />
-                  <span>正在读取目录…</span>
+                  <span>{t('Reading directory…')}</span>
                 </div>
               ) : dirError ? (
                 <div className="add-ws__dir-error">
                   <div className="add-ws__dir-error-text">{dirError}</div>
                   <button className="add-ws__btn" onClick={() => void loadDir(selectedHost.id, currentPath)}>
-                    重试
+                    {t('Retry')}
                   </button>
                 </div>
               ) : (
                 <div className="add-ws__dirlist">
-                  {dirEntries.length === 0 && <div className="add-ws__dir-empty">(空目录)</div>}
+                  {dirEntries.length === 0 && <div className="add-ws__dir-empty">{t('(empty directory)')}</div>}
                   {dirEntries.map((entry) => (
                     <div
                       key={entry.name}
@@ -369,7 +376,7 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
                   <div className="add-ws__newdir">
                     <input
                       className="add-ws__newdir-input"
-                      placeholder="新目录名"
+                      placeholder={t('New directory name')}
                       value={newDirName}
                       autoFocus
                       disabled={newDirBusy}
@@ -391,7 +398,7 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
                       onClick={() => void handleMkdir()}
                       disabled={newDirBusy || !newDirName.trim()}
                     >
-                      {newDirBusy ? '创建中…' : '创建'}
+                      {newDirBusy ? t('Creating…') : t('Create')}
                     </button>
                     <button className="add-ws__btn" onClick={resetNewDir} disabled={newDirBusy}>
                       ✕
@@ -403,20 +410,20 @@ export function AddWorkspaceModal({ onClose }: AddWorkspaceModalProps) {
                     className="add-ws__btn add-ws__btn--newdir"
                     onClick={() => setNewDirOpen(true)}
                     disabled={dirLoading || !!dirError}
-                    title="在当前目录下新建文件夹"
+                    title={t('Create a new folder in the current directory')}
                   >
-                    + 新建目录
+                    {t('+ New folder')}
                   </button>
                 )}
                 <button className="add-ws__btn" onClick={onClose}>
-                  取消
+                  {t('Cancel')}
                 </button>
                 <button
                   className="add-ws__btn add-ws__btn--primary"
                   onClick={() => void handleCreate()}
                   disabled={dirLoading || !!dirError || creatingWorkspace}
                 >
-                  在 {selectedHost.alias} 上创建项目
+                  {t('Create project on {alias}', { alias: selectedHost.alias })}
                 </button>
               </div>
             </div>

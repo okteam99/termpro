@@ -12,6 +12,7 @@ import { hostRegistry } from '../services/hostRegistry';
 import { runMigration } from './workspaceMigration';
 import type { MigrationOutcome } from './workspaceMigration';
 import type { WorkspaceEntry } from '../../shared/protocol';
+import { t } from '../../shared/i18n';
 
 const PERSIST_DEBOUNCE_MS = 300;
 // 注册表读失败后的有限重试(读失败 ≠ 注册表真空,见 hydrateFromHost)
@@ -58,7 +59,7 @@ async function hydrateFromHost(): Promise<void> {
   if (outcome.mode === 'v2' && registry === null) {
     useAppStore
       .getState()
-      .setTransientNotice('无法读取 Workspace 注册表,正在重试…');
+      .setTransientNotice(t('Failed to read the workspace registry, retrying…'));
     scheduleRegistryRetry();
     return;
   }
@@ -86,7 +87,9 @@ function finishHydrate(registry: WorkspaceEntry[], outcome: MigrationOutcome): v
     .getState()
     .setTransientNotice(
       outcome.prompt
-        ? 'Workspace 迁移暂未完成,已继续以本地存档运行(将自动重试)'
+        ? t(
+            'Workspace migration is not yet complete — continuing with the local archive (will retry automatically)',
+          )
         : null,
     );
 

@@ -153,8 +153,8 @@ describe('test_AC1_settings_list_live_update', () => {
   it('adding a host via the form updates the manual list in place', async () => {
     const { bridge } = await renderPage([]);
 
-    expect(screen.getByText('还没有远程机 · 点击下方添加')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('添加远程机'));
+    expect(screen.getByText('No remote hosts yet · Click below to add one')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Add remote host'));
 
     fireEvent.change(screen.getByPlaceholderText('alias'), {
       target: { value: 'gpu-box' },
@@ -168,11 +168,11 @@ describe('test_AC1_settings_list_live_update', () => {
     fireEvent.change(screen.getByPlaceholderText('22'), {
       target: { value: '2222' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '密码' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Password' }));
     const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement;
     fireEvent.change(passwordInput, { target: { value: 'secret123' } });
 
-    fireEvent.click(screen.getByText('保存'));
+    fireEvent.click(screen.getByText('Save'));
 
     await waitFor(() => expect(bridge.save).toHaveBeenCalledTimes(1));
     const payload = bridge.save.mock.calls[0][0];
@@ -187,7 +187,7 @@ describe('test_AC1_settings_list_live_update', () => {
 
     // 保存后:表单收起,列表(不重开弹层)直接反映新主机
     await waitFor(() => expect(screen.getByText('gpu-box')).toBeInTheDocument());
-    expect(screen.queryByText('还没有远程机 · 点击下方添加')).toBeNull();
+    expect(screen.queryByText('No remote hosts yet · Click below to add one')).toBeNull();
     expect(bridge.list).toHaveBeenCalledTimes(2); // 挂载一次 + save 后刷新一次
   });
 
@@ -195,8 +195,8 @@ describe('test_AC1_settings_list_live_update', () => {
     const config = makeConfig({ id: 'cfg-1', alias: 'mini-pc', authType: 'password', hasPassword: true });
     const { bridge } = await renderPage([config]);
 
-    fireEvent.click(screen.getByText('编辑'));
-    fireEvent.click(screen.getByText('保存'));
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.click(screen.getByText('Save'));
 
     await waitFor(() => expect(bridge.save).toHaveBeenCalledTimes(1));
     const payload = bridge.save.mock.calls[0][0];
@@ -215,13 +215,13 @@ describe('test_AC7_recent_area_one_click_connect', () => {
     const notRecent = makeConfig({ id: 'dev-server', alias: 'dev-server' });
     const { bridge, container } = await renderPage([recent, notRecent]);
 
-    expect(screen.getByText('最近使用')).toBeInTheDocument();
+    expect(screen.getByText('Recently used')).toBeInTheDocument();
     const sections = container.querySelectorAll('.remote-hosts__section');
     const recentSection = sections[0];
     const recentButtons = within(recentSection as HTMLElement).getAllByRole('button');
     // 紧凑模式:只保留主操作,无测试连接/编辑/删除
     expect(recentButtons).toHaveLength(1);
-    expect(recentButtons[0]).toHaveTextContent('连接');
+    expect(recentButtons[0]).toHaveTextContent('Connect');
 
     fireEvent.click(recentButtons[0]);
     expect(bridge.connect).toHaveBeenCalledWith({ id: 'mini-pc' });
@@ -230,7 +230,7 @@ describe('test_AC7_recent_area_one_click_connect', () => {
   it('hosts without lastUsed are excluded from the recent section', async () => {
     const notRecent = makeConfig({ id: 'dev-server', alias: 'dev-server' });
     await renderPage([notRecent]);
-    expect(screen.queryByText('最近使用')).toBeNull();
+    expect(screen.queryByText('Recently used')).toBeNull();
   });
 
   // --- Q3(code review medium):此前只测单按钮/一键连接/排除规则,未断言多条最近项的
@@ -262,9 +262,9 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     emit({ configId: 'gpu-box', stage: 'deploying', percent: 25, arch: 'darwin-arm64' });
 
     await waitFor(() =>
-      expect(screen.getByText('已探测远端架构 · darwin-arm64')).toBeInTheDocument(),
+      expect(screen.getByText('Detected remote arch · darwin-arm64')).toBeInTheDocument(),
     );
-    expect(screen.getByText('上传 bundle')).toBeInTheDocument();
+    expect(screen.getByText('Upload bundle')).toBeInTheDocument();
     const percentEl = container.querySelector('.remote-hosts__progress-percent');
     expect(percentEl?.textContent?.trim()).toBe('25%');
   });
@@ -280,9 +280,9 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByText('发现已运行的 host 进程 · 认领中…')).toBeInTheDocument(),
+      expect(screen.getByText('Found a running host process · Claiming…')).toBeInTheDocument(),
     );
-    expect(screen.queryByText('上传 bundle')).toBeNull();
+    expect(screen.queryByText('Upload bundle')).toBeNull();
   });
 
   it('drives verifying → ready through hostRegistry handshake (AC-6 · main 前移探测后的版本二次确认)', async () => {
@@ -315,7 +315,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     expect(fakeRemoteClient.reconnect).toHaveBeenCalledWith({
       wsUrl: 'ws://127.0.0.1:4321?token=tok-1',
     });
-    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
   });
 
   // --- A3(code review MAJOR):main 可能在同一同步栈背靠背 emit verifying 紧跟 ready
@@ -376,14 +376,14 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     const config = makeConfig({ id: 'mini-pc' });
     const { bridge, emit } = await renderPage([config]);
     emit({ configId: 'mini-pc', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('断开'));
+    fireEvent.click(screen.getByText('Disconnect'));
 
     expect(bridge.disconnect).toHaveBeenCalledWith({ id: 'mini-pc' });
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('mini-pc');
-    await waitFor(() => expect(screen.queryByText('✓ 已连接')).toBeNull());
-    expect(screen.getByText('连接')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('✓ Connected')).toBeNull());
+    expect(screen.getByText('Connect')).toBeInTheDocument();
   });
 
   // --- E6(code review MINOR):disconnect 后,main 侧编排可能仍有残余事件在管道里排队
@@ -397,12 +397,12 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     const { emit } = await renderPage([config]);
 
     emit({ configId: 'gpu-box', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('断开'));
+    fireEvent.click(screen.getByText('Disconnect'));
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('gpu-box');
-    await waitFor(() => expect(screen.queryByText('✓ 已连接')).toBeNull());
-    expect(screen.getByText('连接')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('✓ Connected')).toBeNull());
+    expect(screen.getByText('Connect')).toBeInTheDocument();
 
     // 断开之后,残余的在途编排事件才抵达(排队延迟 / 时序竞态):deploying → verifying{tunnel} → ready
     vi.clearAllMocks();
@@ -418,8 +418,8 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     // 既不重新握手,也不把 UI 复活到 ready —— 行仍是 idle「连接」态
     expect(hostRegistryMock.getOrCreateRemote).not.toHaveBeenCalled();
     expect(fakeRemoteClient.reconnect).not.toHaveBeenCalled();
-    expect(screen.queryByText('✓ 已连接')).toBeNull();
-    expect(screen.getByText('连接')).toBeInTheDocument();
+    expect(screen.queryByText('✓ Connected')).toBeNull();
+    expect(screen.getByText('Connect')).toBeInTheDocument();
   });
 
   it('reconnecting after a disconnect clears the abandoned mark (verifying handshakes again)', async () => {
@@ -427,12 +427,12 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     const { bridge, emit } = await renderPage([config]);
 
     emit({ configId: 'gpu-box', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('断开'));
-    await waitFor(() => expect(screen.getByText('连接')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Disconnect'));
+    await waitFor(() => expect(screen.getByText('Connect')).toBeInTheDocument());
 
     // 用户重新点「连接」→ 应解除"已弃"标记,后续 verifying 恢复正常握手
-    fireEvent.click(screen.getByText('连接'));
+    fireEvent.click(screen.getByText('Connect'));
     expect(bridge.connect).toHaveBeenCalledWith({ id: 'gpu-box' });
 
     const info: HostInfo = {
@@ -456,7 +456,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       'gpu-box',
       'ws://127.0.0.1:4321?token=fresh-tok',
     );
-    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
   });
 });
 
@@ -471,7 +471,7 @@ describe('failure_classification_and_retry', () => {
     await waitFor(() => expect(screen.getByText('✗ 认证失败')).toBeInTheDocument());
     expect(screen.getByText(/Permission denied/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('重试'));
+    fireEvent.click(screen.getByText('Retry'));
     expect(bridge.connect).toHaveBeenCalledWith({ id: 'vps-hk' });
   });
 
@@ -481,8 +481,8 @@ describe('failure_classification_and_retry', () => {
 
     emit({ configId: 'mini-pc', stage: 'disconnected' });
 
-    await waitFor(() => expect(screen.getByText('⚠ 连接已断开')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('重连'));
+    await waitFor(() => expect(screen.getByText('⚠ Connection lost')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Reconnect'));
     expect(bridge.connect).toHaveBeenCalledWith({ id: 'mini-pc' });
   });
 
@@ -490,7 +490,7 @@ describe('failure_classification_and_retry', () => {
     const config = makeConfig({ id: 'gpu-box' });
     const { emit, container } = await renderPage([config]);
     emit({ configId: 'gpu-box', stage: 'connecting' });
-    await waitFor(() => expect(screen.getByText('连接中…')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Connecting…')).toBeInTheDocument());
     const row = container.querySelector('.remote-hosts__row') as HTMLElement;
     expect(within(row).queryAllByRole('button')).toHaveLength(0);
   });
@@ -506,11 +506,11 @@ describe('test_connection_badge_states', () => {
       () => new Promise<TestResult>((resolve) => (resolveTest = resolve)),
     );
 
-    fireEvent.click(screen.getByText('测试连接'));
-    expect(screen.getByText('测试连接中…')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Test connection'));
+    expect(screen.getByText('Testing connection…')).toBeInTheDocument();
 
     resolveTest({ ok: true });
-    await waitFor(() => expect(screen.getByText('✓ 已连通')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✓ Reachable')).toBeInTheDocument());
   });
 
   it('idle test button shows pending → fail with classified reason', async () => {
@@ -518,7 +518,7 @@ describe('test_connection_badge_states', () => {
     const { bridge } = await renderPage([config]);
     bridge.test.mockResolvedValueOnce({ ok: false, reason: 'timeout' });
 
-    fireEvent.click(screen.getByText('测试连接'));
+    fireEvent.click(screen.getByText('Test connection'));
     await waitFor(() => expect(screen.getByText(/✗ 超时/)).toBeInTheDocument());
   });
 });
@@ -529,9 +529,9 @@ describe('delete_confirmation_credential_and_active_connection_copy', () => {
     const config = makeConfig({ id: 'mini-pc', alias: 'mini-pc' });
     await renderPage([config]);
 
-    fireEvent.click(screen.getByText('删除'));
+    fireEvent.click(screen.getByText('Delete'));
     expect(
-      screen.getByText('确认删除 mini-pc?将同时清除已存凭据'),
+      screen.getByText('Delete mini-pc? Stored credentials will also be removed'),
     ).toBeInTheDocument();
   });
 
@@ -539,14 +539,14 @@ describe('delete_confirmation_credential_and_active_connection_copy', () => {
     const config = makeConfig({ id: 'mini-pc', alias: 'mini-pc' });
     const { bridge, emit } = await renderPage([config]);
     emit({ configId: 'mini-pc', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ 已连接')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('删除'));
+    fireEvent.click(screen.getByText('Delete'));
     expect(
-      screen.getByText('确认删除 mini-pc?将同时清除已存凭据 · 将先断开当前连接'),
+      screen.getByText('Delete mini-pc? Stored credentials will also be removed · Current connection will be disconnected first'),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('是'));
+    fireEvent.click(screen.getByText('Yes'));
     await waitFor(() => expect(bridge.delete).toHaveBeenCalledWith({ id: 'mini-pc' }));
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('mini-pc');
     await waitFor(() => expect(screen.queryByText('mini-pc')).toBeNull());
@@ -556,8 +556,8 @@ describe('delete_confirmation_credential_and_active_connection_copy', () => {
     const config = makeConfig({ id: 'mini-pc', alias: 'mini-pc' });
     const { bridge } = await renderPage([config]);
 
-    fireEvent.click(screen.getByText('删除'));
-    fireEvent.click(screen.getByText('否'));
+    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getByText('No'));
 
     expect(screen.getByText('mini-pc')).toBeInTheDocument();
     expect(bridge.delete).not.toHaveBeenCalled();

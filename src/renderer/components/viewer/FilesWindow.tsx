@@ -9,6 +9,7 @@ import { basename, tildify } from '../../state/store';
 import { FileView } from './FileView';
 import { MarkdownPreview } from './MarkdownPreview';
 import { DirListing } from './DirListing';
+import { t } from '../../../shared/i18n';
 
 interface FileTab {
   id: string;
@@ -51,7 +52,7 @@ export function FilesWindow({
       e.returnValue = false;
       setTimeout(() => {
         if (
-          window.confirm(`有 ${dirtyCount} 个未保存的文件,确定关闭窗口?`)
+          window.confirm(t('{count} unsaved file(s). Close the window anyway?', { count: dirtyCount }))
         ) {
           closeConfirmedRef.current = true;
           window.close();
@@ -68,7 +69,7 @@ export function FilesWindow({
       (e) => setError(String(e)),
     );
     return hostClient.onDown(() =>
-      setError('Host 进程已退出,⌘R 重载窗口可恢复'),
+      setError(t('Host process exited — press ⌘R to reload the window')),
     );
   }, []);
 
@@ -149,14 +150,14 @@ export function FilesWindow({
   if (error) {
     return (
       <div className="viewer-window">
-        <div className="viewer-message">Host 连接失败:{error}</div>
+        <div className="viewer-message">{t('Host connection failed: {error}', { error })}</div>
       </div>
     );
   }
   if (!ready) {
     return (
       <div className="viewer-window">
-        <div className="viewer-message">连接 Host…</div>
+        <div className="viewer-message">{t('Connecting to host…')}</div>
       </div>
     );
   }
@@ -191,7 +192,7 @@ export function FilesWindow({
                   e.stopPropagation();
                   closeTab(tab.id);
                 }}
-                title="关闭(⌘W)"
+                title={t('Close (⌘W)')}
               >
                 ×
               </button>
@@ -205,13 +206,13 @@ export function FilesWindow({
                 className={`viewer-btn${active.mdMode === 'preview' ? ' viewer-btn--on' : ''}`}
                 onClick={() => setMdMode(active.id, 'preview')}
               >
-                预览
+                {t('Preview')}
               </button>
               <button
                 className={`viewer-btn${active.mdMode === 'edit' ? ' viewer-btn--on' : ''}`}
                 onClick={() => setMdMode(active.id, 'edit')}
               >
-                编辑
+                {t('Edit')}
               </button>
             </div>
           )}
@@ -222,16 +223,16 @@ export function FilesWindow({
               onClick={() => saveFns.current.get(active.id)?.()}
               title="⌘S"
             >
-              保存
+              {t('Save')}
             </button>
           )}
           {active && (
             <button
               className="viewer-btn"
               onClick={() => window.termpro.openPath(active.path)}
-              title="用系统默认应用打开"
+              title={t('Open with the default app')}
             >
-              系统应用打开
+              {t('Open with default app')}
             </button>
           )}
           <button

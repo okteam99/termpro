@@ -80,4 +80,137 @@ export const zh: Record<string, string> = {
   'Connecting to host…': '连接 Host…',
   '⌘T for a new terminal': '⌘T 新建终端',
   'Add a workspace on the left to get started': '在左侧添加一个 Workspace 开始',
+
+  // --- RemoteHostsPage ---
+  'Untitled': '未命名',
+  '⚠ Connection lost': '⚠ 连接已断开',
+  '✓ Connected': '✓ 已连接',
+  'Disconnect': '断开',
+  'Test connection': '测试连接',
+  'Edit': '编辑',
+  'Delete': '删除',
+  'Testing connection…': '测试连接中…',
+  '✓ Reachable': '✓ 已连通',
+  'Claimed a running host process · Verifying handshake…': '已认领运行中的 host 进程 · 握手校验…',
+  'Found a running host process · Claiming…': '发现已运行的 host 进程 · 认领中…',
+  'Upload bundle': '上传 bundle',
+  'Start host': '启动 host',
+  'Verify handshake': '握手验证',
+  'Detected remote arch · {arch}': '已探测远端架构 · {arch}',
+  'Delete {alias}? Stored credentials will also be removed': '确认删除 {alias}?将同时清除已存凭据',
+  ' · Current connection will be disconnected first': ' · 将先断开当前连接',
+  'Yes': '是',
+  'No': '否',
+  'Password': '密码',
+  'Key': '密钥',
+  'Remote Hosts': '远程机',
+  'SSH key or password login · Passwords/passphrases stored in system keychain':
+    'SSH 密钥或密码登录 · 密码/私钥密码存入系统钥匙串',
+  'No remote hosts yet · Click below to add one': '还没有远程机 · 点击下方添加',
+  'Add remote host': '添加远程机',
+  'Recently used': '最近使用',
+  'Manually added': '手动添加',
+  'No manually added remote hosts yet': '暂无手动添加的远程机',
+  'Edit remote host': '编辑远程机',
+  'Name': '名称',
+  'Auth method': '认证方式',
+  'SSH Key': 'SSH 密钥',
+  'Password is stored in the system keychain, never written to disk in plaintext':
+    '密码存入系统钥匙串,不明文落盘',
+  'Private key path': '私钥路径',
+  'e.g. ~/.ssh/id_ed25519': '例如 ~/.ssh/id_ed25519',
+  'Private key passphrase (optional)': '私钥密码(可选)',
+  'Passphrase for the encrypted private key · stored in the system keychain, never written to disk in plaintext':
+    '加密私钥的 passphrase · 存入系统钥匙串,不明文落盘',
+
+  // --- AddWorkspaceModal ---
+  'Target host is disconnected': '目标机器已断开',
+  'Directory name cannot be . / .. or contain /': '目录名不能是 . / .. 或包含 /',
+  '{platform} · Local directory': '{platform} · 本地目录',
+  'Connected remote hosts': '已连接远程机',
+  'SSH key or password login': 'SSH 密钥或密码登录',
+  'No connected remote hosts yet · Add and connect one to pick a remote directory here':
+    '暂无已连接的远程机 · 添加并连接后即可在此选择远程目录',
+  '‹ Back': '‹ 返回',
+  'Reading directory…': '正在读取目录…',
+  '(empty directory)': '(空目录)',
+  'Add Project': '添加项目',
+  'Project registers on the selected host · visible after any device connects':
+    '项目注册在所选机器上 · 任何设备连接后可见',
+  'New directory name': '新目录名',
+  'Creating…': '创建中…',
+  'Create': '创建',
+  'Create a new folder in the current directory': '在当前目录下新建文件夹',
+  '+ New folder': '+ 新建目录',
+  'Create project on {alias}': '在 {alias} 上创建项目',
+
+  // --- MarkdownPreview ---
+  'mermaid render failed': 'mermaid 渲染失败',
+  'Zoom out': '缩小',
+  'Zoom in': '放大',
+  'Fit to window (double-click has the same effect)': '适配窗口(双击同效)',
+  'Reset': '重置',
+  'Close (Esc)': '关闭(Esc)',
+  '(mermaid render failed)': '(mermaid 渲染失败)',
+  'Binary file, cannot preview': '二进制文件,无法预览',
+  'File too large ({size} MB), cannot preview': '文件过大({size} MB),无法预览',
+  'Failed to read: {error}': '读取失败:{error}',
+  'Collapse outline': '收起大纲',
+  'Expand outline': '展开大纲',
+  '(no headings)': '(无标题)',
+
+  // --- FilesWindow ---
+  '{count} unsaved file(s). Close the window anyway?': '有 {count} 个未保存的文件,确定关闭窗口?',
+  'Close (⌘W)': '关闭(⌘W)',
+  'Preview': '预览',
+  'Open with the default app': '用系统默认应用打开',
+  'Open with default app': '系统应用打开',
+
+  // --- DiffPanel ---
+  'Monaco failed to load': 'Monaco 加载失败',
+  'File too large ({size} MB > 2MB)': '文件过大({size} MB > 2MB)',
+  'Failed to load original content: {error}': '原始内容加载失败:{error}',
+  'Uncommitted changes(vs HEAD)': '未提交变更(vs HEAD)',
+  'Reload changed files list': '重新加载变更列表',
+  'Loading…': '加载中…',
+  'No changes': '无变更',
+
+  // --- ViewerWindow ---
+  'Uncommitted changes': '未提交变更',
+  'Open the repo directory with the default app': '用系统默认应用打开仓库目录',
+
+  // --- FileView ---
+  'Image too large ({size}MB > 20MB), please open with the default app':
+    '图片过大({size}MB > 20MB),请用系统应用打开',
+  'Binary file, cannot preview (open in an external editor instead)':
+    '二进制文件,无法预览(可外跳编辑器打开)',
+  'File too large ({size}MB > 2MB), please open in an external editor':
+    '文件过大({size}MB > 2MB),请外跳编辑器',
+  'Save failed: {error}': '保存失败:{error}',
+
+  // --- store ---
+  'Remote operations are unavailable in local fallback mode': '远程操作在本地回退模式下不可用',
+  'Failed to create workspace, please retry': '新增 workspace 失败,请重试',
+  'Failed to delete workspace, please retry': '删除 workspace 失败,请重试',
+  'Failed to rename workspace, please retry': '重命名 workspace 失败,请重试',
+
+  // --- persistence ---
+  'Failed to read the workspace registry, retrying…': '无法读取 Workspace 注册表,正在重试…',
+  'Workspace migration is not yet complete — continuing with the local archive (will retry automatically)':
+    'Workspace 迁移暂未完成,已继续以本地存档运行(将自动重试)',
+
+  // --- sessionEvents ---
+  '{label} · Command finished': '{label} · 命令完成',
+  '{label} · Command finished (exit code {code})': '{label} · 命令完成(退出码 {code})',
+  'TermPro · Done': 'TermPro · 完成',
+  '{label} · Bell rang (may be waiting for input)': '{label} · 响铃(可能在等输入)',
+  'TermPro · Attention': 'TermPro · 注意',
+  '{label} · Quiet for 1+ min, may be waiting for input': '{label} · 静默 1 分钟+,可能在等输入',
+
+  // --- terminalRegistry ---
+  '[TermPro] Terminal failed to start: {message}': '[TermPro] 终端启动失败:{message}',
+  'Close this tab and reopen it to retry': '关闭该 tab 后重新打开即可重试',
+
+  // --- bottomBarPin ---
+  '↓ Back to bottom': '↓ 回到底部',
 };

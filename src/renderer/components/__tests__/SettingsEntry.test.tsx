@@ -313,7 +313,7 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
 
     // Modal open, menu closed, About modal absent
-    expect(screen.getByText('远程机')).toBeInTheDocument();
+    expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.queryByText('TermPro')).toBeNull();
 
@@ -331,8 +331,8 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     entryBtn.focus();
     fireEvent.click(entryBtn);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
-    fireEvent.click(screen.getByTitle('关闭'));
-    expect(screen.queryByText('远程机')).toBeNull();
+    fireEvent.click(screen.getByTitle('Close'));
+    expect(screen.queryByText('Remote Hosts')).toBeNull();
     expect(document.activeElement).toBe(entryBtn);
 
     // Esc
@@ -340,7 +340,7 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     fireEvent.click(entryBtn);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByText('远程机')).toBeNull();
+    expect(screen.queryByText('Remote Hosts')).toBeNull();
     expect(document.activeElement).toBe(entryBtn);
 
     // backdrop
@@ -350,7 +350,7 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     const backdrop = document.querySelector('.remote-hosts__backdrop')!;
     expect(backdrop).toBeInTheDocument();
     fireEvent.mouseDown(backdrop);
-    expect(screen.queryByText('远程机')).toBeNull();
+    expect(screen.queryByText('Remote Hosts')).toBeNull();
     expect(document.activeElement).toBe(entryBtn);
 
     unmount();

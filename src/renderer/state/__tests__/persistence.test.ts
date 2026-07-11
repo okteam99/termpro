@@ -81,7 +81,7 @@ describe('persistence hydrate · workspace.list 失败降级(F1)', () => {
     // ① 未破坏性 hydrate 成空:未标记 hydrated(存档引用未被当孤儿丢弃)
     expect(s.hydrated).toBe(false);
     // 占位提示已给(App 停在「连接 Host…」)
-    expect(s.transientNotice).toMatch(/注册表/);
+    expect(s.transientNotice).toMatch(/registry/);
     // ② 无写回订阅启动 → 空态不会被固化落盘
     expect(storeSet).not.toHaveBeenCalled();
     expect(onWorkspaceChanged).not.toHaveBeenCalled();

@@ -5,6 +5,7 @@ import { hostClient } from '../../services/hostClient';
 import { tildify } from '../../state/store';
 import { DiffPanel } from './DiffPanel';
 import { FilesWindow } from './FilesWindow';
+import { t } from '../../../shared/i18n';
 
 export type ViewerPayload =
   | { mode: 'files'; initialPath: string; initialKind?: 'file' | 'dir' }
@@ -42,7 +43,7 @@ function DiffWindow({
       (e) => setError(String(e)),
     );
     return hostClient.onDown(() =>
-      setError('Host 进程已退出,⌘R 重载窗口可恢复'),
+      setError(t('Host process exited — press ⌘R to reload the window')),
     );
   }, []);
 
@@ -52,7 +53,7 @@ function DiffWindow({
     const base = `Diff · ${tildify(payload.toplevel, homedir)}`;
     document.title = payload.baseRef
       ? `${base} · vs ${payload.baseRef}`
-      : `${base} · 未提交变更`;
+      : `${base} · ${t('Uncommitted changes')}`;
   }, [ready, payload]);
 
   // Esc / ⌘W 关窗(模态生命周期由 main 管)
@@ -75,20 +76,20 @@ function DiffWindow({
   if (error) {
     return (
       <div className="viewer-window">
-        <div className="viewer-message">Host 连接失败:{error}</div>
+        <div className="viewer-message">{t('Host connection failed: {error}', { error })}</div>
       </div>
     );
   }
   if (!ready) {
     return (
       <div className="viewer-window">
-        <div className="viewer-message">连接 Host…</div>
+        <div className="viewer-message">{t('Connecting to host…')}</div>
       </div>
     );
   }
 
   const homedir = hostClient.info?.homedir;
-  const title = `Diff · ${tildify(payload.toplevel, homedir)}${payload.baseRef ? ` · vs ${payload.baseRef}` : ' · 未提交变更'}`;
+  const title = `Diff · ${tildify(payload.toplevel, homedir)}${payload.baseRef ? ` · vs ${payload.baseRef}` : ` · ${t('Uncommitted changes')}`}`;
 
   return (
     <div className="viewer-window">
@@ -100,9 +101,9 @@ function DiffWindow({
           <button
             className="viewer-btn"
             onClick={() => window.termpro.openPath(payload.toplevel)}
-            title="用系统默认应用打开仓库目录"
+            title={t('Open the repo directory with the default app')}
           >
-            系统应用打开
+            {t('Open with default app')}
           </button>
           <button
             className="viewer-btn viewer-btn--close"

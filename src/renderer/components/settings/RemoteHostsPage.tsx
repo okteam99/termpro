@@ -29,20 +29,25 @@ import {
 import { ProtocolIncompatibleError } from '../../../shared/versionCompat';
 import { hostRegistry } from '../../services/hostRegistry';
 import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
+import { t } from '../../../shared/i18n';
 
 // 「测试连接」与「连接」共用同一失败分类口径(AC-2)· 从 shared 单源派生,不再各写字面量。
 const FAIL_REASONS = FAIL_REASON_COPY;
 
-/** 连接生命周期(AC-5)进行中各态的徽标文案;ready/failed/disconnected 另有专属徽标。 */
+/**
+ * 连接生命周期(AC-5)进行中各态的徽标文案;ready/failed/disconnected 另有专属徽标。
+ * 🔴 镜像 `components/MachineGroup.tsx` 内同名常量的文案(见其注释);两处均由
+ * shared/remoteHost.ts 的 RemoteStage 枚举驱动,英文原文须逐字一致,防措辞漂移。
+ */
 const CONNECT_STAGE_LABEL: Record<
   'connecting' | 'deploying' | 'starting' | 'claiming' | 'verifying',
   string
 > = {
-  connecting: '连接中…',
-  deploying: '部署中…',
-  starting: '启动 host…',
-  claiming: '认领中…',
-  verifying: '握手校验…',
+  connecting: t('Connecting…'),
+  deploying: t('Deploying…'),
+  starting: t('Starting host…'),
+  claiming: t('Claiming…'),
+  verifying: t('Verifying handshake…'),
 };
 
 const ACTIVE_STAGES = new Set<RemoteStage>([
@@ -83,10 +88,10 @@ function formatRelativeTime(ts: number, now: number = Date.now()): string {
   const minute = 60_000;
   const hour = 60 * minute;
   const day = 24 * hour;
-  if (diff < minute) return '刚刚';
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+  if (diff < minute) return t('Just now');
+  if (diff < hour) return t('{minutes} min ago', { minutes: Math.floor(diff / minute) });
+  if (diff < day) return t('{hours} hr ago', { hours: Math.floor(diff / hour) });
+  if (diff < 7 * day) return t('{days} d ago', { days: Math.floor(diff / day) });
   return new Date(ts).toLocaleDateString();
 }
 
@@ -315,7 +320,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     const port = parseInt(formValues.port, 10) || 22;
     const config: RemoteHostConfigInput = {
       id: formHostId ?? undefined,
-      alias: formValues.alias.trim() || '未命名',
+      alias: formValues.alias.trim() || t('Untitled'),
       host: formValues.host.trim(),
       port,
       username: formValues.username.trim(),
@@ -382,15 +387,15 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     if (runtime.stage === 'disconnected') {
       return (
         <span className="remote-hosts__badge remote-hosts__badge--lost">
-          ⚠ 连接已断开
+          {t('⚠ Connection lost')}
         </span>
       );
     }
     if (runtime.stage === 'ready') {
-      return <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连接</span>;
+      return <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Connected')}</span>;
     }
     const label =
-      CONNECT_STAGE_LABEL[runtime.stage as keyof typeof CONNECT_STAGE_LABEL] ?? '连接中…';
+      CONNECT_STAGE_LABEL[runtime.stage as keyof typeof CONNECT_STAGE_LABEL] ?? t('Connecting…');
     const pct =
       runtime.stage === 'deploying' && typeof runtime.percent === 'number'
         ? ` ${runtime.percent}%`
@@ -417,7 +422,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           className="remote-hosts__action"
           onClick={() => handleDisconnect(config.id)}
         >
-          断开
+          {t('Disconnect')}
         </button>,
       );
     } else if (stage === 'failed') {
@@ -427,7 +432,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           className="remote-hosts__action remote-hosts__action--primary"
           onClick={() => handleConnect(config)}
         >
-          重试
+          {t('Retry')}
         </button>,
       );
     } else if (stage === 'disconnected') {
@@ -437,7 +442,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           className="remote-hosts__action remote-hosts__action--primary"
           onClick={() => handleConnect(config)}
         >
-          重连
+          {t('Reconnect')}
         </button>,
       );
     } else {
@@ -447,7 +452,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           className="remote-hosts__action remote-hosts__action--primary"
           onClick={() => handleConnect(config)}
         >
-          连接
+          {t('Connect')}
         </button>,
       );
     }
@@ -459,7 +464,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
             className="remote-hosts__action"
             onClick={() => runTest(config.id)}
           >
-            测试连接
+            {t('Test connection')}
           </button>,
         );
       }
@@ -469,7 +474,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           className="remote-hosts__action"
           onClick={() => openEditForm(config)}
         >
-          编辑
+          {t('Edit')}
         </button>,
       );
       buttons.push(
@@ -478,7 +483,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           className="remote-hosts__action remote-hosts__action--danger"
           onClick={() => requestDelete(config.id)}
         >
-          删除
+          {t('Delete')}
         </button>,
       );
     }
@@ -508,12 +513,12 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         return (
           <span className="remote-hosts__badge remote-hosts__badge--pending">
             <span className="add-ws__spinner add-ws__spinner--sm" />
-            测试连接中…
+            {t('Testing connection…')}
           </span>
         );
       }
       if (status === 'ok') {
-        return <span className="remote-hosts__badge remote-hosts__badge--ok">✓ 已连通</span>;
+        return <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Reachable')}</span>;
       }
       if (status === 'fail') {
         const reason =
@@ -540,21 +545,25 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       return (
         <div className="remote-hosts__progress-claim">
           <span className="add-ws__spinner add-ws__spinner--sm" />
-          {verifying ? '已认领运行中的 host 进程 · 握手校验…' : '发现已运行的 host 进程 · 认领中…'}
+          {verifying
+            ? t('Claimed a running host process · Verifying handshake…')
+            : t('Found a running host process · Claiming…')}
         </div>
       );
     }
     const steps = [
-      { key: 'upload', label: '上传 bundle' },
-      { key: 'start', label: '启动 host' },
-      { key: 'verify', label: '握手验证' },
+      { key: 'upload', label: t('Upload bundle') },
+      { key: 'start', label: t('Start host') },
+      { key: 'verify', label: t('Verify handshake') },
     ];
     const order: RemoteStage[] = ['deploying', 'starting', 'verifying'];
     const idx = order.indexOf(runtime.stage);
     return (
       <>
         {runtime.arch && (
-          <div className="remote-hosts__progress-arch">已探测远端架构 · {runtime.arch}</div>
+          <div className="remote-hosts__progress-arch">
+            {t('Detected remote arch · {arch}', { arch: runtime.arch })}
+          </div>
         )}
         <div className="remote-hosts__progress">
           {steps.map((s, i) => {
@@ -602,17 +611,19 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           <div className="remote-hosts__row">
             <span className="remote-hosts__confirm">
               <span className="remote-hosts__confirm-text">
-                确认删除 {config.alias}?将同时清除已存凭据
-                {activeConn ? ' · 将先断开当前连接' : ''}
+                {t('Delete {alias}? Stored credentials will also be removed', {
+                  alias: config.alias,
+                })}
+                {activeConn ? t(' · Current connection will be disconnected first') : ''}
               </span>
               <button
                 className="remote-hosts__action remote-hosts__action--danger"
                 onClick={() => confirmDelete(config.id)}
               >
-                是
+                {t('Yes')}
               </button>
               <button className="remote-hosts__action" onClick={cancelDelete}>
-                否
+                {t('No')}
               </button>
             </span>
           </div>
@@ -631,7 +642,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           </span>
           <span className="remote-hosts__identity">{config.privateKeyPath || '—'}</span>
           <span className="remote-hosts__auth">
-            {config.authType === 'password' ? '密码' : '密钥'}
+            {config.authType === 'password' ? t('Password') : t('Key')}
           </span>
           {compact && config.lastUsed && (
             <span className="remote-hosts__last-used">{formatRelativeTime(config.lastUsed)}</span>
@@ -654,12 +665,14 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       <div className="remote-hosts__card" onMouseDown={(e) => e.stopPropagation()}>
         <div className="remote-hosts__header">
           <div>
-            <div className="remote-hosts__title">远程机</div>
+            <div className="remote-hosts__title">{t('Remote Hosts')}</div>
             <div className="remote-hosts__subtitle">
-              SSH 密钥或密码登录 · 密码/私钥密码存入系统钥匙串
+              {t(
+                'SSH key or password login · Passwords/passphrases stored in system keychain',
+              )}
             </div>
           </div>
-          <button className="remote-hosts__close" onClick={onClose} title="关闭">
+          <button className="remote-hosts__close" onClick={onClose} title={t('Close')}>
             ×
           </button>
         </div>
@@ -667,19 +680,21 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         <div className="remote-hosts__body">
           {showEmptyState ? (
             <div className="remote-hosts__empty">
-              <div className="remote-hosts__empty-text">还没有远程机 · 点击下方添加</div>
+              <div className="remote-hosts__empty-text">
+                {t('No remote hosts yet · Click below to add one')}
+              </div>
               <button
                 className="remote-hosts__btn remote-hosts__btn--primary"
                 onClick={openAddForm}
               >
-                添加远程机
+                {t('Add remote host')}
               </button>
             </div>
           ) : (
             <>
               {recentHosts.length > 0 && (
                 <div className="remote-hosts__section">
-                  <div className="remote-hosts__section-title">最近使用</div>
+                  <div className="remote-hosts__section-title">{t('Recently used')}</div>
                   <div className="remote-hosts__list">
                     {recentHosts.map((config) => renderRow(config, true))}
                   </div>
@@ -687,11 +702,13 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
               )}
 
               <div className="remote-hosts__section">
-                <div className="remote-hosts__section-title">手动添加</div>
+                <div className="remote-hosts__section-title">{t('Manually added')}</div>
                 <div className="remote-hosts__list">
                   {configs.map((config) => renderRow(config, false))}
                   {configs.length === 0 && (
-                    <div className="remote-hosts__section-empty">暂无手动添加的远程机</div>
+                    <div className="remote-hosts__section-empty">
+                      {t('No manually added remote hosts yet')}
+                    </div>
                   )}
                 </div>
               </div>
@@ -699,11 +716,11 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
               {formMode ? (
                 <div className="remote-hosts__form">
                   <div className="remote-hosts__form-title">
-                    {formMode === 'edit' ? '编辑远程机' : '添加远程机'}
+                    {formMode === 'edit' ? t('Edit remote host') : t('Add remote host')}
                   </div>
                   <div className="remote-hosts__form-grid">
                     <label className="remote-hosts__field">
-                      <span>名称</span>
+                      <span>{t('Name')}</span>
                       <input
                         value={formValues.alias}
                         onChange={(e) =>
@@ -713,7 +730,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                       />
                     </label>
                     <label className="remote-hosts__field">
-                      <span>Host</span>
+                      <span>{t('Host')}</span>
                       <input
                         value={formValues.host}
                         onChange={(e) =>
@@ -723,7 +740,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                       />
                     </label>
                     <label className="remote-hosts__field">
-                      <span>User</span>
+                      <span>{t('User')}</span>
                       <input
                         value={formValues.username}
                         onChange={(e) =>
@@ -733,7 +750,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                       />
                     </label>
                     <label className="remote-hosts__field">
-                      <span>Port</span>
+                      <span>{t('Port')}</span>
                       <input
                         value={formValues.port}
                         onChange={(e) =>
@@ -743,27 +760,27 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                       />
                     </label>
                     <div className="remote-hosts__field remote-hosts__field--wide">
-                      <span>认证方式</span>
+                      <span>{t('Auth method')}</span>
                       <div className="file-panel__seg remote-hosts__auth-seg">
                         <button
                           type="button"
                           className={`file-panel__seg-btn${formValues.authType === 'key' ? ' file-panel__seg-btn--active' : ''}`}
                           onClick={() => setFormValues({ ...formValues, authType: 'key' })}
                         >
-                          SSH 密钥
+                          {t('SSH Key')}
                         </button>
                         <button
                           type="button"
                           className={`file-panel__seg-btn${formValues.authType === 'password' ? ' file-panel__seg-btn--active' : ''}`}
                           onClick={() => setFormValues({ ...formValues, authType: 'password' })}
                         >
-                          密码
+                          {t('Password')}
                         </button>
                       </div>
                     </div>
                     {formValues.authType === 'password' ? (
                       <label className="remote-hosts__field remote-hosts__field--wide">
-                        <span>密码</span>
+                        <span>{t('Password')}</span>
                         <input
                           type="password"
                           value={formValues.password}
@@ -772,23 +789,25 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                           }
                         />
                         <span className="remote-hosts__field-hint">
-                          密码存入系统钥匙串,不明文落盘
+                          {t(
+                            'Password is stored in the system keychain, never written to disk in plaintext',
+                          )}
                         </span>
                       </label>
                     ) : (
                       <>
                         <label className="remote-hosts__field remote-hosts__field--wide">
-                          <span>私钥路径</span>
+                          <span>{t('Private key path')}</span>
                           <input
                             value={formValues.privateKeyPath}
                             onChange={(e) =>
                               setFormValues({ ...formValues, privateKeyPath: e.target.value })
                             }
-                            placeholder="例如 ~/.ssh/id_ed25519"
+                            placeholder={t('e.g. ~/.ssh/id_ed25519')}
                           />
                         </label>
                         <label className="remote-hosts__field remote-hosts__field--wide">
-                          <span>私钥密码(可选)</span>
+                          <span>{t('Private key passphrase (optional)')}</span>
                           <input
                             type="password"
                             value={formValues.passphrase}
@@ -797,7 +816,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                             }
                           />
                           <span className="remote-hosts__field-hint">
-                            加密私钥的 passphrase · 存入系统钥匙串,不明文落盘
+                            {t(
+                              'Passphrase for the encrypted private key · stored in the system keychain, never written to disk in plaintext',
+                            )}
                           </span>
                         </label>
                       </>
@@ -805,13 +826,13 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                   </div>
                   <div className="remote-hosts__form-actions">
                     <button className="remote-hosts__btn" onClick={cancelForm}>
-                      取消
+                      {t('Cancel')}
                     </button>
                     <button
                       className="remote-hosts__btn remote-hosts__btn--primary"
                       onClick={saveForm}
                     >
-                      保存
+                      {t('Save')}
                     </button>
                   </div>
                 </div>
@@ -820,7 +841,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                   className="remote-hosts__btn remote-hosts__btn--primary remote-hosts__add-btn"
                   onClick={openAddForm}
                 >
-                  添加远程机
+                  {t('Add remote host')}
                 </button>
               )}
             </>

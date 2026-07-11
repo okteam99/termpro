@@ -77,7 +77,7 @@ describe('DirListing', () => {
     mockTermpro();
     rpc.mockResolvedValue({ entries: [] });
     render(<DirListing path="/repo/docs" />);
-    await screen.findByText('(空目录)');
+    await screen.findByText('(empty directory)');
   });
 
   it('软链点击先 stat 再按真实类型开窗', async () => {

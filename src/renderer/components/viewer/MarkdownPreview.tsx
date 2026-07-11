@@ -10,6 +10,7 @@ import { marked, type Token, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import { hostClient } from '../../services/hostClient';
 import { resolveMarkdownHref } from './markdownLinks';
+import { t } from '../../../shared/i18n';
 
 interface Props {
   path: string;
@@ -96,7 +97,9 @@ function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void })
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const naturalRef = useRef({ w: 800, h: 600 });
-  const [t, setT] = useState<Transform>({ scale: 1, x: 0, y: 0 });
+  // 🔴 命名避让:局部命名为 xform(非 t)——本文件顶层 import 了 shared/i18n 的 t(),
+  // 局部状态若也叫 t 会遮蔽它,导致工具条上的 t('Zoom out') 等翻译调用误读成变换状态。
+  const [xform, setXform] = useState<Transform>({ scale: 1, x: 0, y: 0 });
   const [renderError, setRenderError] = useState<string | null>(null);
   const dragRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
 
@@ -105,7 +108,7 @@ function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void })
     if (!vp) return;
     const { w, h } = naturalRef.current;
     const scale = Math.min(vp.clientWidth / w, vp.clientHeight / h, 2) * 0.92;
-    setT({
+    setXform({
       scale,
       x: (vp.clientWidth - w * scale) / 2,
       y: (vp.clientHeight - h * scale) / 2,
@@ -138,7 +141,7 @@ function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void })
         naturalRef.current = { w, h };
         fit();
       } catch {
-        if (!cancelled) setRenderError('mermaid 渲染失败');
+        if (!cancelled) setRenderError(t('mermaid render failed'));
       }
     })();
     return () => {
@@ -155,7 +158,7 @@ function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void })
       const rect = vp.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
-      setT((prev) => {
+      setXform((prev) => {
         const factor = Math.exp(-e.deltaY * 0.0015);
         const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, prev.scale * factor));
         const k = scale / prev.scale;
@@ -171,7 +174,7 @@ function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void })
     if (!vp) return;
     const cx = vp.clientWidth / 2;
     const cy = vp.clientHeight / 2;
-    setT((prev) => {
+    setXform((prev) => {
       const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, prev.scale * factor));
       const k = scale / prev.scale;
       return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k };
@@ -186,13 +189,13 @@ function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void })
         if (e.button !== 0) return;
         // 工具条上的按下不进入拖拽,否则 pointer capture 会吞掉按钮 click
         if ((e.target as Element).closest('.md-lb-toolbar')) return;
-        dragRef.current = { px: e.clientX, py: e.clientY, ox: t.x, oy: t.y };
+        dragRef.current = { px: e.clientX, py: e.clientY, ox: xform.x, oy: xform.y };
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
         const d = dragRef.current;
         if (!d) return;
-        setT((prev) => ({
+        setXform((prev) => ({
           ...prev,
           x: d.ox + (e.clientX - d.px),
           y: d.oy + (e.clientY - d.py),
@@ -209,21 +212,21 @@ function SvgLightbox({ chunk, onClose }: { chunk: string; onClose: () => void })
       <div
         ref={contentRef}
         className="md-lb-content"
-        style={{ transform: `translate(${t.x}px, ${t.y}px) scale(${t.scale})` }}
+        style={{ transform: `translate(${xform.x}px, ${xform.y}px) scale(${xform.scale})` }}
       />
       {renderError && <div className="viewer-message">{renderError}</div>}
       <div className="md-lb-toolbar">
-        <button onClick={() => zoomBy(1 / 1.25)} title="缩小">
+        <button onClick={() => zoomBy(1 / 1.25)} title={t('Zoom out')}>
           −
         </button>
-        <span className="md-lb-scale">{Math.round(t.scale * 100)}%</span>
-        <button onClick={() => zoomBy(1.25)} title="放大">
+        <span className="md-lb-scale">{Math.round(xform.scale * 100)}%</span>
+        <button onClick={() => zoomBy(1.25)} title={t('Zoom in')}>
           +
         </button>
-        <button onClick={fit} title="适配窗口(双击同效)">
-          重置
+        <button onClick={fit} title={t('Fit to window (double-click has the same effect)')}>
+          {t('Reset')}
         </button>
-        <button onClick={onClose} title="关闭(Esc)">
+        <button onClick={onClose} title={t('Close (Esc)')}>
           ×
         </button>
       </div>
@@ -289,15 +292,21 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
           if (file.content === null) {
             showMessage(
               file.binary
-                ? '二进制文件,无法预览'
-                : `文件过大(${(file.size / 1024 / 1024).toFixed(1)} MB),无法预览`,
+                ? t('Binary file, cannot preview')
+                : t('File too large ({size} MB), cannot preview', {
+                    size: (file.size / 1024 / 1024).toFixed(1),
+                  }),
             );
             return;
           }
           rawText = file.content;
         } catch (e) {
           if (cancelled) return;
-          showMessage(`读取失败:${e instanceof Error ? e.message : String(e)}`);
+          showMessage(
+            t('Failed to read: {error}', {
+              error: e instanceof Error ? e.message : String(e),
+            }),
+          );
           return;
         }
       }
@@ -355,7 +364,7 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
           pre.textContent = chunks[i];
           const note = document.createElement('div');
           note.className = 'md-mermaid-error';
-          note.textContent = '(mermaid 渲染失败)';
+          note.textContent = t('(mermaid render failed)');
           placeholder.appendChild(pre);
           placeholder.appendChild(note);
         }
@@ -427,14 +436,14 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
           <button
             className="md-outline-toggle"
             onClick={() => setOutlineOpen((v) => !v)}
-            title={outlineOpen ? '收起大纲' : '展开大纲'}
+            title={outlineOpen ? t('Collapse outline') : t('Expand outline')}
           >
-            {outlineOpen ? '‹ OUTLINE' : '›'}
+            {outlineOpen ? t('‹ OUTLINE') : '›'}
           </button>
           {outlineOpen && (
             <div className="md-outline-list">
               {outline.length === 0 && (
-                <div className="md-outline-empty">(无标题)</div>
+                <div className="md-outline-empty">{t('(no headings)')}</div>
               )}
               {outline.map((it) => (
                 <div

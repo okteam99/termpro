@@ -4,6 +4,7 @@ import { hostRegistry } from '../services/hostRegistry';
 import { basename } from './pathLabel';
 import { reconcileWorkspaces } from './workspaceSync';
 import type { WorkspaceEntry } from '../../shared/protocol';
+import { t } from '../../shared/i18n';
 
 const LOCAL_HOST_ID = 'local';
 
@@ -378,7 +379,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().persistMode === 'v1') {
       if (targetHostId !== LOCAL_HOST_ID) {
         console.warn('[renderer] addWorkspace remote target rejected in v1 fallback:', targetHostId);
-        set({ transientNotice: '远程操作在本地回退模式下不可用' });
+        set({ transientNotice: t('Remote operations are unavailable in local fallback mode') });
         return;
       }
       const ws = buildDefaultWorkspace(
@@ -397,7 +398,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const client = hostRegistry.forHostId(targetHostId);
     if (!client) {
       console.warn('[renderer] addWorkspace target host unavailable:', targetHostId);
-      set({ transientNotice: '目标机器已断开' });
+      set({ transientNotice: t('Target host is disconnected') });
       return;
     }
     set({ creatingWorkspace: true });
@@ -419,7 +420,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (err) {
       console.warn('[renderer] workspace create failed:', err);
-      set({ creatingWorkspace: false, transientNotice: '新增 workspace 失败,请重试' });
+      set({ creatingWorkspace: false, transientNotice: t('Failed to create workspace, please retry') });
     }
   },
 
@@ -446,7 +447,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().persistMode === 'v1') {
       if (ws && ws.hostId !== LOCAL_HOST_ID) {
         console.warn('[renderer] removeWorkspace remote ws rejected in v1 fallback:', id);
-        set({ transientNotice: '远程操作在本地回退模式下不可用' });
+        set({ transientNotice: t('Remote operations are unavailable in local fallback mode') });
         return;
       }
       disposeAndRemove();
@@ -466,7 +467,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.warn('[renderer] workspace remove failed:', err);
       set((s) => ({
         pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
-        transientNotice: '删除 workspace 失败,请重试',
+        transientNotice: t('Failed to delete workspace, please retry'),
       }));
     }
   },
@@ -478,7 +479,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().persistMode === 'v1') {
       if (ws && ws.hostId !== LOCAL_HOST_ID) {
         console.warn('[renderer] renameWorkspace remote ws rejected in v1 fallback:', id);
-        set({ transientNotice: '远程操作在本地回退模式下不可用' });
+        set({ transientNotice: t('Remote operations are unavailable in local fallback mode') });
         return;
       }
       set((s) => ({
@@ -503,7 +504,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.warn('[renderer] workspace rename failed:', err);
       set((s) => ({
         pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
-        transientNotice: '重命名 workspace 失败,请重试',
+        transientNotice: t('Failed to rename workspace, please retry'),
       }));
     }
   },

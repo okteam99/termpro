@@ -110,8 +110,8 @@ describe('本机路径行为等价(AC-6/QA-15)', () => {
     const notifs = useAppStore.getState().notifications;
     expect(notifs).toHaveLength(1);
     expect(notifs[0]).toMatchObject({ workspaceId: 'ws1', tabId: 't2', kind: 'done' });
-    expect(notifs[0].text).toContain('命令完成');
-    expect(notifs[0].text).toContain('退出码 0');
+    expect(notifs[0].text).toContain('Command finished');
+    expect(notifs[0].text).toContain('exit code 0');
     // homedir 按该事件归属 ws 的 host 取(forWorkspace(ws)),不是裸单例
     expect(hostRegistryMock.forWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'ws1' }),

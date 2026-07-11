@@ -74,9 +74,9 @@ describe('添加项目 ·「添加远程机」入口', () => {
     render(<AddWorkspaceModal onClose={vi.fn()} />);
 
     expect(
-      await screen.findByRole('button', { name: /添加远程机/ }),
+      await screen.findByRole('button', { name: /Add remote host/ }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/暂无已连接的远程机/)).toBeInTheDocument();
+    expect(screen.getByText(/No connected remote hosts yet/)).toBeInTheDocument();
   });
 
   it('点击入口叠加 RemoteHostsPage;Esc 只关顶层,不关「添加项目」', async () => {
@@ -84,18 +84,18 @@ describe('添加项目 ·「添加远程机」入口', () => {
     render(<AddWorkspaceModal onClose={onClose} />);
 
     fireEvent.click(
-      await screen.findByRole('button', { name: /添加远程机/ }),
+      await screen.findByRole('button', { name: /Add remote host/ }),
     );
 
     // RemoteHostsPage 空态(list 为空)
-    expect(await screen.findByText('还没有远程机 · 点击下方添加')).toBeInTheDocument();
+    expect(await screen.findByText('No remote hosts yet · Click below to add one')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
 
     await waitFor(() =>
-      expect(screen.queryByText('还没有远程机 · 点击下方添加')).not.toBeInTheDocument(),
+      expect(screen.queryByText('No remote hosts yet · Click below to add one')).not.toBeInTheDocument(),
     );
-    expect(screen.getByText('添加项目')).toBeInTheDocument();
+    expect(screen.getByText('Add Project')).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -103,9 +103,9 @@ describe('添加项目 ·「添加远程机」入口', () => {
     render(<AddWorkspaceModal onClose={vi.fn()} />);
 
     fireEvent.click(
-      await screen.findByRole('button', { name: /添加远程机/ }),
+      await screen.findByRole('button', { name: /Add remote host/ }),
     );
-    await screen.findByText('还没有远程机 · 点击下方添加');
+    await screen.findByText('No remote hosts yet · Click below to add one');
 
     // 模拟用户在弹层内添加并连接成功
     remoteConfigs = [
@@ -126,7 +126,7 @@ describe('添加项目 ·「添加远程机」入口', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(await screen.findByText('mini-pc')).toBeInTheDocument();
-    expect(screen.getByText('已连接远程机')).toBeInTheDocument();
-    expect(screen.queryByText(/暂无已连接的远程机/)).not.toBeInTheDocument();
+    expect(screen.getByText('Connected remote hosts')).toBeInTheDocument();
+    expect(screen.queryByText(/No connected remote hosts yet/)).not.toBeInTheDocument();
   });
 });

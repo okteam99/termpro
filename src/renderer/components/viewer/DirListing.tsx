@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { hostClient } from '../../services/hostClient';
 import { tildify } from '../../state/store';
 import type { DirEntry } from '../../../shared/protocol';
+import { t } from '../../../shared/i18n';
 
 function parentOf(p: string): string {
   const t = p.replace(/\/+$/, '');
@@ -82,7 +83,7 @@ export function DirListing({ path }: { path: string }) {
         {tildify(path, homedir)}
       </div>
       {state.phase === 'loading' && (
-        <div className="viewer-message">加载中…</div>
+        <div className="viewer-message">{t('Loading…')}</div>
       )}
       {state.phase === 'error' && (
         <div className="viewer-message">{state.message}</div>
@@ -104,7 +105,7 @@ export function DirListing({ path }: { path: string }) {
             </button>
           )}
           {state.entries.length === 0 && (
-            <div className="dir-listing-empty">(空目录)</div>
+            <div className="dir-listing-empty">{t('(empty directory)')}</div>
           )}
           {state.entries.map((e) => (
             <button

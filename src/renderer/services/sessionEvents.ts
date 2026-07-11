@@ -25,6 +25,7 @@ import {
   recordDeactivated,
   resetTabActivity,
 } from './quietGate';
+import { t } from '../../shared/i18n';
 
 let inited = false;
 /** tabId → 最近一次 cmd-done 的退出码(state:idle 到来时消费) */
@@ -100,10 +101,10 @@ export function routeSessionEvent(
         waitingNotified.add(tabId);
         const text =
           ec === undefined || ec === null
-            ? `${label} · 命令完成`
-            : `${label} · 命令完成(退出码 ${ec})`;
+            ? t('{label} · Command finished', { label })
+            : t('{label} · Command finished (exit code {code})', { label, code: ec });
         s.pushNotification({ workspaceId: ws.id, tabId, kind: 'done', text });
-        osNotify('TermPro · 完成', text, ws.id, tabId);
+        osNotify(t('TermPro · Done'), text, ws.id, tabId);
       }
       break;
     }
@@ -120,9 +121,9 @@ export function routeSessionEvent(
       // 同一等待期只提醒一次(也覆盖 cat 二进制等 bell 风暴)
       if (waitingNotified.has(tabId)) break;
       waitingNotified.add(tabId);
-      const text = `${label} · 响铃(可能在等输入)`;
+      const text = t('{label} · Bell rang (may be waiting for input)', { label });
       s.pushNotification({ workspaceId: ws.id, tabId, kind: 'bell', text });
-      osNotify('TermPro · 注意', text, ws.id, tabId);
+      osNotify(t('TermPro · Attention'), text, ws.id, tabId);
       break;
     }
 
@@ -160,7 +161,7 @@ export function routeSessionEvent(
             workspaceId: ws.id,
             tabId,
             kind: 'waiting',
-            text: `${label} · 静默 1 分钟+,可能在等输入`,
+            text: t('{label} · Quiet for 1+ min, may be waiting for input', { label }),
           });
         }
       } else {

@@ -16,6 +16,7 @@ import {
   readCellAttrs,
   resolveCellStyle,
 } from './barCellStyle';
+import { t } from '../../shared/i18n';
 
 /** 默认前景/背景/光标兜底(与 terminalRegistry 主题一致) */
 const FALLBACK_FG = '#d7dae0';
@@ -219,7 +220,7 @@ export class BottomBarPin {
     const pill = document.createElement('button');
     pill.className = 'term-bar-pin-jump';
     pill.type = 'button';
-    pill.textContent = '↓ 回到底部';
+    pill.textContent = t('↓ Back to bottom');
     pill.style.display = 'none';
     pill.addEventListener('click', () => {
       this.term.scrollToBottom();

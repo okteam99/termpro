@@ -6,6 +6,7 @@ import DOMPurify from 'dompurify';
 import { hostClient } from '../../services/hostClient';
 import type { Monaco } from '../../monaco/setup';
 import type * as monacoNs from 'monaco-editor';
+import { t } from '../../../shared/i18n';
 
 interface Props {
   path: string;
@@ -88,7 +89,9 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
         if (r.base64 === null) {
           setState({
             phase: 'error',
-            message: `图片过大(${(r.size / 1024 / 1024).toFixed(1)}MB > 20MB),请用系统应用打开`,
+            message: t('Image too large ({size}MB > 20MB), please open with the default app', {
+              size: (r.size / 1024 / 1024).toFixed(1),
+            }),
           });
           return;
         }
@@ -118,7 +121,7 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
     return (
       <div className="viewer-body">
         <div className="viewer-message">
-          {state.phase === 'loading' ? '加载中…' : state.message}
+          {state.phase === 'loading' ? t('Loading…') : state.message}
         </div>
       </div>
     );
@@ -212,8 +215,10 @@ function TextFileView({
         setState({
           phase: 'error',
           message: file.binary
-            ? '二进制文件,无法预览(可外跳编辑器打开)'
-            : `文件过大(${(file.size / 1024 / 1024).toFixed(1)}MB > 2MB),请外跳编辑器`,
+            ? t('Binary file, cannot preview (open in an external editor instead)')
+            : t('File too large ({size}MB > 2MB), please open in an external editor', {
+                size: (file.size / 1024 / 1024).toFixed(1),
+              }),
         });
         return;
       }
@@ -256,7 +261,9 @@ function TextFileView({
           .catch((e) => {
             setState({
               phase: 'error',
-              message: `保存失败:${e instanceof Error ? e.message : e}`,
+              message: t('Save failed: {error}', {
+                error: e instanceof Error ? e.message : String(e),
+              }),
             });
           });
       };
@@ -282,7 +289,7 @@ function TextFileView({
     <div className="viewer-body">
       {state.phase !== 'ready' && (
         <div className="viewer-message">
-          {state.phase === 'loading' ? '加载中…' : state.message}
+          {state.phase === 'loading' ? t('Loading…') : state.message}
         </div>
       )}
       <div
