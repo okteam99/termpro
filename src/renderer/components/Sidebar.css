@@ -698,7 +698,7 @@
 }
 
 .sidebar-machine-rtt--fair {
-  color: #e5a04a;
+  color: var(--amber);
 }
 
 .sidebar-machine-rtt--poor {

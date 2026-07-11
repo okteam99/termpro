@@ -7,6 +7,12 @@
   --fg-dim: #9da5b4;
   --accent: #4a8df8;
   --border: #181b1f;
+  /* 状态三色(green/amber/red):此前只 scope 在 .remote-hosts__backdrop 内,
+     Sidebar 的 var(--green)/var(--red)(连接圆点/会话徽标/RTT 分级)静默回退成
+     继承色(灰)甚至透明——提升到 :root 作为全局调色板。 */
+  --green: #98c379;
+  --amber: #d19a66;
+  --red: #e06c75;
 }
 
 * {

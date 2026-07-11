@@ -42,6 +42,11 @@ function teardownListeners(configId: string): void {
  *
  * 重入安全:同 configId 重复调用(如断线重连后再次 ready)先清旧订阅再重建,不留悬挂监听。
  */
+/** 首拉重试:main 的 ready 事件(verifying 后自主推进)与 renderer ws 握手是并行竞态,
+ *  transport 未就绪时 rpc 立即拒绝 'host not connected'——短退避重试等 ws open。 */
+const LIST_RETRY_DELAY_MS = 300;
+const LIST_RETRY_MAX = 10;
+
 export async function startRemoteWorkspaceSync(
   configId: string,
   wsUrl: string,
@@ -49,23 +54,36 @@ export async function startRemoteWorkspaceSync(
   teardownListeners(configId);
   const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
 
-  try {
-    const { workspaces } = await client.rpc('workspace.list', undefined);
-    useAppStore.getState().setHostWorkspaces(configId, workspaces);
-  } catch (err) {
-    console.warn(
-      `[remoteWorkspaceSync] workspace.list failed feature=TERMPRO-F260710011342 configId=${configId}`,
-      err,
-    );
-  }
+  // 订阅先于首拉建立:首拉重试期间 host 若广播 workspace:changed 不丢
+  const handle: HostSyncHandle = {
+    unsubWorkspaceChanged: client.onWorkspaceChanged((workspaces) => {
+      useAppStore.getState().setHostWorkspaces(configId, workspaces);
+    }),
+    unsubSessionEvent: client.onSessionEvent((sessionId, event) => {
+      routeSessionEvent(configId, sessionId, event);
+    }),
+  };
+  active.set(configId, handle);
 
-  const unsubWorkspaceChanged = client.onWorkspaceChanged((workspaces) => {
-    useAppStore.getState().setHostWorkspaces(configId, workspaces);
-  });
-  const unsubSessionEvent = client.onSessionEvent((sessionId, event) => {
-    routeSessionEvent(configId, sessionId, event);
-  });
-  active.set(configId, { unsubWorkspaceChanged, unsubSessionEvent });
+  for (let attempt = 1; attempt <= LIST_RETRY_MAX; attempt++) {
+    // 已被 stop/重入顶替 → 本轮首拉作废(不往已回收的视图态注水)
+    if (active.get(configId) !== handle) return;
+    try {
+      const { workspaces } = await client.rpc('workspace.list', undefined);
+      if (active.get(configId) !== handle) return;
+      useAppStore.getState().setHostWorkspaces(configId, workspaces);
+      return;
+    } catch (err) {
+      if (attempt === LIST_RETRY_MAX) {
+        console.warn(
+          `[remoteWorkspaceSync] workspace.list failed feature=TERMPRO-F260710011342 configId=${configId} attempts=${attempt}`,
+          err,
+        );
+        return;
+      }
+      await new Promise((r) => setTimeout(r, LIST_RETRY_DELAY_MS));
+    }
+  }
 }
 
 /**

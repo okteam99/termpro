@@ -120,13 +120,31 @@ describe('startRemoteWorkspaceSync:host ready 编排', () => {
     expect(routeSessionEvent).toHaveBeenCalledWith('cfg-1', 'sess-1', event);
   });
 
-  it('E-1:workspace.list 失败 → WARN 不注入 ws,但仍建立 workspace/session 订阅', async () => {
+  it('E-1:首拉瞬时失败(ready 与 ws open 竞态·host not connected)→ 短退避重试后注入', async () => {
+    vi.useFakeTimers();
+    const entries: WorkspaceEntry[] = [{ id: 'w1', name: 'proj', root: '/r' }];
+    const client = makeFakeClient(entries);
+    client.rpc.mockRejectedValueOnce(new Error('host not connected'));
+    hostRegistryMock.getOrCreateRemote.mockReturnValue(client);
+
+    const p = startRemoteWorkspaceSync('cfg-1', 'ws://x');
+    await vi.advanceTimersByTimeAsync(400); // 一次退避(300ms)后第二拍成功
+    await p;
+
+    expect(storeMock.setHostWorkspaces).toHaveBeenCalledWith('cfg-1', entries);
+    vi.useRealTimers();
+  });
+
+  it('E-1:持续失败 → 重试预算耗尽 WARN 不注入 ws,但仍建立 workspace/session 订阅', async () => {
+    vi.useFakeTimers();
     const client = makeFakeClient([]);
-    client.rpc.mockRejectedValueOnce(new Error('ECONNRESET'));
+    client.rpc.mockRejectedValue(new Error('ECONNRESET'));
     hostRegistryMock.getOrCreateRemote.mockReturnValue(client);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await startRemoteWorkspaceSync('cfg-1', 'ws://x');
+    const p = startRemoteWorkspaceSync('cfg-1', 'ws://x');
+    await vi.advanceTimersByTimeAsync(300 * 10 + 100); // 10 拍预算全耗尽
+    await p;
 
     expect(storeMock.setHostWorkspaces).not.toHaveBeenCalled(); // 不注入 ws
     expect(warnSpy).toHaveBeenCalled(); // 不静默吞异常
@@ -137,6 +155,7 @@ describe('startRemoteWorkspaceSync:host ready 编排', () => {
     expect(routeSessionEvent).toHaveBeenCalledWith('cfg-1', 's1', event);
 
     warnSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it('重入安全:同 configId 重复调用(如断线重连后再 ready)不留悬挂订阅', async () => {
