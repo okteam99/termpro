@@ -166,6 +166,10 @@ export interface AppState {
   /** 拖拽排序:把工作区移到目标下标(越界自动夹紧) */
   moveWorkspace(id: string, toIndex: number): void;
   addTab(workspaceId: string, cwd?: string): void;
+  /** 收养重建(PENDING-006):为服务端既有会话补建 tab(重启后重连/断开期丢 inst),返回新
+   *  tabId 供 readoptHost path② 绑 inst;workspaceId 不存在 → null(调用方跳过该会话)。
+   *  不抢焦点:仅该 ws 尚无 activeTabId 时落焦(重启后 0-tab ws 首个收养 tab 自然成为激活 tab)。 */
+  adoptSessionTab(workspaceId: string, cwd: string, processName?: string): string | null;
   closeTab(workspaceId: string, tabId: string): void;
   setActiveTab(workspaceId: string, tabId: string): void;
   /** 拖拽排序:把 tab 移到目标下标(越界自动夹紧) */
@@ -597,6 +601,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         return { ...w, tabs: [...w.tabs, tab], activeTabId: tab.id };
       }),
     }));
+  },
+
+  adoptSessionTab(workspaceId, cwd, processName) {
+    if (!get().workspaces.some((w) => w.id === workspaceId)) return null;
+    const tab: TabState = { ...makeTab(cwd), processName };
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => {
+        if (w.id !== workspaceId) return w;
+        return { ...w, tabs: [...w.tabs, tab], activeTabId: w.activeTabId ?? tab.id };
+      }),
+    }));
+    return tab.id;
   },
 
   closeTab(workspaceId, tabId) {

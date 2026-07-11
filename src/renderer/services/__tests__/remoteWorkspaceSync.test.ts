@@ -28,6 +28,13 @@ vi.mock('../../state/store', () => ({
   useAppStore: { getState: () => storeMock },
 }));
 
+// 收养入口打桩:本测试只断言「注册表落地后触发了收养」这条 seam(PENDING-006);
+// 收养内部(cwd 映射/重建 tab/串行化)由 sessionReadopt.test.ts 单独覆盖。
+const { readoptRemoteSessions } = vi.hoisted(() => ({
+  readoptRemoteSessions: vi.fn(async () => undefined),
+}));
+vi.mock('../sessionReadopt', () => ({ readoptRemoteSessions }));
+
 import {
   isRemoteWorkspaceSyncing,
   startRemoteWorkspaceSync,
@@ -73,6 +80,7 @@ beforeEach(() => {
   storeMock.setHostWorkspaces.mockReset();
   storeMock.dropHostWorkspaces.mockReset();
   routeSessionEvent.mockReset();
+  readoptRemoteSessions.mockClear();
 });
 
 afterEach(() => {
@@ -95,6 +103,19 @@ describe('startRemoteWorkspaceSync:host ready 编排', () => {
     );
     expect(client.rpc).toHaveBeenCalledWith('workspace.list', undefined);
     expect(storeMock.setHostWorkspaces).toHaveBeenCalledWith('cfg-1', entries);
+  });
+
+  it('注册表落地后触发服务端会话收养(PENDING-006:重启后重连的收养入口)', async () => {
+    const client = makeFakeClient([{ id: 'w1', name: 'proj', root: '/r' }]);
+    hostRegistryMock.getOrCreateRemote.mockReturnValue(client);
+
+    await startRemoteWorkspaceSync('cfg-1', 'ws://x');
+
+    expect(readoptRemoteSessions).toHaveBeenCalledWith('cfg-1');
+    // 顺序钉死:先 setHostWorkspaces(cwd→workspace 映射素材)再收养
+    const setOrder = storeMock.setHostWorkspaces.mock.invocationCallOrder[0];
+    const readoptOrder = readoptRemoteSessions.mock.invocationCallOrder[0];
+    expect(setOrder).toBeLessThan(readoptOrder);
   });
 
   it('建立 onWorkspaceChanged 订阅:该机注册表广播 → 再次 setHostWorkspaces', async () => {
@@ -147,6 +168,7 @@ describe('startRemoteWorkspaceSync:host ready 编排', () => {
     await p;
 
     expect(storeMock.setHostWorkspaces).not.toHaveBeenCalled(); // 不注入 ws
+    expect(readoptRemoteSessions).not.toHaveBeenCalled(); // 注册表没落地 → 不收养(无映射素材)
     expect(warnSpy).toHaveBeenCalled(); // 不静默吞异常
 
     // 订阅仍照常建立(host 已连通,失败只是 list 这一拍)

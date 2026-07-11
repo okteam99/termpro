@@ -11,6 +11,7 @@
 
 import { hostRegistry } from './hostRegistry';
 import { routeSessionEvent } from './sessionEvents';
+import { readoptRemoteSessions } from './sessionReadopt';
 import { useAppStore } from '../state/store';
 
 interface HostSyncHandle {
@@ -72,6 +73,10 @@ export async function startRemoteWorkspaceSync(
       const { workspaces } = await client.rpc('workspace.list', undefined);
       if (active.get(configId) !== handle) return;
       useAppStore.getState().setHostWorkspaces(configId, workspaces);
+      // 服务端会话收养(PENDING-006):注册表落地后据 session.list 重建既有会话 tab
+      // (客户端重启后重连的收养入口——此刻 cwd→workspace 映射才有素材;list 成功
+      // 亦证明 transport 已开,session.attach 不会撞 A1 的「transport=null 同步 reject」)。
+      void readoptRemoteSessions(configId);
       return;
     } catch (err) {
       if (attempt === LIST_RETRY_MAX) {
