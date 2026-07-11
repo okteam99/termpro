@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { wireWebglAtlasResync } from '../webglAtlasResync';
+import { forceAtlasReupload, wireWebglAtlasResync } from '../webglAtlasResync';
 
 /**
  * 最小假 WebglAddon:可手动 emit remove/change/add 事件,记录订阅 dispose。
@@ -108,5 +108,38 @@ describe('wireWebglAtlasResync', () => {
     webgl.emitRemove();
     await flushMicrotasks();
     expect(onRearrange).not.toHaveBeenCalled();
+  });
+});
+
+describe('forceAtlasReupload', () => {
+  it('结构完整:setAtlas(现图集) 被调用(全部纹理 version→-1 → 下一帧全量重传),返回 true', () => {
+    const setAtlas = vi.fn();
+    const charAtlas = { pages: [] };
+    const webgl = {
+      _renderer: { _glyphRenderer: { value: { setAtlas } }, _charAtlas: charAtlas },
+    };
+
+    expect(forceAtlasReupload(webgl)).toBe(true);
+    expect(setAtlas).toHaveBeenCalledTimes(1);
+    expect(setAtlas).toHaveBeenCalledWith(charAtlas);
+  });
+
+  it.each([
+    ['无 _renderer', {}],
+    ['无 _glyphRenderer.value', { _renderer: { _charAtlas: {} , _glyphRenderer: {} } }],
+    ['无 _charAtlas', { _renderer: { _glyphRenderer: { value: { setAtlas() {} } } } }],
+    ['setAtlas 非函数', { _renderer: { _glyphRenderer: { value: { setAtlas: 1 } }, _charAtlas: {} } }],
+  ])('addon 内部结构变化(%s)→ 返回 false,调用方兜底整体重建', (_name, webgl) => {
+    expect(forceAtlasReupload(webgl)).toBe(false);
+  });
+
+  it('setAtlas 抛错 → 返回 false(容错,不让渲染路径炸掉)', () => {
+    const webgl = {
+      _renderer: {
+        _glyphRenderer: { value: { setAtlas: () => { throw new Error('gl dead'); } } },
+        _charAtlas: {},
+      },
+    };
+    expect(forceAtlasReupload(webgl)).toBe(false);
   });
 });

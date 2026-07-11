@@ -6,15 +6,16 @@ import {
   ensureSession,
   getOrCreateTerminal,
 } from './terminalRegistry';
-import { wireWebglAtlasResync } from './webglAtlasResync';
+import { forceAtlasReupload, wireWebglAtlasResync } from './webglAtlasResync';
 import { disposeWebglAddon } from './webglContextRelease';
 import '@xterm/xterm/css/xterm.css';
 
 // 创建并挂载 WebGL 渲染器到实例。图集分页合并会让 GPU 纹理页因 version 门控碰撞而漏传,
-// 导致 CJK 串字乱码(机制详见 webglAtlasResync.ts 顶注)。clearTextureAtlas 救不了——它
-// 不重置纹理 version;唯一可靠的是让纹理全量重传。这里在合并(删页)事件时重建整个
-// WebglAddon:全新 GlyphRenderer 的纹理 version 全为 -1,下一帧必然全量重传,version
-// 碰撞从物理上不可能发生(等价于整窗 resize 的恢复效果,但无需用户手动)。
+// 导致 CJK 串字乱码(机制详见 webglAtlasResync.ts 顶注)。合并(删页)事件时经
+// forceAtlasReupload 重置纹理 version 强制下一帧全量重传——保留图集与 GL 上下文,
+// 滚动中无停顿。不可改回「合并即重建整个 addon」:重建清空图集,快速滚过
+// truecolor+CJK 内容时自馈成重建风暴(一次快划 8 次重建、单帧 66ms、画布重影,
+// 详见 webglAtlasResync.ts 顶注),仅当私有面对不上(addon 升级)才兜底重建。
 function mountWebgl(inst: TermInstance): void {
   try {
     const webgl = new WebglAddon();
@@ -33,10 +34,17 @@ function mountWebgl(inst: TermInstance): void {
     });
     inst.term.loadAddon(webgl);
     inst.webgl = webgl;
-    // 删页(合并)→ 微任务去抖 → 重建 WebGL。仅当事件来自当前活跃 addon 时才重建,
-    // 避免被替换掉的旧 addon 残留微任务误触发二次重建。
+    // 删页(合并)→ 微任务去抖 → 强制纹理全量重传。仅当事件来自当前活跃 addon 时才处理,
+    // 避免被替换掉的旧 addon 残留微任务误触发。
     wireWebglAtlasResync(webgl, () => {
-      if (inst.webgl === webgl) remountWebgl(inst);
+      if (inst.webgl !== webgl) return;
+      if (forceAtlasReupload(webgl)) {
+        // 合并可能发生在本轮活动的最后一帧:主动 refresh 保证重传帧一定到来,
+        // 否则 version=-1 要等下次输出/滚动才生效,期间乱码可见。
+        inst.term.refresh(0, inst.term.rows - 1);
+      } else {
+        remountWebgl(inst);
+      }
     });
   } catch (err) {
     console.warn('[terminal] WebGL unavailable, falling back to DOM', err);

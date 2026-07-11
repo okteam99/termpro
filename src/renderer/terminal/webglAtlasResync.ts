@@ -18,9 +18,17 @@
 //   handleResize → _refreshCharAtlas → setAtlas(),而 setAtlas 把所有 _atlasTextures
 //   的 version 置 -1 → 下一帧每页 `version(≥0) !== -1` 必然成立 → 全量重传。
 //
-// 修复(见 TerminalView.mountWebgl/remountWebgl):图集删页(合并)事件触发时,重建整个
-// WebglAddon。全新 GlyphRenderer 的纹理 version 全为 -1,下一帧必然全量重传,version
-// 碰撞从物理上不可能发生,一次性覆盖所有 desync 源(合并/换实例/DPR)。
+// 修复(见 TerminalView.mountWebgl):图集删页(合并)事件触发时,直接调 GlyphRenderer.
+// setAtlas(现图集)(forceAtlasReupload,经 addon 私有面)——即上面「整窗 resize 生效」
+// 的同一条路径:全部纹理 version 置 -1,下一帧必然全量重传,version 碰撞从物理上不可能。
+// 且**保留图集像素与 GL 上下文**:代价仅是 ≤16 页纹理的一次 GPU 重传(几 ms)。
+//
+// ⚠️ 不可用「重建整个 WebglAddon」做常规路径(2026-07 滚动卡顿/重影根因,
+// BUG-TERMPRO 滚动性能):重建会清空整个字形图集 → 快速滚过高多样性内容
+// (truecolor 渐变 + CJK,现代 TUI 的常态)时,刚栅格化的字形全部作废、页很快again填满
+// → 再合并 → 再重建……自馈风暴。实测一次快划触发 8 次重建、单帧最长 66ms
+// (稳态 8.3ms/120Hz),表现为滚动卡顿 + 换画布瞬间旧帧闪烁(重影),停稳后无新字形
+// 才恢复。重建仅保留为 forceAtlasReupload 因 addon 升级改内部结构而失败时的兜底。
 //
 // 注:**只订阅删页(remove)**——它仅由 _mergePages 在合并时发(TextureAtlas.ts:224)。
 //   不订阅换图集(change):换实例自身已走 setAtlas 重置 version 自愈,无需处理;且全新
@@ -30,6 +38,38 @@
 /** WebglAddon 暴露的子集:图集删页事件(结构化匹配 · 便于单测注入假对象)。 */
 interface WebglAtlasEvents {
   onRemoveTextureAtlasCanvas(listener: () => void): { dispose(): void };
+}
+
+/**
+ * WebglAddon 私有面(@xterm/addon-webgl@0.19):_renderer(WebglRenderer)→
+ * _glyphRenderer(MutableDisposable<GlyphRenderer>).value + _charAtlas。
+ * 升级若改内部结构,forceAtlasReupload 返回 false,调用方兜底整体重建
+ * (与 webglContextRelease 的私有面容错策略一致)。
+ */
+interface AtlasReuploadable {
+  _renderer?: {
+    _glyphRenderer?: { value?: { setAtlas?: unknown } };
+    _charAtlas?: unknown;
+  };
+}
+
+/**
+ * 强制字形图集纹理全量重传(合并后 version 碰撞的最小代价救法,机制见顶注):
+ * GlyphRenderer.setAtlas(现图集) 把全部 _atlasTextures[*].version 置 -1 →
+ * 下一帧逐页重传。保留图集像素与 GL 上下文,不触发任何重新栅格化。
+ * 返回 false = 私有面对不上/调用抛错,调用方须退回整体重建。
+ */
+export function forceAtlasReupload(webgl: unknown): boolean {
+  const renderer = (webgl as AtlasReuploadable)._renderer;
+  const glyph = renderer?._glyphRenderer?.value;
+  const atlas = renderer?._charAtlas;
+  if (!glyph || !atlas || typeof glyph.setAtlas !== 'function') return false;
+  try {
+    (glyph.setAtlas as (a: unknown) => void)(atlas);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
