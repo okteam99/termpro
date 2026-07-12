@@ -1,10 +1,12 @@
 // AC-2/5/11/12/13/14 orchestrator 状态机 + in-flight guard + 失败分类 + 认领/重试/删除。
 // 全部注入桩 connectSsh(DI · ARCH-B10),不 mock static,不触网。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { RemoteHostOrchestrator, isLegalTransition } from '../orchestrator';
+import { deriveHostTag } from '../hostIdentity';
 import { CredentialStore, HostConfigStore, type SafeStorageLike } from '../credentialStore';
 import type { RemoteEvent, RemoteStage } from '../../../shared/remoteHost';
 import { createRoutedSsh, bufferOf, flushMicrotasks, type RoutedSsh } from './testKit';
@@ -252,7 +254,7 @@ describe('AC-13 认领驻留进程(不重启)', () => {
 
 describe('多设备同屏 Phase 1:hostTag 贯穿(TECH §A.4)', () => {
   it('isolate=false + 指纹在 → 启动命令/端口路径用派生 id-* tag(而非 configId)', async () => {
-    const fp = require('node:crypto').createHash('sha256').update('server-key').digest();
+    const fp = crypto.createHash('sha256').update('server-key').digest();
     let started = false;
     const routed = createRoutedSsh({
       execHandlers: healthyDefaults(),
@@ -292,17 +294,135 @@ describe('多设备同屏 Phase 1:hostTag 贯穿(TECH §A.4)', () => {
     expect(cmd).toMatch(/hosts\/id-[A-Za-z0-9_-]{26}\/host\.port/);
   });
 
-  it('缺省(isolate 未设)→ Phase 1 占位默认隔离:tag==configId,行为零变化', async () => {
-    const fp = require('node:crypto').createHash('sha256').update('server-key').digest();
-    const routed = createFreshDeploySsh('vps-hk');
-    (routed.hostKeyFingerprint as ReturnType<typeof vi.fn>).mockReturnValue(fp);
+  it('Phase 2 缺省(isolate 未设)+ 指纹在 → 默认收敛:派生 tag + 注入身份文件 env', async () => {
+    const fp = crypto.createHash('sha256').update('server-key').digest();
+    let started = false;
+    const routed = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      hostKeyFingerprint: fp,
+      sftpReadFile: (p) => {
+        if (p.endsWith('host.port') && p.includes('/hosts/id-')) {
+          return started ? bufferOf({ port: 5555, pid: 4242, hostTag: 'x' }) : null;
+        }
+        return null;
+      },
+    });
+    const originalExecDetached = routed.execDetached;
+    routed.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+      started = true;
+      return originalExecDetached(cmd, stdin);
+    });
     const h = makeHarness({ connectSshImpl: async () => routed });
     saveConfig(h.configStore);
 
     await h.orchestrator.connect('vps-hk');
 
     const cmd = routed.execDetachedCalls[0]?.cmd ?? '';
-    expect(cmd).toContain('--host-tag "vps-hk"');
+    expect(cmd).toMatch(/--host-tag "id-[A-Za-z0-9_-]{26}"/);
+    expect(cmd).toMatch(/TERMPRO_HOST_IDENTITY_FILE="[^"]*\/identity\/id-[A-Za-z0-9_-]{26}\/token"/);
+  });
+
+  it('isolate=true 显式隔离 / 指纹缺失 fail-safe → tag==configId,不注入身份文件 env', async () => {
+    // ① isolate=true(指纹在也不收敛)
+    const fp = crypto.createHash('sha256').update('server-key').digest();
+    const routedIsolate = createFreshDeploySsh('vps-hk');
+    (routedIsolate.hostKeyFingerprint as ReturnType<typeof vi.fn>).mockReturnValue(fp);
+    const h1 = makeHarness({ connectSshImpl: async () => routedIsolate });
+    h1.configStore.save({
+      id: 'vps-hk',
+      alias: 'vps-hk',
+      host: '1.2.3.4',
+      port: 22,
+      username: 'root',
+      authType: 'password',
+      isolate: true,
+    });
+    await h1.orchestrator.connect('vps-hk');
+    const cmd1 = routedIsolate.execDetachedCalls[0]?.cmd ?? '';
+    expect(cmd1).toContain('--host-tag "vps-hk"');
+    expect(cmd1).not.toContain('TERMPRO_HOST_IDENTITY_FILE');
+
+    // ② 指纹缺失(桩默认 null)→ 收敛不可得,退隔离
+    const routedNoFp = createFreshDeploySsh('vps-hk');
+    const h2 = makeHarness({ connectSshImpl: async () => routedNoFp });
+    saveConfig(h2.configStore);
+    await h2.orchestrator.connect('vps-hk');
+    const cmd2 = routedNoFp.execDetachedCalls[0]?.cmd ?? '';
+    expect(cmd2).toContain('--host-tag "vps-hk"');
+    expect(cmd2).not.toContain('TERMPRO_HOST_IDENTITY_FILE');
+  });
+});
+
+describe('多设备同屏 Phase 2:收敛认领(TECH §A.2/A.4)', () => {
+  const fp = crypto.createHash('sha256').update('shared-server-key').digest();
+
+  it('设备 B(本地零 token)经服务端身份文件认领设备 A 的 host:零 kill 零部署零重启', async () => {
+        const sharedTag = deriveHostTag(fp, 'root');
+    const routed = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      hostKeyFingerprint: fp,
+      sftpReadFile: (p) => {
+        if (p === `/home/tester/.termpro-host/hosts/${sharedTag}/host.port`) {
+          return bufferOf({ port: 6100, pid: 777, hostTag: sharedTag });
+        }
+        if (p === `/home/tester/.termpro-host/identity/${sharedTag}/token`) {
+          return Buffer.from('device-a-token\n', 'utf8');
+        }
+        return null;
+      },
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore); // username=root · isolate 缺省=收敛;本地 credentialStore 无任何 token
+
+    await h.orchestrator.connect('vps-hk');
+
+    const stages = h.events.map((e) => e.stage);
+    expect(stages).toContain('claiming');
+    expect(stages).toContain('ready');
+    expect(stages).not.toContain('deploying');
+    expect(routed.execDetached).not.toHaveBeenCalled();
+    expect(routed.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
+    // 探测用的是服务端身份 token(设备 B 本地拿不到 A 生成的 token)
+    expect(h.probe).toHaveBeenCalledWith(expect.any(Number), 'device-a-token');
+    // 认领成功回写本地缓存(心跳/快速重连用)
+    expect(h.credentials.getSecret(`hosttoken:${sharedTag}`)).toBe('device-a-token');
+    // verifying 事件里给 renderer 的 token 同样是服务端 token
+    const verifying = h.events.find((e) => e.stage === 'verifying');
+    expect(verifying?.tunnel?.token).toBe('device-a-token');
+  });
+
+  it('新旧 tag 并存零误杀:遗留 configId host 活着,收敛流程 freshDeploy 新 tag,不碰旧进程', async () => {
+    let started = false;
+    const routed = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      hostKeyFingerprint: fp,
+      sftpReadFile: (p) => {
+        // 遗留隔离 host 的端口文件(旧 tag 路径)——收敛流程根本不该读它
+        if (p === '/home/tester/.termpro-host/hosts/vps-hk/host.port') {
+          return bufferOf({ port: 6200, pid: 888, hostTag: 'vps-hk' });
+        }
+        if (p.endsWith('host.port') && p.includes('/hosts/id-')) {
+          return started ? bufferOf({ port: 6300, pid: 999, hostTag: 'x' }) : null;
+        }
+        return null;
+      },
+    });
+    const originalExecDetached = routed.execDetached;
+    routed.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+      started = true;
+      return originalExecDetached(cmd, stdin);
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    // 旧 host(pid 888)绝不能被 kill/kill -0 触碰,旧端口文件不被 rm
+    expect(routed.execCalls.some((c) => c.includes('888'))).toBe(false);
+    expect(
+      routed.execCalls.some((c) => c.includes('rm -f') && c.includes('hosts/vps-hk')),
+    ).toBe(false);
   });
 });
 

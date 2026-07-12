@@ -111,6 +111,13 @@ export interface ResidencyContext {
    * reap 比对全部以此为基准。缺省 = configId(隔离模式/旧调用方零变化)。
    */
   hostTag?: string;
+  /**
+   * 服务端身份 token 文件绝对路径(收敛模式 · TECH §A.2)。提供且端口文件存在时,
+   * 以该文件内容为【权威】token 源(sftp 读序恒在端口文件之后——happens-before:
+   * 见到端口文件 ⇒ 身份文件已完整);读不到 → 回落 storedToken 本地缓存(可能陈旧,
+   * probe 兜底),绝不臆造(fail-closed)。
+   */
+  identityTokenPath?: string;
   appVersion: string;
   storedToken: string | null;
   probeHostInfo: (localPort: number, token: string) => Promise<ProbeResult>;
@@ -132,6 +139,12 @@ export interface ResidencyResolution {
   attemptedClaim: boolean;
   /** 仅 claim 分支携带:已建好的隧道 + 探测结果(供 orchestrator 直接 emit verifying)。 */
   claimed?: { tunnel: BuiltTunnel; probe: ProbeResult };
+  /**
+   * 本轮实际用于探测/认领的 token(多设备同屏 TECH §A.2):服务端身份文件内容优先,
+   * 回落 storedToken。claim 成功时 orchestrator 必须以此为 session token(并回写本地
+   * 缓存)——设备 B 认领设备 A 起的 host 时,本地 storedToken 可能为空/陈旧。
+   */
+  effectiveToken: string | null;
 }
 
 function portFilePath(dataDir: string, configId: string): string {
@@ -193,13 +206,23 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
   const bundleReady = (await ctx.ssh.sftpReadFile(bundleReadyPath(ctx.dataDir, ctx.appVersion))) !== null;
   const portRaw = parsePortFile(await ctx.ssh.sftpReadFile(portFilePath(ctx.dataDir, tag)));
 
+  // 🔴 服务端身份 token 权威源(TECH §A.2):读序恒在端口文件之后(happens-before)。
+  // 文件在 → 覆盖本地 storedToken(设备 B 认领设备 A 的 host 的唯一 token 通道);
+  // 文件缺/空 → 回落本地缓存(旧 host 未写身份文件/隔离模式),probe 兜底,不臆造。
+  let effectiveToken = ctx.storedToken;
+  if (ctx.identityTokenPath && portRaw !== null) {
+    const tokenBuf = await ctx.ssh.sftpReadFile(ctx.identityTokenPath);
+    const serverToken = tokenBuf?.toString('utf8').trim();
+    if (serverToken) effectiveToken = serverToken;
+  }
+
   let probeResult: { ok: boolean; compatible?: boolean } | null = null;
   let candidateTunnel: BuiltTunnel | undefined;
   let fullProbe: ProbeResult | undefined;
   // 🔴 与 decideResidency 同口径:候选不看 bundleReady(客户端升级后新版 bundle 必缺,
   // 不能因此跳过 probe 把协议兼容的活 host 杀掉重部署 · 用户规则 2026-07)。
   const candidateEligible =
-    portRaw !== null && portRaw.hostTag === tag && !!ctx.storedToken;
+    portRaw !== null && portRaw.hostTag === tag && !!effectiveToken;
 
   if (candidateEligible) {
     candidateTunnel = await ctx.buildTunnel(portRaw!.port);
@@ -209,7 +232,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     // 发生在这层执行编排,decideResidency 永远只看「最终一次」probeResult)。
     for (let attempt = 0; ; attempt++) {
       try {
-        fullProbe = await ctx.probeHostInfo(candidateTunnel.localPort, ctx.storedToken!);
+        fullProbe = await ctx.probeHostInfo(candidateTunnel.localPort, effectiveToken!);
         probeResult = { ok: fullProbe.ok, compatible: fullProbe.compatible };
       } catch (err) {
         // 🔴 E7 防御性修复:probeHostInfo 契约上「永不 reject」(probeHostInfo.ts 自述),
@@ -246,7 +269,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     // 新旧 tag 并存期旧 configId host 因 tag 不等恒判兄弟,零误杀(TECH §A.4)。
     configId: tag,
     portRaw,
-    storedToken: ctx.storedToken,
+    storedToken: effectiveToken,
     bundleReady,
     probeResult,
     killAliveResult,
@@ -259,6 +282,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
       portRaw,
       attemptedClaim: true,
       claimed: { tunnel: candidateTunnel!, probe: fullProbe! },
+      effectiveToken,
     };
   }
 
@@ -274,7 +298,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     await ctx.ssh.exec(`rm -f "${portFilePath(ctx.dataDir, tag)}"`);
   }
 
-  return { decision, portRaw, attemptedClaim: candidateEligible };
+  return { decision, portRaw, attemptedClaim: candidateEligible, effectiveToken };
 }
 
 /** darwin `ps -o command=` / linux `/proc/<pid>/cmdline` 双路径读取(取到即用,失败留空)。 */

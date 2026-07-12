@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import { PROTOCOL_VERSION } from '../shared/protocol';
 import { createHostCore, PortLike } from './hostCore';
 import { gitInfo } from './gitService';
-import { resolveToken } from './token';
+import { resolveToken, writeIdentityTokenFile } from './token';
 import { startWsServer } from './wsServer';
 
 // 形态注入(D-1 · BL-005):--listen → standalone(远程/loopback · 断线续跑 + 回放收养);
@@ -104,6 +104,30 @@ if (process.argv.includes('--listen')) {
       // 驻留端口交接文件(main sftp 回读用 · SSH-4)。O_CREAT|O_EXCL|O_WRONLY:
       // 陈旧文件视为 main 未先清理 = bug,fail-closed 拒绝覆盖而非静默复用
       // (无 TOCTOU 窗口 · AC-8)。
+      // 🔴 多设备同屏 Phase 2(TECH §A.2):身份 token 文件必须写在端口文件【之前】
+      // ——happens-before:任何设备 sftp 看到端口文件 ⇒ 身份文件已完整可读(消
+      // TOCTOU 半读)。写失败 fail-closed 退出:收敛模式下没有身份文件,其他设备
+      // 只会把本 host 误判为「不可认领的坏死进程」而 reap,宁可不起。
+      const identityFile = process.env.TERMPRO_HOST_IDENTITY_FILE;
+      if (identityFile) {
+        try {
+          writeIdentityTokenFile(identityFile, token);
+        } catch (err) {
+          console.error(
+            '[host] identity token write failed:',
+            err instanceof Error ? err.message : String(err),
+          );
+          process.exit(1);
+        }
+        // dataDir 权限收紧(best-effort · TECH §A.2):同机他用户不可窥探;
+        // 失败不阻断启动(真屏障是身份文件自身的 0600/0700)
+        try {
+          const dataDir = process.env.TERMPRO_HOST_DATA_DIR;
+          if (dataDir) fs.chmodSync(dataDir, 0o700);
+        } catch {
+          /* best-effort */
+        }
+      }
       const portFile = process.env.TERMPRO_HOST_PORT_FILE;
       if (portFile) {
         let fd: number;

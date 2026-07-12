@@ -195,6 +195,8 @@ export function buildStartCommand(opts: {
   /** 服务端身份键(多设备同屏 TECH §0.3):端口/日志路径 + --host-tag 以此为基准。
    *  缺省 = configId(隔离模式/旧测试零变化)。 */
   hostTag?: string;
+  /** 身份 token 文件远端绝对路径(收敛模式注入 TERMPRO_HOST_IDENTITY_FILE;隔离模式省略)。 */
+  identityFile?: string;
   allowedOrigins?: string;
   /** 远端 node 绝对路径(nodeProbe 解析);缺省 'node' 仅供测试兜底,生产恒传。 */
   nodePath?: string;
@@ -205,10 +207,14 @@ export function buildStartCommand(opts: {
   const entry = `${opts.dataDir}/bundle/${opts.appVersion}/host.js`;
   const allowedOrigins = opts.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
   const nodeBin = (opts.nodePath ?? 'node').replace(/["'\r\n]/g, '');
+  // 收敛模式(TECH §A.2):注入身份 token 文件路径,host 自写 0600(先于端口文件)
+  const identityEnv = opts.identityFile
+    ? `TERMPRO_HOST_IDENTITY_FILE="${opts.identityFile}" `
+    : '';
   return (
     `sh -c 't=$(cat); s=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
     `printf %s "$t" | $s nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
-    `TERMPRO_HOST_PORT_FILE="${portFile}" TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
+    `TERMPRO_HOST_PORT_FILE="${portFile}" ${identityEnv}TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
     `"${nodeBin}" "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${tag}" ` +
     `> "${logFile}" 2>&1 &'`
   );
@@ -566,15 +572,17 @@ export class RemoteHostOrchestrator {
         return;
       }
 
-      // 🔴 多设备同屏 Phase 1 占位(TECH §A.4):hostTag=服务端身份键。isolate 默认
-      // 【true】→ tag==configId,行为零变化;Phase 2 服务端 token 托管就绪后翻转默认
-      // false → 按(host key 指纹 + SSH 用户)派生收敛,同用户多设备共享一个 Host。
+      // 🔴 多设备同屏 Phase 2(TECH §A.4):hostTag=服务端身份键,isolate 缺省
+      // 【false=收敛】——同(服务器指纹+SSH 用户)的所有设备派生同一 tag,共享一个
+      // Host。指纹缺失/isolate=true → 退化 tag==configId(隔离,现状行为)。
       const hostTag = resolveHostTag({
-        isolate: config.isolate ?? true,
+        isolate: config.isolate ?? false,
         configId,
         username: config.username,
         fpDigest: ssh.hostKeyFingerprint(),
       });
+      const converged = hostTag !== configId;
+      const identityFile = converged ? `${dataDir}/identity/${hostTag}/token` : undefined;
 
       const storedToken = this.deps.credentials.getSecret(tokenKey(hostTag));
 
@@ -583,6 +591,7 @@ export class RemoteHostOrchestrator {
         dataDir,
         configId,
         hostTag,
+        identityTokenPath: identityFile,
         appVersion: this.deps.appVersion,
         storedToken,
         probeHostInfo: (localPort, token) => probe(localPort, token),
@@ -594,11 +603,16 @@ export class RemoteHostOrchestrator {
         const { tunnel } = residency.claimed!;
         session.forwardServer = tunnel.server;
         session.localPort = tunnel.localPort;
-        // 🔴 EXT-B-2 确认:claim 复用 storedToken(host 进程本身没重启,它仍只认
-        // 这个 token)——生成新 token(:590 generateToken())只发生在未认领的部署
-        // 分支,claim 分支绝不换 token(否则收养瞬间就把自己踢出)。
-        session.token = storedToken;
+        // 🔴 EXT-B-2/Phase 2:claim 用 residency 实际探测通过的 token(服务端身份
+        // 文件优先,回落本地缓存)——设备 B 认领设备 A 起的 host 时本地缓存为空,
+        // 服务端文件是唯一通道;认领成功即回写本地缓存(心跳/快速重连用)。
+        // 生成新 token 只发生在未认领的部署分支,claim 分支绝不换 token。
+        const claimToken = residency.effectiveToken!;
+        session.token = claimToken;
         session.remotePid = residency.portRaw?.pid ?? null;
+        if (claimToken !== storedToken) {
+          this.deps.credentials.setSecret(tokenKey(hostTag), claimToken);
+        }
 
         this.emit(configId, { stage: 'claiming', fastPath: true, arch });
         this.wireDisconnectWatcher(configId, tunnel.server);
@@ -606,7 +620,7 @@ export class RemoteHostOrchestrator {
           stage: 'verifying',
           fastPath: true,
           arch,
-          tunnel: { localPort: tunnel.localPort, token: storedToken! },
+          tunnel: { localPort: tunnel.localPort, token: claimToken },
         });
         this.emit(configId, { stage: 'ready' });
         this.deps.configStore.touchLastUsed(configId);
@@ -654,6 +668,7 @@ export class RemoteHostOrchestrator {
             appVersion: this.deps.appVersion,
             configId,
             hostTag,
+            identityFile,
             allowedOrigins: this.deps.allowedOrigins,
             nodePath: nodeBest.path,
           }),

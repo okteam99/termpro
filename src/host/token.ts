@@ -4,6 +4,7 @@
 
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /** 128-bit 随机源;base64url 编码为 22 字符无填充 token。 */
 export const TOKEN_BYTES = 16;
@@ -116,6 +117,24 @@ export function resolveToken(
   }
 
   return { token: generateToken(), source: 'generated' };
+}
+
+/**
+ * 身份 token 文件落盘(多设备同屏 TECH §A.2 · PENDING-003 token-file 运维面收口):
+ * 供同 SSH 用户的其他设备 sftp 读取认领共享 host。
+ * - 目录 0700 / 文件 0600(mkdir/writeFile 的 mode 受 umask 掩蔽,恒显式 chmod 兜底);
+ * - 原子替换:先写 `token.tmp-<pid>` 再 rename——读者永不见半写内容;
+ * - 🔴 调用方(host.ts)必须在写端口文件【之前】调用:任何设备看到端口文件
+ *   ⇒ 身份文件已完整可读(happens-before,消 TOCTOU 半读)。
+ */
+export function writeIdentityTokenFile(filePath: string, token: string): void {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
+  const tmp = `${filePath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, token, { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, filePath);
 }
 
 /**

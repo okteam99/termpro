@@ -395,6 +395,87 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(server.closed).toBe(true);
   });
 
+  it('Phase 2:服务端身份 token 覆盖本地陈旧缓存 → 用 server token 探测并 claim', async () => {
+    const probeTokens: string[] = [];
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 5500, pid: 900, hostTag: CONFIG_ID });
+        }
+        if (path.endsWith('/identity/tag-x/token')) return Buffer.from('server-tok\n', 'utf8');
+        return null;
+      },
+    });
+    const server = new FakeServer(47001);
+    const resolution = await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      identityTokenPath: '/home/tester/.termpro-host/identity/tag-x/token',
+      appVersion: '1.0.0',
+      storedToken: 'stale-local-token',
+      probeHostInfo: async (_port, token) => {
+        probeTokens.push(token);
+        return { ok: true, compatible: true };
+      },
+      buildTunnel: async () => ({ server: asNetServer(server), localPort: 47001 }),
+    });
+    expect(probeTokens).toEqual(['server-tok']); // trim 后的服务端 token,非本地陈旧值
+    expect(resolution.decision.action).toBe('claim');
+    expect(resolution.effectiveToken).toBe('server-tok');
+  });
+
+  it('Phase 2:身份文件缺失 → 回落本地 storedToken(旧 host/崩溃残局,probe 兜底)', async () => {
+    const probeTokens: string[] = [];
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 5501, pid: 901, hostTag: CONFIG_ID });
+        }
+        return null; // 身份文件不存在
+      },
+    });
+    const server = new FakeServer(47002);
+    const resolution = await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      identityTokenPath: '/home/tester/.termpro-host/identity/tag-x/token',
+      appVersion: '1.0.0',
+      storedToken: 'local-cache-token',
+      probeHostInfo: async (_port, token) => {
+        probeTokens.push(token);
+        return { ok: true, compatible: true };
+      },
+      buildTunnel: async () => ({ server: asNetServer(server), localPort: 47002 }),
+    });
+    expect(probeTokens).toEqual(['local-cache-token']);
+    expect(resolution.effectiveToken).toBe('local-cache-token');
+  });
+
+  it('Phase 2:端口文件不存在 → 不读身份文件(读序钉死在端口文件之后)', async () => {
+    const readPaths: string[] = [];
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        readPaths.push(path);
+        return null;
+      },
+    });
+    await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      identityTokenPath: '/home/tester/.termpro-host/identity/tag-x/token',
+      appVersion: '1.0.0',
+      storedToken: null,
+      probeHostInfo: async () => ({ ok: false }),
+      buildTunnel: async () => {
+        throw new Error('no candidate, no tunnel');
+      },
+    });
+    expect(readPaths.some((p) => p.includes('/identity/'))).toBe(false);
+  });
+
   it('🔴 E7 回归:probeHostInfo 违反契约抛出(而非返回 {ok:false})→ 候选隧道仍被关闭,不泄漏', async () => {
     const ssh = createRoutedSsh({
       sftpReadFile: (path) => {
