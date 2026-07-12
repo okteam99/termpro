@@ -9,7 +9,7 @@ import { createRoutedSsh, bufferOf, FakeServer, asNetServer } from './testKit';
 const CONFIG_ID = 'vps-hk';
 
 describe('AC-13/AC-4/AC-8 residency 决策表(纯函数)', () => {
-  it('T-032 claim 命中:portRaw 有效+token 非空+bundleReady+probe 通过', () => {
+  it('T-032 claim 命中:portRaw 有效+token 非空+probe 通过', () => {
     const decision = decideResidency({
       configId: CONFIG_ID,
       portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
@@ -99,6 +99,34 @@ describe('AC-13/AC-4/AC-8 residency 决策表(纯函数)', () => {
     expect(decision).toEqual({ action: 'freshDeploy', kill: false, cleanStale: false });
   });
 
+  it('T-038 客户端升级(bundleReady=false)+ 活 host 协议兼容 → 仍 claim,不升级服务端', () => {
+    // 🔴 用户规则 2026-07:客户端升级后远端必然还没有新版 bundle(bundleReady 恒 false),
+    // 但正在运行的旧版 host 只要协议兼容就必须收养——否则升级客户端 = 杀服务端 session。
+    const decision = decideResidency({
+      configId: CONFIG_ID,
+      portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
+      storedToken: 'stored-token',
+      bundleReady: false,
+      probeResult: { ok: true, compatible: true },
+      killAliveResult: null,
+      cmdlineResult: null,
+    });
+    expect(decision).toEqual({ action: 'claim', kill: false, cleanStale: false });
+  });
+
+  it('T-039 活 host 协议【不】兼容(低于最低兼容版本)→ reapThenDeploy,才允许升级服务端', () => {
+    const decision = decideResidency({
+      configId: CONFIG_ID,
+      portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
+      storedToken: 'stored-token',
+      bundleReady: false,
+      probeResult: { ok: true, compatible: false },
+      killAliveResult: true,
+      cmdlineResult: `node host.js --listen 127.0.0.1:0 --token-stdin --host-tag ${CONFIG_ID}`,
+    });
+    expect(decision).toEqual({ action: 'reapThenDeploy', kill: true, cleanStale: true });
+  });
+
   it('cmdlineMatchesHostTag:darwin 空格分隔 / linux NUL 分隔均可解析', () => {
     expect(cmdlineMatchesHostTag('node host.js --host-tag abc', 'abc')).toBe(true);
     expect(cmdlineMatchesHostTag('node\0host.js\0--host-tag\0abc', 'abc')).toBe(true);
@@ -134,6 +162,85 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     // 认领分支不应执行 kill 或 rm 陈旧文件
     expect(ssh.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
     expect(ssh.execCalls.some((c) => c.includes('rm -f'))).toBe(false);
+  });
+
+  it('T-038e 客户端升级场景:.ready 缺失但活 host 在 → 仍建隧道探测并 claim,零 kill/rm/部署', async () => {
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        // 新版客户端首连:bundle/<newVersion>/.ready 必然不存在
+        if (path.endsWith('.ready')) return null;
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 5300, pid: 777, hostTag: CONFIG_ID });
+        }
+        return null;
+      },
+    });
+    const server = new FakeServer(46001);
+    let probeCalls = 0;
+    const resolution = await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      appVersion: '2.0.0',
+      storedToken: 'good-token',
+      probeHostInfo: async () => {
+        probeCalls++;
+        return { ok: true, compatible: true };
+      },
+      buildTunnel: async () => ({ server: asNetServer(server), localPort: 46001 }),
+    });
+    expect(probeCalls).toBeGreaterThan(0);
+    expect(resolution.decision.action).toBe('claim');
+    expect(resolution.claimed?.tunnel.localPort).toBe(46001);
+    expect(ssh.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
+    expect(ssh.execCalls.some((c) => c.includes('rm -f'))).toBe(false);
+  });
+
+  it('T-038f 升级场景 + 陈旧 token(probe 失败)→ 仍落 reapThenDeploy 且候选隧道被关', async () => {
+    // 锁定:bundleReady=false 的新候选路径上,probe 失败(如 token 陈旧)后的回收
+    // 行为与 bundleReady=true 口径完全一致——关候选隧道、kill 本 tag 活体、清 port 文件。
+    let killSent = false;
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('.ready')) return null; // 新版 bundle 未部署
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 5400, pid: 888, hostTag: CONFIG_ID });
+        }
+        return null;
+      },
+      execHandlers: [
+        (cmd) => {
+          if (cmd.startsWith('kill "888"')) {
+            killSent = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) =>
+          cmd.startsWith('kill -0 "888"')
+            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
+            : null,
+        (cmd) =>
+          cmd.includes('/proc/888/cmdline') || cmd.includes('-p "888"')
+            ? { code: 0, stdout: `node host.js --host-tag ${CONFIG_ID}`, stderr: '' }
+            : null,
+      ],
+    });
+    const candidateServer = new FakeServer(46002);
+    const resolution = await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      appVersion: '2.0.0',
+      storedToken: 'stale-token',
+      probeHostInfo: async () => ({ ok: false, detail: 'token mismatch' }),
+      buildTunnel: async () => ({ server: asNetServer(candidateServer), localPort: 46002 }),
+      sleep: async () => undefined,
+    });
+    expect(resolution.decision.action).toBe('reapThenDeploy');
+    expect(candidateServer.closed).toBe(true);
+    expect(ssh.execCalls.some((c) => c.startsWith('kill ') && c.includes('888'))).toBe(true);
+    expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
   });
 
   it('probe 失败 → 关闭候选隧道 + 落回收分支(不 livelock)', async () => {

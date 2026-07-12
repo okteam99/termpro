@@ -33,7 +33,7 @@ export interface ResidencyDecisionInput {
   portRaw: RemotePortFile | null;
   storedToken: string | null;
   bundleReady: boolean;
-  /** 仅当「认领候选」条件成立(portRaw 有效 + storedToken 非空 + bundleReady)时才有意义。 */
+  /** 仅当「认领候选」条件成立(portRaw 有效 + storedToken 非空)时才有意义。 */
   probeResult: { ok: boolean; compatible?: boolean } | null;
   /** `kill -0 <pid>` 结果;仅当需要 reap 判定时才有意义。 */
   killAliveResult: boolean | null;
@@ -57,12 +57,19 @@ export function cmdlineMatchesHostTag(cmdline: string | null, configId: string):
 }
 
 /**
- * 纯决策(TECH SSH-4 算法 1:1 落地):
- *   1. !bundleReady → freshDeploy(无论端口文件如何,首装场景 · T-037)
- *   2. 认领候选(portRaw 有效 + storedToken 非空 + bundleReady)且 probe 通过 → claim
- *   3. 否则确定性回收:pid 存活 且 cmdline 精确含本 configId 的 --host-tag → reapThenDeploy(唯一
+ * 纯决策(TECH SSH-4 算法,认领候选条件已按用户规则 2026-07 调整):
+ *   1. 认领候选(portRaw 有效 + storedToken 非空)且 probe 通过 → claim
+ *   2. 否则确定性回收:pid 存活 且 cmdline 精确含本 configId 的 --host-tag → reapThenDeploy(唯一
  *      允许 kill 的分支);否则(pid 死 / cmdline 不匹配即「兄弟或无关进程」)→ cleanStaleThenDeploy,
  *      绝不 kill(消 ARCH-B2 误杀)。
+ *   3. 未认领且 !bundleReady → freshDeploy(首装场景 · T-037)
+ *
+ * 🔴 认领候选【不】要求 bundleReady(用户规则 2026-07:客户端升级不得连带升级服务端):
+ * bundleReady 按【客户端当前 appVersion】的 bundle 目录判定,客户端一升级它必为 false,
+ * 若作候选门槛,升级后首连会跳过 probe 直落 reapThenDeploy——杀掉正在运行的旧版 host,
+ * 运行中 session 全丢。版本门闸只有一道:probe 的协议闭区间判定(PROTOCOL_MIN_COMPATIBLE,
+ * versionCompat.ts)——协议兼容就收养(服务端软件保持旧版继续跑),协议不兼容或无活体
+ * 可收养才落部署分支升级服务端。
  */
 export function decideResidency(input: ResidencyDecisionInput): ResidencyDecision {
   const { configId, portRaw, storedToken, bundleReady, probeResult, killAliveResult, cmdlineResult } =
@@ -70,8 +77,7 @@ export function decideResidency(input: ResidencyDecisionInput): ResidencyDecisio
 
   // portRaw.hostTag==configId 呼应 TECH「认领候选」条件(自证字段,非安全边界——
   // 真正的身份闸是下方 main 侧 probe 的 token 校验;此处只是廉价的宽松前置过滤)。
-  const candidateEligible =
-    portRaw !== null && portRaw.hostTag === configId && !!storedToken && bundleReady;
+  const candidateEligible = portRaw !== null && portRaw.hostTag === configId && !!storedToken;
   if (candidateEligible && probeResult?.ok && probeResult.compatible !== false) {
     return { action: 'claim', kill: false, cleanStale: false };
   }
@@ -183,8 +189,10 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
   let probeResult: { ok: boolean; compatible?: boolean } | null = null;
   let candidateTunnel: BuiltTunnel | undefined;
   let fullProbe: ProbeResult | undefined;
+  // 🔴 与 decideResidency 同口径:候选不看 bundleReady(客户端升级后新版 bundle 必缺,
+  // 不能因此跳过 probe 把协议兼容的活 host 杀掉重部署 · 用户规则 2026-07)。
   const candidateEligible =
-    portRaw !== null && portRaw.hostTag === ctx.configId && !!ctx.storedToken && bundleReady;
+    portRaw !== null && portRaw.hostTag === ctx.configId && !!ctx.storedToken;
 
   if (candidateEligible) {
     candidateTunnel = await ctx.buildTunnel(portRaw!.port);

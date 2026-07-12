@@ -219,6 +219,35 @@ describe('AC-13 认领驻留进程(不重启)', () => {
     const claimingEvent = h.events.find((e) => e.stage === 'claiming');
     expect(claimingEvent?.fastPath).toBe(true);
   });
+
+  it('T-038o 客户端升级后首连(新版 .ready 缺失)+ 活 host 协议兼容 → 认领,不部署不重启(session 保活)', async () => {
+    // 🔴 用户规则 2026-07:升级客户端不得连带升级服务端。远端只有旧版 bundle
+    // (新 appVersion 的 .ready 读不到),但旧版 host 进程活着且协议兼容 → 必须走
+    // 认领复用,不允许 kill+deploy(那会杀掉服务端正在运行的全部 session)。
+    const configId = 'vps-hk';
+    const routed = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      sftpReadFile: (p) => {
+        if (p.endsWith('.ready')) return null; // 升级后的新版本 bundle 尚未部署
+        if (p.endsWith('host.port')) return bufferOf({ port: 6001, pid: 654, hostTag: configId });
+        return null;
+      },
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore, configId);
+    h.credentials.setSecret(`hosttoken:${configId}`, 'preexisting-token');
+
+    await h.orchestrator.connect(configId);
+
+    const stages = h.events.map((e) => e.stage);
+    expect(stages).toContain('claiming');
+    expect(stages).toContain('ready');
+    expect(stages).not.toContain('deploying');
+    expect(stages).not.toContain('starting');
+    expect(routed.sftpWriteDir).not.toHaveBeenCalled();
+    expect(routed.execDetached).not.toHaveBeenCalled();
+    expect(routed.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
+  });
 });
 
 describe('AC-11 缺 node / node<20 中止,无半成品', () => {
