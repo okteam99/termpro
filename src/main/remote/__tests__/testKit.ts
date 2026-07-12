@@ -43,6 +43,8 @@ export interface RoutedSshOptions {
   /** 抛错即模拟 rename 目标已存在(ENOTEMPTY)。 */
   sftpRename?: (from: string, to: string) => void;
   forwardOut?: (localPort: number, remotePort: number) => FakeServer;
+  /** host key SHA-256 摘要桩(hostTag 派生源);缺省 null=未捕获(退隔离,现状行为)。 */
+  hostKeyFingerprint?: Buffer | null;
 }
 
 export interface RoutedSsh extends SshConnectionLike {
@@ -114,6 +116,7 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
     close: vi.fn(() => {
       closed = true;
     }),
+    hostKeyFingerprint: vi.fn(() => opts.hostKeyFingerprint ?? null),
   };
 }
 

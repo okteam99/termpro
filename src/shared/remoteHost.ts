@@ -73,6 +73,12 @@ export interface RemoteHostConfig {
   hasPassphrase?: boolean;
   /** 最近使用倒序（AC-7）· 成功 ready 时更新 */
   lastUsed?: number;
+  /**
+   * 隔离模式（多设备同屏 TECH §A.4）：true=每端独立 Host（hostTag=configId，现状行为）；
+   * false/缺省=按（服务器指纹+SSH 用户）收敛到共享 Host。
+   * 🔴 Phase 1 期编排侧默认按 true 占位（零行为变化），Phase 2 翻转默认收敛。
+   */
+  isolate?: boolean;
   createdAt: number;
 }
 
@@ -85,6 +91,8 @@ export interface RemoteHostConfigInput {
   username: string;
   authType: AuthType;
   privateKeyPath?: string;
+  /** 见 RemoteHostConfig.isolate；缺省=收敛（Phase 2 起生效） */
+  isolate?: boolean;
 }
 
 /** 远端交接端口文件（host 写 O_EXCL / main sftp 读 · SSH-4）。 */

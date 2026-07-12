@@ -30,6 +30,7 @@ import type { CredentialStore, HostConfigStore } from './credentialStore';
 import { detectArch } from './hostBundle';
 import { NODE_PROBE_COMMAND, pickBestNode } from './nodeProbe';
 import { resolveResidency, type BuiltTunnel } from './residency';
+import { resolveHostTag } from './hostIdentity';
 import { deployBundle } from './deploy';
 import { t } from '../../shared/i18n';
 import { probeHostInfo as defaultProbeHostInfo, type ProbeResult } from './probeHostInfo';
@@ -191,12 +192,16 @@ export function buildStartCommand(opts: {
   dataDir: string;
   appVersion: string;
   configId: string;
+  /** 服务端身份键(多设备同屏 TECH §0.3):端口/日志路径 + --host-tag 以此为基准。
+   *  缺省 = configId(隔离模式/旧测试零变化)。 */
+  hostTag?: string;
   allowedOrigins?: string;
   /** 远端 node 绝对路径(nodeProbe 解析);缺省 'node' 仅供测试兜底,生产恒传。 */
   nodePath?: string;
 }): string {
-  const portFile = `${opts.dataDir}/hosts/${opts.configId}/host.port`;
-  const logFile = `${opts.dataDir}/hosts/${opts.configId}/host.log`;
+  const tag = opts.hostTag ?? opts.configId;
+  const portFile = `${opts.dataDir}/hosts/${tag}/host.port`;
+  const logFile = `${opts.dataDir}/hosts/${tag}/host.log`;
   const entry = `${opts.dataDir}/bundle/${opts.appVersion}/host.js`;
   const allowedOrigins = opts.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
   const nodeBin = (opts.nodePath ?? 'node').replace(/["'\r\n]/g, '');
@@ -204,7 +209,7 @@ export function buildStartCommand(opts: {
     `sh -c 't=$(cat); s=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
     `printf %s "$t" | $s nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
     `TERMPRO_HOST_PORT_FILE="${portFile}" TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
-    `"${nodeBin}" "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${opts.configId}" ` +
+    `"${nodeBin}" "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${tag}" ` +
     `> "${logFile}" 2>&1 &'`
   );
 }
@@ -561,12 +566,23 @@ export class RemoteHostOrchestrator {
         return;
       }
 
-      const storedToken = this.deps.credentials.getSecret(tokenKey(configId));
+      // 🔴 多设备同屏 Phase 1 占位(TECH §A.4):hostTag=服务端身份键。isolate 默认
+      // 【true】→ tag==configId,行为零变化;Phase 2 服务端 token 托管就绪后翻转默认
+      // false → 按(host key 指纹 + SSH 用户)派生收敛,同用户多设备共享一个 Host。
+      const hostTag = resolveHostTag({
+        isolate: config.isolate ?? true,
+        configId,
+        username: config.username,
+        fpDigest: ssh.hostKeyFingerprint(),
+      });
+
+      const storedToken = this.deps.credentials.getSecret(tokenKey(hostTag));
 
       const residency = await resolveResidency({
         ssh,
         dataDir,
         configId,
+        hostTag,
         appVersion: this.deps.appVersion,
         storedToken,
         probeHostInfo: (localPort, token) => probe(localPort, token),
@@ -629,7 +645,7 @@ export class RemoteHostOrchestrator {
       this.emit(configId, { stage: 'starting', arch });
 
       const newToken = generateToken();
-      const hostDir = `${dataDir}/hosts/${configId}`;
+      const hostDir = `${dataDir}/hosts/${hostTag}`;
       try {
         await ssh.exec(`mkdir -p "${hostDir}"`);
         await ssh.execDetached(
@@ -637,6 +653,7 @@ export class RemoteHostOrchestrator {
             dataDir,
             appVersion: this.deps.appVersion,
             configId,
+            hostTag,
             allowedOrigins: this.deps.allowedOrigins,
             nodePath: nodeBest.path,
           }),
@@ -676,7 +693,7 @@ export class RemoteHostOrchestrator {
         return;
       }
 
-      this.deps.credentials.setSecret(tokenKey(configId), newToken);
+      this.deps.credentials.setSecret(tokenKey(hostTag), newToken);
 
       const tunnel = await this.buildTunnel(ssh, portRaw.port);
       session.forwardServer = tunnel.server;

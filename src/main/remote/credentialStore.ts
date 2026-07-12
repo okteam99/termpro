@@ -164,6 +164,7 @@ export class HostConfigStore {
           username: input.username,
           authType: input.authType,
           privateKeyPath: input.privateKeyPath,
+          isolate: input.isolate ?? list[idx].isolate,
           hasPassword: input.hasPassword ?? list[idx].hasPassword ?? false,
           hasPassphrase: input.hasPassphrase ?? list[idx].hasPassphrase ?? false,
         };
@@ -180,6 +181,7 @@ export class HostConfigStore {
       username: input.username,
       authType: input.authType,
       privateKeyPath: input.privateKeyPath,
+      isolate: input.isolate,
       hasPassword: input.hasPassword ?? false,
       hasPassphrase: input.hasPassphrase ?? false,
       createdAt: Date.now(),

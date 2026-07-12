@@ -250,6 +250,62 @@ describe('AC-13 认领驻留进程(不重启)', () => {
   });
 });
 
+describe('多设备同屏 Phase 1:hostTag 贯穿(TECH §A.4)', () => {
+  it('isolate=false + 指纹在 → 启动命令/端口路径用派生 id-* tag(而非 configId)', async () => {
+    const fp = require('node:crypto').createHash('sha256').update('server-key').digest();
+    let started = false;
+    const routed = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      hostKeyFingerprint: fp,
+      sftpReadFile: (p) => {
+        if (p.endsWith('host.port')) {
+          // 端口文件必须落在派生 tag 目录下才「出现」——路径含 configId 则视为不存在,
+          // 从而同时钉死 buildStartCommand 与 pollPortFile 两侧的路径基准。
+          if (!p.includes('/hosts/id-')) return null;
+          return started ? bufferOf({ port: 5555, pid: 4242, hostTag: 'ignored' }) : null;
+        }
+        return null;
+      },
+    });
+    const originalExecDetached = routed.execDetached;
+    routed.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+      started = true;
+      return originalExecDetached(cmd, stdin);
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    h.configStore.save({
+      id: 'vps-hk',
+      alias: 'vps-hk',
+      host: '1.2.3.4',
+      port: 22,
+      username: 'root',
+      authType: 'password',
+      isolate: false,
+    });
+
+    await h.orchestrator.connect('vps-hk');
+
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    const cmd = routed.execDetachedCalls[0]?.cmd ?? '';
+    expect(cmd).toMatch(/--host-tag "id-[A-Za-z0-9_-]{26}"/);
+    expect(cmd).not.toContain('--host-tag "vps-hk"');
+    expect(cmd).toMatch(/hosts\/id-[A-Za-z0-9_-]{26}\/host\.port/);
+  });
+
+  it('缺省(isolate 未设)→ Phase 1 占位默认隔离:tag==configId,行为零变化', async () => {
+    const fp = require('node:crypto').createHash('sha256').update('server-key').digest();
+    const routed = createFreshDeploySsh('vps-hk');
+    (routed.hostKeyFingerprint as ReturnType<typeof vi.fn>).mockReturnValue(fp);
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    const cmd = routed.execDetachedCalls[0]?.cmd ?? '';
+    expect(cmd).toContain('--host-tag "vps-hk"');
+  });
+});
+
 describe('AC-11 缺 node / node<20 中止,无半成品', () => {
   it('T-023 node 缺失(探测无任何候选)→ failed·nodeMissing', async () => {
     const routed = createRoutedSsh({

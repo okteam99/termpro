@@ -6,6 +6,7 @@
 // (DI 接缝 · ARCH-B10);本文件的 SshConnection 是生产实现,测试全部注入桩,不导入本文件。
 
 import { Client, type SFTPWrapper, type ConnectConfig } from 'ssh2';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as path from 'node:path';
@@ -56,6 +57,12 @@ export interface SshConnectionLike {
    */
   onClose(cb: (err?: Error) => void): void;
   close(): void;
+  /**
+   * 本次连接实握的 host key 的 SHA-256 摘要(hostTag 派生源 · 多设备同屏 TECH §A.1)。
+   * 未握到(老 ssh2 未回调 hostVerifier / 桩未配置)→ null,调用方 fail-safe 退隔离模式。
+   * 🔴 仅「顺路捕获」,不改变信任模型(hostVerifier 恒接受,TOFU/pinning 超本 RD 范围)。
+   */
+  hostKeyFingerprint(): Buffer | null;
 }
 
 /** DI 接缝(ARCH-B10):orchestrator 只依赖此工厂类型,不直接 new/调 static。 */
@@ -136,17 +143,21 @@ export function isEnoent(err: unknown): boolean {
  */
 export class SshConnection implements SshConnectionLike {
   private readonly client: Client;
+  private readonly hostKeyDigest: Buffer | null;
   private queue: Promise<void> = Promise.resolve();
   private sftpCached: Promise<SFTPWrapper> | null = null;
 
-  private constructor(client: Client) {
+  private constructor(client: Client, hostKeyDigest: Buffer | null) {
     this.client = client;
+    this.hostKeyDigest = hostKeyDigest;
   }
 
   static connect(o: SshConnectOptions): Promise<SshConnection> {
     return new Promise((resolve, reject) => {
       const client = new Client();
       let settled = false;
+      // hostVerifier 在 ready 之前回调,先存局部再随实例构造带入
+      let hostKeyDigest: Buffer | null = null;
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
@@ -159,7 +170,7 @@ export class SshConnection implements SshConnectionLike {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve(new SshConnection(client));
+        resolve(new SshConnection(client, hostKeyDigest));
       });
       client.on('error', (err) => {
         if (settled) return;
@@ -176,9 +187,27 @@ export class SshConnection implements SshConnectionLike {
         privateKey: o.auth.privateKey,
         passphrase: o.auth.passphrase,
         readyTimeout: o.readyTimeoutMs,
+        // 🔴 多设备同屏 TECH §A.1:顺路捕获 host key 指纹(hostTag 派生源)。
+        // 恒 return true = 严格保持现状信任模型(此前本就无任何 host key 校验);
+        // 不设 hostHash(要原始 key 字节自算 SHA-256,而非 ssh2 的 hex 摘要字符串)。
+        hostVerifier: (key: Buffer | { data?: Buffer }) => {
+          const raw = Buffer.isBuffer(key)
+            ? key
+            : Buffer.isBuffer((key as { data?: Buffer }).data)
+              ? (key as { data: Buffer }).data
+              : null;
+          if (raw) {
+            hostKeyDigest = crypto.createHash('sha256').update(raw).digest();
+          }
+          return true;
+        },
         ...buildKeepaliveConfig(),
       });
     });
+  }
+
+  hostKeyFingerprint(): Buffer | null {
+    return this.hostKeyDigest;
   }
 
   /** 串行化:下一个 channel 请求等前一个 settle(成功或失败都不阻塞后续)。 */

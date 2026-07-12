@@ -106,6 +106,11 @@ export interface ResidencyContext {
   /** 远端绝对数据目录(TERMPRO_HOST_DATA_DIR 值,路径全程绝对 · ARCH-B9)。 */
   dataDir: string;
   configId: string;
+  /**
+   * 服务端身份键(多设备同屏 TECH §0.3):端口文件路径/portRaw.hostTag 比对/cmdline
+   * reap 比对全部以此为基准。缺省 = configId(隔离模式/旧调用方零变化)。
+   */
+  hostTag?: string;
   appVersion: string;
   storedToken: string | null;
   probeHostInfo: (localPort: number, token: string) => Promise<ProbeResult>;
@@ -183,8 +188,10 @@ function claimProbeRetries(): number {
  */
 export async function resolveResidency(ctx: ResidencyContext): Promise<ResidencyResolution> {
   const sleep = ctx.sleep ?? defaultSleep;
+  // 身份键:收敛模式下为派生 hostTag,隔离/旧调用方缺省回落 configId(TECH §A.4)
+  const tag = ctx.hostTag ?? ctx.configId;
   const bundleReady = (await ctx.ssh.sftpReadFile(bundleReadyPath(ctx.dataDir, ctx.appVersion))) !== null;
-  const portRaw = parsePortFile(await ctx.ssh.sftpReadFile(portFilePath(ctx.dataDir, ctx.configId)));
+  const portRaw = parsePortFile(await ctx.ssh.sftpReadFile(portFilePath(ctx.dataDir, tag)));
 
   let probeResult: { ok: boolean; compatible?: boolean } | null = null;
   let candidateTunnel: BuiltTunnel | undefined;
@@ -192,7 +199,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
   // 🔴 与 decideResidency 同口径:候选不看 bundleReady(客户端升级后新版 bundle 必缺,
   // 不能因此跳过 probe 把协议兼容的活 host 杀掉重部署 · 用户规则 2026-07)。
   const candidateEligible =
-    portRaw !== null && portRaw.hostTag === ctx.configId && !!ctx.storedToken;
+    portRaw !== null && portRaw.hostTag === tag && !!ctx.storedToken;
 
   if (candidateEligible) {
     candidateTunnel = await ctx.buildTunnel(portRaw!.port);
@@ -234,7 +241,10 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
   }
 
   const decision = decideResidency({
-    configId: ctx.configId,
+    // 决策表的 configId 字段语义 =「本编排身份 tag」:收敛模式传派生 hostTag,
+    // reap 安全性质②③(cmdline --host-tag 全等比对)随之以 hostTag 为基准——
+    // 新旧 tag 并存期旧 configId host 因 tag 不等恒判兄弟,零误杀(TECH §A.4)。
+    configId: tag,
     portRaw,
     storedToken: ctx.storedToken,
     bundleReady,
@@ -261,7 +271,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     await killAndWait(ctx.ssh, portRaw.pid, sleep, ctx.killPollTimeoutMs ?? 3000);
   }
   if (decision.cleanStale) {
-    await ctx.ssh.exec(`rm -f "${portFilePath(ctx.dataDir, ctx.configId)}"`);
+    await ctx.ssh.exec(`rm -f "${portFilePath(ctx.dataDir, tag)}"`);
   }
 
   return { decision, portRaw, attemptedClaim: candidateEligible };
