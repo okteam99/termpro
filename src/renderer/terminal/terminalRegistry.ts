@@ -210,6 +210,7 @@ export async function ensureSession(
       },
       onTitle: (processName) => inst.callbacks.onTitle?.(processName),
       onTakenover: () => markTakenover(inst),
+      onDesynced: () => void resyncDesynced(inst, tabId),
     });
 
     wireInputOnce(inst);
@@ -357,8 +358,25 @@ function wireLiveSession(
     },
     onTitle: (processName) => inst.callbacks.onTitle?.(processName),
     onTakenover: () => markTakenover(inst),
+    onDesynced: () => void resyncDesynced(inst, tabId),
   });
   wireInputOnce(inst);
+}
+
+/**
+ * 落后被 host 剔出增量流(session:desynced · M2 收尾评审 P2-1)→ 立即 mirror
+ * re-attach 全量重同步(gap 超 ring → host 切片天然 full=true → term.reset 补屏),
+ * 把「静默冻屏直到重连」变成「自动重同步」。replaying 期间(已有一轮回放在途)跳过
+ * ——host 对新订阅重置 desync,若再次落后会再发事件,不丢恢复机会。
+ */
+async function resyncDesynced(inst: TermInstance, tabId: string): Promise<void> {
+  const client = inst.client;
+  const sessionId = inst.sessionId;
+  if (!client || !sessionId || inst.replaying || inst.disposed) return;
+  const result = await adoptInst(inst, tabId, client, sessionId, inst.renderedBytes);
+  if (!result.found) {
+    inst.sessionId = null;
+  }
 }
 
 /**

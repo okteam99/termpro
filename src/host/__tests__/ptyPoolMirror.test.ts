@@ -85,17 +85,18 @@ describePty('PtyPool 多订阅镜像(M2 · Phase4)', () => {
     );
   });
 
-  // 2. ack 独立性 → 流控派生(B2):双方超高水位 paused;仅 A ack 不足以 resume;B 也 ack → resume
-  it('ack 独立性→流控:双方 >high 均 paused;仅 A ack 到 <low 不 resume(B 仍活跃);B 也 ack → resume', async () => {
-    // ring 容量须大于 highWatermark,否则订阅者会先撞 desync 硬顶而非达到 pause 判据
-    // (本测试要的是「健康订阅者流控」路径,非 desync 路径 · 见 T-3)。
-    process.env.TERMPRO_SESSION_RING_BYTES = String(4 * 1024 * 1024);
+  // 2. 多订阅免 pause(B2 v2 · 收尾评审 P2-2/P2-3):共享 PTY 的 pause 必然耦合全体,
+  //    多订阅唯一背压 = desync 驱逐 + session:desynced 事件;PTY 不被任何慢端憋停。
+  it('多订阅免 pause:双慢端 → 双 desync + 各收 session:desynced;PTY 跑完全量;reattach 恢复', async () => {
     pool = new PtyPool('standalone');
     let aBytes = 0;
     let bBytes = 0;
+    const aMsgs: HostMessage[] = [];
+    const bMsgs: HostMessage[] = [];
     const sid = pool.spawn(
       { cwd: CWD, cols: 80, rows: 24 },
       (m) => {
+        aMsgs.push(m);
         if (m.t === 'pty:data') aBytes += m.bytes;
       },
       undefined,
@@ -105,37 +106,62 @@ describePty('PtyPool 多订阅镜像(M2 · Phase4)', () => {
     pool.reattach(
       sid,
       (m) => {
+        bMsgs.push(m);
         if (m.t === 'pty:data') bBytes += m.bytes;
       },
       { cols: 80, rows: 24, resumeOffset: 0, mode: 'mirror', subscriberId: 2 },
     );
 
     pool.input(sid, FLOOD);
+    // 双方都不 ack:各自越过 desync 阈值(2×high=1MiB)被剔出增量流,并各收一条 desynced
     await waitFor(
-      () => aBytes > FLOW.highWatermark && bBytes > FLOW.highWatermark,
+      () =>
+        aMsgs.some((m) => m.t === 'session:desynced') &&
+        bMsgs.some((m) => m.t === 'session:desynced'),
       12000,
     );
-    await delay(400); // 确认已憋停
-    const stalledA = aBytes;
-    const stalledB = bBytes;
-    expect(stalledA).toBeLessThan(3_000_000 * 0.9);
-    expect(stalledB).toBeLessThan(3_000_000 * 0.9);
+    // 停发点在阈值附近(高于高水位、远低于全量)——证明不是 pause 憋停形态
+    expect(aBytes).toBeGreaterThan(FLOW.highWatermark);
+    expect(aBytes).toBeLessThan(3_000_000 * 0.9);
 
-    // 仅 A ack 清零;B 分毫未动 → 仍 paused(B 是活跃订阅者,未回落到低水位以下)
-    pool.ack(sid, stalledA, 1);
+    // 🔴 关键:PTY 未被任何一端憋停 —— absoluteOffset 跑完全量(经 reattach 的
+    // nextOffset 观测;第三订阅者反复 upsert 幂等无副作用)
+    await waitFor(() => {
+      const r = pool!.reattach(sid, () => {}, {
+        cols: 80,
+        rows: 24,
+        resumeOffset: 0,
+        mode: 'mirror',
+        subscriberId: 3,
+      });
+      return r !== null && r.nextOffset >= 3_000_000;
+    }, 12000);
+
+    // ack 不能复活 desync 端(剔出即终态,恢复只经 reattach)
+    const bStalled = bBytes;
+    pool.ack(sid, 999_999_999, 2);
+    pool.input(sid, 'echo AFTER_DESYNC\n');
     await delay(400);
-    expect(aBytes).toBe(stalledA);
-    expect(bBytes).toBe(stalledB);
+    expect(bBytes).toBe(bStalled);
 
-    // B 也 ack 清零 → 双方均低于低水位 → resume,PTY 继续产出
-    pool.ack(sid, stalledB, 2);
-    await waitFor(() => aBytes > stalledA && bBytes > stalledB, 8000);
+    // B mirror reattach → 全量重同步 + 恢复增量流
+    let bOut2 = '';
+    const res = pool.reattach(
+      sid,
+      (m) => {
+        if (m.t === 'pty:data') bOut2 += m.data;
+      },
+      { cols: 80, rows: 24, resumeOffset: 0, mode: 'mirror', subscriberId: 2 },
+    );
+    expect(res!.full).toBe(true);
+    pool.input(sid, 'echo B_RECOVERED\n');
+    await waitFor(() => bOut2.includes('B_RECOVERED'), 8000);
   });
 
-  // 3. 慢端 desync(多订阅):B 落后越 ring 容量 → desync;A 不被 B 憋停;B 旧 offset reattach → full=true
-  it('慢端 desync:B 不 ack 落后超 ring 容量 → desync;A 正常 ack 时不受影响;B 旧 offset reattach → full', async () => {
-    // ring 容量保持默认(256KiB):足够大到不会被单个 onData chunk 意外撞穿(见下 A 的同步自
-    // ack),又远小于 3MB flood → B(从不 ack)必在中途落后越界触发 desync。
+  // 3. 慢端 desync(多订阅):B 落后越 desync 阈值(2×high=1MiB)→ desync;A 不被 B 憋停;
+  //    B 旧 offset reattach → full=true(gap 超 ring 由 sliceFrom 天然判定)
+  it('慢端 desync:B 不 ack 落后超阈值 → desync;A 正常 ack 时不受影响;B 旧 offset reattach → full', async () => {
+    // 阈值 1MiB 远小于 3MB flood → B(从不 ack)必在中途越界触发 desync;A 同步自 ack 恒健康。
     pool = new PtyPool('standalone');
     let aBytes = 0;
     let bBytes = 0;

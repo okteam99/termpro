@@ -65,6 +65,17 @@ const PROCESS_POLL_MS = 1500;
 const DEFAULT_MAX_SESSIONS = 64;
 /** spawn / 直调 pool 的旧调用点缺省订阅者 id(hostCore 恒传真实 client.id,不会撞这个值)。 */
 const DEFAULT_SUBSCRIBER_ID = -1;
+/**
+ * 多订阅 desync 驱逐阈值(收尾评审 P2-3):解耦 ring 容量(256KiB 会误伤健康高 RTT 端,
+ * RTT×吞吐 轻易超过)并抬到高水位之上——2×highWatermark = 1MiB 给在途留余量。
+ * full-resync 正确性与该阈值无关(sliceFrom 据游标是否仍在 ring 判 full)。env 可调(测试)。
+ */
+const DEFAULT_DESYNC_UNACKED = 2 * FLOW.highWatermark;
+
+function envDesyncUnacked(): number {
+  const n = Number(process.env.TERMPRO_DESYNC_UNACKED);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_DESYNC_UNACKED;
+}
 
 function envMaxSessions(): number {
   const n = Number(process.env.TERMPRO_MAX_SESSIONS);
@@ -84,6 +95,7 @@ export class PtyPool {
   constructor(
     private readonly mode: 'embedded' | 'standalone' = 'embedded',
     private readonly maxSessions: number = envMaxSessions(),
+    private readonly desyncUnackedLimit: number = envDesyncUnacked(),
   ) {}
 
   /** 共享单例:会话初始订阅者由 spawn 时传入的 send/subscriberId 决定(M2:后续可多订阅镜像)。 */
@@ -181,24 +193,32 @@ export class PtyPool {
       session.absoluteOffset += bytes;
       session.ring?.push(data);
 
-      // 🔴 desync 硬顶仅「多订阅 + ring 非空」时启用(B2/不变式1):size===1 时本段循环
-      // 至多一个订阅者且 desyncGate 恒 false → 永不 desync,行为与旧单 owner 逐字节一致。
-      const ring = session.ring;
-      const desyncGate = ring !== null && session.subscribers.size > 1;
-      let anyActiveOver = false;
+      // 🔴 流控双政体(收尾评审 P2-2/P2-3 修订 · 设计 §B2 v2):
+      //  - 单订阅(size===1):pause/resume 高低水位,与旧单 owner 逐字节一致(零回归);
+      //    永不 desync(卡死订阅者照旧 pause 保持)。
+      //  - 多订阅(size>1):【免 pause】——共享 PTY 的 pause 必然耦合全体订阅者,与
+      //    「快端不受慢端拖累」矛盾;唯一背压 = desync 驱逐(阈值 DESYNC_UNACKED,
+      //    解耦 ring 容量并抬到高水位之上,给健康高 RTT 链路留在途余量),被驱逐者
+      //    收 session:desynced → renderer 自动 mirror re-attach 全量重同步(P2-1)。
+      //  - 空集:旁路流控不 pause,ring 续录(断开续跑 · AC-1 零回归)。
+      // 内存上界:每活跃订阅者 unacked ≤ DESYNC_UNACKED 即被驱逐(不再发)→ 发送
+      // 缓冲有界;ring 自身有界 → 任意慢端都不能让内存无界。
+      const desyncGate = session.ring !== null && session.subscribers.size > 1;
+      let soleOver = false;
       for (const sub of session.subscribers.values()) {
-        if (sub.desync) continue; // 已剔出流控:不再记账、不再参与 pause 判据
+        if (sub.desync) continue; // 已剔出流控:不再记账、不再收增量
         sub.unacked += bytes;
-        if (desyncGate && sub.unacked > ring!.capacityBytes) {
-          // 本 chunk 起停发增量给它(下方发送循环据 desync 过滤即时生效)
+        if (desyncGate && sub.unacked > this.desyncUnackedLimit) {
+          // 本 chunk 起停发增量;显式通知该端(否则存活连接静默冻屏 · P2-1)
           sub.desync = true;
+          sub.send({ t: 'session:desynced', sessionId: id });
           continue;
         }
-        if (sub.unacked > FLOW.highWatermark) anyActiveOver = true;
+        if (session.subscribers.size === 1 && sub.unacked > FLOW.highWatermark) {
+          soleOver = true;
+        }
       }
-      // 🔴 旁路流控:订阅者空集(旧 attached=false)时上面循环不执行任何迭代 →
-      // anyActiveOver 恒 false → 不 pause,ring 续录(断开续跑 · AC-1 零回归)。
-      if (!session.paused && anyActiveOver) {
+      if (!session.paused && soleOver) {
         session.paused = true;
         proc.pause();
       }
@@ -458,15 +478,20 @@ export class PtyPool {
   }
 
   /**
-   * 派生 resume 判据(B2):paused && ∀ 活跃(非 desync)订阅者 unacked < lowWatermark → resume。
-   * 活跃订阅者空集(全 desync 或订阅者已摘空)时 ∀ 空真 → 视为达成 → resume
-   * (= 现行 detach/unsubscribe 摘空收尾:live 且 paused → resume · 不变式7)。
+   * 派生 resume 判据(B2 v2 · 收尾评审 P2-2):
+   *  - size===1:∀ 活跃订阅者 unacked < lowWatermark → resume(= 旧单 owner 行为);
+   *  - size!==1(多订阅或空集):恒 resume——多订阅政体免 pause(见 onData 注释),
+   *    单订阅期憋停的 pause 在第二个镜像端加入时立即释放(否则新健康端被旧卡死端
+   *    饿死:paused → 无 onData → 旧端永不越 desync 阈值 → 死锁式冻结);空集 =
+   *    现行 detach/unsubscribe 摘空收尾(live 且 paused → resume · 不变式7)。
    */
   private maybeResume(s: Session): void {
     if (s.status !== 'live' || !s.paused) return;
-    for (const sub of s.subscribers.values()) {
-      if (sub.desync) continue;
-      if (sub.unacked >= FLOW.lowWatermark) return; // 仍有活跃订阅者未回落 → 保持 paused
+    if (s.subscribers.size === 1) {
+      for (const sub of s.subscribers.values()) {
+        if (sub.desync) continue;
+        if (sub.unacked >= FLOW.lowWatermark) return; // 未回落 → 保持 paused
+      }
     }
     s.paused = false;
     s.pty.resume();

@@ -251,6 +251,9 @@ export type HostMessage =
   // 该订阅者被 exclusive attach 摘除(last-attach-wins 抢占 · M2 向后兼容追加)。
   // 旧客户端不识别此 t 值 → 按惯例忽略未知消息类型,零破坏。
   | { t: 'session:takenover'; sessionId: string }
+  // 该订阅者落后超 desync 阈值被剔出增量流(M2 收尾评审 P2-1):renderer 收到即自动
+  // mirror re-attach 全量重同步,不静默冻屏。旧客户端忽略未知 t,零破坏。
+  | { t: 'session:desynced'; sessionId: string }
   | { t: 'fs:changed'; watchId: number }
   // 注册表变更后向全部客户端广播全量快照(非增量);收端按 id 协调本地视图态
   | { t: 'workspace:changed'; workspaces: WorkspaceEntry[] };

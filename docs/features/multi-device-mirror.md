@@ -240,7 +240,20 @@ interface Session {
 
 ### B.2 流控(零回归是硬约束)
 
-**PTY pause 判据(派生):**
+> **🔴 v2 修订(收尾评审 P2-2/P2-3,2026-07-13)**:本节原稿的多订阅 pause 公式与
+> 内存上界在默认常量下不可达且自相矛盾(highWatermark 512KiB > ring 256KiB;且暂停
+> 共享 PTY 必然耦合全体订阅者,与「快端不受慢端拖累」冲突)。实装口径:
+> - **单订阅(size===1)**:pause/resume 高低水位,与旧单 owner 逐字节一致(零回归);
+> - **多订阅(size>1)**:【免 pause】,唯一背压 = desync 驱逐,阈值
+>   `DESYNC_UNACKED = 2×highWatermark = 1MiB`(解耦 ring 容量——256KiB 会误伤健康
+>   高 RTT 端);被驱逐者收 `session:desynced` 事件 → renderer 立即 mirror re-attach
+>   全量重同步(不静默冻屏);
+> - 单订阅期憋停的 pause 在第二订阅者 mirror attach 时立即释放(maybeResume
+>   多订阅政体恒放行,否则新健康端被旧卡死端饿死);
+> - 内存上界:每活跃订阅者 unacked ≤ 1MiB 即被驱逐,ring 有界 → 总量有界。
+> 下方原稿公式保留作历史,以实装口径为准。
+
+**PTY pause 判据(派生,原稿·已被 v2 修订取代):**
 
 ```
 需要 pause ⇔ ∃ 非 desync 订阅者 s: s.unacked > FLOW.highWatermark

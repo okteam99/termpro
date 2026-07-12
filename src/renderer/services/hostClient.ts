@@ -26,6 +26,8 @@ export interface PtyListener {
   onTitle?(processName: string): void;
   /** 本端订阅被 exclusive attach 摘除(另一设备独占接管 · M2);会话仍活,可重新 mirror attach 取回。 */
   onTakenover?(): void;
+  /** 本端落后超 desync 阈值被剔出增量流(M2);应立即 mirror re-attach 全量重同步。 */
+  onDesynced?(): void;
 }
 
 const RPC_TIMEOUT_MS = 15_000;
@@ -514,6 +516,9 @@ export class HostClient {
         // 🔴 不删 listener/不清 buffer(区别于 pty:exit):会话在 host 仍活,本端只是
         // 被摘订阅;重新 mirror attach 即恢复(terminalRegistry 侧处理)。
         this.ptyListeners.get(msg.sessionId)?.onTakenover?.();
+        break;
+      case 'session:desynced':
+        this.ptyListeners.get(msg.sessionId)?.onDesynced?.();
         break;
       case 'fs:changed':
         this.fsListeners.forEach((cb) => cb(msg.watchId));

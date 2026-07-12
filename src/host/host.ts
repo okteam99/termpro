@@ -104,30 +104,6 @@ if (process.argv.includes('--listen')) {
       // 驻留端口交接文件(main sftp 回读用 · SSH-4)。O_CREAT|O_EXCL|O_WRONLY:
       // 陈旧文件视为 main 未先清理 = bug,fail-closed 拒绝覆盖而非静默复用
       // (无 TOCTOU 窗口 · AC-8)。
-      // 🔴 多设备同屏 Phase 2(TECH §A.2):身份 token 文件必须写在端口文件【之前】
-      // ——happens-before:任何设备 sftp 看到端口文件 ⇒ 身份文件已完整可读(消
-      // TOCTOU 半读)。写失败 fail-closed 退出:收敛模式下没有身份文件,其他设备
-      // 只会把本 host 误判为「不可认领的坏死进程」而 reap,宁可不起。
-      const identityFile = process.env.TERMPRO_HOST_IDENTITY_FILE;
-      if (identityFile) {
-        try {
-          writeIdentityTokenFile(identityFile, token);
-        } catch (err) {
-          console.error(
-            '[host] identity token write failed:',
-            err instanceof Error ? err.message : String(err),
-          );
-          process.exit(1);
-        }
-        // dataDir 权限收紧(best-effort · TECH §A.2):同机他用户不可窥探;
-        // 失败不阻断启动(真屏障是身份文件自身的 0600/0700)
-        try {
-          const dataDir = process.env.TERMPRO_HOST_DATA_DIR;
-          if (dataDir) fs.chmodSync(dataDir, 0o700);
-        } catch {
-          /* best-effort */
-        }
-      }
       const portFile = process.env.TERMPRO_HOST_PORT_FILE;
       if (portFile) {
         let fd: number;
@@ -137,6 +113,30 @@ if (process.argv.includes('--listen')) {
           console.error('[host] stale port file, refusing:', portFile);
           process.exit(1);
           return;
+        }
+        // 🔴 P1-1(收尾评审):身份 token 只允许【赢得端口文件 wx】的进程落盘——
+        // 双赢家(锁陈旧被跨机时钟偏差误 break)时输家已在上面 EEXIST 自杀,绝不
+        // 覆盖赢家 token(否则身份文件≠现网 host 的 token → 第三设备 probe 必败
+        // → 误 reap 服役中 host)。happens-before 仍成立:身份提交先于端口文件
+        // 【合法内容】写入,读者(pollPortFile/parsePortFile)对空/畸形内容重试。
+        const identityFile = process.env.TERMPRO_HOST_IDENTITY_FILE;
+        if (identityFile) {
+          try {
+            writeIdentityTokenFile(identityFile, token);
+          } catch (err) {
+            console.error(
+              '[host] identity token write failed:',
+              err instanceof Error ? err.message : String(err),
+            );
+            process.exit(1);
+          }
+          // dataDir 权限收紧(best-effort · TECH §A.2):失败不阻断启动
+          try {
+            const dataDir = process.env.TERMPRO_HOST_DATA_DIR;
+            if (dataDir) fs.chmodSync(dataDir, 0o700);
+          } catch {
+            /* best-effort */
+          }
         }
         fs.writeFileSync(
           fd,

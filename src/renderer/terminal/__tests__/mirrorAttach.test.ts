@@ -193,6 +193,34 @@ describe('session:takenover → 标记 + 提示 + 激活取回', () => {
     expect(inst.takenover).toBe(false);
   });
 
+  it('session:desynced → 立即 mirror re-attach 全量重同步(收尾评审 P2-1,不静默冻屏)', async () => {
+    const { inst, writes } = makeFakeInst();
+    __setInstForTest('t1', inst);
+    bindRestoredSessionTab('t1', 'cfg-a', 'sid-1', '/repo');
+    inst.renderedBytes = 1000;
+    fakeClient.rpc.mockImplementation(async (method: string) => {
+      if (method === 'session.attach') {
+        return {
+          found: true,
+          full: true,
+          baseOffset: 0,
+          data: 'FULL_RESYNC',
+          nextOffset: 5000,
+          snapshot: liveSnap('sid-1'),
+        } as SessionAttachResult;
+      }
+      return {};
+    });
+
+    const listener = fakeClient.attachPty.mock.calls[0][1] as { onDesynced?: () => void };
+    listener.onDesynced?.();
+    await vi.waitFor(() => expect(inst.renderedBytes).toBe(5000)); // nextOffset 权威推进
+
+    const attachCall = fakeClient.rpc.mock.calls.find((c) => c[0] === 'session.attach');
+    expect(attachCall?.[1]).toMatchObject({ resumeOffset: 1000, mode: 'mirror' });
+    expect(writes).toContain('FULL_RESYNC');
+  });
+
   it('未被接管 / host 不支持镜像 → no-op(不发 attach)', async () => {
     const { inst } = makeFakeInst();
     __setInstForTest('t1', inst);
