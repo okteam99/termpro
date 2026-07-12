@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { disposeTerminal } from '../terminal/terminalRegistry';
+import { disposeTerminal, getSessionId } from '../terminal/terminalRegistry';
 import { hostRegistry } from '../services/hostRegistry';
 import { basename } from './pathLabel';
 import { reconcileWorkspaces } from './workspaceSync';
@@ -91,6 +91,25 @@ export interface PersistedWorkspaceV2 {
   tabs: PersistedTab[];
 }
 
+/** 远程 tab 存档:比本机多存 sessionId——重连恢复时预绑定收养(host 存活则回放内容;
+ *  host 已重启则 attach miss → 原位重 spawn,内容可丢但 tab 不丢 · 用户规则 2026-07)。 */
+export interface PersistedRemoteTab extends PersistedTab {
+  sessionId?: string;
+}
+
+/**
+ * 远程 workspace 的 tab 布局存档(用户规则 2026-07:服务端升级/重启后 session 内容可丢,
+ * tab 名称/数量/顺序不能丢)。远程 ws 本体仍是纯视图态不入 workspaces 存档(D-6/ARCH-2
+ * 防迁移污染不变)——布局单独入 v2 存档顶层 remoteTabs,按 workspaceId 外键挂回。
+ */
+export interface PersistedRemoteWorkspace {
+  /** 路由键 configId(恢复时按 host 消费) */
+  hostId: string;
+  workspaceId: string;
+  activeTabId: string | null;
+  tabs: PersistedRemoteTab[];
+}
+
 interface PersistedUi {
   sidebarWidth?: number;
   filePanelWidth?: number;
@@ -113,6 +132,8 @@ export interface PersistedStateV2 {
   version: 2;
   activeWorkspaceId: string | null;
   workspaces: PersistedWorkspaceV2[];
+  /** 远程 tab 布局(可缺省 · 向后兼容:旧存档无此字段 → 无布局可恢复) */
+  remoteTabs?: PersistedRemoteWorkspace[];
   migrationFailureCount?: number;
   ui?: PersistedUi;
 }
@@ -159,8 +180,20 @@ export interface AppState {
   /** 远程发现/该机 onWorkspaceChanged 推送 → 作用域隔离协调(scopeHostId=hostId),
    *  只影响该 configId 下的 ws,本机与其它远程机 ws 不动(BL-004) */
   setHostWorkspaces(hostId: string, entries: WorkspaceEntry[]): void;
-  /** 远程断线/删除:移除该 host 全部 ws + 释放其全部 tab;active 若属该 host → 回落本机首个(无则 null) */
+  /** 远程断线/删除:移除该 host 全部 ws + 释放其全部 tab;active 若属该 host → 回落本机首个(无则 null)。
+   *  移除前把该机各 ws 的 tab 布局快照进 remoteTabLayouts(重连/重启后恢复 · 用户规则 2026-07)。 */
   dropHostWorkspaces(hostId: string): void;
+  /** 远程 tab 布局存档(workspaceId → 布局):hydrate 装载、drop 快照写入、恢复时消费。
+   *  不在 store 的 ws 以此为准;在店的 ws 以 live 视图态为准(serialize 侧合并)。 */
+  remoteTabLayouts: Record<string, PersistedRemoteWorkspace>;
+  /** 消费(读取并删除)某 host 的全部布局条目——恢复是单次性的,消费后 live 视图态即唯一真相 */
+  consumeRemoteTabLayouts(hostId: string): PersistedRemoteWorkspace[];
+  /** 布局恢复:仅当远程 ws 存在且当前 0 tab 时按存档原序重建 tabs;返回是否应用 */
+  restoreWorkspaceTabs(
+    workspaceId: string,
+    tabs: PersistedRemoteTab[],
+    activeTabId: string | null,
+  ): boolean;
   /** 设置/清除一次性提示 */
   setTransientNotice(text: string | null): void;
   /** 拖拽排序:把工作区移到目标下标(越界自动夹紧) */
@@ -210,6 +243,23 @@ function hydrateTab(t: PersistedTab): TabState {
     cwd: t.cwd,
     customName: t.customName,
     filePanel: t.filePanel,
+  };
+}
+
+/** drop 前快照某远程 ws 的 tab 布局(须在 disposeTerminal 之前调用——sessionId 从
+ *  registry 读,dispose 后即不可得;host 重启场景该 sessionId 自然失效 → 恢复时重 spawn)。 */
+function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemoteWorkspace {
+  return {
+    hostId,
+    workspaceId: w.id,
+    activeTabId: w.activeTabId,
+    tabs: w.tabs.map((t) => ({
+      id: t.id,
+      cwd: t.cwd,
+      customName: t.customName,
+      filePanel: t.filePanel,
+      sessionId: getSessionId(t.id) ?? undefined,
+    })),
   };
 }
 
@@ -309,6 +359,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarWidth: 240,
   filePanelWidth: 280,
   pinBottomBar: false,
+  remoteTabLayouts: {},
 
   hydrate(registry, archive) {
     // ui 恢复(两种模式都读)
@@ -338,6 +389,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeWorkspaceId: resolveActiveWs(workspaces, archive.activeWorkspaceId),
         persistMode: 'v1',
         migrationFailureCount: archive.migrationFailureCount ?? 0,
+        remoteTabLayouts: {}, // v1 fallback 不支持远程布局(远程 CRUD 本就拒绝)
         hydrated: true,
       });
       return;
@@ -369,11 +421,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (seen.has(entry.id)) continue;
       workspaces.push(buildDefaultWorkspace(entry));
     }
+    // 远程 tab 布局装载(用户规则 2026-07):按 workspaceId 建索引,等对应 host
+    // ready + workspace.list 落地后由 restoreRemoteTabLayouts 消费。
+    const remoteTabLayouts: Record<string, PersistedRemoteWorkspace> = {};
+    for (const layout of v2?.remoteTabs ?? []) {
+      remoteTabLayouts[layout.workspaceId] = layout;
+    }
     set({
       workspaces,
       activeWorkspaceId: resolveActiveWs(workspaces, v2?.activeWorkspaceId ?? null),
       persistMode: 'v2',
       migrationFailureCount: v2?.migrationFailureCount ?? 0,
+      remoteTabLayouts,
       hydrated: true,
     });
   },
@@ -542,6 +601,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   dropHostWorkspaces(hostId) {
     const dropped = get().workspaces.filter((w) => w.hostId === hostId);
+    // 🔴 布局快照必须先于 disposeTerminal(sessionId 从 registry 读,dispose 即失)。
+    // 0-tab ws 不留条目(无可恢复物;旧条目一并清除,不让陈旧布局借尸还魂)。
+    const remoteTabLayouts = { ...get().remoteTabLayouts };
+    for (const w of dropped) {
+      delete remoteTabLayouts[w.id];
+      if (w.tabs.length > 0) remoteTabLayouts[w.id] = snapshotRemoteLayout(hostId, w);
+    }
     dropped.forEach((w) => w.tabs.forEach((t) => disposeTerminal(t.id)));
     set((s) => {
       const workspaces = s.workspaces.filter((w) => w.hostId !== hostId);
@@ -551,8 +617,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       const activeWorkspaceId = activeWasDropped
         ? (workspaces.find((w) => w.hostId === LOCAL_HOST_ID)?.id ?? null)
         : s.activeWorkspaceId;
-      return { workspaces, activeWorkspaceId };
+      return { workspaces, activeWorkspaceId, remoteTabLayouts };
     });
+  },
+
+  consumeRemoteTabLayouts(hostId) {
+    const all = get().remoteTabLayouts;
+    const mine = Object.values(all).filter((l) => l.hostId === hostId);
+    if (mine.length === 0) return [];
+    const rest: Record<string, PersistedRemoteWorkspace> = {};
+    for (const [k, v] of Object.entries(all)) {
+      if (v.hostId !== hostId) rest[k] = v;
+    }
+    set({ remoteTabLayouts: rest });
+    return mine;
+  },
+
+  restoreWorkspaceTabs(workspaceId, tabs, activeTabId) {
+    const ws = get().workspaces.find((w) => w.id === workspaceId);
+    // 仅远程 ws + 当前 0 tab 才恢复:已有 tab(闪断未 drop 的 live 视图态)以 live 为准
+    if (!ws || ws.hostId === LOCAL_HOST_ID || ws.tabs.length > 0 || tabs.length === 0) {
+      return false;
+    }
+    const restored = tabs.map(hydrateTab);
+    const nextActive = resolveActiveTab(restored, activeTabId);
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.id === workspaceId ? { ...w, tabs: restored, activeTabId: nextActive } : w,
+      ),
+    }));
+    return true;
   },
 
   setTransientNotice(text) {

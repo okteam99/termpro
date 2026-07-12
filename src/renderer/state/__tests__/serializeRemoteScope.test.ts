@@ -15,6 +15,7 @@ vi.mock('../../services/hostClient', () => ({
 }));
 vi.mock('../../terminal/terminalRegistry', () => ({
   disposeTerminal: vi.fn(),
+  getSessionId: vi.fn(() => null),
 }));
 
 import { useAppStore } from '../store';

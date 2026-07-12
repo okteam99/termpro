@@ -5,9 +5,11 @@
 
 import {
   AppState,
+  PersistedRemoteWorkspace,
   PersistedState,
   useAppStore,
 } from './store';
+import { getSessionId } from '../terminal/terminalRegistry';
 import { hostRegistry } from '../services/hostRegistry';
 import { runMigration } from './workspaceMigration';
 import type { MigrationOutcome } from './workspaceMigration';
@@ -141,6 +143,7 @@ export function serialize(s: AppState): PersistedState {
   }
 
   // v2 模式:去 name/root(单源 = Host 注册表),只留 workspaceId 外键 + 视图态
+  const remoteTabs = serializeRemoteTabs(s);
   return {
     version: 2,
     activeWorkspaceId,
@@ -149,9 +152,37 @@ export function serialize(s: AppState): PersistedState {
       activeTabId: w.activeTabId,
       tabs: w.tabs.map(serializeTab),
     })),
+    ...(remoteTabs.length > 0 ? { remoteTabs } : {}),
     migrationFailureCount: 0,
     ui,
   };
+}
+
+/**
+ * 远程 tab 布局写盘(用户规则 2026-07:服务端升级/重启后 tab 名称/数量/顺序不丢):
+ * - 在店的远程 ws(连接中/退出前未 drop)→ live 视图态为准,sessionId 从 registry 现读;
+ * - 不在店的(断线已 drop)→ 用 dropHostWorkspaces 快照进 remoteTabLayouts 的条目。
+ * 远程 ws 本体仍不入 workspaces 存档(D-6/ARCH-2 防迁移污染约束不变)。
+ */
+function serializeRemoteTabs(s: AppState): PersistedRemoteWorkspace[] {
+  const liveRemoteIds = new Set(
+    s.workspaces.filter((w) => w.hostId !== 'local').map((w) => w.id),
+  );
+  const stored = Object.values(s.remoteTabLayouts).filter(
+    (l) => !liveRemoteIds.has(l.workspaceId),
+  );
+  const live = s.workspaces
+    .filter((w) => w.hostId !== 'local' && w.tabs.length > 0)
+    .map((w) => ({
+      hostId: w.hostId,
+      workspaceId: w.id,
+      activeTabId: w.activeTabId,
+      tabs: w.tabs.map((t) => ({
+        ...serializeTab(t),
+        sessionId: getSessionId(t.id) ?? undefined,
+      })),
+    }));
+  return [...stored, ...live];
 }
 
 function serializeTab(t: AppState['workspaces'][number]['tabs'][number]) {

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../terminal/terminalRegistry', () => ({
   disposeTerminal: vi.fn(),
+  getSessionId: vi.fn(() => null),
 }));
 
 import { useAppStore } from '../store';
