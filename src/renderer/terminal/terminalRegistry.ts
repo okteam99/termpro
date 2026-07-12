@@ -67,6 +67,9 @@ export interface TermInstance {
   exited: boolean;
   /** term.onData/onResize 输入接线已挂(inst 生命周期内只挂一次,防双发·见 wireInputOnce)。 */
   inputWired: boolean;
+  /** 本端订阅被另一设备 exclusive attach 摘除(M2 session:takenover);
+   *  tab 重新激活时自动 mirror re-attach 取回(remirrorIfTakenOver)。 */
+  takenover: boolean;
 }
 
 const registry = new Map<string, TermInstance>();
@@ -132,6 +135,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     replayQueue: [],
     exited: false,
     inputWired: false,
+    takenover: false,
   };
   inst.barPin.setEnabled(pinBottomBarEnabled);
 
@@ -205,6 +209,7 @@ export async function ensureSession(
         inst.callbacks.onExit?.(exitCode);
       },
       onTitle: (processName) => inst.callbacks.onTitle?.(processName),
+      onTakenover: () => markTakenover(inst),
     });
 
     wireInputOnce(inst);
@@ -351,8 +356,22 @@ function wireLiveSession(
       inst.callbacks.onExit?.(exitCode);
     },
     onTitle: (processName) => inst.callbacks.onTitle?.(processName),
+    onTakenover: () => markTakenover(inst),
   });
   wireInputOnce(inst);
+}
+
+/**
+ * 本端订阅被另一设备 exclusive attach 摘除(M2 最小提示;完整「点击取回」UI 归 M3):
+ * 置标记 + 终端里写一行说明。会话在 host 仍活,tab 重新激活时 remirrorIfTakenOver
+ * 自动 mirror re-attach 取回(全量/增量由 host 切片决定)。
+ */
+function markTakenover(inst: TermInstance): void {
+  if (inst.takenover) return;
+  inst.takenover = true;
+  inst.term.writeln(
+    `\r\n\x1b[2m${t('[TermPro] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror')}\x1b[0m`,
+  );
 }
 
 /**
@@ -374,6 +393,10 @@ async function adoptInst(
       resumeOffset,
       cols: inst.term.cols,
       rows: inst.term.rows,
+      // M2:host 支持镜像 → 订阅式收养(多端同屏,不摘他端);旧 host 不带 mode
+      // → host 侧按 exclusive(last-attach-wins),行为与 BL-005 现状一致(零破坏)。
+      // 可选调用:旧测试桩/精简实现可缺省该方法 → 视同不支持(fail-safe 降级)。
+      ...(client.supportsSessionMirror?.() ? { mode: 'mirror' as const } : {}),
     });
     if (!result.found) return result;
     if (result.full) inst.term.reset(); // gap 超缓冲 / 重建 tab → 先清屏
@@ -523,6 +546,28 @@ export function bindRestoredSessionTab(
   inst.renderedBytes = 0;
   inst.exited = false;
   wireLiveSession(inst, tabId, client, sessionId);
+}
+
+/**
+ * 被独占接管后的自动取回(M2 · TerminalView 激活时调用):takenover 置位且会话仍绑定
+ * → 重新 mirror attach(resumeOffset=renderedBytes,增量/全量由 host 切片决定)。
+ * found=false(会话已被对端 kill/逐出)→ 原位重 spawn(与收养 miss 同款收尾)。
+ * host 不支持镜像 → 不自动取回(exclusive 抢回会反过来踢掉对端,乒乓;留给用户手动重连)。
+ */
+export async function remirrorIfTakenOver(tabId: string): Promise<void> {
+  const inst = registry.get(tabId);
+  if (!inst || !inst.takenover) return;
+  const client = inst.client;
+  const sessionId = inst.sessionId;
+  if (!client || !sessionId || !client.supportsSessionMirror()) return;
+  inst.takenover = false;
+  const result = await adoptInst(inst, tabId, client, sessionId, inst.renderedBytes);
+  if (!result.found) {
+    inst.sessionId = null;
+    inst.renderedBytes = 0;
+    inst.exited = false;
+    if (inst.hostId) await ensureSession(tabId, inst.spawnCwd, inst.hostId);
+  }
 }
 
 /** 仅测试:直接注入一个 inst(test-double term / fake client),绕过真 xterm 构造。 */

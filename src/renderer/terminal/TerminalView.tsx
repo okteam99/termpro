@@ -5,6 +5,7 @@ import {
   TermInstance,
   ensureSession,
   getOrCreateTerminal,
+  remirrorIfTakenOver,
 } from './terminalRegistry';
 import { forceAtlasReupload, wireWebglAtlasResync } from './webglAtlasResync';
 import { disposeWebglAddon } from './webglContextRelease';
@@ -108,6 +109,8 @@ export default function TerminalView({ tabId, cwd, hostId, active, callbacks }: 
     }
     inst.fit.fit();
     inst.term.focus();
+    // M2:被另一设备独占接管过的 tab,重新激活即自动 mirror re-attach 取回
+    void remirrorIfTakenOver(tabId);
 
     const el = containerRef.current;
     let ro: ResizeObserver | null = null;

@@ -24,6 +24,8 @@ export interface PtyListener {
   onData?(data: string, bytes: number): void;
   onExit?(exitCode: number): void;
   onTitle?(processName: string): void;
+  /** 本端订阅被 exclusive attach 摘除(另一设备独占接管 · M2);会话仍活,可重新 mirror attach 取回。 */
+  onTakenover?(): void;
 }
 
 const RPC_TIMEOUT_MS = 15_000;
@@ -151,6 +153,15 @@ export class HostClient {
    */
   supportsSessionResume(): boolean {
     return this.info?.capabilities?.includes('session.resume') ?? false;
+  }
+
+  /**
+   * 该 host 是否支持多订阅镜像(M2 · 稳定信号 = 能力位存在性,同 QA-14 惯例)。
+   * 含 'session.mirror' → session.attach 默认带 mode:'mirror'(多端同屏);
+   * 旧 host 省略 → false,attach 不带 mode(host 侧按 exclusive,零破坏)。
+   */
+  supportsSessionMirror(): boolean {
+    return this.info?.capabilities?.includes('session.mirror') ?? false;
   }
 
   /** 订阅 host 进程退出事件,返回退订函数 */
@@ -498,6 +509,11 @@ export class HostClient {
         break;
       case 'pty:title':
         this.ptyListeners.get(msg.sessionId)?.onTitle?.(msg.processName);
+        break;
+      case 'session:takenover':
+        // 🔴 不删 listener/不清 buffer(区别于 pty:exit):会话在 host 仍活,本端只是
+        // 被摘订阅;重新 mirror attach 即恢复(terminalRegistry 侧处理)。
+        this.ptyListeners.get(msg.sessionId)?.onTakenover?.();
         break;
       case 'fs:changed':
         this.fsListeners.forEach((cb) => cb(msg.watchId));

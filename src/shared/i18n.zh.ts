@@ -211,6 +211,8 @@ export const zh: Record<string, string> = {
   // --- terminalRegistry ---
   '[TermPro] Terminal failed to start: {message}': '[TermPro] 终端启动失败:{message}',
   'Close this tab and reopen it to retry': '关闭该 tab 后重新打开即可重试',
+  '[TermPro] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror':
+    '[TermPro] 会话已被另一设备独占接管 · 回到此 tab 自动恢复镜像',
 
   // --- bottomBarPin ---
   '↓ Back to bottom': '↓ 回到底部',

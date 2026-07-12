@@ -182,10 +182,11 @@ async function handleRpc(
           platform: os.platform(),
           homedir: os.homedir(),
           shell: process.env.SHELL ?? '/bin/zsh',
-          // 能力位(向后兼容追加):standalone 支持断线重连回放收养;embedded 省略
-          // → renderer 判为不支持 → 重连退化 new spawn(旧 host 零破坏 · QA-14)。
+          // 能力位(向后兼容追加):standalone 支持断线重连回放收养 + 多订阅镜像
+          // (M2 · session.attach mode:'mirror');embedded 省略 → renderer 判为不支持
+          // → 重连退化 new spawn / attach 恒 exclusive(旧 host 零破坏 · QA-14)。
           capabilities:
-            mode === 'standalone' ? ['session.resume'] : undefined,
+            mode === 'standalone' ? ['session.resume', 'session.mirror'] : undefined,
         };
         result = info;
         break;
