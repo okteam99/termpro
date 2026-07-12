@@ -31,6 +31,7 @@ import { detectArch } from './hostBundle';
 import { NODE_PROBE_COMMAND, pickBestNode } from './nodeProbe';
 import { resolveResidency, type BuiltTunnel } from './residency';
 import { resolveHostTag } from './hostIdentity';
+import { acquireMkdirLock, releaseMkdirLock } from './mkdirLock';
 import { deployBundle } from './deploy';
 import { t } from '../../shared/i18n';
 import { probeHostInfo as defaultProbeHostInfo, type ProbeResult } from './probeHostInfo';
@@ -100,6 +101,8 @@ export interface OrchestratorDeps {
   sleep?: (ms: number) => Promise<void>;
   connectTimeoutMs?: number;
   startTimeoutMs?: number;
+  /** 首启锁陈旧阈值(TECH §A.3,默认 120s 与部署锁同口径;测试注入)。 */
+  startLockStaleMs?: number;
   /**
    * A6:注入远端 host 进程的 TERMPRO_ALLOWED_ORIGINS(逗号分隔,host.ts 侧已按此
    * 格式解析)。main.ts 按打包/dev 场景算出(打包=null,file://;dev 追加 vite
@@ -482,6 +485,32 @@ export class RemoteHostOrchestrator {
     ssh.onClose(() => this.handleTransportDown(configId));
   }
 
+  /**
+   * 首启锁输家 / post-lock recheck 的对端 token 获取(TECH §A.3):服务端身份文件
+   * 优先(收敛模式,赢家 host 已在端口文件之前写好);回落本地凭据缓存(隔离模式
+   * 同机双实例共享同一份凭据文件)。取到即回写缓存;取不到返回 null(调用方
+   * fail-closed,绝不臆造 token)。
+   */
+  private async readPeerToken(
+    ssh: SshConnectionLike,
+    identityFile: string | undefined,
+    hostTag: string,
+  ): Promise<string | null> {
+    if (identityFile) {
+      try {
+        const buf = await ssh.sftpReadFile(identityFile);
+        const tok = buf?.toString('utf8').trim();
+        if (tok) {
+          this.deps.credentials.setSecret(tokenKey(hostTag), tok);
+          return tok;
+        }
+      } catch {
+        /* 读失败 → 回落本地缓存 */
+      }
+    }
+    return this.deps.credentials.getSecret(tokenKey(hostTag));
+  }
+
   private async runTest(configId: string): Promise<TestResult> {
     const config = this.deps.configStore.get(configId);
     if (!config) return { ok: false, reason: 'internal', detail: 'config not found' };
@@ -658,65 +687,130 @@ export class RemoteHostOrchestrator {
 
       this.emit(configId, { stage: 'starting', arch });
 
-      const newToken = generateToken();
       const hostDir = `${dataDir}/hosts/${hostTag}`;
+      const portFilePath = `${hostDir}/host.port`;
+      const startTimeoutMs = this.deps.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
+
       try {
         await ssh.exec(`mkdir -p "${hostDir}"`);
-        await ssh.execDetached(
-          buildStartCommand({
-            dataDir,
-            appVersion: this.deps.appVersion,
-            configId,
-            hostTag,
-            identityFile,
-            allowedOrigins: this.deps.allowedOrigins,
-            nodePath: nodeBest.path,
-          }),
-          newToken,
-        );
       } catch (err) {
         this.failSession(configId, 'startFailed', sanitizeDetail(err));
         ssh.close();
         return;
       }
 
-      const portRaw = await pollPortFile(
-        ssh,
-        `${hostDir}/host.port`,
-        this.deps.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS,
-        sleep,
-      );
-      if (!portRaw) {
-        // 超时主因之外,把远端 host.log 尾部拼进 detail(host 启动即崩时,崩因只落
-        // 在这份被启动命令重定向的日志里,不捞回来 UI 只剩一句自说自话的 timeout)。
-        let detail = 'port file did not appear before timeout';
-        try {
-          const log = await ssh.sftpReadFile(`${hostDir}/host.log`);
-          const tail = log
-            ?.toString('utf8')
-            .trim()
-            .split('\n')
-            .slice(-3)
-            .join(' | ')
-            .slice(-400);
-          if (tail) detail += ` · host.log: ${tail}`;
-        } catch {
-          /* 日志读取失败不掩盖超时主因 */
-        }
-        this.failSession(configId, 'startFailed', detail);
-        ssh.close();
-        return;
-      }
+      // 🔴 首启锁(多设备同屏 TECH §A.3):双设备同时发现「无 host」时,只允许一个
+      // 起进程——若不互斥,输家的 host 撞端口文件 wx EEXIST 自杀,但输家设备持
+      // 【自己的】token 探测赢家 → 必失败 → 误 reap 赢家(最危险回归)。锁输家不起
+      // 进程,改为等赢家端口文件 → 读服务端身份 token → 认领。
+      const startLockDir = `${hostDir}/.starting`;
+      const lockOutcome = await acquireMkdirLock(ssh, startLockDir, {
+        staleMs: this.deps.startLockStaleMs,
+      });
 
-      this.deps.credentials.setSecret(tokenKey(hostTag), newToken);
+      let sessionToken: string;
+      let portRaw: RemotePortFile | null = null;
+
+      if (lockOutcome === 'acquired') {
+        try {
+          // post-lock recheck:residency 判定与取锁之间,赢家可能已完成启动并释放锁
+          // ——此时端口文件已在,直接转认领路径,绝不再起第二个进程。
+          portRaw = await pollPortFile(ssh, portFilePath, 0, sleep);
+          if (portRaw) {
+            const peerToken = await this.readPeerToken(ssh, identityFile, hostTag);
+            if (!peerToken) {
+              this.failSession(
+                configId,
+                'startFailed',
+                'peer host running but identity token unreadable',
+              );
+              ssh.close();
+              return;
+            }
+            sessionToken = peerToken;
+          } else {
+            const newToken = generateToken();
+            try {
+              await ssh.execDetached(
+                buildStartCommand({
+                  dataDir,
+                  appVersion: this.deps.appVersion,
+                  configId,
+                  hostTag,
+                  identityFile,
+                  allowedOrigins: this.deps.allowedOrigins,
+                  nodePath: nodeBest.path,
+                }),
+                newToken,
+              );
+            } catch (err) {
+              this.failSession(configId, 'startFailed', sanitizeDetail(err));
+              ssh.close();
+              return;
+            }
+            portRaw = await pollPortFile(ssh, portFilePath, startTimeoutMs, sleep);
+            if (!portRaw) {
+              // 超时主因之外,把远端 host.log 尾部拼进 detail(host 启动即崩时,崩因
+              // 只落在这份被启动命令重定向的日志里,不捞回来 UI 只剩一句 timeout)。
+              let detail = 'port file did not appear before timeout';
+              try {
+                const log = await ssh.sftpReadFile(`${hostDir}/host.log`);
+                const tail = log
+                  ?.toString('utf8')
+                  .trim()
+                  .split('\n')
+                  .slice(-3)
+                  .join(' | ')
+                  .slice(-400);
+                if (tail) detail += ` · host.log: ${tail}`;
+              } catch {
+                /* 日志读取失败不掩盖超时主因 */
+              }
+              this.failSession(configId, 'startFailed', detail);
+              ssh.close();
+              return;
+            }
+            sessionToken = newToken;
+            this.deps.credentials.setSecret(tokenKey(hostTag), newToken);
+          }
+        } finally {
+          // 无论成败必释放(失败不释放会让其它设备等满陈旧阈值才能重试)
+          await releaseMkdirLock(ssh, startLockDir).catch(() => undefined);
+        }
+      } else {
+        // waitForPeer(锁被另一设备持有):等赢家端口文件出现 → 读服务端身份 token 认领
+        portRaw = await pollPortFile(ssh, portFilePath, startTimeoutMs, sleep);
+        if (!portRaw) {
+          this.failSession(
+            configId,
+            'startFailed',
+            'peer start did not produce port file before timeout',
+          );
+          ssh.close();
+          return;
+        }
+        const peerToken = await this.readPeerToken(ssh, identityFile, hostTag);
+        if (!peerToken) {
+          // fail-closed:有端口无可读 token(隔离模式双实例竞速/崩溃残局)——
+          // 不臆造 token 去探测;失败可重试,下次 connect 走 residency 认领路径。
+          this.failSession(
+            configId,
+            'startFailed',
+            'peer host started but identity token unreadable',
+          );
+          ssh.close();
+          return;
+        }
+        sessionToken = peerToken;
+      }
 
       const tunnel = await this.buildTunnel(ssh, portRaw.port);
       session.forwardServer = tunnel.server;
       session.localPort = tunnel.localPort;
-      session.token = newToken;
+      session.token = sessionToken;
       session.remotePid = portRaw.pid;
 
-      const probeResult = await probe(tunnel.localPort, newToken);
+      const probeResult = await probe(tunnel.localPort, sessionToken);
       // 🔴 A14 修复:此前 !probeResult.ok(隧道时序/超时/被关等瞬时传输失败)与
       // probeResult.compatible===false(真·版本不符)被合并成同一个 incompatible——
       // 刚部署成功的 host 一次瞬时探测失败就被报「版本不兼容·请升级」,分类/文案/
@@ -742,7 +836,7 @@ export class RemoteHostOrchestrator {
       this.emit(configId, {
         stage: 'verifying',
         arch,
-        tunnel: { localPort: tunnel.localPort, token: newToken },
+        tunnel: { localPort: tunnel.localPort, token: sessionToken },
       });
       this.emit(configId, { stage: 'ready' });
       this.deps.configStore.touchLastUsed(configId);

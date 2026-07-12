@@ -426,6 +426,164 @@ describe('多设备同屏 Phase 2:收敛认领(TECH §A.2/A.4)', () => {
   });
 });
 
+describe('多设备同屏 Phase 3:并发首启互斥(TECH §A.3)', () => {
+  const fp = crypto.createHash('sha256').update('race-server-key').digest();
+  const sharedTag = deriveHostTag(fp, 'root');
+
+  it('锁输家:等赢家端口文件 → 读服务端身份 token 认领,不起第二个进程、零 kill', async () => {
+    let polls = 0;
+    const routed = createRoutedSsh({
+      execHandlers: [
+        healthyDefaults()[0],
+        healthyDefaults()[1],
+        healthyDefaults()[2],
+        (cmd) =>
+          cmd.includes('.starting') && cmd.includes('LOCKED')
+            ? { code: 0, stdout: 'EXISTS\n', stderr: '' } // 锁被另一设备持有
+            : null,
+      ],
+      hostKeyFingerprint: fp,
+      sftpReadFile: (p) => {
+        if (p.endsWith('.starting/meta.json')) {
+          return bufferOf({ pid: 9, ts: Date.now() }); // 新鲜锁 → waitForPeer
+        }
+        if (p === `/home/tester/.termpro-host/hosts/${sharedTag}/host.port`) {
+          polls++;
+          // 赢家的端口文件第 3 次轮询才出现(模拟对端启动耗时)
+          return polls >= 3 ? bufferOf({ port: 7100, pid: 555, hostTag: sharedTag }) : null;
+        }
+        if (p === `/home/tester/.termpro-host/identity/${sharedTag}/token`) {
+          return Buffer.from('winner-token\n', 'utf8');
+        }
+        return null;
+      },
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    expect(routed.execDetached).not.toHaveBeenCalled(); // 输家绝不起进程
+    expect(routed.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
+    expect(h.probe).toHaveBeenCalledWith(expect.any(Number), 'winner-token');
+    expect(h.credentials.getSecret(`hosttoken:${sharedTag}`)).toBe('winner-token');
+  });
+
+  it('post-lock recheck:取到锁但端口文件已在(赢家已完成并释锁)→ 转认领,不起第二个进程', async () => {
+    const routed = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      hostKeyFingerprint: fp,
+      sftpReadFile: (p) => {
+        if (p === `/home/tester/.termpro-host/hosts/${sharedTag}/host.port`) {
+          return bufferOf({ port: 7200, pid: 556, hostTag: sharedTag });
+        }
+        if (p === `/home/tester/.termpro-host/identity/${sharedTag}/token`) {
+          return Buffer.from('done-winner-token', 'utf8');
+        }
+        return null;
+      },
+    });
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      // 让 residency 候选不成立(无本地 token,身份文件读得到但 probe 先失败一次)
+      // → 走部署+启动分支,验证 post-lock recheck 兜底。此处直接用 probe 恒 ok,
+      // residency 会先 claim——为强制走启动分支,把首轮 residency 的 probe 打失败。
+      probeImpl: (() => {
+        let calls = 0;
+        return async (_port: number, token: string) => {
+          calls++;
+          // 前 4 次(residency 候选重试预算)失败 → 落回收分支走启动;
+          // 之后(post-lock recheck 认领)成功
+          if (calls <= 4) return { ok: false, detail: 'transient' };
+          return token === 'done-winner-token'
+            ? { ok: true, compatible: true }
+            : { ok: false, detail: 'bad token' };
+        };
+      })(),
+    });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    expect(routed.execDetached).not.toHaveBeenCalled();
+    // 锁已释放(finally 路径)
+    expect(routed.execCalls.some((c) => c.startsWith('rm -rf') && c.includes('.starting'))).toBe(
+      true,
+    );
+  });
+
+  it('真并发:双设备同时 connect 同一收敛身份 → 恰一个进程被拉起,双双 ready,零 kill', async () => {
+    // 共享「远端机」状态:锁/端口文件/身份文件(两台设备的 ssh 桩读写同一份)
+    const remote = {
+      lockHeld: false,
+      portFile: null as Buffer | null,
+      identity: null as Buffer | null,
+    };
+    const makeDeviceSsh = () => {
+      const ssh = createRoutedSsh({
+        execHandlers: [
+          healthyDefaults()[0],
+          healthyDefaults()[1],
+          healthyDefaults()[2],
+          (cmd) => {
+            if (cmd.includes('.starting') && cmd.includes('LOCKED')) {
+              if (remote.lockHeld) return { code: 0, stdout: 'EXISTS\n', stderr: '' };
+              remote.lockHeld = true;
+              return { code: 0, stdout: 'LOCKED\n', stderr: '' };
+            }
+            if (cmd.startsWith('rm -rf') && cmd.includes('.starting')) {
+              remote.lockHeld = false;
+              return { code: 0, stdout: '', stderr: '' };
+            }
+            return null;
+          },
+        ],
+        hostKeyFingerprint: fp,
+        sftpReadFile: (p) => {
+          if (p.endsWith('.starting/meta.json')) return bufferOf({ pid: 1, ts: Date.now() });
+          if (p === `/home/tester/.termpro-host/hosts/${sharedTag}/host.port`) {
+            return remote.portFile;
+          }
+          if (p === `/home/tester/.termpro-host/identity/${sharedTag}/token`) {
+            return remote.identity;
+          }
+          if (p.endsWith('.ready')) return bufferOf('ok'); // bundle 已在,部署快路径
+          return null;
+        },
+      });
+      const originalExecDetached = ssh.execDetached;
+      ssh.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+        // 模拟 host 启动:先写身份 token(host 自写)再写端口文件(happens-before)
+        remote.identity = Buffer.from(stdin, 'utf8');
+        remote.portFile = bufferOf({ port: 7300, pid: 600, hostTag: sharedTag });
+        return originalExecDetached(cmd, stdin);
+      });
+      return ssh;
+    };
+
+    const sshA = makeDeviceSsh();
+    const sshB = makeDeviceSsh();
+    const hA = makeHarness({ connectSshImpl: async () => sshA });
+    const hB = makeHarness({ connectSshImpl: async () => sshB });
+    saveConfig(hA.configStore);
+    saveConfig(hB.configStore);
+
+    await Promise.all([hA.orchestrator.connect('vps-hk'), hB.orchestrator.connect('vps-hk')]);
+
+    expect(hA.events.at(-1)?.stage).toBe('ready');
+    expect(hB.events.at(-1)?.stage).toBe('ready');
+    // 恰一个进程被拉起(赢家),另一端认领
+    const startedCount =
+      sshA.execDetachedCalls.length + sshB.execDetachedCalls.length;
+    expect(startedCount).toBe(1);
+    // 双方全程零 kill(互踢消失的直接断言)
+    expect(sshA.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
+    expect(sshB.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
+  });
+});
+
 describe('AC-11 缺 node / node<20 中止,无半成品', () => {
   it('T-023 node 缺失(探测无任何候选)→ failed·nodeMissing', async () => {
     const routed = createRoutedSsh({

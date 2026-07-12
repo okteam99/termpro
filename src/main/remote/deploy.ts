@@ -9,6 +9,7 @@
 // exec 层面可注入桩测试,不依赖真实 ssh2 sftp open 细节。
 
 import type { SshConnectionLike } from './ssh';
+import { acquireMkdirLock, releaseMkdirLock } from './mkdirLock';
 
 export interface DeployOptions {
   ssh: SshConnectionLike;
@@ -43,9 +44,6 @@ function readyFilePath(dataDir: string, appVersion: string): string {
 }
 function lockDirPath(dataDir: string, appVersion: string): string {
   return `${dataDir}/bundle/.deploying-${appVersion}`;
-}
-function lockMetaPath(dataDir: string, appVersion: string): string {
-  return `${lockDirPath(dataDir, appVersion)}/meta.json`;
 }
 
 function defaultRandomSuffix(): string {
@@ -90,27 +88,10 @@ function compareDotted(a: string, b: string): number {
 }
 
 /**
- * 🔴 A5/E2 修复(部署锁互斥被击穿):此前 `tryMkdir` 成功后再单独一次 exec 写
- * meta.json——两次独立网络往返之间存在窗口:另一 App 实例 B 若恰好在 A 的 mkdir
- * 成功、meta 尚未写入之间读取 meta,会读到 null → 旧逻辑把「meta 缺失」当
- * age=Infinity(无限陈旧)→ 误判 A 的锁陈旧 → break-and-reacquire 删掉 A 正持有的
- * 锁 + A 在传的 tmp 产物 → 互斥被击穿,双双部署。
- *
- * 修复①:mkdir 与 meta 写入合并进单条 exec(单次网络往返内,由远端 shell 本地
- * 完成,竞态窗口从「两次网络往返间隔」收窄到「本地 shell 执行耗时」量级)。
- *
- * 🔴 R1 修复(architect verify 发现①仍留一条窄边):即便合并成单条命令,`mkdir`
- * 与其后的 `printf` 之间仍有极小窗口——若持锁方恰在此窗口内 SSH 断开/进程被杀,
- * 会留下**存在但无 meta.json 的锁目录**。此前版本把「meta 缺失」恒判 age=0
- * (刚创建 · 见上一版注释),这类残留锁会被**永远**判定为「刚创建」而不会陈旧
- * ——`tryMkdirWithMeta` 的 mkdir 因 EEXIST 短路,printf 段永不会被再次执行去
- * 补写 meta,该 appVersion 首装因此永久 wedge(需人工 rm)。
- *
- * 修复②:meta 缺失时不再恒判 age=0,退化读**锁目录 mtime**作为创建时间的近似
- * (mkdir 建目录的那一刻就已经设好 mtime,不依赖 meta 写入成功与否)。超过
- * staleMs 仍按 break-and-reacquire 处理,不会永久 wedge。mtime 也读不到(极端
- *情形,如目录在检查瞬间被其他进程删除)才退化回 age=0(与此前行为一致,不
- * 更差)。
+ * 部署锁取锁。🔴 锁原语已抽至 mkdirLock.ts(多端同屏 Phase 3,首启锁共用),
+ * 语义零变化——A5/E2(mkdir+meta 单条 exec 消互斥击穿)、R1(meta 缺失退化读
+ * 锁目录 mtime 防永久 wedge)、R2V-1(陈旧 break-and-reacquire)等加固史注释
+ * 随迁至该文件。本函数仅保留 per-version 锁路径的绑定。
  */
 async function acquireLock(
   ssh: SshConnectionLike,
@@ -119,75 +100,7 @@ async function acquireLock(
   now: () => number,
   staleMs: number,
 ): Promise<LockOutcome> {
-  const dir = lockDirPath(dataDir, appVersion);
-  const meta = lockMetaPath(dataDir, appVersion);
-
-  if (await tryMkdirWithMeta(ssh, dir, meta, now())) {
-    return 'acquired';
-  }
-
-  // EEXIST:读锁 {ts} 判陈旧;meta 缺失 → 退化读锁目录 mtime(R1),而非恒判刚创建。
-  const metaBuf = await ssh.sftpReadFile(meta);
-  const ts = parseLockTs(metaBuf);
-  const age = ts !== null ? now() - ts : await ageFromDirMtime(ssh, dir, now);
-
-  if (age <= staleMs) {
-    return 'waitForPeer';
-  }
-
-  // 陈旧崩溃残留:break-and-reacquire(R2V-1)。只删锁目录本身;不再通配删
-  // `.tmp-<v>-*`(A7/A5 收窄——我们不知道崩溃进程用的具体随机后缀,通配删有
-  // 误删“另一并发在传产物”的风险,残留几 MB 临时目录按 YAGNI 不清)。
-  await ssh.exec(`rm -rf "${dir}"`);
-  if (await tryMkdirWithMeta(ssh, dir, meta, now())) {
-    return 'acquired';
-  }
-  // 重取仍失败(另一 flow 抢先重取)→ 按正常等待处理
-  return 'waitForPeer';
-}
-
-/**
- * meta.json 缺失时的陈旧判定兜底(R1):读锁目录 mtime(mkdir 建目录时即设好,
- * 与 meta 写入是否成功无关)当作锁创建时间的近似。跨平台 stat:GNU(Linux)用
- * `-c %Y`,BSD/macOS 用 `-f %m`,取到即为 epoch 秒。两者都失败(极端情形,如
- * 目录在检查瞬间被删)→ 退化 age=0(与此前「meta 缺失即视为刚创建」行为一致,
- * 不比修复前更差——只是不再是唯一路径)。
- */
-async function ageFromDirMtime(
-  ssh: SshConnectionLike,
-  dir: string,
-  now: () => number,
-): Promise<number> {
-  const res = await ssh.exec(`stat -c %Y "${dir}" 2>/dev/null || stat -f %m "${dir}" 2>/dev/null`);
-  const mtimeSec = Number(res.stdout.trim());
-  if (!Number.isFinite(mtimeSec) || res.stdout.trim().length === 0) {
-    return 0;
-  }
-  return now() - mtimeSec * 1000;
-}
-
-/** mkdir + 写 meta 合一命令(单次网络往返,见上方 acquireLock 文档)。 */
-async function tryMkdirWithMeta(
-  ssh: SshConnectionLike,
-  dir: string,
-  metaPath: string,
-  ts: number,
-): Promise<boolean> {
-  const payload = JSON.stringify({ pid: process.pid, ts });
-  const res = await ssh.exec(
-    `mkdir "${dir}" 2>/dev/null && printf '%s' '${payload}' > "${metaPath}" && echo LOCKED || echo EXISTS`,
-  );
-  return res.stdout.trim() === 'LOCKED';
-}
-
-function parseLockTs(buf: Buffer | null): number | null {
-  if (!buf) return null;
-  try {
-    const parsed = JSON.parse(buf.toString('utf8')) as { ts?: number };
-    return typeof parsed.ts === 'number' ? parsed.ts : null;
-  } catch {
-    return null;
-  }
+  return acquireMkdirLock(ssh, lockDirPath(dataDir, appVersion), { now, staleMs });
 }
 
 async function waitForReady(
@@ -297,7 +210,7 @@ export async function deployBundle(opts: DeployOptions): Promise<DeployResult> {
       );
     }
   } finally {
-    await opts.ssh.exec(`rm -rf "${lockDirPath(opts.dataDir, opts.appVersion)}"`);
+    await releaseMkdirLock(opts.ssh, lockDirPath(opts.dataDir, opts.appVersion));
   }
 
   return { skipped: !iAmWinner };
