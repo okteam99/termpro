@@ -13,25 +13,39 @@ import { SessionTracker } from './sessionTracker';
 import { RingBuffer } from './ringBuffer';
 import { integrationEnv } from './shellIntegration';
 
+/**
+ * 会话的一个订阅端(M2 多订阅镜像 · 取代旧单 owner 的 send/unacked/attached 三字段)。
+ * `id` = hostCore 分配的 client.id;spawn 初始订阅者 / 直调 pool 的旧测试缺省 -1。
+ */
+interface Subscriber {
+  id: number;
+  send: (msg: HostMessage) => void;
+  /** 已发出但该订阅者尚未 ack 的字节数(独立流控记账,互不干扰) */
+  unacked: number;
+  /** 落后越过 ring 容量(unacked > ring.capacityBytes)→ 剔出流控判据、停发增量 pty:data,
+   *  待其下次 reattach 时 sliceFrom 自然 full=true 全量重同步。仅多订阅时启用(见 recalc 调用点)。 */
+  desync: boolean;
+  /** 该订阅者视口(min-size 政策取全体订阅者 min 作为 PTY 实际尺寸) */
+  cols: number;
+  rows: number;
+}
+
 interface Session {
   id: string;
   pty: pty.IPty;
-  /** 已发出但 UI 尚未消费确认的字节数(流控依据) */
-  unacked: number;
+  /** PTY 级暂停标记(由订阅者集合的 unacked 派生 · B2);单订阅者语义与旧版逐点等价 */
   paused: boolean;
   lastProcess: string;
   scanner: OutputScanner;
   tracker: SessionTracker;
-  /** 会话归属客户端的发送通道(多窗口:输出只回归属方);reattach 换绑、detach 置 noop */
-  send: (msg: HostMessage) => void;
+  /** 订阅者集合(取代旧单 send/unacked/attached)。size===0 ⇔ 旧 attached=false(旁路流控)。 */
+  subscribers: Map<number, Subscriber>;
   // ---- BL-005 断线重连/续跑 ----
   /** host 形态注入:embedded 不分配 ring / onExit 立即 delete(零回归) */
   mode: 'embedded' | 'standalone';
   /** 状态机:live=运行中;exited=断开期跑完/崩溃的保留态(AC-12) */
   status: 'live' | 'exited';
-  /** 有无活跃 owner:false → 旁路流控(不 pause 憋停 · AC-1) */
-  attached: boolean;
-  /** 回放源:仅 standalone 分配的字节上限环形缓冲 */
+  /** 回放源:仅 standalone 分配的字节上限环形缓冲;ring 由全体订阅者共享,各持独立回放游标 */
   ring: RingBuffer | null;
   /** 累计发出总字节(单调):增量回放游标基准(与 ring.absoluteOffset 同步) */
   absoluteOffset: number;
@@ -49,6 +63,8 @@ interface Session {
 
 const PROCESS_POLL_MS = 1500;
 const DEFAULT_MAX_SESSIONS = 64;
+/** spawn / 直调 pool 的旧调用点缺省订阅者 id(hostCore 恒传真实 client.id,不会撞这个值)。 */
+const DEFAULT_SUBSCRIBER_ID = -1;
 
 function envMaxSessions(): number {
   const n = Number(process.env.TERMPRO_MAX_SESSIONS);
@@ -70,11 +86,12 @@ export class PtyPool {
     private readonly maxSessions: number = envMaxSessions(),
   ) {}
 
-  /** 共享单例:会话归属由 spawn 时传入的 send 决定 */
+  /** 共享单例:会话初始订阅者由 spawn 时传入的 send/subscriberId 决定(M2:后续可多订阅镜像)。 */
   spawn(
     opts: SpawnOptions,
     send: (msg: HostMessage) => void,
     onExit?: (sessionId: string) => void,
+    subscriberId: number = DEFAULT_SUBSCRIBER_ID,
   ): string {
     // 会话数上限(仅 standalone):溢出先逐最旧 exited,无 exited 可逐 → 拒新建
     // (绝不逐运行中会话 · QA-7/D-9)。embedded 无 exited 堆积,不设上限(零回归)。
@@ -100,10 +117,12 @@ export class PtyPool {
     const baseEnv = { ...process.env, ...opts.env } as Record<string, string>;
     // zsh 自动注入 shell integration(OSC 133/7);失败或非 zsh 静默跳过
     const integration = integrationEnv(shell, baseEnv);
+    const initCols = Math.max(2, opts.cols);
+    const initRows = Math.max(1, opts.rows);
     const proc = pty.spawn(shell, ['-l'], {
       name: 'xterm-256color',
-      cols: Math.max(2, opts.cols),
-      rows: Math.max(1, opts.rows),
+      cols: initCols,
+      rows: initRows,
       cwd,
       env: { ...baseEnv, ...integration },
     });
@@ -114,7 +133,7 @@ export class PtyPool {
         if (process.env.TERMPRO_SMOKE) {
           console.log('[host] session:event %s %s', id, JSON.stringify(event));
         }
-        session.send({ t: 'session:event', sessionId: id, event });
+        this.broadcastAll(session, { t: 'session:event', sessionId: id, event });
       },
     });
     const scanner = new OutputScanner({
@@ -126,15 +145,25 @@ export class PtyPool {
     const session: Session = {
       id,
       pty: proc,
-      unacked: 0,
       paused: false,
       lastProcess: '',
       scanner,
       tracker,
-      send,
+      subscribers: new Map([
+        [
+          subscriberId,
+          {
+            id: subscriberId,
+            send,
+            unacked: 0,
+            desync: false,
+            cols: initCols,
+            rows: initRows,
+          },
+        ],
+      ]),
       mode: this.mode,
       status: 'live',
-      attached: true,
       ring: this.mode === 'standalone' ? new RingBuffer() : null,
       absoluteOffset: 0,
       exitCode: null,
@@ -145,24 +174,39 @@ export class PtyPool {
     };
 
     proc.onData((data) => {
-      // 观察(只读)→ 入 ring(回放源)→ 旁路流控记账 → 转发
+      // 观察(只读)→ 入 ring(回放源)→ 逐订阅者流控记账 → 广播(desync 门过滤)
       scanner.feed(data);
       tracker.onOutput();
       const bytes = Buffer.byteLength(data);
       session.absoluteOffset += bytes;
       session.ring?.push(data);
-      // 🔴 旁路流控:pause 判据 gate 到 attached —— detached(无 owner ack)时不 pause,
-      // 否则 unacked 单调涨过高水位会 proc.pause() 憋停子进程,击穿「断开续跑」(AC-1)。
-      session.unacked += bytes;
-      if (
-        session.attached &&
-        !session.paused &&
-        session.unacked > FLOW.highWatermark
-      ) {
+
+      // 🔴 desync 硬顶仅「多订阅 + ring 非空」时启用(B2/不变式1):size===1 时本段循环
+      // 至多一个订阅者且 desyncGate 恒 false → 永不 desync,行为与旧单 owner 逐字节一致。
+      const ring = session.ring;
+      const desyncGate = ring !== null && session.subscribers.size > 1;
+      let anyActiveOver = false;
+      for (const sub of session.subscribers.values()) {
+        if (sub.desync) continue; // 已剔出流控:不再记账、不再参与 pause 判据
+        sub.unacked += bytes;
+        if (desyncGate && sub.unacked > ring!.capacityBytes) {
+          // 本 chunk 起停发增量给它(下方发送循环据 desync 过滤即时生效)
+          sub.desync = true;
+          continue;
+        }
+        if (sub.unacked > FLOW.highWatermark) anyActiveOver = true;
+      }
+      // 🔴 旁路流控:订阅者空集(旧 attached=false)时上面循环不执行任何迭代 →
+      // anyActiveOver 恒 false → 不 pause,ring 续录(断开续跑 · AC-1 零回归)。
+      if (!session.paused && anyActiveOver) {
         session.paused = true;
         proc.pause();
       }
-      session.send({ t: 'pty:data', sessionId: id, data, bytes });
+
+      const msg: HostMessage = { t: 'pty:data', sessionId: id, data, bytes };
+      for (const sub of session.subscribers.values()) {
+        if (!sub.desync) sub.send(msg);
+      }
     });
 
     proc.onExit(({ exitCode }) => {
@@ -171,18 +215,20 @@ export class PtyPool {
         this.sessions.delete(id);
         this.stopPollingIfIdle();
         onExit?.(id); // 归属方清理(自然退出时 client.sessions 不留死条目)
-        session.send({ t: 'pty:exit', sessionId: id, exitCode });
+        this.broadcastAll(session, { t: 'pty:exit', sessionId: id, exitCode });
         return;
       }
       // standalone 自然退出:转 exited 保留态(保留 ring + 退出码 · AC-12)
       session.status = 'exited';
       session.exitCode = exitCode;
       session.exitedAt = Date.now();
-      session.attached = false;
       session.tracker.freeze(); // 冻结最终快照 · 停对死 pty 轮询(CR-4)
       this.stopPollingIfIdle();
       onExit?.(id); // 死会话无归属 I/O:从 owner set 摘除(仍留在 pool 供 list/attach)
-      session.send({ t: 'pty:exit', sessionId: id, exitCode });
+      // 🔴 pty:exit 先广播再清订阅者集合(不变式4):清空后 subscribers.size===0
+      // 派生「旧 attached=false」,与现行语义等价,顺序错了会漏发给仍在线的订阅者。
+      this.broadcastAll(session, { t: 'pty:exit', sessionId: id, exitCode });
+      session.subscribers.clear();
     });
 
     this.sessions.set(id, session);
@@ -190,15 +236,19 @@ export class PtyPool {
     return id;
   }
 
-  /** UI 消费完一批输出后回执;水位回落则恢复 PTY 读取 */
-  ack(sessionId: string, bytes: number): void {
+  /**
+   * UI 消费完一批输出后回执;水位回落则恢复 PTY 读取。
+   * @param subscriberId 缺省(旧调用点):恰一个订阅者时作用于它(兼容旧测试/嵌入式单端调用),
+   *   否则 no-op(多订阅下匿名 ack 无法判定归属,宁可丢弃不可误推进他人游标)。
+   *   🔴 安全关键:ack 只推进【自己】的 unacked,绝不触他人(B6 ack 独立性)。
+   */
+  ack(sessionId: string, bytes: number, subscriberId?: number): void {
     const s = this.sessions.get(sessionId);
     if (!s || s.status === 'exited') return;
-    s.unacked = Math.max(0, s.unacked - bytes);
-    if (s.paused && s.unacked < FLOW.lowWatermark) {
-      s.paused = false;
-      s.pty.resume();
-    }
+    const sub = this.resolveSubscriber(s, subscriberId);
+    if (!sub) return;
+    sub.unacked = Math.max(0, sub.unacked - bytes);
+    this.maybeResume(s);
   }
 
   input(sessionId: string, data: string): void {
@@ -207,10 +257,30 @@ export class PtyPool {
     s.pty.write(data);
   }
 
-  resize(sessionId: string, cols: number, rows: number): void {
+  /**
+   * @param subscriberId 在场且是订阅者 → 更新其视口 + min-size 重算(变则 pty.resize · B5)。
+   *   缺省(旧调用点/嵌入式)→ 若恰一个订阅者:同步其视口 + 直接 pty.resize(等价旧单 owner
+   *   行为);否则(0 或 >1 个订阅者)直接 pty.resize,不落地任何订阅者视口。
+   */
+  resize(sessionId: string, cols: number, rows: number, subscriberId?: number): void {
     if (cols < 2 || rows < 1) return;
     const s = this.sessions.get(sessionId);
     if (!s || s.status === 'exited') return;
+
+    if (subscriberId !== undefined) {
+      const sub = s.subscribers.get(subscriberId);
+      if (!sub) return; // 非订阅者越权改尺寸:忽略(不落地/不 resize)
+      sub.cols = cols;
+      sub.rows = rows;
+      this.recalcMinSize(s);
+      return;
+    }
+
+    if (s.subscribers.size === 1) {
+      const sub = s.subscribers.values().next().value as Subscriber;
+      sub.cols = cols;
+      sub.rows = rows;
+    }
     s.pty.resize(cols, rows);
   }
 
@@ -236,57 +306,105 @@ export class PtyPool {
   }
 
   /**
-   * 断开该会话的活跃 owner(端口 close · standalone):
-   *  - attached=false → 旁路流控生效(断开续跑)
+   * 断开该会话的**全部**订阅者(端口 close · standalone 旧直调路径 / 测试直调):
+   *  - subscribers 清空 → 旧 attached=false 派生生效(断开续跑)
    *  - 🔴 解已 paused 会话:paused=false; proc.resume()(断开瞬间已憋停的会话须复活,
-   *    否则无 owner ack → 永不 resume → 整段憋停 → 击穿 AC-1 · ARCH-B-3)
-   *  - unacked=0 + send 置 noop sink(丢弃输出,只入 ring 待回放)
+   *    否则无订阅者 ack → 永不 resume → 整段憋停 → 击穿 AC-1 · ARCH-B-3)
+   *  - 单订阅者时与旧版逐行等价(旧测试直调不变式1)。
    */
   detach(sessionId: string): void {
     const s = this.sessions.get(sessionId);
     if (!s) return;
-    s.attached = false;
     if (s.status === 'live' && s.paused) {
       s.paused = false;
       s.pty.resume();
     }
-    s.unacked = 0;
-    s.send = () => {};
+    s.subscribers.clear();
   }
 
   /**
-   * 重连收养既有会话:换 send + resize 对账 + 回放切片 + 记账复位(BL-005 · CR-2)。
-   * 🔴 全程同步禁 await(reattach 三不变式①):算切片 + 换 send 同一 tick 完成。
+   * 只摘一个订阅者(M2 · 断连清理 hostCore.ts 调用点)。摘空 → 等价 detach 收尾(B4/不变式7):
+   * live 且 paused → resume;ring 续录天然成立(无需额外动作)。仍有订阅者残留时按 B2/B5
+   * 重算 min-size + 尝试 resume(摘除的订阅者可能曾是拖住 pause/放大 min 的那个)。
+   */
+  unsubscribe(sessionId: string, subscriberId: number): void {
+    const s = this.sessions.get(sessionId);
+    if (!s) return;
+    if (!s.subscribers.delete(subscriberId)) return; // 非订阅者:no-op
+    this.recalcMinSize(s); // 内部守卫 status/size,空集或非 live 天然 no-op
+    this.maybeResume(s);
+  }
+
+  /**
+   * 重连收养既有会话:换/加订阅者 + resize 对账 + 回放切片 + 记账复位(BL-005 · CR-2 · M2)。
+   * 🔴 全程同步禁 await(reattach 三不变式①):算切片 + 变更订阅者集合同一 tick 完成。
    * exited 分支跳过 proc.resize + 流控记账(死 pty resize 会抛 · 纯回放最终 scrollback · ARCH-B-6)。
+   * @param opts.mode 缺省 'exclusive'(旧客户端/旧测试零回归):摘除全部其他订阅者(各收
+   *   session:takenover)→ last-attach-wins,resize 对账 = 直接 pty.resize(与旧单 owner 逐点等价)。
+   *   'mirror':保留他人订阅,仅 upsert 本订阅者,resize 对账走 min-size 重算(B5)。
+   * @param opts.subscriberId 缺省 DEFAULT_SUBSCRIBER_ID(-1,旧调用点/单订阅测试兼容)。
    * @returns SessionAttachResult;会话不存在(被逐/从未有)→ null(caller 产 found=false)。
    */
   reattach(
     sessionId: string,
     newSend: (msg: HostMessage) => void,
-    opts: { cols: number; rows: number; resumeOffset: number },
+    opts: {
+      cols: number;
+      rows: number;
+      resumeOffset: number;
+      mode?: 'mirror' | 'exclusive';
+      subscriberId?: number;
+    },
   ): SessionAttachResult | null {
     const s = this.sessions.get(sessionId);
     if (!s) return null;
 
-    // 先算回放切片(捕获至当前 absoluteOffset),再换 send —— 同一同步 tick,无 onData 插入
+    const mode = opts.mode ?? 'exclusive';
+    const subscriberId = opts.subscriberId ?? DEFAULT_SUBSCRIBER_ID;
+
+    // 先算回放切片(捕获至当前 absoluteOffset),再变更订阅者集合 —— 同一同步 tick,无 onData 插入
     const slice = s.ring
       ? s.ring.sliceFrom(opts.resumeOffset)
       : { data: '', baseOffset: s.absoluteOffset, full: true };
     const nextOffset = s.absoluteOffset;
 
-    s.send = newSend;
-    s.attached = true;
-    // 🔴 unacked=0:回放全新记账起点,免新 owner 一挂上就 >高水位立即二次 pause
-    s.unacked = 0;
-    s.paused = false;
-
-    if (s.status === 'live' && opts.cols >= 2 && opts.rows >= 1) {
-      // 收养对账:按当前尺寸 resize 逼 TUI 重绘(回放错行被纠正 · QA-12)
-      try {
-        s.pty.resize(opts.cols, opts.rows);
-      } catch (err) {
-        console.warn('[host] reattach resize failed for', sessionId, err);
+    if (mode === 'exclusive') {
+      // last-attach-wins(pool 内半 · hostCore 侧另摘 client.sessions):摘除全部其他订阅者,
+      // 各发 session:takenover。单订阅者旧调用点(subscriberId 恒等于既有唯一 key)此循环
+      // 天然空转 —— 零回归。
+      for (const [subId, sub] of s.subscribers) {
+        if (subId === subscriberId) continue;
+        sub.send({ t: 'session:takenover', sessionId });
+        s.subscribers.delete(subId);
       }
+    }
+
+    // upsert 本订阅者(unacked=0/desync=false/视口更新 · 两种 mode 一致 · B3)
+    s.subscribers.set(subscriberId, {
+      id: subscriberId,
+      send: newSend,
+      unacked: 0,
+      desync: false,
+      cols: opts.cols,
+      rows: opts.rows,
+    });
+
+    if (mode === 'exclusive') {
+      // 🔴 逐点等价旧单 owner 代码:仅复位记账标记,不额外调用 pty.resume()
+      // (旧代码同款,未额外解憋停;引入新副作用会破坏「现行完全一致」不变式)。
+      s.paused = false;
+      if (s.status === 'live' && opts.cols >= 2 && opts.rows >= 1) {
+        try {
+          s.pty.resize(opts.cols, opts.rows);
+        } catch (err) {
+          console.warn('[host] reattach resize failed for', sessionId, err);
+        }
+      }
+    } else {
+      // mirror:不抢占他人视口,按 min-size 重算(B5);新订阅者 unacked=0 不会新增 pause
+      // 需求,只可能解除既有 pause(健康订阅者已回落时 · B2)。
+      if (s.status === 'live') this.recalcMinSize(s);
+      this.maybeResume(s);
     }
 
     return {
@@ -325,6 +443,58 @@ export class PtyPool {
     };
   }
 
+  /** 全订阅者广播(session:event/pty:exit/pty:title · B6,不受 desync 门控 —— 轻量事件继续活)。 */
+  private broadcastAll(s: Session, msg: HostMessage): void {
+    for (const sub of s.subscribers.values()) sub.send(msg);
+  }
+
+  /**
+   * 解析 ack 目标订阅者:显式 subscriberId → 精确查(找不到即 no-op,绝不误推进他人);
+   * 缺省 → 恰一个订阅者时兼容旧调用作用于它,否则 no-op(B6 ack 独立性安全关键)。
+   */
+  private resolveSubscriber(s: Session, subscriberId?: number): Subscriber | undefined {
+    if (subscriberId !== undefined) return s.subscribers.get(subscriberId);
+    return s.subscribers.size === 1 ? s.subscribers.values().next().value : undefined;
+  }
+
+  /**
+   * 派生 resume 判据(B2):paused && ∀ 活跃(非 desync)订阅者 unacked < lowWatermark → resume。
+   * 活跃订阅者空集(全 desync 或订阅者已摘空)时 ∀ 空真 → 视为达成 → resume
+   * (= 现行 detach/unsubscribe 摘空收尾:live 且 paused → resume · 不变式7)。
+   */
+  private maybeResume(s: Session): void {
+    if (s.status !== 'live' || !s.paused) return;
+    for (const sub of s.subscribers.values()) {
+      if (sub.desync) continue;
+      if (sub.unacked >= FLOW.lowWatermark) return; // 仍有活跃订阅者未回落 → 保持 paused
+    }
+    s.paused = false;
+    s.pty.resume();
+  }
+
+  /**
+   * min-size 重算(B5,tmux 式):PTY 尺寸 = min(全体订阅者 cols) × min(全体订阅者 rows)
+   * (过滤 cols<2/rows<1 的非法视口)。变化才 pty.resize;单订阅者时 min=其视口=旧单 owner
+   * 行为(但该路径只在 mirror/多订阅场景调用,exclusive 走独立的直接 resize 分支)。
+   */
+  private recalcMinSize(s: Session): void {
+    if (s.status !== 'live' || s.subscribers.size === 0) return;
+    let minCols = Infinity;
+    let minRows = Infinity;
+    for (const sub of s.subscribers.values()) {
+      if (sub.cols < 2 || sub.rows < 1) continue;
+      if (sub.cols < minCols) minCols = sub.cols;
+      if (sub.rows < minRows) minRows = sub.rows;
+    }
+    if (!Number.isFinite(minCols) || !Number.isFinite(minRows)) return;
+    if (minCols === s.pty.cols && minRows === s.pty.rows) return;
+    try {
+      s.pty.resize(minCols, minRows);
+    } catch (err) {
+      console.warn('[host] min-size resize failed for', s.id, err);
+    }
+  }
+
   /**
    * 逐出最旧 exited 会话(排序键 = exitedAt 升序 · 最近完成的最后逐 · 保北极星刚跑完的
    * build 最后被逐 · ARCH-B-8)。无 exited 可逐 → false(caller 拒新建,绝不逐 live)。
@@ -359,7 +529,7 @@ export class PtyPool {
         const name = s.pty.process;
         if (name && name !== s.lastProcess) {
           s.lastProcess = name;
-          s.send({ t: 'pty:title', sessionId: s.id, processName: name });
+          this.broadcastAll(s, { t: 'pty:title', sessionId: s.id, processName: name });
           s.tracker.onProcessName(name);
         }
         s.tracker.tick();

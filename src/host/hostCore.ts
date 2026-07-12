@@ -53,7 +53,8 @@ export interface Client {
   id: number;
   port: PortLike;
   watches: WatchService;
-  /** 该客户端 spawn 的会话(端口关闭时回收) */
+  /** 该客户端订阅的会话集(spawn 自动订阅 / session.attach 订阅 / unsubscribe·exclusive
+   *  抢占摘除;端口关闭时按此集合逐一回收 · M2 订阅语义)。 */
   sessions: Set<string>;
 }
 
@@ -119,12 +120,14 @@ export function createHostCore(
           break;
         case 'pty:resize':
           if (client.sessions.has(msg.sessionId)) {
-            pool.resize(msg.sessionId, msg.cols, msg.rows);
+            pool.resize(msg.sessionId, msg.cols, msg.rows, client.id);
           }
           break;
         case 'pty:ack':
           if (client.sessions.has(msg.sessionId)) {
-            pool.ack(msg.sessionId, msg.bytes);
+            // 🔴 ack 只推进【自己】的 unacked(subscriberId=client.id · B6 安全关键):
+            // 一个订阅者(误/恶)ack 无法替他人推进游标、无法伪造他人流控。
+            pool.ack(msg.sessionId, msg.bytes, client.id);
           }
           break;
       }
@@ -135,7 +138,9 @@ export function createHostCore(
     // standalone → detach(断开续跑:会话不 kill,旁路流控,输出入 ring 待重连回放 · AC-1)。
     port.on('close', () => {
       for (const sid of client.sessions) {
-        if (mode === 'standalone') pool.detach(sid);
+        // 🔴 只摘该 client 的订阅(M2):standalone 下其余订阅者(其他设备镜像中)不受影响,
+        // 摘空才等价旧 detach 收尾(ptyPool.unsubscribe 内部处理 · B4)。
+        if (mode === 'standalone') pool.unsubscribe(sid, id);
         else pool.kill(sid);
       }
       client.watches.dispose();
@@ -144,7 +149,7 @@ export function createHostCore(
       console.log(
         '[host] client %d detached (sessions %s: %d, clients left: %d)',
         id,
-        mode === 'standalone' ? 'detached' : 'killed',
+        mode === 'standalone' ? 'unsubscribed' : 'killed',
         client.sessions.size,
         clients.size,
       );
@@ -186,8 +191,11 @@ async function handleRpc(
         break;
       }
       case 'pty.spawn': {
-        const sessionId = pool.spawn(msg.params as SpawnOptions, send, (sid) =>
-          client.sessions.delete(sid),
+        const sessionId = pool.spawn(
+          msg.params as SpawnOptions,
+          send,
+          (sid) => client.sessions.delete(sid),
+          client.id,
         );
         client.sessions.add(sessionId);
         result = { sessionId };
@@ -296,18 +304,26 @@ async function handleRpc(
           resumeOffset: number;
           cols: number;
           rows: number;
+          mode?: 'mirror' | 'exclusive';
         };
-        // 🔴 last-attach-wins 所有权转移(CR-2/ARCH-B-5):同步原子三步 —— 无 await 插入。
-        // ① 从旧 owner 的 client.sessions 摘除 sid(否则旧连接稍后 close 回收会误 detach
-        //    已转移会话 · 把新 owner 输出转进 ring 不回屏 · 楔死 · ARCH-B-5②)。
-        for (const c of clients.values()) {
-          if (c !== client) c.sessions.delete(p.sessionId);
+        // 缺省 'exclusive':旧客户端不带 mode → 独占接续,零回归(M2 B3)。
+        const attachMode = p.mode ?? 'exclusive';
+        if (attachMode === 'exclusive') {
+          // 🔴 last-attach-wins 所有权转移(CR-2/ARCH-B-5):同步原子三步 —— 无 await 插入。
+          // ① 从旧 owner 的 client.sessions 摘除 sid(否则旧连接稍后 close 回收会误
+          //    unsubscribe 已转移会话 · 把新 owner 输出转进 ring 不回屏 · 楔死 · ARCH-B-5②)。
+          // 仅 exclusive 分支摘他人:mirror 保留他人订阅(不摘 client.sessions · B3)。
+          for (const c of clients.values()) {
+            if (c !== client) c.sessions.delete(p.sessionId);
+          }
         }
-        // ② reattach 换 send + 回放切片(同步)。
+        // ② reattach 换/加订阅者 + 回放切片(同步)。
         const res = pool.reattach(p.sessionId, send, {
           cols: p.cols,
           rows: p.rows,
           resumeOffset: p.resumeOffset,
+          mode: attachMode,
+          subscriberId: client.id,
         });
         if (res === null) {
           // found=false:该 sessionId 已不存在(被逐/从未有)→ renderer 退化 new spawn。

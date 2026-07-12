@@ -209,7 +209,15 @@ export interface RpcMethods {
    * found=false → 该 sessionId 已不存在,renderer 退化 new spawn(AC-11)。
    */
   'session.attach': {
-    params: { sessionId: string; resumeOffset: number; cols: number; rows: number };
+    params: {
+      sessionId: string;
+      resumeOffset: number;
+      cols: number;
+      rows: number;
+      /** 'mirror'=加入订阅(多端同屏,不摘他人);缺省/'exclusive'=独占接续(last-attach-wins,
+       *  摘除其他订阅者并各发 session:takenover)。旧客户端省略 → 'exclusive' 零回归(M2)。 */
+      mode?: 'mirror' | 'exclusive';
+    };
     result: SessionAttachResult;
   };
 }
@@ -240,6 +248,9 @@ export type HostMessage =
   | { t: 'pty:exit'; sessionId: string; exitCode: number }
   | { t: 'pty:title'; sessionId: string; processName: string }
   | { t: 'session:event'; sessionId: string; event: SessionEvent }
+  // 该订阅者被 exclusive attach 摘除(last-attach-wins 抢占 · M2 向后兼容追加)。
+  // 旧客户端不识别此 t 值 → 按惯例忽略未知消息类型,零破坏。
+  | { t: 'session:takenover'; sessionId: string }
   | { t: 'fs:changed'; watchId: number }
   // 注册表变更后向全部客户端广播全量快照(非增量);收端按 id 协调本地视图态
   | { t: 'workspace:changed'; workspaces: WorkspaceEntry[] };
