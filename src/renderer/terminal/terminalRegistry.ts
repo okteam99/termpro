@@ -65,6 +65,8 @@ export interface TermInstance {
   replayQueue: Array<{ data: string; bytes: number }>;
   /** BL-005(AC-12):standalone 会话在 host 已 exited(退出留存)。渲染「已完成」徽标·**不 dispose**。 */
   exited: boolean;
+  /** term.onData/onResize 输入接线已挂(inst 生命周期内只挂一次,防双发·见 wireInputOnce)。 */
+  inputWired: boolean;
 }
 
 const registry = new Map<string, TermInstance>();
@@ -129,6 +131,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     replaying: false,
     replayQueue: [],
     exited: false,
+    inputWired: false,
   };
   inst.barPin.setEnabled(pinBottomBarEnabled);
 
@@ -204,12 +207,7 @@ export async function ensureSession(
       onTitle: (processName) => inst.callbacks.onTitle?.(processName),
     });
 
-    inst.term.onData((d) => {
-      if (inst.sessionId) client.input(inst.sessionId, d);
-    });
-    inst.term.onResize(({ cols, rows }) => {
-      if (inst.sessionId) client.resize(inst.sessionId, cols, rows);
-    });
+    wireInputOnce(inst);
     // spawn 进行期间 fit 可能已改变终端尺寸(onResize 当时未注册),
     // 主动同步一次当前尺寸,避免 TUI 以 80x24 启动
     client.resize(sessionId, inst.term.cols, inst.term.rows);
@@ -320,6 +318,24 @@ function flushReplayQueue(
   }
 }
 
+/**
+ * term.onData/onResize 输入接线,inst 生命周期内只挂一次(幂等)。
+ * 🔴 ensureSession 与 wireLiveSession 可能先后触达同一 inst(收养 attach miss 后原位
+ * 重 spawn·幽灵 tab 挂载重 spawn),xterm 的 onData 是【累加】注册——重复挂载会让每次
+ * 击键双发 input。handler 读 inst.client/inst.sessionId 现值(respawn 换会话/换 client
+ * 后仍路由正确),不闭包捕获挂载时的 client。
+ */
+function wireInputOnce(inst: TermInstance): void {
+  if (inst.inputWired) return;
+  inst.inputWired = true;
+  inst.term.onData((d) => {
+    if (inst.sessionId && inst.client) inst.client.input(inst.sessionId, d);
+  });
+  inst.term.onResize(({ cols, rows }) => {
+    if (inst.sessionId && inst.client) inst.client.resize(inst.sessionId, cols, rows);
+  });
+}
+
 /** live 会话接线(attachPty + onData 消费 + input/resize 反向)。ensureSession 与 path② 重建共用。 */
 function wireLiveSession(
   inst: TermInstance,
@@ -336,12 +352,7 @@ function wireLiveSession(
     },
     onTitle: (processName) => inst.callbacks.onTitle?.(processName),
   });
-  inst.term.onData((d) => {
-    if (inst.sessionId) client.input(inst.sessionId, d);
-  });
-  inst.term.onResize(({ cols, rows }) => {
-    if (inst.sessionId) client.resize(inst.sessionId, cols, rows);
-  });
+  wireInputOnce(inst);
 }
 
 /**
@@ -483,6 +494,35 @@ export async function readoptHost(
     inst.exited = result.snapshot.status === 'exited';
     reconcileBadge(configId, snap.sessionId, result.snapshot);
   }
+}
+
+/**
+ * 恢复 tab 的会话预绑定(远程 tab 布局恢复 · 用户规则 2026-07)。客户端重启/full-drop
+ * 后由 restoreRemoteTabLayouts 调用:存档里带 sessionId 的恢复 tab,**同步**把 inst 绑到
+ * 该会话并接好 live 管线——两重作用:
+ *  ① TerminalView 挂载的 ensureSession 见 sessionId 即短路,不抢先 new spawn(与收养竞态);
+ *  ② readoptHost 路径① 把它当「闪断存活 inst」收养:host 存活 → session.attach 全量回放
+ *    (内容白赚回来);host 已重启 → found=false → 原位重 spawn(内容丢,tab 名称/顺序保住)。
+ * client 未命中(该 host 未连接——不该发生,恢复恒在 host ready 后)→ 不绑定,挂载走
+ * 正常 new spawn(安全降级)。
+ */
+export function bindRestoredSessionTab(
+  tabId: string,
+  hostId: string,
+  sessionId: string,
+  cwd: string,
+): void {
+  const client = hostRegistry.forHostId(hostId);
+  if (!client) return;
+  const inst = getOrCreateTerminal(tabId);
+  if (inst.sessionId || inst.spawning) return; // 已 spawn/已绑定 → 不覆盖
+  inst.hostId = hostId;
+  inst.client = client;
+  inst.spawnCwd = cwd;
+  inst.sessionId = sessionId;
+  inst.renderedBytes = 0;
+  inst.exited = false;
+  wireLiveSession(inst, tabId, client, sessionId);
 }
 
 /** 仅测试:直接注入一个 inst(test-double term / fake client),绕过真 xterm 构造。 */

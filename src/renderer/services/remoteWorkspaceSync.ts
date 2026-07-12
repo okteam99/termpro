@@ -11,7 +11,7 @@
 
 import { hostRegistry } from './hostRegistry';
 import { routeSessionEvent } from './sessionEvents';
-import { readoptRemoteSessions } from './sessionReadopt';
+import { readoptRemoteSessions, restoreRemoteTabLayouts } from './sessionReadopt';
 import { useAppStore } from '../state/store';
 
 interface HostSyncHandle {
@@ -73,6 +73,11 @@ export async function startRemoteWorkspaceSync(
       const { workspaces } = await client.rpc('workspace.list', undefined);
       if (active.get(configId) !== handle) return;
       useAppStore.getState().setHostWorkspaces(configId, workspaces);
+      // 远程 tab 布局恢复(用户规则 2026-07):必须在 setHostWorkspaces 之后【同步】执行
+      // ——恢复 tab 的 sessionId 预绑定要赶在 React 挂载 ensureSession 之前(见
+      // restoreRemoteTabLayouts 文档),收养路径① 才能接管(host 活→回放内容;
+      // host 已重启→原位重 spawn,tab 名称/数量/顺序不丢)。
+      restoreRemoteTabLayouts(configId);
       // 服务端会话收养(PENDING-006):注册表落地后据 session.list 重建既有会话 tab
       // (客户端重启后重连的收养入口——此刻 cwd→workspace 映射才有素材;list 成功
       // 亦证明 transport 已开,session.attach 不会撞 A1 的「transport=null 同步 reject」)。

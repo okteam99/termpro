@@ -12,7 +12,11 @@
 // (host ready 首拉 workspace.list 落地后)——后者是「重启后重连」的收养入口:
 // 必须等注册表进 store,cwd→workspace 映射才有素材。
 
-import { readoptHost, findTab } from '../terminal/terminalRegistry';
+import {
+  readoptHost,
+  findTab,
+  bindRestoredSessionTab,
+} from '../terminal/terminalRegistry';
 import { useAppStore } from '../state/store';
 import type { WorkspaceState } from '../state/store';
 import type { SessionSnapshot } from '../../shared/protocol';
@@ -74,6 +78,31 @@ export function rebuildTabForSnapshot(
   const ws = mapSessionCwdToWorkspace(s.workspaces, hostId, snap.cwd);
   if (!ws) return null;
   return s.adoptSessionTab(ws.id, snap.cwd, snap.title);
+}
+
+/**
+ * 远程 tab 布局恢复(用户规则 2026-07:服务端升级/重启后 session 内容可丢,tab 名称/
+ * 数量/顺序不能丢)。调用点唯一:startRemoteWorkspaceSync 在首拉 workspace.list 落地
+ * (setHostWorkspaces)之后、readoptRemoteSessions 之前**同步**调用——同步是硬约束:
+ * 恢复 tab 的 sessionId 预绑定必须赶在 React 挂载 TerminalView(ensureSession)之前,
+ * 否则挂载先 new spawn,收养路径①就接不回原会话(变成重复 tab)。
+ *
+ * 消费即删(单次性):ws 已带 tab(闪断未 drop,live 视图态为准)或 ws 已不在注册表
+ * (服务端删除项目)→ 对应条目直接丢弃,不留陈旧布局。
+ */
+export function restoreRemoteTabLayouts(
+  configId: string,
+  bind: typeof bindRestoredSessionTab = bindRestoredSessionTab,
+): void {
+  const s = useAppStore.getState();
+  for (const layout of s.consumeRemoteTabLayouts(configId)) {
+    if (!s.restoreWorkspaceTabs(layout.workspaceId, layout.tabs, layout.activeTabId)) {
+      continue;
+    }
+    for (const t of layout.tabs) {
+      if (t.sessionId) bind(t.id, configId, t.sessionId, t.cwd);
+    }
+  }
 }
 
 /** configId → 在途收养 promise(串行化尾指针) */

@@ -28,12 +28,14 @@ vi.mock('../../state/store', () => ({
   useAppStore: { getState: () => storeMock },
 }));
 
-// 收养入口打桩:本测试只断言「注册表落地后触发了收养」这条 seam(PENDING-006);
-// 收养内部(cwd 映射/重建 tab/串行化)由 sessionReadopt.test.ts 单独覆盖。
-const { readoptRemoteSessions } = vi.hoisted(() => ({
+// 收养/恢复入口打桩:本测试只断言「注册表落地后先恢复布局、再触发收养」这两条 seam
+// (PENDING-006 + 远程 tab 布局恢复);内部逻辑由 sessionReadopt.test.ts /
+// remoteTabRestore.test.ts 单独覆盖。
+const { readoptRemoteSessions, restoreRemoteTabLayouts } = vi.hoisted(() => ({
   readoptRemoteSessions: vi.fn(async () => undefined),
+  restoreRemoteTabLayouts: vi.fn(),
 }));
-vi.mock('../sessionReadopt', () => ({ readoptRemoteSessions }));
+vi.mock('../sessionReadopt', () => ({ readoptRemoteSessions, restoreRemoteTabLayouts }));
 
 import {
   isRemoteWorkspaceSyncing,
@@ -81,6 +83,7 @@ beforeEach(() => {
   storeMock.dropHostWorkspaces.mockReset();
   routeSessionEvent.mockReset();
   readoptRemoteSessions.mockClear();
+  restoreRemoteTabLayouts.mockClear();
 });
 
 afterEach(() => {
@@ -112,10 +115,14 @@ describe('startRemoteWorkspaceSync:host ready 编排', () => {
     await startRemoteWorkspaceSync('cfg-1', 'ws://x');
 
     expect(readoptRemoteSessions).toHaveBeenCalledWith('cfg-1');
-    // 顺序钉死:先 setHostWorkspaces(cwd→workspace 映射素材)再收养
+    expect(restoreRemoteTabLayouts).toHaveBeenCalledWith('cfg-1');
+    // 顺序钉死:setHostWorkspaces(cwd→workspace 映射素材)→ 布局恢复(sessionId 预绑定
+    // 须赶在挂载 ensureSession 前 · 用户规则 2026-07)→ 收养
     const setOrder = storeMock.setHostWorkspaces.mock.invocationCallOrder[0];
+    const restoreOrder = restoreRemoteTabLayouts.mock.invocationCallOrder[0];
     const readoptOrder = readoptRemoteSessions.mock.invocationCallOrder[0];
-    expect(setOrder).toBeLessThan(readoptOrder);
+    expect(setOrder).toBeLessThan(restoreOrder);
+    expect(restoreOrder).toBeLessThan(readoptOrder);
   });
 
   it('建立 onWorkspaceChanged 订阅:该机注册表广播 → 再次 setHostWorkspaces', async () => {
