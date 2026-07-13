@@ -93,7 +93,7 @@ describe('AC-3 · 远程目录浏览器加载态', () => {
     fireEvent.click(await screen.findByText('mini-pc'));
 
     expect(await screen.findByText('Reading directory…')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Select project on/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Select' })).toBeDisabled();
 
     resolveReaddir({ entries: [] });
     await waitFor(() => expect(screen.getByText('(empty directory)')).toBeInTheDocument());
@@ -124,7 +124,7 @@ describe('AC-3 · 远程目录 EACCES 错误态', () => {
     expect(await screen.findByText(/EACCES/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(screen.queryByText('(empty directory)')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Select project on/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Select' })).toBeDisabled();
   });
 });
 
@@ -219,7 +219,7 @@ describe('AC-4 · 确认创建落该远程机组', () => {
     fireEvent.click(await screen.findByText('mini-pc'));
     await screen.findByText('(empty directory)');
 
-    fireEvent.click(screen.getByRole('button', { name: /Select project on/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(remoteClient.rpc).toHaveBeenCalledWith(

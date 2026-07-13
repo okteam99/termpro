@@ -144,7 +144,7 @@ export const zh: Record<string, string> = {
   'Create': '创建',
   'Create a new folder in the current directory': '在当前目录下新建文件夹',
   '+ New folder': '+ 新建目录',
-  'Select project on {alias}': '选择 {alias} 上的项目',
+  'Select': '选择',
 
   // --- MarkdownPreview ---
   'mermaid render failed': 'mermaid 渲染失败',
