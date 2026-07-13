@@ -70,6 +70,51 @@ export function checkHostInfoCompatible(info: HostInfo): {
   };
 }
 
+/**
+ * 应用版本点分数值比较(x.y.z;段数不等按缺段=0)。任一段非纯数字或输入为空 → null
+ * (语义交由调用方决定;isHostAppOutdated 按「不可判定 = 过旧」fail-to-upgrade)。
+ */
+export function compareAppVersions(a: string, b: string): number | null {
+  const pa = parseDottedVersion(a);
+  const pb = parseDottedVersion(b);
+  if (!pa || !pb) return null;
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+function parseDottedVersion(v: string): number[] | null {
+  const parts = v.trim().split('.');
+  const nums: number[] = [];
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return null;
+    nums.push(Number(p));
+  }
+  return nums.length > 0 ? nums : null;
+}
+
+/**
+ * 服务端应用版本是否低于客户端(用户规则 2026-07-13:连接时服务端必须 ≥ 客户端,
+ * 否则先升级服务端——在跑任务可以被关闭;彻底解决「服务端永不升级」)。
+ * - host 未上报 appVersion(旧版 host)→ true(视为过旧)
+ * - 任一版本不可解析 → true(不可判定按过旧处理,宁升级不滞留)
+ * - host > client(多设备:旧客户端连新 host)→ false
+ *   (只升不降:防新旧客户端各按己版反复替换服务端)
+ */
+export function isHostAppOutdated(
+  hostAppVersion: string | undefined,
+  clientAppVersion: string,
+): boolean {
+  if (!hostAppVersion) return true;
+  const cmp = compareAppVersions(hostAppVersion, clientAppVersion);
+  if (cmp === null) return true;
+  return cmp < 0;
+}
+
 /** 不兼容时抛出的 Error(携带结构化 detail 供 UI/日志消费)。 */
 export class ProtocolIncompatibleError extends Error {
   readonly detail: ProtocolIncompatibleDetail;

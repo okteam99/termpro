@@ -175,6 +175,8 @@ function ensureHost(): Electron.UtilityProcess {
     env: {
       ...process.env,
       TERMPRO_HOST_DATA_DIR: app.getPath('userData'),
+      // host.info.appVersion 数据源(本机嵌入式恒与应用同版,仅保持上报一致性)
+      TERMPRO_HOST_APP_VERSION: app.getVersion(),
     },
   });
   hostProc.on('exit', (code) => {

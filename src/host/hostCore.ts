@@ -189,6 +189,10 @@ async function handleRpc(
             mode === 'standalone'
               ? ['session.resume', 'session.mirror', 'fs.temp-png']
               : undefined,
+          // 应用版本:启动方(远程编排 buildStartCommand / 本机 main fork)经 env 注入,
+          // 与部署的 bundle/<version>/ 同源。缺省(旧启动方/手工启动)→ 字段省略,
+          // main 侧按过旧处理,连接时升级(用户规则 2026-07-13)。
+          appVersion: process.env.TERMPRO_HOST_APP_VERSION || undefined,
         };
         result = info;
         break;

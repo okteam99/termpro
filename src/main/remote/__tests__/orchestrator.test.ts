@@ -39,14 +39,25 @@ interface Harness {
 
 function makeHarness(opts: {
   connectSshImpl?: (o: unknown) => Promise<RoutedSsh>;
-  probeImpl?: (localPort: number, token: string) => Promise<{ ok: boolean; compatible?: boolean; detail?: string }>;
+  probeImpl?: (
+    localPort: number,
+    token: string,
+  ) => Promise<{
+    ok: boolean;
+    compatible?: boolean;
+    detail?: string;
+    hostInfo?: { appVersion?: string };
+  }>;
   startTimeoutMs?: number;
 } = {}): Harness {
   const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
   const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage() });
   const events: RemoteEvent[] = [];
+  // 默认桩:host 版本与 harness appVersion('1.0.0')一致——认领版本门闸放行
+  // (用户规则 2026-07-13:appVersion 落后/缺失的 host 不再收养,连接时升级)。
   const probe = vi.fn(
-    opts.probeImpl ?? (async () => ({ ok: true, compatible: true })),
+    opts.probeImpl ??
+      (async () => ({ ok: true, compatible: true, hostInfo: { appVersion: '1.0.0' } })),
   );
   const connectSsh = vi.fn(
     opts.connectSshImpl ?? (async () => createRoutedSsh({ execHandlers: healthyDefaults() })),
@@ -222,33 +233,83 @@ describe('AC-13 认领驻留进程(不重启)', () => {
     expect(claimingEvent?.fastPath).toBe(true);
   });
 
-  it('T-038o 客户端升级后首连(新版 .ready 缺失)+ 活 host 协议兼容 → 认领,不部署不重启(session 保活)', async () => {
-    // 🔴 用户规则 2026-07:升级客户端不得连带升级服务端。远端只有旧版 bundle
-    // (新 appVersion 的 .ready 读不到),但旧版 host 进程活着且协议兼容 → 必须走
-    // 认领复用,不允许 kill+deploy(那会杀掉服务端正在运行的全部 session)。
+  it('T-038o 客户端升级后首连 + 活 host 版本过旧 → 先升级服务端:kill 旧 host + 部署 + 重启(2026-07-13)', async () => {
+    // 🔴 用户规则 2026-07-13(反转旧 2026-07 规则):服务端版本低于客户端(旧 host 不上报
+    // appVersion 同判过旧)→ 连接时先升级服务端,在跑任务可以关闭。端到端锁定整条链:
+    // 候选探测通过但版本过旧 → claiming → reapThenDeploy(kill 654)→ deploying → starting
+    // (新启动命令携带 TERMPRO_HOST_APP_VERSION)→ 新 host 端口文件 → ready。
     const configId = 'vps-hk';
+    let killSent = false;
+    let reaped = false;
+    let started = false;
     const routed = createRoutedSsh({
-      execHandlers: healthyDefaults(),
+      execHandlers: [
+        ...healthyDefaults(),
+        (cmd) => {
+          if (cmd.startsWith('kill "654"')) {
+            killSent = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) =>
+          cmd.startsWith('kill -0 "654"')
+            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
+            : null,
+        (cmd) =>
+          cmd.includes('/proc/654/cmdline') || cmd.includes('-p "654"')
+            ? { code: 0, stdout: `node host.js --host-tag ${configId}`, stderr: '' }
+            : null,
+        (cmd) => {
+          if (cmd.startsWith('rm -f') && cmd.includes('host.port')) {
+            reaped = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+      ],
       sftpReadFile: (p) => {
         if (p.endsWith('.ready')) return null; // 升级后的新版本 bundle 尚未部署
-        if (p.endsWith('host.port')) return bufferOf({ port: 6001, pid: 654, hostTag: configId });
+        if (p.endsWith('host.port')) {
+          if (started) return bufferOf({ port: 6002, pid: 999, hostTag: configId });
+          if (reaped) return null; // 旧 host 已回收,端口文件已清
+          return bufferOf({ port: 6001, pid: 654, hostTag: configId });
+        }
         return null;
       },
     });
-    const h = makeHarness({ connectSshImpl: async () => routed });
+    const originalExecDetached = routed.execDetached;
+    routed.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+      started = true;
+      return originalExecDetached(cmd, stdin);
+    });
+    let probeCalls = 0;
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      probeImpl: async () => {
+        probeCalls++;
+        // 首次 = residency 候选探测:旧 host 协议兼容但不上报 appVersion → 过旧;
+        // 后续 = 部署重启后的最终探测:新 host 上报与客户端一致的版本。
+        return probeCalls === 1
+          ? { ok: true, compatible: true, hostInfo: {} }
+          : { ok: true, compatible: true, hostInfo: { appVersion: '1.0.0' } };
+      },
+    });
     saveConfig(h.configStore, configId);
     h.credentials.setSecret(`hosttoken:${configId}`, 'preexisting-token');
 
     await h.orchestrator.connect(configId);
 
     const stages = h.events.map((e) => e.stage);
-    expect(stages).toContain('claiming');
-    expect(stages).toContain('ready');
-    expect(stages).not.toContain('deploying');
-    expect(stages).not.toContain('starting');
-    expect(routed.sftpWriteDir).not.toHaveBeenCalled();
-    expect(routed.execDetached).not.toHaveBeenCalled();
-    expect(routed.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
+    expect(stages).toContain('claiming'); // 曾尝试认领(claiming→deploying 合法边)
+    expect(stages).toContain('deploying');
+    expect(stages).toContain('starting');
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    // 在跑旧 host 被关闭(用户规则:任务可以关闭),新进程被拉起
+    expect(routed.execCalls.some((c) => c.startsWith('kill "654"'))).toBe(true);
+    expect(routed.execDetached).toHaveBeenCalledTimes(1);
+    // 新启动命令注入版本 env(host.info.appVersion 数据源)
+    expect(routed.execDetachedCalls[0]?.cmd).toContain('TERMPRO_HOST_APP_VERSION="1.0.0"');
   });
 });
 

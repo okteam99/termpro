@@ -272,8 +272,8 @@ export const zh: Record<string, string> = {
   'The local clipboard has no image or text to paste': '本机剪贴板中没有可粘贴的图片或文本',
   'Could not paste the clipboard into the remote terminal: {message}':
     '无法把剪贴板内容粘贴到远程终端：{message}',
-  'The Remote Host is preserving sessions on an older version; restart the TermPro Host after your tasks finish to enable image paste':
-    '远程 Host 正以旧版本保留现有会话；请在任务完成后重启 TermPro Host，以启用图片粘贴',
+  'The Remote Host is running an older version; reconnect the remote host to upgrade it and enable image paste':
+    '远程 Host 正在运行旧版本；重新连接该远程 Host 即可升级并启用图片粘贴',
 
   // --- main/remote 凭据与编排 ---
   'Local credential encryption is unavailable — cannot store the password safely':

@@ -182,10 +182,11 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
       }
       const { client, sessionId } = pending;
       // 能力门必须晚于剪贴板类型判断:旧 Host 仍应能粘贴本机纯文本,仅图片需要新 RPC。
+      // 正常已不可达(连接时过旧 host 会被升级 · 用户规则 2026-07-13),留作防御。
       if (!client.supportsTempPng()) {
         throw new Error(
           t(
-            'The Remote Host is preserving sessions on an older version; restart the TermPro Host after your tasks finish to enable image paste',
+            'The Remote Host is running an older version; reconnect the remote host to upgrade it and enable image paste',
           ),
         );
       }

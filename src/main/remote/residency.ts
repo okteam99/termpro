@@ -11,6 +11,7 @@
 
 import type { Server as NetServer } from 'node:net';
 import type { RemotePortFile } from '../../shared/remoteHost';
+import { isHostAppOutdated } from '../../shared/versionCompat';
 import type { SshConnectionLike } from './ssh';
 import type { ProbeResult } from './probeHostInfo';
 
@@ -33,8 +34,13 @@ export interface ResidencyDecisionInput {
   portRaw: RemotePortFile | null;
   storedToken: string | null;
   bundleReady: boolean;
-  /** 仅当「认领候选」条件成立(portRaw 有效 + storedToken 非空)时才有意义。 */
-  probeResult: { ok: boolean; compatible?: boolean } | null;
+  /**
+   * 仅当「认领候选」条件成立(portRaw 有效 + storedToken 非空)时才有意义。
+   * hostOutdated:host 应用版本低于客户端(含旧 host 未上报 appVersion),由
+   * resolveResidency 在 probe ok 时经 isHostAppOutdated 计算——true 则禁止认领,
+   * 落回收分支升级服务端(用户规则 2026-07-13)。
+   */
+  probeResult: { ok: boolean; compatible?: boolean; hostOutdated?: boolean } | null;
   /** `kill -0 <pid>` 结果;仅当需要 reap 判定时才有意义。 */
   killAliveResult: boolean | null;
   /** darwin `ps -o command=` 或 linux `/proc/<pid>/cmdline`(`\0` 分隔)原始输出。 */
@@ -57,19 +63,21 @@ export function cmdlineMatchesHostTag(cmdline: string | null, configId: string):
 }
 
 /**
- * 纯决策(TECH SSH-4 算法,认领候选条件已按用户规则 2026-07 调整):
- *   1. 认领候选(portRaw 有效 + storedToken 非空)且 probe 通过 → claim
+ * 纯决策(TECH SSH-4 算法,认领门闸按用户规则 2026-07-13 调整):
+ *   1. 认领候选(portRaw 有效 + storedToken 非空)且 probe 通过 且 host 版本 ≥ 客户端 → claim
  *   2. 否则确定性回收:pid 存活 且 cmdline 精确含本 configId 的 --host-tag → reapThenDeploy(唯一
  *      允许 kill 的分支);否则(pid 死 / cmdline 不匹配即「兄弟或无关进程」)→ cleanStaleThenDeploy,
  *      绝不 kill(消 ARCH-B2 误杀)。
  *   3. 未认领且 !bundleReady → freshDeploy(首装场景 · T-037)
  *
- * 🔴 认领候选【不】要求 bundleReady(用户规则 2026-07:客户端升级不得连带升级服务端):
- * bundleReady 按【客户端当前 appVersion】的 bundle 目录判定,客户端一升级它必为 false,
- * 若作候选门槛,升级后首连会跳过 probe 直落 reapThenDeploy——杀掉正在运行的旧版 host,
- * 运行中 session 全丢。版本门闸只有一道:probe 的协议闭区间判定(PROTOCOL_MIN_COMPATIBLE,
- * versionCompat.ts)——协议兼容就收养(服务端软件保持旧版继续跑),协议不兼容或无活体
- * 可收养才落部署分支升级服务端。
+ * 🔴 用户规则 2026-07-13(反转旧 2026-07 规则「协议兼容就收养」):连接时服务端版本
+ * 必须 ≥ 客户端,否则先升级服务端——在跑任务可以被关闭。协议兼容但 appVersion 落后
+ * (或旧 host 根本不上报 appVersion)的活 host 不再收养,落 reapThenDeploy 升级;
+ * 只升不降:host 版本高于客户端(多设备新旧客户端并存)仍收养,防互相反复替换。
+ *
+ * 认领候选仍【不】要求 bundleReady:bundleReady 按【客户端当前 appVersion】的 bundle
+ * 目录判定,客户端一升级它必为 false;版本门闸统一走 probe 结果(协议闭区间 +
+ * hostOutdated),不靠 bundle 目录有无。
  */
 export function decideResidency(input: ResidencyDecisionInput): ResidencyDecision {
   const { configId, portRaw, storedToken, bundleReady, probeResult, killAliveResult, cmdlineResult } =
@@ -78,7 +86,12 @@ export function decideResidency(input: ResidencyDecisionInput): ResidencyDecisio
   // portRaw.hostTag==configId 呼应 TECH「认领候选」条件(自证字段,非安全边界——
   // 真正的身份闸是下方 main 侧 probe 的 token 校验;此处只是廉价的宽松前置过滤)。
   const candidateEligible = portRaw !== null && portRaw.hostTag === configId && !!storedToken;
-  if (candidateEligible && probeResult?.ok && probeResult.compatible !== false) {
+  if (
+    candidateEligible &&
+    probeResult?.ok &&
+    probeResult.compatible !== false &&
+    probeResult.hostOutdated !== true
+  ) {
     return { action: 'claim', kill: false, cleanStale: false };
   }
 
@@ -216,11 +229,11 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     if (serverToken) effectiveToken = serverToken;
   }
 
-  let probeResult: { ok: boolean; compatible?: boolean } | null = null;
+  let probeResult: { ok: boolean; compatible?: boolean; hostOutdated?: boolean } | null = null;
   let candidateTunnel: BuiltTunnel | undefined;
   let fullProbe: ProbeResult | undefined;
   // 🔴 与 decideResidency 同口径:候选不看 bundleReady(客户端升级后新版 bundle 必缺,
-  // 不能因此跳过 probe 把协议兼容的活 host 杀掉重部署 · 用户规则 2026-07)。
+  // 版本门闸统一走 probe 的协议判定 + hostOutdated,不靠 bundle 目录有无)。
   const candidateEligible =
     portRaw !== null && portRaw.hostTag === tag && !!effectiveToken;
 
@@ -233,7 +246,15 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     for (let attempt = 0; ; attempt++) {
       try {
         fullProbe = await ctx.probeHostInfo(candidateTunnel.localPort, effectiveToken!);
-        probeResult = { ok: fullProbe.ok, compatible: fullProbe.compatible };
+        probeResult = {
+          ok: fullProbe.ok,
+          compatible: fullProbe.compatible,
+          // 🔴 用户规则 2026-07-13:probe 跑通才有版本可比;host 未上报 appVersion
+          // (现网旧版 host)按过旧计——连接时升级服务端,在跑任务可关闭。
+          hostOutdated: fullProbe.ok
+            ? isHostAppOutdated(fullProbe.hostInfo?.appVersion, ctx.appVersion)
+            : undefined,
+        };
       } catch (err) {
         // 🔴 E7 防御性修复:probeHostInfo 契约上「永不 reject」(probeHostInfo.ts 自述),
         // 但若某实现(测试桩/未来变更)违反契约抛出,决不能让候选隧道泄漏——立即关闭
@@ -253,7 +274,10 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
   let killAliveResult: boolean | null = null;
   let cmdlineResult: string | null = null;
   const claimWouldSucceed =
-    candidateEligible && probeResult?.ok === true && probeResult.compatible !== false;
+    candidateEligible &&
+    probeResult?.ok === true &&
+    probeResult.compatible !== false &&
+    probeResult.hostOutdated !== true;
 
   if (!claimWouldSucceed && portRaw?.pid != null) {
     const aliveRes = await ctx.ssh.exec(`kill -0 "${portRaw.pid}" 2>/dev/null && echo Y || echo N`);

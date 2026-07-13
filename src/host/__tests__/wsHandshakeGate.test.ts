@@ -33,6 +33,23 @@ describePty('AC-2 host.info-first 门控', () => {
     expect(host.core.clients.size).toBe(1);
   });
 
+  it('host.info 上报 TERMPRO_HOST_APP_VERSION(升级判定数据源);未注入则省略字段', async () => {
+    // 用户规则 2026-07-13:main 侧以 host.info.appVersion 判定服务端是否过旧
+    // (缺省 = 旧 host = 过旧 → 连接时升级)。env 由启动方注入,host 逐请求读取。
+    host = await startTestHost();
+    process.env.TERMPRO_HOST_APP_VERSION = '9.9.9';
+    try {
+      const c = track(new TestClient(host.url()));
+      const info = await c.handshake();
+      expect(info.appVersion).toBe('9.9.9');
+    } finally {
+      delete process.env.TERMPRO_HOST_APP_VERSION;
+    }
+    const c2 = track(new TestClient(host.url()));
+    const info2 = await c2.handshake();
+    expect(info2.appVersion).toBeUndefined();
+  });
+
   it('T-009 首条不是 host.info(直接 pty.spawn)→ 断开且无响应', async () => {
     host = await startTestHost();
     const c = track(new TestClient(host.url()));

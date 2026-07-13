@@ -3,19 +3,33 @@
 //   T-034「兄弟永不误杀」——决策中 kill 从不出现
 //   T-033「token 陈旧不 livelock」——probe 失败后同栈转 reap/deploy,非再次 claim
 import { describe, it, expect } from 'vitest';
+import type { HostInfo } from '../../../shared/protocol';
 import { cmdlineMatchesHostTag, decideResidency, resolveResidency } from '../residency';
 import { createRoutedSsh, bufferOf, FakeServer, asNetServer } from './testKit';
 
 const CONFIG_ID = 'vps-hk';
 
+/** probe ok 时的 hostInfo 桩:appVersion 是认领版本门闸的判定源(用户规则 2026-07-13);
+ *  省略 appVersion = 现网旧版 host(未上报该字段 → 视为过旧)。 */
+function hostInfoOf(appVersion?: string): HostInfo {
+  return {
+    hostId: 'remote',
+    protocolVersion: 1,
+    platform: 'linux',
+    homedir: '/home/tester',
+    shell: '/bin/bash',
+    ...(appVersion ? { appVersion } : {}),
+  };
+}
+
 describe('AC-13/AC-4/AC-8 residency 决策表(纯函数)', () => {
-  it('T-032 claim 命中:portRaw 有效+token 非空+probe 通过', () => {
+  it('T-032 claim 命中:portRaw 有效+token 非空+probe 通过+版本不过旧', () => {
     const decision = decideResidency({
       configId: CONFIG_ID,
       portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
       storedToken: 'stored-token',
       bundleReady: true,
-      probeResult: { ok: true, compatible: true },
+      probeResult: { ok: true, compatible: true, hostOutdated: false },
       killAliveResult: null,
       cmdlineResult: null,
     });
@@ -99,15 +113,30 @@ describe('AC-13/AC-4/AC-8 residency 决策表(纯函数)', () => {
     expect(decision).toEqual({ action: 'freshDeploy', kill: false, cleanStale: false });
   });
 
-  it('T-038 客户端升级(bundleReady=false)+ 活 host 协议兼容 → 仍 claim,不升级服务端', () => {
-    // 🔴 用户规则 2026-07:客户端升级后远端必然还没有新版 bundle(bundleReady 恒 false),
-    // 但正在运行的旧版 host 只要协议兼容就必须收养——否则升级客户端 = 杀服务端 session。
+  it('T-038 活 host 协议兼容但版本过旧 → reapThenDeploy(连接时升级服务端 · 2026-07-13)', () => {
+    // 🔴 用户规则 2026-07-13(反转旧规则):协议兼容不再是收养的充分条件——host
+    // appVersion 低于客户端(或未上报)即视为过旧,连接时先升级服务端,在跑任务可关闭。
     const decision = decideResidency({
       configId: CONFIG_ID,
       portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
       storedToken: 'stored-token',
       bundleReady: false,
-      probeResult: { ok: true, compatible: true },
+      probeResult: { ok: true, compatible: true, hostOutdated: true },
+      killAliveResult: true,
+      cmdlineResult: `node host.js --listen 127.0.0.1:0 --token-stdin --host-tag ${CONFIG_ID}`,
+    });
+    expect(decision).toEqual({ action: 'reapThenDeploy', kill: true, cleanStale: true });
+  });
+
+  it('T-038b 客户端升级(bundleReady=false)+ 活 host 版本不过旧 → 仍 claim(只升不降)', () => {
+    // host 版本 ≥ 客户端(如另一同版/新版设备刚升级过服务端)→ 收养,不部署不重启;
+    // bundleReady 仍不是候选门槛(按客户端当前版本判定,升级后必 false)。
+    const decision = decideResidency({
+      configId: CONFIG_ID,
+      portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
+      storedToken: 'stored-token',
+      bundleReady: false,
+      probeResult: { ok: true, compatible: true, hostOutdated: false },
       killAliveResult: null,
       cmdlineResult: null,
     });
@@ -154,7 +183,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       configId: CONFIG_ID,
       appVersion: '1.0.0',
       storedToken: 'good-token',
-      probeHostInfo: async () => ({ ok: true, compatible: true }),
+      probeHostInfo: async () => ({ ok: true, compatible: true, hostInfo: hostInfoOf('1.0.0') }),
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 41234 }),
     });
     expect(resolution.decision.action).toBe('claim');
@@ -164,10 +193,10 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(ssh.execCalls.some((c) => c.includes('rm -f'))).toBe(false);
   });
 
-  it('T-038e 客户端升级场景:.ready 缺失但活 host 在 → 仍建隧道探测并 claim,零 kill/rm/部署', async () => {
+  it('T-038e .ready 缺失但活 host 版本已同步 → 仍建隧道探测并 claim,零 kill/rm/部署', async () => {
+    // 场景:另一同版设备已升级过服务端,本机 bundle/.ready 尚未部署——版本不过旧就收养。
     const ssh = createRoutedSsh({
       sftpReadFile: (path) => {
-        // 新版客户端首连:bundle/<newVersion>/.ready 必然不存在
         if (path.endsWith('.ready')) return null;
         if (path.endsWith('host.port')) {
           return bufferOf({ port: 5300, pid: 777, hostTag: CONFIG_ID });
@@ -185,7 +214,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       storedToken: 'good-token',
       probeHostInfo: async () => {
         probeCalls++;
-        return { ok: true, compatible: true };
+        return { ok: true, compatible: true, hostInfo: hostInfoOf('2.0.0') };
       },
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 46001 }),
     });
@@ -194,6 +223,54 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(resolution.claimed?.tunnel.localPort).toBe(46001);
     expect(ssh.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
     expect(ssh.execCalls.some((c) => c.includes('rm -f'))).toBe(false);
+  });
+
+  it('🔴 T-038g 活 host 协议兼容但版本过旧(未上报 appVersion 的现网旧 host)→ reapThenDeploy 升级服务端', async () => {
+    // 用户规则 2026-07-13 的主场景:旧版 host 一直被收养导致服务端永不升级——
+    // probe 跑通、协议兼容,但 hostInfo 无 appVersion → 过旧,kill 在跑 host + 清端口文件,
+    // 交由 orchestrator 部署新版并重启。
+    let killSent = false;
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('.ready')) return null; // 新版 bundle 未部署
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 5600, pid: 990, hostTag: CONFIG_ID });
+        }
+        return null;
+      },
+      execHandlers: [
+        (cmd) => {
+          if (cmd.startsWith('kill "990"')) {
+            killSent = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) =>
+          cmd.startsWith('kill -0 "990"')
+            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
+            : null,
+        (cmd) =>
+          cmd.includes('/proc/990/cmdline') || cmd.includes('-p "990"')
+            ? { code: 0, stdout: `node host.js --host-tag ${CONFIG_ID}`, stderr: '' }
+            : null,
+      ],
+    });
+    const candidateServer = new FakeServer(46003);
+    const resolution = await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      appVersion: '2.0.0',
+      storedToken: 'good-token',
+      probeHostInfo: async () => ({ ok: true, compatible: true, hostInfo: hostInfoOf() }),
+      buildTunnel: async () => ({ server: asNetServer(candidateServer), localPort: 46003 }),
+      sleep: async () => undefined,
+    });
+    expect(resolution.decision.action).toBe('reapThenDeploy');
+    expect(candidateServer.closed).toBe(true);
+    expect(ssh.execCalls.some((c) => c.startsWith('kill ') && c.includes('990'))).toBe(true);
+    expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
   });
 
   it('T-038f 升级场景 + 陈旧 token(probe 失败)→ 仍落 reapThenDeploy 且候选隧道被关', async () => {
@@ -333,7 +410,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       probeHostInfo: async () => {
         probeCalls++;
         if (probeCalls === 1) return { ok: false, detail: 'transient network hiccup' };
-        return { ok: true, compatible: true };
+        return { ok: true, compatible: true, hostInfo: hostInfoOf('1.0.0') };
       },
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 45001 }),
       sleep: async () => undefined,
@@ -416,7 +493,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       storedToken: 'stale-local-token',
       probeHostInfo: async (_port, token) => {
         probeTokens.push(token);
-        return { ok: true, compatible: true };
+        return { ok: true, compatible: true, hostInfo: hostInfoOf('1.0.0') };
       },
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 47001 }),
     });
@@ -445,7 +522,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       storedToken: 'local-cache-token',
       probeHostInfo: async (_port, token) => {
         probeTokens.push(token);
-        return { ok: true, compatible: true };
+        return { ok: true, compatible: true, hostInfo: hostInfoOf('1.0.0') };
       },
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 47002 }),
     });

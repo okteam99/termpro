@@ -217,7 +217,8 @@ export function buildStartCommand(opts: {
   return (
     `sh -c 't=$(cat); s=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
     `printf %s "$t" | $s nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
-    `TERMPRO_HOST_PORT_FILE="${portFile}" ${identityEnv}TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
+    `TERMPRO_HOST_PORT_FILE="${portFile}" TERMPRO_HOST_APP_VERSION="${opts.appVersion}" ` +
+    `${identityEnv}TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
     `"${nodeBin}" "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${tag}" ` +
     `> "${logFile}" 2>&1 &'`
   );

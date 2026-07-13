@@ -41,6 +41,8 @@ describe('AC-8 buildStartCommand', () => {
     expect(cmd.slice(cmd.indexOf("sh -c '") + 7, -1)).not.toContain("'");
     // A6:远端 Origin 白名单经 env 注入(host.ts 已实现按逗号分隔解析)
     expect(cmd).toContain('TERMPRO_ALLOWED_ORIGINS=');
+    // 应用版本经 env 注入(host.info.appVersion 数据源 · 用户规则 2026-07-13 升级判定)
+    expect(cmd).toContain('TERMPRO_HOST_APP_VERSION="1.2.3"');
   });
 
   it('nodePath 缺省回落裸 node;含双引号/换行的异常路径被剥除,不破坏命令边界', () => {
