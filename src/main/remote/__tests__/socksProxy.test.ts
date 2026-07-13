@@ -213,6 +213,37 @@ describe('IPv4 ATYP 解析', () => {
   });
 });
 
+describe('IPv6 ATYP 解析', () => {
+  it('16 字节地址 → 冒号十六进制组(前导零省略)原样交给 openOutbound', async () => {
+    const calls: Array<{ host: string; port: number }> = [];
+    const openOutbound: OpenOutbound = async (host, port) => {
+      calls.push({ host, port });
+      return new PassThrough();
+    };
+    const server = await startServer(openOutbound);
+    const client = await connectClient(portOf(server));
+    client.on('error', () => {});
+    const rx = makeReceiver(client);
+    try {
+      client.write(greetingFrame([0x00]));
+      await rx.atLeast(2);
+      // 2001:db8::1 的 16 字节展开
+      const addr16 = [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01];
+      const portBuf = Buffer.alloc(2);
+      portBuf.writeUInt16BE(443);
+      client.write(
+        Buffer.concat([Buffer.from([0x05, 0x01, 0x00, 0x04, ...addr16]), portBuf]),
+      );
+      await rx.atLeast(12);
+      expect(rx.buffer.subarray(2, 12)).toEqual(SUCCESS_REPLY);
+      expect(calls).toEqual([{ host: '2001:db8:0:0:0:0:0:1', port: 443 }]);
+    } finally {
+      client.destroy();
+      await closeServer(server);
+    }
+  });
+});
+
 describe('greeting:无 no-auth 方法', () => {
   it('METHODS 不含 0x00 → 回 [0x05,0xFF] 且连接结束', async () => {
     const openOutbound: OpenOutbound = async () => new PassThrough();

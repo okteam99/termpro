@@ -129,6 +129,27 @@ renderer → window 监听 'message' → HostClient.attach(port)
 
 preload 是沙箱环境，无法直接通过 contextBridge 传递 MessagePort，必须经 `window.postMessage` 转移（Electron 官方模式）。
 
+### 4.7 内置浏览器「走远程机网络」
+
+内置浏览器面板可把整个面板的流量指向某台已连接（`ready`）的远程机，经其 SSH 连接出网——用远程机的网络出口 + 远程 DNS，而非本机。出口是**面板级**（`persist:browser` 是全局唯一 session partition，代理设在 session 级，所有标签共享），不是 per-tab。
+
+```
+浏览器 tab (persist:browser)
+  → session.setProxy(socks5://127.0.0.1:<本地随机端口>)
+  → 本地 SOCKS5 代理 (src/main/remote/socksProxy.ts, 仅监听 127.0.0.1)
+  → 每条 TCP 连接 = 一条 ssh direct-tcpip channel (ssh.openOutbound)
+  → 远端 sshd 解析域名并出网（远程 DNS + 远程出口 IP）
+```
+
+四条纪律：
+
+- **懒建**：只有用户在选择器里选中某远程机为出口时才 `orchestrator.browserProxyFor()` 拉起该机的本地 SOCKS server；不选则恒不建，零开销。切走/回本机即 `releaseBrowserProxy` 回收端口。
+- **远程 DNS**：Chromium 的 `socks5://` scheme 把域名原样交给代理（SOCKS5 `ATYP=domain`），`socksProxy.ts` 不在本地解析，域名解析发生在远端 sshd——这正是「走远程机网络」的语义（而非仅转发已在本地解析好的 IP）。
+- **WebRTC 防泄漏**：选远程出口时对所有浏览器 guest webContents 设 `disable_non_proxied_udp`（SOCKS5 只代理 TCP，WebRTC 的 UDP 会绕过代理暴露本机真实 IP）；回本机恢复 `default`。新标签在切换之后 attach 时，`did-attach-webview` 补设策略，不漏网。
+- **断线自动回退**：当前出口的远程机断线时，其 SOCKS server 随 `closeSessionTransport` 关闭，`main` 订阅 `orchestrator.onEvent` 感知后自动把出口回退 `local` 并广播——否则浏览器会卡在已失效的代理端口上，全部请求失败。
+
+权威态单源在 `main`（`BrowserNetworkController`）：renderer 的选择器只镜像 `browserNet.get()/onChanged`，选择用 `set()` 的返回值回写（远程不可用时 `main` 回退 `local`，UI 反映真实生效态，不乐观更新）。
+
 ---
 
 ## 4.5 CI 与发版

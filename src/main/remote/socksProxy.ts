@@ -23,6 +23,14 @@ const MAX_HANDSHAKE_BYTES = 512;
 /** 握手期空闲超时:超时仍未进入 piping 态 → 判定客户端卡死,destroy。 */
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 
+/**
+ * connecting 态(openOutbound 在途、等远端 connect resolve 的窗口)客户端管线化提前
+ * 发的负载缓冲上限(评审 P3)。此态尚未 pipe 到 duplex,数据只累积在 buf——回环+浏览器
+ * 正常场景远小于此值,恶意本地进程可在建连窗口猛发大包占内存,超限即 destroy。
+ * 比握手上限宽松得多(正常管线化负载如 TLS ClientHello + 首包可达数 KB~几十 KB)。
+ */
+const MAX_CONNECTING_BYTES = 256 * 1024;
+
 type ConnState = 'greeting' | 'request' | 'connecting' | 'piping';
 
 /**
@@ -77,6 +85,14 @@ export function createSocksProxyServer(openOutbound: OpenOutbound): net.Server {
     return originalClose(callback);
   }) as typeof server.close;
 
+  // 🔴 持久 server 级 error 监听(评审 P2-2):net.Server emit 'error' 而无监听会被当
+  // 未捕获异常抛出崩主进程。orchestrator.startSocksProxy 在 listen 成功后会摘掉它那个
+  // 仅用于「启动失败」的 once('error'),此后 accept 阶段的 error(EMFILE 等 fd 耗尽)
+  // 若无人接就会崩——这里挂持久监听兜住(记录即可;在途连接各自 socket error 收场)。
+  server.on('error', (err) => {
+    console.error('[socksProxy] server error:', err.message);
+  });
+
   return server;
 }
 
@@ -99,6 +115,9 @@ function handleConnection(socket: net.Socket, openOutbound: OpenOutbound): void 
     // 只在仍处握手态才查缓冲上限——请求帧解析完成后 buf 剩的是正常负载,
     // 可能合法地超过 512 字节,不该被当成畸形握手判死刑。
     if ((state === 'greeting' || state === 'request') && buf.length > MAX_HANDSHAKE_BYTES) {
+      socket.destroy();
+    } else if (state === 'connecting' && buf.length > MAX_CONNECTING_BYTES) {
+      // 建连窗口累积的管线化负载超宽松上限(评审 P3):防恶意本地进程灌内存
       socket.destroy();
     }
   };

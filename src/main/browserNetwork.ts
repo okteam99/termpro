@@ -72,8 +72,18 @@ export class BrowserNetworkController {
     if (hostId !== 'local') {
       const proxy = await this.deps.browserProxyFor(hostId);
       if (proxy) {
-        // 先切到新代理,再释放旧远程——避免出现「旧 server 已关但 session 还指向它」的空窗
-        await this.deps.setProxy(`socks5://127.0.0.1:${proxy.socksPort}`);
+        try {
+          // 先切到新代理,再释放旧远程——避免出现「旧 server 已关但 session 还指向它」的空窗
+          await this.deps.setProxy(`socks5://127.0.0.1:${proxy.socksPort}`);
+        } catch {
+          // 🔴 setProxy 失败(评审 P2-3):回收刚建起的新 SOCKS 端口(否则泄漏监听口),
+          // 回退 local。commit local 而非停在 prev,current 与 session 代理态才一致。
+          this.deps.releaseBrowserProxy(hostId);
+          await this.deps.setProxy(null).catch(() => undefined);
+          this.deps.setWebRtcPolicy('default');
+          this.releasePrevRemote(prev, 'local');
+          return this.commit({ ...LOCAL });
+        }
         this.deps.setWebRtcPolicy('disable_non_proxied_udp');
         this.releasePrevRemote(prev, hostId);
         return this.commit({ hostId, alias: this.deps.aliasOf(hostId) });

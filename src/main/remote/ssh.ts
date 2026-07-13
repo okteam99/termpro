@@ -50,8 +50,12 @@ export interface SshConnectionLike {
   /** 本地端口转发:127.0.0.1:localPort → 远端 127.0.0.1:remotePort。 */
   forwardOut(localPort: number, remotePort: number): net.Server;
   /** 动态出站(浏览器 SOCKS 代理用):经 SSH direct-tcpip 打洞到远端网络任意目标。
-   *  目标主机名字符串原样交给远端 sshd 解析(远程 DNS)。resolve 于 channel 打开
-   *  (不同于 exec 的整生命周期占用 serialize 队列——长连接绝不能头阻塞后续 ssh 操作)。 */
+   *  目标主机名字符串原样交给远端 sshd 解析(远程 DNS)。🔴 并发开通道(不走 serialize):
+   *  direct-tcpip 的 forwardOut 回调在【远端连上目标之后】才 resolve(含远程 DNS+TCP 握手),
+   *  一旦串行化,某标签访问被黑洞的主机会让该连接卡到 OS connect 超时(数十秒),期间
+   *  冻结所有其它标签的新连接——对「走远程网络浏览」是高频硬伤。见 forwardOut(隧道)
+   *  同样并发开 direct-tcpip 通道且长期稳定;serialize 只为 exec/sftp 的 session 型通道
+   *  抖动而设,不适用 direct-tcpip。 */
   openOutbound(dstHost: string, dstPort: number): Promise<Duplex>;
   /**
    * 注册连接层 close/error 监听(AC-12 断链检测 · A2):底层 ssh2 Client 的
@@ -385,22 +389,22 @@ export class SshConnection implements SshConnectionLike {
   }
 
   /**
-   * 串行化只护住「发起 channel 请求」这一下(尊 SSH-1 纪律,避免与 exec/sftp
-   * 并发抖动);channel 一旦 open 即 resolve 放行队列——浏览器一条 TCP 连接
-   * 对应一条长期存活的 channel,若像 exec 那样等 stream 结束才 resolve,会把
-   * 后续所有 ssh 操作(exec/sftp/心跳/新的 outbound)阻塞到这条浏览器连接
-   * 结束为止(头阻塞,长连接场景下是致命的)。
+   * 🔴 不走 serialize:浏览器一条 TCP 连接 = 一条 direct-tcpip 通道,而 ssh2 的
+   * forwardOut 回调在【远端 connect 到目标之后】才 resolve(含远程 DNS + TCP 握手,
+   * 非「通道一开就返回」)。若串行化,某标签访问被防火墙黑洞的主机时,该连接的
+   * forwardOut 要等到 OS connect 超时(数十秒)才 settle,期间队列卡死,所有其它
+   * 标签/子资源都开不了新连接——对「走远程网络浏览」是用户高频撞上的硬伤。
+   * direct-tcpip 并发开通道本就安全(上面隧道 forwardOut 每个 socket 直接并发
+   * client.forwardOut 且长期稳定为证);serialize 是为 exec/sftp 这类 session 型
+   * 通道的并发抖动(SSH-1)而设,不适用 direct-tcpip,故此处并发发起、互不阻塞。
    */
   openOutbound(dstHost: string, dstPort: number): Promise<Duplex> {
-    return this.serialize(
-      () =>
-        new Promise<Duplex>((resolve, reject) => {
-          this.client.forwardOut('127.0.0.1', 0, dstHost, dstPort, (err, stream) => {
-            if (err) return reject(err);
-            resolve(stream);
-          });
-        }),
-    );
+    return new Promise<Duplex>((resolve, reject) => {
+      this.client.forwardOut('127.0.0.1', 0, dstHost, dstPort, (err, stream) => {
+        if (err) return reject(err);
+        resolve(stream);
+      });
+    });
   }
 
   onClose(cb: (err?: Error) => void): void {

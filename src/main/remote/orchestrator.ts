@@ -96,6 +96,13 @@ interface RemoteHostSession {
   socksPort: number | null;
   /** browserProxyFor 并发去重(同一 configId 多面板同时选中):共享同一次拉起。 */
   socksInflight: Promise<number | null> | null;
+  /**
+   * 本次拉起的一次性标识(评审 P3 加固):startSocksProxy 的 listen 是异步的,其回调
+   * 赋值 socksServer 前比对 socksToken 是否仍是「发起本次拉起时」那枚——release/断线
+   * 会把它置 null/换新,回调据此发现「已被取消」→ 自关 server 不赋值,杜绝在途拉起
+   * 泄漏监听口(stage/ssh 守卫挡不住 release,因 release 不改 stage/ssh)。
+   */
+  socksToken: object | null;
 }
 
 export type ProbeHostInfoLike = (localPort: number, token: string) => Promise<ProbeResult>;
@@ -393,7 +400,9 @@ export class RemoteHostOrchestrator {
       const port = await session.socksInflight;
       return port === null ? null : { socksPort: port };
     }
-    const inflight = this.startSocksProxy(session, session.ssh);
+    const token = {};
+    session.socksToken = token;
+    const inflight = this.startSocksProxy(session, session.ssh, token);
     session.socksInflight = inflight;
     const port = await inflight;
     if (session.socksInflight === inflight) session.socksInflight = null;
@@ -404,6 +413,10 @@ export class RemoteHostOrchestrator {
   releaseBrowserProxy(configId: string): void {
     const session = this.sessions.get(configId);
     if (!session) return;
+    // 先失效 token:若某次拉起仍在途(listen 未回调),其回调会因 token 失配自关 server,
+    // 不会把监听口赋回 session(P3 加固);已建好的 server 下面照常关。
+    session.socksToken = null;
+    session.socksInflight = null;
     if (session.socksServer) {
       try {
         session.socksServer.close();
@@ -418,6 +431,7 @@ export class RemoteHostOrchestrator {
   private startSocksProxy(
     session: RemoteHostSession,
     ssh: SshConnectionLike,
+    token: object,
   ): Promise<number | null> {
     return new Promise((resolve) => {
       let server: NetServer;
@@ -438,9 +452,10 @@ export class RemoteHostOrchestrator {
       server.once('error', onError);
       server.listen(0, '127.0.0.1', () => {
         server.off('error', onError);
-        // 竞态守卫:listen 期间断线(closeSessionTransport 置 stage≠ready / 换了 ssh)
-        // → 丢弃这台已失效连接上的 server,回退本机网络。
-        if (session.stage !== 'ready' || session.ssh !== ssh) {
+        // 竞态守卫:listen 期间断线(closeSessionTransport 置 stage≠ready / 换 ssh / 清
+        // socksToken)或 release(仅清 socksToken,不改 stage/ssh)→ 丢弃这台 server,
+        // 不赋回 session(回退本机网络),杜绝泄漏监听口。
+        if (session.stage !== 'ready' || session.ssh !== ssh || session.socksToken !== token) {
           try {
             server.close();
           } catch {
@@ -495,6 +510,7 @@ export class RemoteHostOrchestrator {
         socksServer: null,
         socksPort: null,
         socksInflight: null,
+        socksToken: null,
       };
       this.sessions.set(configId, session);
     }
@@ -516,6 +532,7 @@ export class RemoteHostOrchestrator {
     }
     session.socksPort = null;
     session.socksInflight = null;
+    session.socksToken = null;
     if (session.forwardServer) {
       try {
         session.forwardServer.close();

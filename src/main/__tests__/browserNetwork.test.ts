@@ -112,6 +112,25 @@ describe('BrowserNetworkController', () => {
     expect(d.emitted).toEqual([]);
   });
 
+  it('setProxy 失败(P2-3):回收刚建的远程端口 + 回退 local + WebRTC default', async () => {
+    let firstCall = true;
+    const deps = makeDeps({
+      // 远程分支的 socks5 setProxy 抛错;后续回退的 setProxy(null) 成功
+      setProxy: vi.fn(async (rules) => {
+        if (firstCall && rules !== null) {
+          firstCall = false;
+          throw new Error('setProxy failed');
+        }
+      }),
+    });
+    const c = new BrowserNetworkController(deps.deps);
+    const state = await c.set('ready-host');
+    expect(state).toEqual({ hostId: 'local' }); // 回退 local
+    expect(deps.released).toContain('ready-host'); // 刚建的端口被回收
+    expect(deps.webrtcCalls.at(-1)).toBe('default'); // WebRTC 复位
+    expect(c.get().hostId).toBe('local');
+  });
+
   it('串行化:并发 set 不交错,最终态一致', async () => {
     const [s1, s2] = await Promise.all([ctrl.set('ready-host'), ctrl.set('local')]);
     expect(s1.hostId).toBe('ready-host');
