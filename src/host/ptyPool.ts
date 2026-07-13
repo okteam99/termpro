@@ -152,6 +152,7 @@ export class PtyPool {
       onBell: () => tracker.onBell(),
       onOsc: (code, payload) => tracker.onOsc(code, payload),
       onAltScreen: (on) => tracker.onAltScreen(on),
+      onBracketedPaste: (on) => tracker.onBracketedPaste(on),
     });
 
     const session: Session = {
@@ -458,6 +459,7 @@ export class PtyPool {
       state: t.state,
       quiet: t.quiet,
       altscreen: t.altscreen,
+      bracketedPaste: t.bracketedPaste,
       // 🔴 exitCode 取进程 onExit(非 tracker 的最近命令退出码 · QA-B-7)
       exitCode: s.status === 'exited' ? s.exitCode : null,
     };

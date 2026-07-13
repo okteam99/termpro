@@ -26,6 +26,7 @@ export interface TrackerSnapshot {
   state: 'idle' | 'running';
   quiet: boolean;
   altscreen: boolean;
+  bracketedPaste: boolean;
   exitCode: number | null;
 }
 
@@ -39,6 +40,9 @@ export class SessionTracker {
   private readonly now: () => number;
   /** 当前是否 altscreen(全屏 TUI)· 现被存储可查询(BL-005 快照) */
   private altscreen = false;
+  /** 前台程序是否已开 bracketed paste(?2004h)。ring 只存字节,开机时的模式序列可能被
+   *  挤出回放切片——收养全量回放时 renderer 据此恢复 xterm 模式,否则粘贴不加 200~ 包裹。 */
+  private bracketedPaste = false;
   /** 最近一条命令的退出码(OSC133 D)· 存储可查询(BL-005 快照) */
   private lastExitCode: number | null = null;
   /** 会话退出后冻结:后续信号一律忽略,快照定格为退出前最终态(CR-4) */
@@ -55,6 +59,7 @@ export class SessionTracker {
       state: this.state,
       quiet: this.quiet,
       altscreen: this.altscreen,
+      bracketedPaste: this.bracketedPaste,
       exitCode: this.lastExitCode,
     };
   }
@@ -105,6 +110,12 @@ export class SessionTracker {
     if (this.frozen) return;
     this.altscreen = on;
     this.opts.emit({ kind: 'altscreen', on });
+  }
+
+  /** 快照专用状态,无 live 消费者 → 只存不 emit(emit-and-forget 事件面保持最小) */
+  onBracketedPaste(on: boolean): void {
+    if (this.frozen) return;
+    this.bracketedPaste = on;
   }
 
   /** pty.process 轮询喂入(变化时) */

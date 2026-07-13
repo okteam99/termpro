@@ -12,9 +12,9 @@ export const PROTOCOL_MIN_COMPATIBLE = 1;
  * 连接时 host.info.appVersion 低于此值(或旧 host 未上报)→ 先升级服务端,在跑任务可关闭;
  * ≥ 此值即收养(即使低于客户端自身版本——不为无关紧要的小版本差杀 session)。
  * 🔴 硬编码维护:客户端功能开始依赖更新的 host 行为/RPC 时,上调到该行为首次发布的版本。
- * 当前 = appVersion 上报机制自身的引入版本(更早的 host 不上报,天然判过旧)。
+ * 当前 = 快照 bracketedPaste 字段引入版本(收养回放恢复粘贴聚合依赖 host 上报)。
  */
-export const HOST_MIN_APP_VERSION = '0.3.56';
+export const HOST_MIN_APP_VERSION = '0.3.58';
 
 // PTY 输出流控水位(未确认字节数):超过 high 暂停 PTY,低于 low 恢复。
 export const FLOW = {
@@ -75,6 +75,12 @@ export interface SessionSnapshot {
   state: 'idle' | 'running';
   quiet: boolean;
   altscreen: boolean;
+  /**
+   * 前台 TUI 是否已开 bracketed paste(?2004h)。ring 只存字节,开机时的模式序列常被
+   * 挤出全量回放切片 → renderer 收养 reset 后据此恢复 xterm 模式(粘贴聚合依赖 200~ 包裹)。
+   * 旧 host 省略(undefined)→ 不恢复(向后兼容,行为同修复前)。
+   */
+  bracketedPaste?: boolean;
   /** status='exited' 时的退出码;live 为 null */
   exitCode: number | null;
 }

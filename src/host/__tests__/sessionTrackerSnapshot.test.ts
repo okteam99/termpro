@@ -17,22 +17,25 @@ describe('SessionTracker.snapshot (BL-005)', () => {
   // T-012: snapshot_getter_exposes_state_quiet_altscreen_exitcode_no_unread_count (AC-5)
   it('快照暴露 state/quiet/altscreen/exitCode 当前态', () => {
     const { tracker } = make();
-    // 初始:idle / 非 quiet / 非 altscreen / 无退出码
+    // 初始:idle / 非 quiet / 非 altscreen / 未开 bracketed paste / 无退出码
     expect(tracker.snapshot()).toEqual({
       state: 'idle',
       quiet: false,
       altscreen: false,
+      bracketedPaste: false,
       exitCode: null,
     });
 
     tracker.onOsc(133, 'C'); // running
     tracker.onAltScreen(true); // altscreen on
+    tracker.onBracketedPaste(true); // ?2004h
     tracker.onOsc(133, 'D;7'); // cmd-done exitCode=7
 
     expect(tracker.snapshot()).toEqual({
       state: 'running',
       quiet: false,
       altscreen: true,
+      bracketedPaste: true,
       exitCode: 7,
     });
   });
@@ -43,6 +46,15 @@ describe('SessionTracker.snapshot (BL-005)', () => {
     expect(tracker.snapshot().altscreen).toBe(true);
     tracker.onAltScreen(false);
     expect(tracker.snapshot().altscreen).toBe(false);
+  });
+
+  it('bracketed paste 开/关 → 快照跟随(只存不 emit)', () => {
+    const { tracker, events } = make();
+    tracker.onBracketedPaste(true);
+    expect(tracker.snapshot().bracketedPaste).toBe(true);
+    tracker.onBracketedPaste(false);
+    expect(tracker.snapshot().bracketedPaste).toBe(false);
+    expect(events).toEqual([]); // 快照专用状态,无 live 事件
   });
 
   it('running 静默超阈值 → 快照 quiet=true', () => {
@@ -60,6 +72,7 @@ describe('SessionTracker.snapshot (BL-005)', () => {
     const snap = tracker.snapshot();
     expect(Object.keys(snap).sort()).toEqual([
       'altscreen',
+      'bracketedPaste',
       'exitCode',
       'quiet',
       'state',
@@ -77,6 +90,7 @@ describe('SessionTracker.snapshot (BL-005)', () => {
     // 冻结后一切信号无效
     tracker.onProcessName('node');
     tracker.onAltScreen(true);
+    tracker.onBracketedPaste(true);
     tracker.onOutput();
     tracker.onBell();
     tracker.tick();

@@ -510,7 +510,14 @@ async function adoptInst(
       ...(client.supportsSessionMirror?.() ? { mode: 'mirror' as const } : {}),
     });
     if (!result.found) return result;
-    if (result.full) inst.term.reset(); // gap 超缓冲 / 重建 tab → 先清屏
+    if (result.full) {
+      inst.term.reset(); // gap 超缓冲 / 重建 tab → 先清屏
+      // ring 只存字节:TUI 开机时的 ?2004h 常被挤出全量切片,reset 后 xterm 不知远端
+      // 已开 bracketed paste → term.paste 不加 200~/201~ 包裹,远端 TUI 把长文本粘贴
+      // 当逐键输入(不聚合)。据 host 快照恢复模式(写本地 xterm 解析,不进 PTY);
+      // 先于切片写入——切片内若还有模式翻转,以切片为准(快照=切片末尾态,终态一致)。
+      if (result.snapshot.bracketedPaste) inst.term.write('\x1b[?2004h');
+    }
     if (result.data) inst.term.write(result.data);
     inst.renderedBytes = result.nextOffset; // 权威推进(非 baseOffset + byteLength)
     return result;

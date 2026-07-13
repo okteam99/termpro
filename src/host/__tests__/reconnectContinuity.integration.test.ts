@@ -207,6 +207,7 @@ describePty('Reconnect continuity (BL-005 · host 协议侧)', () => {
     // 快照只有当前态字段,无未读 bell/notify 累积计数
     expect(Object.keys(snap).sort()).toEqual([
       'altscreen',
+      'bracketedPaste',
       'cwd',
       'exitCode',
       'quiet',

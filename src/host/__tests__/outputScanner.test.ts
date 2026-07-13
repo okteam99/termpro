@@ -7,6 +7,7 @@ function collect() {
     onBell: () => events.push('bell'),
     onOsc: (code, payload) => events.push(`osc:${code}:${payload}`),
     onAltScreen: (on) => events.push(`alt:${on}`),
+    onBracketedPaste: (on) => events.push(`paste:${on}`),
   };
   return { events, scanner: new OutputScanner(sink) };
 }
@@ -49,6 +50,15 @@ describe('OutputScanner', () => {
     const { events, scanner } = collect();
     scanner.feed('\x1b[?1049h\x1b[?1049l\x1b[?1047h\x1b[?25;47h');
     expect(events).toEqual(['alt:true', 'alt:false', 'alt:true', 'alt:true']);
+  });
+
+  it('bracketed paste 开关:?2004h/l,含跨 chunk 与多参数', () => {
+    const { events, scanner } = collect();
+    scanner.feed('\x1b[?2004h');
+    scanner.feed('\x1b[?20');
+    scanner.feed('04l');
+    scanner.feed('\x1b[?1049;2004h'); // 同一 CSI 混参:alt 与 paste 各自派发
+    expect(events).toEqual(['paste:true', 'paste:false', 'alt:true', 'paste:true']);
   });
 
   it('普通 CSI 不误报', () => {

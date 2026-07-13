@@ -6,6 +6,7 @@ export interface ScannerSink {
   onBell?(): void;
   onOsc?(code: number, payload: string): void;
   onAltScreen?(on: boolean): void;
+  onBracketedPaste?(on: boolean): void;
 }
 
 const MAX_OSC = 4096;
@@ -116,6 +117,9 @@ export class OutputScanner {
         params.includes('47')
       ) {
         this.sink.onAltScreen?.(final === 'h');
+      }
+      if (params.includes('2004')) {
+        this.sink.onBracketedPaste?.(final === 'h');
       }
     }
     this.csi = '';
