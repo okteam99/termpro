@@ -31,6 +31,7 @@ import type { CredentialStore, HostConfigStore } from './credentialStore';
 import { detectArch } from './hostBundle';
 import { NODE_PROBE_COMMAND, pickBestNode } from './nodeProbe';
 import { resolveResidency, type BuiltTunnel } from './residency';
+import { createSocksProxyServer } from './socksProxy';
 import { resolveHostTag } from './hostIdentity';
 import { acquireMkdirLock, releaseMkdirLock } from './mkdirLock';
 import { deployBundle } from './deploy';
@@ -85,6 +86,16 @@ interface RemoteHostSession {
   localPort: number | null;
   token: string | null;
   remotePid: number | null;
+  /**
+   * 浏览器「走远程机网络」用的本地 SOCKS5 代理(懒建:仅当某个浏览器面板选中本机
+   * 为出口时才 browserProxyFor 拉起,不选就恒 null,零开销)。断线/disconnect 时随
+   * closeSessionTransport 一并关闭——底层 ssh.openOutbound 依赖的 channel 已随连接
+   * 失效,残留的 SOCKS server 只会对新连接抛错,必须立即回收。
+   */
+  socksServer: NetServer | null;
+  socksPort: number | null;
+  /** browserProxyFor 并发去重(同一 configId 多面板同时选中):共享同一次拉起。 */
+  socksInflight: Promise<number | null> | null;
 }
 
 export type ProbeHostInfoLike = (localPort: number, token: string) => Promise<ProbeResult>;
@@ -354,6 +365,99 @@ export class RemoteHostOrchestrator {
     return { localPort: session.localPort, token: session.token };
   }
 
+  /**
+   * 全部会话的当前阶段快照(configId → stage)。浏览器网络选择器据此列出「哪些远程机
+   * 现在可作为出口」(仅 ready 可选)。按需快照而非事件广播——选择器打开时拉一次即可,
+   * 运行态权威仍是 remoteHost:event 流(选择器组件已订阅,断线会自回退)。
+   */
+  stages(): Record<string, RemoteStage> {
+    const out: Record<string, RemoteStage> = {};
+    for (const [configId, session] of this.sessions) out[configId] = session.stage;
+    return out;
+  }
+
+  /**
+   * 懒建/复用某 ready 会话的本地 SOCKS5 代理端口(浏览器面板选中该机为网络出口时调用)。
+   * 未 ready / 无 ssh → null(调用方按「该机不可用,回退本机网络」处理)。
+   * 幂等:已建则返回缓存端口;并发调用经 socksInflight 去重共享同一次拉起。
+   * 🔴 listen 是异步的,拉起期间会话可能断线——listen 回调里二次校验 stage/ssh 未变,
+   * 变了就自关 server 返回 null(绝不把流量交给已失效的 ssh 连接)。
+   */
+  async browserProxyFor(configId: string): Promise<{ socksPort: number } | null> {
+    const session = this.sessions.get(configId);
+    if (!session || session.stage !== 'ready' || !session.ssh) return null;
+    if (session.socksServer && session.socksPort !== null) {
+      return { socksPort: session.socksPort };
+    }
+    if (session.socksInflight) {
+      const port = await session.socksInflight;
+      return port === null ? null : { socksPort: port };
+    }
+    const inflight = this.startSocksProxy(session, session.ssh);
+    session.socksInflight = inflight;
+    const port = await inflight;
+    if (session.socksInflight === inflight) session.socksInflight = null;
+    return port === null ? null : { socksPort: port };
+  }
+
+  /** 浏览器面板取消选中该机(改回本机/换台机)时回收其 SOCKS 代理。幂等。 */
+  releaseBrowserProxy(configId: string): void {
+    const session = this.sessions.get(configId);
+    if (!session) return;
+    if (session.socksServer) {
+      try {
+        session.socksServer.close();
+      } catch {
+        /* 忽略:可能已关闭 */
+      }
+      session.socksServer = null;
+    }
+    session.socksPort = null;
+  }
+
+  private startSocksProxy(
+    session: RemoteHostSession,
+    ssh: SshConnectionLike,
+  ): Promise<number | null> {
+    return new Promise((resolve) => {
+      let server: NetServer;
+      try {
+        server = createSocksProxyServer((host, port) => ssh.openOutbound(host, port));
+      } catch {
+        resolve(null);
+        return;
+      }
+      const onError = () => {
+        try {
+          server.close();
+        } catch {
+          /* 忽略 */
+        }
+        resolve(null);
+      };
+      server.once('error', onError);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', onError);
+        // 竞态守卫:listen 期间断线(closeSessionTransport 置 stage≠ready / 换了 ssh)
+        // → 丢弃这台已失效连接上的 server,回退本机网络。
+        if (session.stage !== 'ready' || session.ssh !== ssh) {
+          try {
+            server.close();
+          } catch {
+            /* 忽略 */
+          }
+          resolve(null);
+          return;
+        }
+        const addr = server.address();
+        const localPort = addr && typeof addr === 'object' && addr !== null ? addr.port : 0;
+        session.socksServer = server;
+        session.socksPort = localPort;
+        resolve(localPort);
+      });
+    });
+  }
+
   onEvent(cb: (e: RemoteEvent) => void): () => void {
     this.listeners.add(cb);
     return () => {
@@ -388,6 +492,9 @@ export class RemoteHostOrchestrator {
         localPort: null,
         token: null,
         remotePid: null,
+        socksServer: null,
+        socksPort: null,
+        socksInflight: null,
       };
       this.sessions.set(configId, session);
     }
@@ -395,6 +502,20 @@ export class RemoteHostOrchestrator {
   }
 
   private closeSessionTransport(session: RemoteHostSession): void {
+    // 🔴 SOCKS 代理先于 ssh 关闭:createSocksProxyServer.close() 会立即销毁全部在途
+    // 浏览器连接(=断开远程机 立即断流);其底层 openOutbound channel 随下面 ssh.close()
+    // 失效,残留 server 只会对新连接抛错。socksInflight 置 null 让并发在途的
+    // browserProxyFor 落到「listen 后竞态守卫」分支(stage 已非 ready → 自关返回 null)。
+    if (session.socksServer) {
+      try {
+        session.socksServer.close();
+      } catch {
+        /* 忽略:可能已关闭 */
+      }
+      session.socksServer = null;
+    }
+    session.socksPort = null;
+    session.socksInflight = null;
     if (session.forwardServer) {
       try {
         session.forwardServer.close();

@@ -5,6 +5,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as net from 'node:net';
 import { RemoteHostOrchestrator, isLegalTransition } from '../orchestrator';
 import { deriveHostTag } from '../hostIdentity';
 import { CredentialStore, HostConfigStore, type SafeStorageLike } from '../credentialStore';
@@ -1066,5 +1067,109 @@ describe('tunnelFor(查看器窗口按需取隧道 · remoteHost:tunnel)', () =>
 
     await h.orchestrator.disconnect('vps-hk');
     expect(h.orchestrator.tunnelFor('vps-hk')).toBeNull();
+  });
+});
+
+describe('browserProxyFor(浏览器走远程机网络 · 本地 SOCKS5 代理生命周期)', () => {
+  /** 探测某本地端口是否仍在监听(SOCKS server 建/关的可观察副作用)。 */
+  function probePortOpen(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const sock = net.connect(port, '127.0.0.1');
+      sock.once('connect', () => {
+        sock.destroy();
+        resolve(true);
+      });
+      sock.once('error', () => resolve(false));
+    });
+  }
+
+  it('未连接 / 未知 id / 非 ready → null;ready → 分配本地 SOCKS 端口', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    expect(await h.orchestrator.browserProxyFor('vps-hk')).toBeNull(); // 未连接
+    expect(await h.orchestrator.browserProxyFor('no-such-id')).toBeNull(); // 未知 id
+
+    await h.orchestrator.connect('vps-hk');
+    const proxy = await h.orchestrator.browserProxyFor('vps-hk');
+    expect(proxy).not.toBeNull();
+    expect(proxy!.socksPort).toBeGreaterThan(0);
+    expect(await probePortOpen(proxy!.socksPort)).toBe(true);
+
+    h.orchestrator.releaseBrowserProxy('vps-hk'); // 收尾:不留监听端口
+  });
+
+  it('幂等复用:二次调用返回同一端口(不重复建 server)', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+    await h.orchestrator.connect('vps-hk');
+
+    const a = await h.orchestrator.browserProxyFor('vps-hk');
+    const b = await h.orchestrator.browserProxyFor('vps-hk');
+    expect(a!.socksPort).toBe(b!.socksPort);
+    h.orchestrator.releaseBrowserProxy('vps-hk');
+  });
+
+  it('并发去重:同时多次调用共享同一次拉起(单一端口)', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+    await h.orchestrator.connect('vps-hk');
+
+    const [a, b, c] = await Promise.all([
+      h.orchestrator.browserProxyFor('vps-hk'),
+      h.orchestrator.browserProxyFor('vps-hk'),
+      h.orchestrator.browserProxyFor('vps-hk'),
+    ]);
+    expect(a!.socksPort).toBe(b!.socksPort);
+    expect(b!.socksPort).toBe(c!.socksPort);
+    h.orchestrator.releaseBrowserProxy('vps-hk');
+  });
+
+  it('断线(ssh 层 close)→ SOCKS server 随传输一并关闭,端口不再监听', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+    await h.orchestrator.connect('vps-hk');
+
+    const proxy = await h.orchestrator.browserProxyFor('vps-hk');
+    expect(await probePortOpen(proxy!.socksPort)).toBe(true);
+
+    routed.simulateSshClose(); // 底层断链 → handleTransportDown → closeSessionTransport
+    await flushMicrotasks();
+    expect(await probePortOpen(proxy!.socksPort)).toBe(false);
+    expect(await h.orchestrator.browserProxyFor('vps-hk')).toBeNull(); // 已非 ready
+  });
+
+  it('releaseBrowserProxy 关闭代理;之后再取会重新分配并监听', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+    await h.orchestrator.connect('vps-hk');
+
+    const first = await h.orchestrator.browserProxyFor('vps-hk');
+    h.orchestrator.releaseBrowserProxy('vps-hk');
+    await flushMicrotasks();
+    expect(await probePortOpen(first!.socksPort)).toBe(false);
+
+    const second = await h.orchestrator.browserProxyFor('vps-hk');
+    expect(second).not.toBeNull();
+    // OS 极小概率复用同号,故只断言「在监听」而非端口不等
+    expect(await probePortOpen(second!.socksPort)).toBe(true);
+    h.orchestrator.releaseBrowserProxy('vps-hk');
+  });
+
+  it('stages() 快照反映各会话阶段', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    expect(h.orchestrator.stages()).toEqual({});
+    await h.orchestrator.connect('vps-hk');
+    expect(h.orchestrator.stages()['vps-hk']).toBe('ready');
+    await h.orchestrator.disconnect('vps-hk');
+    expect(h.orchestrator.stages()['vps-hk']).toBe('disconnected');
   });
 });
