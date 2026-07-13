@@ -27,6 +27,8 @@ function makeTerminal() {
         altKey: false,
         shiftKey: false,
         repeat: false,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
         ...event,
       } as KeyboardEvent);
     },
@@ -49,6 +51,8 @@ describe('remote clipboard paste handler', () => {
     const writeImage = vi.fn(async () => ({ path: '/tmp/termpro-clipboard-a/image.png' }));
     const readText = vi.fn(async () => 'should-not-win');
     const notify = vi.fn();
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
 
     installRemoteClipboardPasteHandler(terminal, {
       isRemote: () => true,
@@ -58,7 +62,11 @@ describe('remote clipboard paste handler', () => {
       notify,
     });
 
-    expect(dispatch({})).toBe(false); // false = xterm 不再把 Ctrl+V 发成 PTY 0x16
+    expect(dispatch({ preventDefault, stopPropagation })).toBe(false);
+    // 返回 false 只让 xterm 放弃键编码；必须取消 DOM 默认动作，否则浏览器 paste 事件
+    // 与下方异步 bridge 各发一份，长文本会出现两个 Pasted Content。
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
     await flushAsyncPaste();
 
     expect(readImage).toHaveBeenCalledTimes(1);

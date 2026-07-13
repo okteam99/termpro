@@ -49,6 +49,11 @@ export function installRemoteClipboardPasteHandler(
 
   const handler = (event: KeyboardEvent): boolean => {
     if (!deps.isRemote() || !isCtrlV(event)) return true;
+    // xterm 的 custom key handler 返回 false 只会停止其键编码流程，并不会替调用方
+    // 取消浏览器默认 paste。若不显式阻止，DOM paste 与异步 clipboard bridge 会各发
+    // 一份文本（长文本在 Codex 中表现为两个 Pasted Content）。
+    event.preventDefault();
+    event.stopPropagation();
     // 无论是否 key repeat 都吞掉原始 0x16;同一时刻只准一条上传,防重复附件。
     if (inFlight) return false;
     try {
