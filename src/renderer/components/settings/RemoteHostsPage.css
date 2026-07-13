@@ -360,6 +360,38 @@
   color: var(--red);
 }
 
+/* save 失败的表单内错误条(与 fail-detail 同色系;此前 save reject 静默无反应) */
+.remote-hosts__form-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(224, 108, 117, 0.08);
+  border: 1px solid rgba(224, 108, 117, 0.28);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--red);
+  line-height: 1.5;
+}
+
+/* 凭据加密不可用(钥匙串授权被拒)常驻警示横幅 */
+.remote-hosts__crypto-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: rgba(229, 192, 123, 0.08);
+  border: 1px solid rgba(229, 192, 123, 0.35);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+.remote-hosts__crypto-banner-title {
+  color: var(--yellow, #e5c07b);
+  font-weight: 600;
+}
+
 .remote-hosts__confirm {
   display: flex;
   align-items: center;

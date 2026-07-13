@@ -42,6 +42,7 @@ function installOkwork() {
         save: vi.fn(),
         delete: vi.fn(),
         test: vi.fn(),
+        capabilities: vi.fn(async () => ({ encryptionAvailable: true })),
         connect: vi.fn(),
         disconnect: vi.fn(),
         onEvent: vi.fn(() => () => undefined),

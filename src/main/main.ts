@@ -42,6 +42,13 @@ if (started) {
 // 独立 userData、不查更新、UI 显示红色 DEV 徽标,与正式版可同时安装。
 const isDevChannel = !app.isPackaged || app.getName().includes('Dev');
 if (!app.isPackaged && !process.env.OKWORK_SMOKE) {
+  // 🔴 app name 必须与 userData 一同隔离:macOS safeStorage 的钥匙串条目名随
+  // app name 走("<name> Safe Storage")。此前 npm start 的 electron 二进制与
+  // 正式签名的 OkWork.app 共用 "OkWork Safe Storage" 条目,签名不同 → 后启动的
+  // 一方每次触发钥匙串授权弹框;点「拒绝」/错过弹框的那个会话里密码存不进也
+  // 读不出(0.3.59 实测:全部主机误报「认证失败」+ Save 静默失败)。
+  // 注意:改名当天 dev 侧旧密文(曾用 OkWork 条目密钥加密)解不开一次,重输即可。
+  app.setName('OkWork-Dev');
   app.setPath('userData', path.join(app.getPath('appData'), 'OkWork-Dev'));
 }
 

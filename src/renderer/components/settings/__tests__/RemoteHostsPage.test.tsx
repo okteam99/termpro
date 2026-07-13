@@ -113,6 +113,7 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
       if (idx >= 0) configs.splice(idx, 1);
     }),
     test: vi.fn(async (): Promise<TestResult> => ({ ok: true })),
+    capabilities: vi.fn(async () => ({ encryptionAvailable: true })),
     connect: vi.fn(),
     disconnect: vi.fn(),
     onEvent: vi.fn((cb: (e: RemoteEvent) => void) => {
@@ -131,8 +132,14 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
   return { bridge, emit, configs };
 }
 
-async function renderPage(initial: RemoteHostConfig[] = []) {
+async function renderPage(
+  initial: RemoteHostConfig[] = [],
+  opts?: { encryptionAvailable?: boolean },
+) {
   const { bridge, emit, configs } = makeRemoteHostBridge(initial);
+  if (opts?.encryptionAvailable === false) {
+    bridge.capabilities.mockResolvedValue({ encryptionAvailable: false });
+  }
   Object.defineProperty(window, 'okwork', {
     value: { remoteHost: bridge },
     writable: true,
@@ -573,5 +580,61 @@ describe('delete_confirmation_credential_and_active_connection_copy', () => {
     expect(screen.getByText('mini-pc')).toBeInTheDocument();
     expect(bridge.delete).not.toHaveBeenCalled();
     expect(hostRegistryMock.drop).not.toHaveBeenCalled();
+  });
+});
+
+// --- 0.3.59 实测回归:save reject(典型:钥匙串授权被拒 → A9 抛「加密不可用」)
+// 此前 saveForm 无 catch → 表单不关、无提示,「点 Save 没反应」。 ---
+describe('save_failure_surfaces_in_form', () => {
+  it('save rejecting keeps the form open and shows the unwrapped main-side error', async () => {
+    const { bridge } = await renderPage([]);
+    bridge.save.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'remoteHost:save': Error: Local credential encryption is unavailable — cannot store the password safely",
+      ),
+    );
+
+    fireEvent.click(screen.getByText('Add remote host'));
+    fireEvent.change(screen.getByPlaceholderText('alias'), { target: { value: 'kc-box' } });
+    fireEvent.change(screen.getByPlaceholderText('192.168.1.10'), { target: { value: 'h.lan' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Password' }));
+    const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+    fireEvent.change(passwordInput, { target: { value: 'pw' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    // Electron invoke 包装前缀被剥掉,只呈现 main 侧原文;表单不收起(Save 仍在)
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Local credential encryption is unavailable/),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText('Save')).toBeInTheDocument();
+    expect(screen.queryByText('kc-box')).toBeNull(); // 列表未插入半成品
+
+    // 故障恢复后重试成功 → 错误条清除、表单收起、列表出现新主机
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(screen.getByText('kc-box')).toBeInTheDocument());
+    expect(screen.queryByText(/Local credential encryption is unavailable/)).toBeNull();
+    expect(screen.queryByText('Save')).toBeNull();
+  });
+});
+
+// --- 凭据加密不可用(capabilities.encryptionAvailable=false)→ 常驻警示横幅 ---
+describe('credential_encryption_unavailable_banner', () => {
+  it('encryptionAvailable=false renders the persistent warning banner', async () => {
+    await renderPage([], { encryptionAvailable: false });
+    await waitFor(() =>
+      expect(
+        screen.getByText('Credential encryption unavailable — keychain access was denied'),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('encryptionAvailable=true renders no banner', async () => {
+    const { bridge } = await renderPage([]);
+    await waitFor(() => expect(bridge.capabilities).toHaveBeenCalled());
+    expect(
+      screen.queryByText('Credential encryption unavailable — keychain access was denied'),
+    ).toBeNull();
   });
 });

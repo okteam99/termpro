@@ -55,6 +55,7 @@ function mockOkwork(overrides: { version?: string; devChannel?: boolean } = {}) 
         save: vi.fn(),
         delete: vi.fn(),
         test: vi.fn(),
+        capabilities: vi.fn().mockResolvedValue({ encryptionAvailable: true }),
         connect: vi.fn(),
         disconnect: vi.fn(),
         onEvent: vi.fn(() => noop),

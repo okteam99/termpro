@@ -1,5 +1,6 @@
 import type {
   RemoteEvent,
+  RemoteHostCapabilities,
   RemoteHostConfig,
   RemoteHostConfigInput,
   RemoteTunnelInfo,
@@ -67,6 +68,8 @@ declare global {
       /** 远程机管理与连接编排(BL-003)· 无 get-secret 通道(AC-3) */
       remoteHost: {
         list(): Promise<RemoteHostConfig[]>;
+        /** 凭据面能力(safeStorage 是否可用);false 时页面挂警示横幅 */
+        capabilities(): Promise<RemoteHostCapabilities>;
         save(payload: {
           config: RemoteHostConfigInput;
           password?: string;

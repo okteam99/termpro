@@ -125,6 +125,10 @@ export const zh: Record<string, string> = {
   'Private key passphrase (optional)': '私钥密码(可选)',
   'Passphrase for the encrypted private key · stored in the system keychain, never written to disk in plaintext':
     '加密私钥的 passphrase · 存入系统钥匙串,不明文落盘',
+  'Credential encryption unavailable — keychain access was denied':
+    '凭据加密不可用——钥匙串访问被拒绝',
+  'Passwords cannot be saved or read in this session, so connections will fail as "Authentication failed". Quit and reopen the app, then choose "Always Allow" when the system asks for keychain access.':
+    '本次会话密码存不进也读不出,连接会一律报「认证失败」。请完全退出应用后重新打开,在系统弹出钥匙串授权时选择「始终允许」。',
 
   // --- AddWorkspaceModal ---
   'Target host is disconnected': '目标机器已断开',

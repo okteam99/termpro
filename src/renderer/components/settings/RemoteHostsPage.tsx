@@ -142,6 +142,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
   const [formHostId, setFormHostId] = useState<string | null>(null);
   const [formValues, setFormValues] = useState<FormValues>(EMPTY_FORM);
+  /** save IPC 失败的表单内呈现(此前无 catch → 点 Save 静默无反应,0.3.59 实测踩雷) */
+  const [formError, setFormError] = useState<string | null>(null);
+  /** null=未知(查询在途);false → 常驻警示横幅(密码存不进也读不出,自救指引) */
+  const [encryptionAvailable, setEncryptionAvailable] = useState<boolean | null>(null);
 
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
   const applyEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
@@ -156,6 +160,23 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   useEffect(() => {
     refreshList();
   }, [refreshList]);
+
+  // 打开弹层即探测凭据加密可用性(钥匙串授权被拒 → 横幅明示自救,而非满屏误导性
+  // 「认证失败」)。查询失败(老 main 无此通道等)按可用处理,不误伤正常路径。
+  useEffect(() => {
+    let cancelled = false;
+    window.okwork.remoteHost
+      .capabilities()
+      .then((caps) => {
+        if (!cancelled) setEncryptionAvailable(caps.encryptionAvailable);
+      })
+      .catch(() => {
+        if (!cancelled) setEncryptionAvailable(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // main 前移探测已确认「我方 + 兼容」后才 emit verifying{tunnel};renderer 侧握手退化为
   // 版本二次确认(near-必成功)。resolve → ready(冒烟 fs.readdir · AC-6);
@@ -296,11 +317,13 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     setFormMode('add');
     setFormHostId(null);
     setFormValues(EMPTY_FORM);
+    setFormError(null);
   }
 
   function openEditForm(config: RemoteHostConfig) {
     setFormMode('edit');
     setFormHostId(config.id);
+    setFormError(null);
     setFormValues({
       alias: config.alias,
       host: config.host,
@@ -316,6 +339,17 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   function cancelForm() {
     setFormMode(null);
     setFormHostId(null);
+    setFormError(null);
+  }
+
+  /**
+   * ipcRenderer.invoke 的 rejection 会被 Electron 包一层
+   * "Error invoking remote method 'remoteHost:save': Error: <原文>"——
+   * 表单内呈现只留 main 侧抛出的原文(已本地化,如 A9 的加密不可用文案)。
+   */
+  function ipcErrorMessage(err: unknown): string {
+    const raw = err instanceof Error ? err.message : String(err);
+    return raw.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
   }
 
   async function saveForm() {
@@ -352,10 +386,19 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     ) {
       payload.passphrase = formValues.passphrase;
     }
-    await window.okwork.remoteHost.save(payload);
+    // 🔴 0.3.59 实测:save 可能 reject(典型:钥匙串授权被拒 → A9 前置校验抛
+    // 「加密不可用」)。此前无 catch → 表单不关、无提示,「点 Save 没反应」。
+    // 失败必须留在表单内呈现原因;成功才关表单。
+    try {
+      await window.okwork.remoteHost.save(payload);
+    } catch (err) {
+      setFormError(ipcErrorMessage(err));
+      return;
+    }
     await refreshList();
     setFormMode(null);
     setFormHostId(null);
+    setFormError(null);
   }
 
   function requestDelete(id: string) {
@@ -678,6 +721,18 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         </div>
 
         <div className="remote-hosts__body">
+          {encryptionAvailable === false && (
+            <div className="remote-hosts__crypto-banner" role="alert">
+              <div className="remote-hosts__crypto-banner-title">
+                {t('Credential encryption unavailable — keychain access was denied')}
+              </div>
+              <div>
+                {t(
+                  'Passwords cannot be saved or read in this session, so connections will fail as "Authentication failed". Quit and reopen the app, then choose "Always Allow" when the system asks for keychain access.',
+                )}
+              </div>
+            </div>
+          )}
           {showEmptyState ? (
             <div className="remote-hosts__empty">
               <div className="remote-hosts__empty-text">
@@ -824,6 +879,11 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                       </>
                     )}
                   </div>
+                  {formError && (
+                    <div className="remote-hosts__form-error" role="alert">
+                      ✗ {formError}
+                    </div>
+                  )}
                   <div className="remote-hosts__form-actions">
                     <button className="remote-hosts__btn" onClick={cancelForm}>
                       {t('Cancel')}

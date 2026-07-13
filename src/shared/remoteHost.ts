@@ -119,7 +119,18 @@ export const REMOTE_HOST_CHANNELS = {
   disconnect: 'remoteHost:disconnect',
   event: 'remoteHost:event',
   tunnel: 'remoteHost:tunnel',
+  capabilities: 'remoteHost:capabilities',
 } as const;
+
+/**
+ * 凭据面能力(renderer 打开远程机管理时查询)。encryptionAvailable=false 意味着
+ * safeStorage 拿不到钥匙串密钥(典型:启动时钥匙串授权被拒)——此时密码既存不进
+ * (save 被 A9 前置校验拒绝)也读不出(getSecret 恒 null,连接必然 auth 失败),
+ * UI 须以横幅明示自救路径,而非让用户面对误导性的「认证失败」。
+ */
+export interface RemoteHostCapabilities {
+  encryptionAvailable: boolean;
+}
 
 /** 失败分类文案单源（renderer 经 failReasonCopy 取词 · UI.md 呈现口径）。 */
 export interface FailReasonCopy {

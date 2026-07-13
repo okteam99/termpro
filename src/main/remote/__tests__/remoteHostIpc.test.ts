@@ -143,6 +143,28 @@ describe('A9 remoteHostIpc.save 前置校验 safeStorage 可用性', () => {
   });
 });
 
+describe('remoteHostIpc.capabilities 凭据面能力查询', () => {
+  function capabilitiesWith(available: boolean): unknown {
+    const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(available),
+    });
+    const orchestrator = makeOrchestrator(credentials, configStore);
+    registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
+    const fake = ipcMain as unknown as FakeIpcMain;
+    return fake.__handlers.get(REMOTE_HOST_CHANNELS.capabilities)!({});
+  }
+
+  it('safeStorage 可用 → encryptionAvailable: true', () => {
+    expect(capabilitiesWith(true)).toEqual({ encryptionAvailable: true });
+  });
+
+  it('safeStorage 不可用(钥匙串授权被拒等)→ encryptionAvailable: false(renderer 据此挂横幅)', () => {
+    expect(capabilitiesWith(false)).toEqual({ encryptionAvailable: false });
+  });
+});
+
 describe('E8 remoteHost:event 只推给 getMainWindow() 返回的窗口', () => {
   it('事件送到 getMainWindow() 返回的窗口(隧道 token 不会经此广播到任意窗口——实现已不再调用 getAllWindows)', async () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });

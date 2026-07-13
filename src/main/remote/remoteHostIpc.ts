@@ -48,6 +48,13 @@ export function registerRemoteHostIpc(
 
   ipcMain.handle(REMOTE_HOST_CHANNELS.list, () => configStore.list());
 
+  // 凭据面能力查询:renderer 打开远程机管理时探测 safeStorage 是否真拿得到钥匙串
+  // 密钥(启动时授权被拒 → false),据此挂常驻警示横幅(而非让 save 静默失败、
+  // 连接报误导性的「认证失败」)。只回布尔,零敏感信息。
+  ipcMain.handle(REMOTE_HOST_CHANNELS.capabilities, () => ({
+    encryptionAvailable: credentials.isAvailable(),
+  }));
+
   ipcMain.handle(REMOTE_HOST_CHANNELS.save, (_event, payload: SavePayload) => {
     const { config, password, passphrase } = payload;
     const hasPassword = typeof password === 'string' && password.length > 0;
@@ -107,6 +114,7 @@ export function registerRemoteHostIpc(
   return () => {
     unsubscribeEvents();
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.list);
+    ipcMain.removeHandler(REMOTE_HOST_CHANNELS.capabilities);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.save);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.delete);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.test);

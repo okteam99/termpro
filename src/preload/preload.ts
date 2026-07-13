@@ -3,6 +3,7 @@ import { parseLocaleArg, parseVersionArg } from './parseVersionArg';
 import { REMOTE_HOST_CHANNELS } from '../shared/remoteHost';
 import type {
   RemoteEvent,
+  RemoteHostCapabilities,
   RemoteHostConfig,
   RemoteHostConfigInput,
   RemoteTunnelInfo,
@@ -143,6 +144,10 @@ contextBridge.exposeInMainWorld('okwork', {
   remoteHost: {
     list(): Promise<RemoteHostConfig[]> {
       return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.list);
+    },
+    /** 凭据面能力(safeStorage 是否可用);false 时页面挂警示横幅 */
+    capabilities(): Promise<RemoteHostCapabilities> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.capabilities);
     },
     save(payload: {
       config: RemoteHostConfigInput;
