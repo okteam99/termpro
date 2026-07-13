@@ -109,6 +109,26 @@ export function RemoteMachineIcon() {
   );
 }
 
+/** 远程机组头齿轮:打开「远程机」管理弹层(编辑/删除该机)的入口 */
+export function GearIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
 export interface MachineInfo {
   /** 'local' | RemoteHostConfig.id */
   id: string;
@@ -150,6 +170,8 @@ export interface MachineGroupProps {
   collapsed?: boolean;
   /** 点组头切换折叠;缺省组头不可点(测试/旧调用零变化) */
   onToggleCollapse?: (machineId: string) => void;
+  /** 远程机组头齿轮 → 打开「远程机」配置弹层(可编辑/删除该机);缺省不渲染齿轮 */
+  onOpenSettings?: (machineId: string) => void;
 }
 
 export function MachineGroup({
@@ -163,6 +185,7 @@ export function MachineGroup({
   onManualRetry,
   collapsed = false,
   onToggleCollapse,
+  onOpenSettings,
 }: MachineGroupProps) {
   const isRemote = machine.kind === 'remote';
   const runtime = machine.runtime;
@@ -273,6 +296,15 @@ export function MachineGroup({
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'connecting' && (
           <span className="sidebar-machine-connecting">{t('Connecting…')}</span>
+        )}
+        {isRemote && onOpenSettings && (
+          <button
+            className="sidebar-machine-gear"
+            title={t('Configure remote host')}
+            onClick={(e) => { e.stopPropagation(); onOpenSettings(machine.id); }}
+          >
+            <GearIcon />
+          </button>
         )}
       </div>
       {!collapsed &&

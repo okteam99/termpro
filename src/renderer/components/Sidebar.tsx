@@ -17,6 +17,7 @@ import { RenameModal } from './RenameModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SettingsEntry } from './SettingsEntry';
 import { AddWorkspaceModal } from './AddWorkspaceModal';
+import { RemoteHostsPage } from './settings/RemoteHostsPage';
 import {
   LocalMachineIcon,
   MachineChevron,
@@ -179,6 +180,10 @@ export function Sidebar() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   // 「机器组空态添加项目」入口:预选该机直达目录浏览器(undefined = 常规从选机开始)
   const [addModalHost, setAddModalHost] = useState<string | undefined>(undefined);
+  // 远程机组头齿轮 → 「远程机」配置弹层(与 SettingsEntry 菜单入口同一组件,可编辑/删除远程机)
+  const [remoteHostsOpen, setRemoteHostsOpen] = useState(false);
+  // 弹层关闭后焦点归还(对齐 SettingsEntry 的 AC-6 归还机制)
+  const remoteHostsPrevFocusRef = useRef<HTMLElement | null>(null);
   const bellRef = useRef<HTMLButtonElement>(null);
 
   // Track the id of the workspace currently being dragged (本机组内拖拽排序)
@@ -445,6 +450,17 @@ export function Sidebar() {
     window.termpro.remoteHost.connect({ id });
   }
 
+  function openRemoteHostsModal() {
+    remoteHostsPrevFocusRef.current = document.activeElement as HTMLElement | null;
+    setRemoteHostsOpen(true);
+  }
+
+  function closeRemoteHostsModal() {
+    setRemoteHostsOpen(false);
+    remoteHostsPrevFocusRef.current?.focus();
+    remoteHostsPrevFocusRef.current = null;
+  }
+
   function handleSelectWorkspace(_machine: MachineInfo, ws: MachineWorkspaceRowData) {
     if (selectionLocked) return;
     setActiveWorkspace(ws.id);
@@ -706,6 +722,7 @@ export function Sidebar() {
                 setAddModalHost(id);
                 setAddModalOpen(true);
               }}
+              onOpenSettings={openRemoteHostsModal}
             />
           ),
         )}
@@ -726,6 +743,9 @@ export function Sidebar() {
           onClose={handleModalClose}
         />
       )}
+
+      {/* 远程机配置弹层(组头齿轮入口):编辑/删除远程机;删除后 E4 轮询清残留分组 */}
+      {remoteHostsOpen && <RemoteHostsPage onClose={closeRemoteHostsModal} />}
 
       {/* 添加项目 modal(D-4/AC-3/AC-4):选机器(本机置顶+已连接远程机)→ 本机对话框 / 远程目录浏览器 */}
       {addModalOpen && (

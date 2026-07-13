@@ -316,3 +316,49 @@ describe('MachineGroup · 展开/折叠(用户需求 2026-07-13)', () => {
     expect(onToggle).not.toHaveBeenCalled(); // stopPropagation:按钮点击不折叠
   });
 });
+
+describe('MachineGroup · 组头齿轮配置入口(用户需求 2026-07-13)', () => {
+  it('远程机 + onOpenSettings → 渲染齿轮;点击回调 machineId 且不触发折叠(stopPropagation)', () => {
+    const onOpenSettings = vi.fn();
+    const onToggle = vi.fn();
+    render(
+      <MachineGroup
+        machine={remoteMachine()}
+        onOpenSettings={onOpenSettings}
+        onToggleCollapse={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Configure remote host' }));
+    expect(onOpenSettings).toHaveBeenCalledWith('cfg-1');
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it('本机组不渲染齿轮(即便传了 onOpenSettings);缺省不传也不渲染(零回归)', () => {
+    const { rerender } = render(
+      <MachineGroup
+        machine={{ id: 'local', kind: 'local', label: 'Local', workspaces: [] }}
+        onOpenSettings={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Configure remote host' }),
+    ).not.toBeInTheDocument();
+
+    rerender(<MachineGroup machine={remoteMachine()} />);
+    expect(
+      screen.queryByRole('button', { name: 'Configure remote host' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('已连接(状态徽标/连接钮并存态)仍渲染齿轮', () => {
+    const onOpenSettings = vi.fn();
+    render(
+      <MachineGroup
+        machine={remoteMachine({ status: 'connected', rttMs: 80, workspaces: [] })}
+        onOpenSettings={onOpenSettings}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Configure remote host' }));
+    expect(onOpenSettings).toHaveBeenCalledWith('cfg-1');
+  });
+});

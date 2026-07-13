@@ -113,6 +113,7 @@ export const zh: Record<string, string> = {
   'Manually added': '手动添加',
   'No manually added remote hosts yet': '暂无手动添加的远程机',
   'Edit remote host': '编辑远程机',
+  'Configure remote host': '配置远程机',
   'Name': '名称',
   'Auth method': '认证方式',
   'SSH Key': 'SSH 密钥',
