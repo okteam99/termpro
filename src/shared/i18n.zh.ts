@@ -69,7 +69,7 @@ export const zh: Record<string, string> = {
   'Copy workspace path': '复制工作区路径',
 
   // --- FilePanel ---
-  "Remote files aren't supported in a separate window yet": '远程文件独立窗口暂不支持',
+  'Local-only action — unavailable in remote workspaces': '本机专属操作,远程 workspace 不可用',
   'Open diff view': '打开 Diff 视图',
   'Open with default browser': '用系统默认浏览器打开',
   'Show in Finder': '在 Finder 中显示(跳转所在目录)',

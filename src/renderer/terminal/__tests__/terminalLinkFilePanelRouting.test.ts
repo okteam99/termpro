@@ -134,6 +134,42 @@ describe('terminal link activation routes by kind', () => {
     expect(openViewerWindow).not.toHaveBeenCalled();
   });
 
+  // 远程终端(hostId ≠ 'local'):一律进查看器窗口(带 hostId),绝不落本机 OS 动作
+  it('remote host: file opens in the viewer with hostId, even for SYSTEM_OPEN_EXT', async () => {
+    openTarget('t1', '/repo/src/App.tsx', 'file', 'cfg-1');
+    await flush();
+    expect(openViewerWindow).toHaveBeenCalledWith({
+      mode: 'file',
+      path: '/repo/src/App.tsx',
+      hostId: 'cfg-1',
+    });
+
+    openViewerWindow.mockClear();
+    openTarget('t1', '/repo/assets/clip.mp4', 'file', 'cfg-1');
+    await flush();
+    // 媒体扩展名也不走本机 openPath(远端路径交给本机 shell = D-7 误路由)
+    expect(openViewerWindow).toHaveBeenCalledWith({
+      mode: 'file',
+      path: '/repo/assets/clip.mp4',
+      hostId: 'cfg-1',
+    });
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it('remote host: dir locate 失败时回退到查看器 listing(带 hostId),不落本机 openPath', async () => {
+    unregisters.push(registerFilePanelLocateHandler('t1', vi.fn().mockResolvedValue(false)));
+
+    openTarget('t1', '/repo/src', 'dir', 'cfg-1');
+    await flush();
+
+    expect(openViewerWindow).toHaveBeenCalledWith({
+      mode: 'dir',
+      path: '/repo/src',
+      hostId: 'cfg-1',
+    });
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
   // T-006 · AC-4 — :line:col file opens via the stripped path (end-to-end through FsLinkProvider)
   it('activates a :line:col file link using the stripped path, no line-jump claim', async () => {
     rpc.mockImplementation(async (method: string) => {

@@ -28,7 +28,18 @@ export const SYSTEM_OPEN_EXT =
 
 let locateRequestSeq = 0;
 
-function openTargetFallback(absPath: string, kind: 'file' | 'dir'): void {
+function openTargetFallback(
+  absPath: string,
+  kind: 'file' | 'dir',
+  hostId?: string | null,
+): void {
+  // 远程终端的路径在远端机上:本机 openPath 会静默作用于本机同名路径(D-7 误路由)。
+  // 远程一律进查看器窗口(带 hostId 直连该 host;目录 → listing,媒体/压缩包 →
+  // 查看器给出确定性「二进制/过大」提示),绝不落本机 OS 动作。
+  if (hostId && hostId !== 'local') {
+    window.termpro.openViewerWindow({ mode: kind, path: absPath, hostId });
+    return;
+  }
   if (kind === 'dir' || SYSTEM_OPEN_EXT.test(absPath)) {
     window.termpro.openPath(absPath);
   } else {
@@ -40,6 +51,7 @@ export async function openTargetInFilePanelFirst(
   tabId: string,
   absPath: string,
   kind: 'file' | 'dir',
+  hostId?: string | null,
 ): Promise<void> {
   const located = await tryLocateInFilePanel(tabId, {
     id: ++locateRequestSeq,
@@ -47,21 +59,23 @@ export async function openTargetInFilePanelFirst(
     kind,
     sourceTabId: tabId,
   });
-  if (!located) openTargetFallback(absPath, kind);
+  if (!located) openTargetFallback(absPath, kind, hostId);
 }
 
 // 链接激活路由:目录回 File Panel 定位优先(留在工作面看上下文/git);
 // 单个文件直接打开——文本/图片进 TermPro 窗口,媒体/系统扩展名走系统打开,
 // 不再因落在 root/worktree 内就降级成「只定位」。
+// hostId = 该终端绑定 workspace 的路由键(缺省/'local' = 本机)。
 export function openTarget(
   tabId: string,
   absPath: string,
   kind: 'file' | 'dir',
+  hostId?: string | null,
 ): void {
   if (kind === 'dir') {
-    void openTargetInFilePanelFirst(tabId, absPath, kind);
+    void openTargetInFilePanelFirst(tabId, absPath, kind, hostId);
   } else {
-    openTargetFallback(absPath, kind);
+    openTargetFallback(absPath, kind, hostId);
   }
 }
 
@@ -355,6 +369,8 @@ export class FsLinkProvider implements ILinkProvider {
     private getFallbackCwd: () => string,
     /** BL-004:该终端绑定的 host client(call-time 读——构造早于 spawn 绑定,A6) */
     private getClient: () => HostClient,
+    /** 该终端绑定的 hostId(call-time 读,同 getClient;null/'local' = 本机) */
+    private getHostId: () => string | null = () => null,
   ) {}
 
   provideLinks(
@@ -546,7 +562,7 @@ export class FsLinkProvider implements ILinkProvider {
         text: r.text,
         decorations: { underline: true, pointerCursor: true },
         activate: () => {
-          openTarget(this.tabId, r.abs, r.kind);
+          openTarget(this.tabId, r.abs, r.kind, this.getHostId());
         },
       });
     }

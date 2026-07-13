@@ -240,6 +240,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     () => inst.sessionId,
     () => inst.spawnCwd || (getClient().info?.homedir ?? '/'),
     getClient,
+    () => inst.hostId,
   );
   term.registerLinkProvider(linkProvider);
   // 可视区链接常驻蓝色高亮
