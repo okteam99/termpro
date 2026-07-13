@@ -25,8 +25,6 @@ const dragState: { path: string | null; ts: number } = { path: null, ts: 0 };
 // 远程 workspace 文件禁用提示(D-7):点顶部 Diff / 行内 diff / 文件行三个入口
 // 触发同一条确定性提示,1.8s 后自动消失(非 modal,不打断操作)。
 const REMOTE_FILE_HINT_MS = 1_800;
-const REMOTE_FILE_HINT_TEXT = t("Remote files aren't supported in a separate window yet");
-const UNREADABLE_LABEL = t('(unreadable)');
 
 /** 行级动作:文件夹图标 11×11 */
 function FolderIcon() {
@@ -110,6 +108,12 @@ export function FilePanel() {
     locateScrollPath,
   } = view;
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+
+  // render 期取词(P2:模块级 t() 常量会被冻结在导入期语言,切换/持久化偏好均不生效)。
+  // UNREADABLE_LABEL 兼作错误行哨兵:合成(flattenTree)与判定(isErr)同一 render 内
+  // 取同一值,rows 无 memo,语言切换后两端一致。
+  const REMOTE_FILE_HINT_TEXT = t("Remote files aren't supported in a separate window yet");
+  const UNREADABLE_LABEL = t('(unreadable)');
 
   // Root mode: draft path for the text input (mirrors effective root, reset on tab/root change)
   const [rootInputDraft, setRootInputDraft] = useState<string>('');

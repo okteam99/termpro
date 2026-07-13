@@ -18,7 +18,7 @@ import {
 } from 'react';
 import './RemoteHostsPage.css';
 import {
-  FAIL_REASON_COPY,
+  failReasonCopy,
   type AuthType,
   type FailReason,
   type RemoteEvent,
@@ -31,24 +31,22 @@ import { hostRegistry } from '../../services/hostRegistry';
 import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
 import { t } from '../../../shared/i18n';
 
-// 「测试连接」与「连接」共用同一失败分类口径(AC-2)· 从 shared 单源派生,不再各写字面量。
-const FAIL_REASONS = FAIL_REASON_COPY;
-
 /**
  * 连接生命周期(AC-5)进行中各态的徽标文案;ready/failed/disconnected 另有专属徽标。
- * 🔴 镜像 `components/MachineGroup.tsx` 内同名常量的文案(见其注释);两处均由
+ * 调用期取词(模块级 t() 常量会被冻结在导入期语言,语言切换/持久化偏好均不生效)。
+ * 🔴 镜像 `components/MachineGroup.tsx` 内同名函数的文案(见其注释);两处均由
  * shared/remoteHost.ts 的 RemoteStage 枚举驱动,英文原文须逐字一致,防措辞漂移。
  */
-const CONNECT_STAGE_LABEL: Record<
-  'connecting' | 'deploying' | 'starting' | 'claiming' | 'verifying',
-  string
-> = {
-  connecting: t('Connecting…'),
-  deploying: t('Deploying…'),
-  starting: t('Starting host…'),
-  claiming: t('Claiming…'),
-  verifying: t('Verifying handshake…'),
-};
+function connectStageLabel(stage: string): string {
+  const labels: Record<string, string> = {
+    connecting: t('Connecting…'),
+    deploying: t('Deploying…'),
+    starting: t('Starting host…'),
+    claiming: t('Claiming…'),
+    verifying: t('Verifying handshake…'),
+  };
+  return labels[stage] ?? t('Connecting…');
+}
 
 const ACTIVE_STAGES = new Set<RemoteStage>([
   'connecting',
@@ -377,7 +375,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   function renderStageBadge(runtime: RemoteEvent) {
     if (runtime.stage === 'failed') {
-      const reason = FAIL_REASONS[runtime.reason ?? 'unreachable'] ?? FAIL_REASONS.unreachable;
+      const reason = failReasonCopy(runtime.reason);
       return (
         <span className="remote-hosts__badge remote-hosts__badge--fail">
           ✗ {reason.label}
@@ -394,8 +392,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     if (runtime.stage === 'ready') {
       return <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Connected')}</span>;
     }
-    const label =
-      CONNECT_STAGE_LABEL[runtime.stage as keyof typeof CONNECT_STAGE_LABEL] ?? t('Connecting…');
+    const label = connectStageLabel(runtime.stage);
     const pct =
       runtime.stage === 'deploying' && typeof runtime.percent === 'number'
         ? ` ${runtime.percent}%`
@@ -490,7 +487,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     return buttons;
   }
 
-  /** 行内状态/动作区:连接生命周期(非闲置)优先于测试态;两者共用 FAIL_REASONS 口径(AC-2)。 */
+  /** 行内状态/动作区:连接生命周期(非闲置)优先于测试态;两者共用 failReasonCopy 口径(AC-2)。 */
   function renderStatusArea(
     config: RemoteHostConfig,
     runtime: RemoteEvent | undefined,
@@ -521,8 +518,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         return <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Reachable')}</span>;
       }
       if (status === 'fail') {
-        const reason =
-          FAIL_REASONS[testFailReason[config.id] ?? 'auth'] ?? FAIL_REASONS.auth;
+        const reason = failReasonCopy(testFailReason[config.id], 'auth');
         return (
           <span className="remote-hosts__badge remote-hosts__badge--fail">
             ✗ {reason.label}
@@ -591,7 +587,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   }
 
   function renderFailDetail(runtime: RemoteEvent) {
-    const reason = FAIL_REASONS[runtime.reason ?? 'unreachable'] ?? FAIL_REASONS.unreachable;
+    const reason = failReasonCopy(runtime.reason);
     return (
       <div className="remote-hosts__fail-detail">
         <span className="remote-hosts__fail-detail-code">

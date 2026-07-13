@@ -1,6 +1,6 @@
 // 远程机管理与 SSH 连接编排 —— main ↔ renderer 跨层单一事实来源（EXT-6）。
 // 传输无关的纯类型 + 常量：FailReason/RemoteStage 枚举、文案、IPC 通道名、配置 DTO。
-// main 产（orchestrator emit RemoteEvent）· renderer 消费（RemoteHostsPage 派生 FAIL_REASONS）。
+// main 产（orchestrator emit RemoteEvent）· renderer 消费（RemoteHostsPage/MachineGroup 经 failReasonCopy 取词）。
 // 🔴 零 Node / 零 Electron import —— shared 层纪律（既能被 host 打包链引，也能被 renderer bundle 引）。
 
 import { t } from './i18n';
@@ -114,7 +114,7 @@ export const REMOTE_HOST_CHANNELS = {
   event: 'remoteHost:event',
 } as const;
 
-/** 失败分类文案单源（renderer FAIL_REASONS 从此派生 · UI.md 呈现口径）。 */
+/** 失败分类文案单源（renderer 经 failReasonCopy 取词 · UI.md 呈现口径）。 */
 export interface FailReasonCopy {
   /** UI 徽标/详情标签 */
   label: string;
@@ -124,47 +124,58 @@ export interface FailReasonCopy {
   guidance?: string;
 }
 
-// 🔴 模块级求值时序:t() 在 const 初始化时执行——renderer 侧安全(ESM 保证 ./i18n 先求值,
-// 其内已按 navigator.language 定死 locale);main 虽 import 本模块但不消费 FAIL_REASON_COPY
-// (grep 单源核实),setLocale 晚于本模块求值无影响。若未来 main 要消费,改为 getter/函数。
-export const FAIL_REASON_COPY: Record<FailReason, FailReasonCopy> = {
-  unreachable: {
-    label: t('Unreachable'),
-    detail: t('Connection refused / host unreachable'),
-  },
-  auth: {
-    label: t('Authentication failed'),
-    detail: t('Permission denied (check key / password / username)'),
-  },
-  timeout: { label: t('Timed out'), detail: t('Connection timed out (10s)') },
-  nodeMissing: {
-    label: t('Node.js runtime missing'),
-    // 探测已覆盖 login shell 与常见安装位置(nvm/fnm/Homebrew/volta · nodeProbe.ts),
-    // 走到这里就是真没装/真过旧;版本过旧时 runtime detail 会携带实测版本与路径覆盖此行。
-    detail: t(
-      'node not found on the remote PATH, login shell, or common install locations (nvm / fnm / Homebrew / volta)',
-    ),
-    guidance: t('Install Node.js 20 or newer on the remote machine, then retry'),
-  },
-  archUnsupported: {
-    label: t('Unsupported architecture'),
-    detail: t('No bundled host build for this remote architecture'),
-    guidance: t('Run `npm i -g termpro-host` on the remote machine, then retry'),
-  },
-  deployFailed: {
-    label: t('Deploy failed'),
-    detail: t('Host bundle upload interrupted (network / disk / permissions)'),
-  },
-  startFailed: {
-    label: t('Start failed'),
-    detail: t('Remote host process failed to start'),
-  },
-  incompatible: {
-    label: t('Incompatible version'),
-    detail: t('Remote host protocol version is incompatible with this app · disconnected'),
-  },
-  internal: {
-    label: t('Internal error'),
-    detail: t('Connection orchestration error (see app logs)'),
-  },
-};
+// 🔴 调用期取词(语言切换特性 2026-07-13):曾是模块级常量,t() 会被冻结在导入期
+// 语言——持久化偏好(argv 注入晚于本模块求值)与运行时切换均不生效。改为函数后
+// main/renderer 任意时刻调用都得当前语言,原「main 勿消费」时序约束一并解除。
+export function failReasonCopyMap(): Record<FailReason, FailReasonCopy> {
+  return {
+    unreachable: {
+      label: t('Unreachable'),
+      detail: t('Connection refused / host unreachable'),
+    },
+    auth: {
+      label: t('Authentication failed'),
+      detail: t('Permission denied (check key / password / username)'),
+    },
+    timeout: { label: t('Timed out'), detail: t('Connection timed out (10s)') },
+    nodeMissing: {
+      label: t('Node.js runtime missing'),
+      // 探测已覆盖 login shell 与常见安装位置(nvm/fnm/Homebrew/volta · nodeProbe.ts),
+      // 走到这里就是真没装/真过旧;版本过旧时 runtime detail 会携带实测版本与路径覆盖此行。
+      detail: t(
+        'node not found on the remote PATH, login shell, or common install locations (nvm / fnm / Homebrew / volta)',
+      ),
+      guidance: t('Install Node.js 20 or newer on the remote machine, then retry'),
+    },
+    archUnsupported: {
+      label: t('Unsupported architecture'),
+      detail: t('No bundled host build for this remote architecture'),
+      guidance: t('Run `npm i -g termpro-host` on the remote machine, then retry'),
+    },
+    deployFailed: {
+      label: t('Deploy failed'),
+      detail: t('Host bundle upload interrupted (network / disk / permissions)'),
+    },
+    startFailed: {
+      label: t('Start failed'),
+      detail: t('Remote host process failed to start'),
+    },
+    incompatible: {
+      label: t('Incompatible version'),
+      detail: t('Remote host protocol version is incompatible with this app · disconnected'),
+    },
+    internal: {
+      label: t('Internal error'),
+      detail: t('Connection orchestration error (see app logs)'),
+    },
+  };
+}
+
+/** 单条查询 + 兜底(UI 徽标兜底 unreachable;测试态调用点自定 'auth') */
+export function failReasonCopy(
+  reason: string | null | undefined,
+  fallback: FailReason = 'unreachable',
+): FailReasonCopy {
+  const m = failReasonCopyMap();
+  return m[reason as FailReason] ?? m[fallback];
+}

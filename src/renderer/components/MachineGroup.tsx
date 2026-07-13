@@ -1,7 +1,7 @@
 // 机器分组头(BL-004 · AC-1/AC-2/AC-8/AC-10/AC-11)。移植自设计预览
 // docs/design/preview-project/src/main.jsx L199-279(MachineGroup)。
 // 与预览的关键差异:runtime 直接吃真实 useRemoteHostRuntimeStore.runtime[configId](BL-003 事件面),
-// 失败文案改用 shared/remoteHost.ts 的 FAIL_REASON_COPY 单源(而非预览本地字面量)。
+// 失败文案改用 shared/remoteHost.ts 的 failReasonCopy 单源(而非预览本地字面量)。
 
 import './Sidebar.css';
 import {
@@ -9,22 +9,26 @@ import {
   SessionBadge,
   type MachineWorkspaceRowData,
 } from './MachineWorkspaceRow';
-import { FAIL_REASON_COPY, type RemoteEvent } from '../../shared/remoteHost';
+import { failReasonCopy, type RemoteEvent } from '../../shared/remoteHost';
 import { t } from '../../shared/i18n';
 
 /**
- * 连接生命周期(AC-8)进行中各态的徽标文案。
- * 🔴 镜像 `components/settings/RemoteHostsPage.tsx` 内同名常量的文案(非同一 JS 引用——
- * 该常量未从 RemoteHostsPage 导出,且改它不在本 Feature write scope 内);两处均由
- * shared/remoteHost.ts 的 RemoteStage 枚举驱动,新增/改 stage 文案需同步两处,防措辞漂移。
+ * 连接生命周期(AC-8)进行中各态的徽标文案。调用期取词(模块级 t() 常量会被
+ * 冻结在导入期语言,语言切换/持久化偏好均不生效)。
+ * 🔴 镜像 `components/settings/RemoteHostsPage.tsx` 内同名函数的文案(非同一 JS 引用);
+ * 两处均由 shared/remoteHost.ts 的 RemoteStage 枚举驱动,新增/改 stage 文案需同步两处,
+ * 防措辞漂移。
  */
-const CONNECT_STAGE_LABEL: Record<string, string> = {
-  connecting: t('Connecting…'),
-  deploying: t('Deploying…'),
-  starting: t('Starting host…'),
-  claiming: t('Claiming…'),
-  verifying: t('Verifying handshake…'),
-};
+function connectStageLabel(stage: string): string {
+  const labels: Record<string, string> = {
+    connecting: t('Connecting…'),
+    deploying: t('Deploying…'),
+    starting: t('Starting host…'),
+    claiming: t('Claiming…'),
+    verifying: t('Verifying handshake…'),
+  };
+  return labels[stage] ?? t('Connecting…');
+}
 
 /** 组头折叠三角(disclosure):展开=向下,折叠=向右(CSS rotate)。 */
 export function MachineChevron({ collapsed }: { collapsed: boolean }) {
@@ -198,7 +202,7 @@ export function MachineGroup({
 
   function renderRuntimeStatus(rt: RemoteEvent) {
     if (rt.stage === 'failed') {
-      const reason = FAIL_REASON_COPY[rt.reason ?? 'unreachable'] ?? FAIL_REASON_COPY.unreachable;
+      const reason = failReasonCopy(rt.reason);
       return (
         <span
           className="sidebar-machine-status sidebar-machine-status--fail"
@@ -214,7 +218,7 @@ export function MachineGroup({
         </span>
       );
     }
-    const label = CONNECT_STAGE_LABEL[rt.stage] ?? t('Connecting…');
+    const label = connectStageLabel(rt.stage);
     const pct =
       rt.stage === 'deploying' && typeof rt.percent === 'number' ? ` ${rt.percent}%` : '';
     return (
