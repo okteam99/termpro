@@ -25,6 +25,7 @@ import {
   shouldBypassExitConfirmation,
 } from './exitConfirmation';
 import { installExternalUrlPolicy } from './externalUrlPolicy';
+import { createRendererRecovery } from './rendererRecovery';
 import { initUpdater } from './updater';
 import { registerRemoteHostIpc } from './remote/remoteHostIpc';
 import { RemoteHostOrchestrator } from './remote/orchestrator';
@@ -725,6 +726,21 @@ const createWindow = () => {
     );
   }
 
+  // 🔴 renderer 崩溃自愈(黑屏事故 2026-07-14):renderer 进程没了 Electron 不会重载窗口,
+  // 不接这个事件就是永久黑屏。事故类退出自动 reload——本地会话由 standalone host detach
+  // 续跑,reload 后 hydrate → readopt 回放,内容不丢;5 分钟超 3 次视为崩溃循环,停手
+  // 留给用户 ⌘R(决策与限频逻辑在 rendererRecovery,per-window 计数)。
+  const rendererRecovery = createRendererRecovery();
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    const decision = rendererRecovery.decide(details);
+    console.error(
+      `[main] renderer gone reason=${details.reason} exitCode=${details.exitCode} → ${decision}`,
+    );
+    if (decision === 'reload' && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload();
+    }
+  });
+
   mainWin = mainWindow;
   mainWindow.on('close', (event) => {
     exitLifecycle.handleWindowClose(event, mainWindow);
@@ -733,6 +749,15 @@ const createWindow = () => {
     if (mainWin === mainWindow) mainWin = null;
   });
 };
+
+// 子进程(GPU/network/utility)异常退出留现场:此类事故(尤其睡眠/唤醒期间)在系统
+// unified log 常是空窗,事后无从取证——黑屏事故 2026-07-14 只能靠进程树反推。只记日志
+// 不干预:GPU/网络服务 Chromium 会自行重启,host(utility)已有 exit 处理(host:down)。
+app.on('child-process-gone', (_event, details) => {
+  console.error(
+    `[main] child process gone type=${details.type} reason=${details.reason} exitCode=${details.exitCode} name=${details.name ?? ''}`,
+  );
+});
 
 app.on('ready', () => {
   // locale = 存档偏好(ui.locale)优先,缺省随系统(en 为源文案,zh 查字典)——
