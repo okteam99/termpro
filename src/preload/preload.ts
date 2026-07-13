@@ -5,6 +5,7 @@ import type {
   RemoteEvent,
   RemoteHostConfig,
   RemoteHostConfigInput,
+  RemoteTunnelInfo,
   TestResult,
 } from '../shared/remoteHost';
 
@@ -153,6 +154,10 @@ contextBridge.exposeInMainWorld('termpro', {
     },
     disconnect(payload: { id: string }): void {
       ipcRenderer.send(REMOTE_HOST_CHANNELS.disconnect, payload);
+    },
+    /** 已就绪会话的本地转发隧道(查看器窗口直连远程 host 用);未连接 → null */
+    getTunnel(payload: { id: string }): Promise<RemoteTunnelInfo | null> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.tunnel, payload);
     },
     /** 订阅远程机连接生命周期事件,返回退订函数 */
     onEvent(callback: (e: RemoteEvent) => void): () => void {

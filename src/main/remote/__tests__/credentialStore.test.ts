@@ -73,10 +73,12 @@ describe('AC-3 CredentialStore', () => {
     const rawConfig = fs.readFileSync(path.join(tmpDir, 'remote-hosts.json'), 'utf8');
     expect(rawConfig).not.toContain('PRIVATE KEY');
 
-    // IPC 面只有 REMOTE_HOST_CHANNELS 枚举的这些通道——无 get-secret / read-password 之类
+    // IPC 面只有 REMOTE_HOST_CHANNELS 枚举的这些通道——无 get-secret / read-password 之类。
+    // tunnel 返回的是「已就绪会话的本地转发端口 + 隧道 capability token」(查看器窗口
+    // 直连 host 用),不触碰 SSH 密码/passphrase/私钥等存储凭据,不违背 AC-3。
     const channelNames = Object.keys(REMOTE_HOST_CHANNELS);
     expect(channelNames.sort()).toEqual(
-      ['list', 'save', 'delete', 'test', 'connect', 'disconnect', 'event'].sort(),
+      ['list', 'save', 'delete', 'test', 'connect', 'disconnect', 'event', 'tunnel'].sort(),
     );
     expect(channelNames.some((n) => /secret|password|passphrase/i.test(n))).toBe(false);
   });

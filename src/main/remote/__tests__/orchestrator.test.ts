@@ -1038,3 +1038,33 @@ describe('🔴 E9 disconnect() 有界超时,不长阻塞', () => {
     expect(elapsed).toBeLessThan(9_000);
   }, 15_000);
 });
+
+describe('tunnelFor(查看器窗口按需取隧道 · remoteHost:tunnel)', () => {
+  it('ready 会话 → 返回与 verifying 事件一致的 localPort+token;未知/未连接 → null', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    expect(h.orchestrator.tunnelFor('vps-hk')).toBeNull(); // 未连接
+    expect(h.orchestrator.tunnelFor('no-such-id')).toBeNull(); // 未知 id
+
+    await h.orchestrator.connect('vps-hk');
+
+    const verifying = h.events.find((e) => e.stage === 'verifying' && e.tunnel);
+    const tunnel = h.orchestrator.tunnelFor('vps-hk');
+    expect(tunnel).not.toBeNull();
+    expect(tunnel).toEqual(verifying?.tunnel);
+  });
+
+  it('断开后回到 null(token 不外泄给后续查询)', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+    expect(h.orchestrator.tunnelFor('vps-hk')).not.toBeNull();
+
+    await h.orchestrator.disconnect('vps-hk');
+    expect(h.orchestrator.tunnelFor('vps-hk')).toBeNull();
+  });
+});

@@ -2,6 +2,7 @@ import type {
   RemoteEvent,
   RemoteHostConfig,
   RemoteHostConfigInput,
+  RemoteTunnelInfo,
   TestResult,
 } from '../shared/remoteHost';
 
@@ -73,6 +74,8 @@ declare global {
         test(payload: { id: string }): Promise<TestResult>;
         connect(payload: { id: string }): void;
         disconnect(payload: { id: string }): void;
+        /** 已就绪会话的本地转发隧道(查看器窗口直连远程 host 用);未连接 → null */
+        getTunnel(payload: { id: string }): Promise<RemoteTunnelInfo | null>;
         onEvent(callback: (e: RemoteEvent) => void): () => void;
       };
     };

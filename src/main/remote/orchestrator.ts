@@ -23,6 +23,7 @@ import type {
   RemoteHostConfig,
   RemotePortFile,
   RemoteStage,
+  RemoteTunnelInfo,
   TestResult,
 } from '../../shared/remoteHost';
 import type { ConnectSsh, SshAuth, SshConnectionLike } from './ssh';
@@ -338,6 +339,19 @@ export class RemoteHostOrchestrator {
     });
     this.mutex.set(configId, tracked);
     return tracked;
+  }
+
+  /**
+   * 已就绪会话的本地转发隧道(查看器窗口直连远程 host 用 · remoteHost:tunnel)。
+   * 仅 stage==='ready' 返回;其余阶段(含 verifying——版本确认未过)一律 null,
+   * 调用方按「远程机未连接」处理。按需拉取而非事件广播,呼应 E8:token 不落
+   * 无关窗口,只在某窗口确要建连时给它。
+   */
+  tunnelFor(configId: string): RemoteTunnelInfo | null {
+    const session = this.sessions.get(configId);
+    if (!session || session.stage !== 'ready') return null;
+    if (session.localPort === null || session.token === null) return null;
+    return { localPort: session.localPort, token: session.token };
   }
 
   onEvent(cb: (e: RemoteEvent) => void): () => void {

@@ -86,12 +86,20 @@ export function registerRemoteHostIpc(
     void orchestrator.disconnect(payload.id);
   });
 
+  // 查看器窗口直连远程 host 的按需隧道查询(仅 ready 会话返回 localPort+token,
+  // 其余 null)。与 E8 的口径互补:token 不随事件广播落无关窗口,由确要建连的
+  // 窗口主动拉取;拿到 token 也只等价于「能连本机 127.0.0.1 转发端口」这一能力。
+  ipcMain.handle(REMOTE_HOST_CHANNELS.tunnel, (_event, payload: { id: string }) => {
+    return orchestrator.tunnelFor(payload.id);
+  });
+
   return () => {
     unsubscribeEvents();
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.list);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.save);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.delete);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.test);
+    ipcMain.removeHandler(REMOTE_HOST_CHANNELS.tunnel);
     ipcMain.removeAllListeners(REMOTE_HOST_CHANNELS.connect);
     ipcMain.removeAllListeners(REMOTE_HOST_CHANNELS.disconnect);
   };

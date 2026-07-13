@@ -32,6 +32,12 @@ export type FailReason =
 /** 远端架构标签（bundle 目录名 · uname 归一化目标）。 */
 export type HostArch = 'darwin-arm64' | 'linux-x64' | 'linux-arm64';
 
+/** 已就绪会话的本地转发隧道（renderer 直连 host 用 · localPort + capability token）。 */
+export interface RemoteTunnelInfo {
+  localPort: number;
+  token: string;
+}
+
 /** main→renderer 事件 DTO（单向 · 经 remoteHost:event 推送）。 */
 export interface RemoteEvent {
   configId: string;
@@ -44,7 +50,7 @@ export interface RemoteEvent {
   /** 探测到的远端架构（AC-4 呼应「已探测远端架构」行） */
   arch?: HostArch;
   /** 仅 verifying 就绪时携带：renderer 经此本地转发端口 + token 做版本二次确认 */
-  tunnel?: { localPort: number; token: string };
+  tunnel?: RemoteTunnelInfo;
   /** AC-13：跳过上传 / 认领驻留进程走的快路径 */
   fastPath?: boolean;
 }
@@ -112,6 +118,7 @@ export const REMOTE_HOST_CHANNELS = {
   connect: 'remoteHost:connect',
   disconnect: 'remoteHost:disconnect',
   event: 'remoteHost:event',
+  tunnel: 'remoteHost:tunnel',
 } as const;
 
 /** 失败分类文案单源（renderer 经 failReasonCopy 取词 · UI.md 呈现口径）。 */
