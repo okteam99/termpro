@@ -590,6 +590,34 @@
   opacity: 0.8;
 }
 
+/* 组头可点(展开/折叠):整行热区,拖选文字无意义故禁选 */
+.sidebar-machine-header--clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-machine-header--clickable:hover {
+  color: var(--fg);
+}
+
+/* 折叠三角:展开=向下,折叠=向右旋 */
+.sidebar-machine-chevron {
+  flex: none;
+  display: block;
+  opacity: 0.7;
+  transition: transform 0.12s ease;
+}
+
+.sidebar-machine-chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+/* 折叠态组头内联注意力小丸(行内变体:去掉行内绝对定位语义) */
+.sidebar-attention-pill--inline {
+  position: static;
+  flex: none;
+}
+
 /* 机器名不撑开(圆点/延迟紧随其后);超长由 JS 截断 10 字符,这里仅留收缩兜底 */
 .sidebar-machine-label {
   flex: 0 1 auto;

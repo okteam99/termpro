@@ -6,6 +6,7 @@
 import './Sidebar.css';
 import {
   MachineWorkspaceRow,
+  SessionBadge,
   type MachineWorkspaceRowData,
 } from './MachineWorkspaceRow';
 import { FAIL_REASON_COPY, type RemoteEvent } from '../../shared/remoteHost';
@@ -24,6 +25,40 @@ const CONNECT_STAGE_LABEL: Record<string, string> = {
   claiming: t('Claiming…'),
   verifying: t('Verifying handshake…'),
 };
+
+/** 组头折叠三角(disclosure):展开=向下,折叠=向右(CSS rotate)。 */
+export function MachineChevron({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      className={`sidebar-machine-chevron${collapsed ? ' sidebar-machine-chevron--collapsed' : ''}`}
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+/** 折叠态组头的聚合会话徽标输入:全组 workspace 的 tab/running 计数求和。 */
+export function aggregateBadge(rows: MachineWorkspaceRowData[]): {
+  tabCount: number;
+  tabRunning: number;
+} {
+  let tabCount = 0;
+  let tabRunning = 0;
+  for (const r of rows) {
+    tabCount += r.tabCount;
+    tabRunning += r.tabRunning ?? 0;
+  }
+  return { tabCount, tabRunning };
+}
 
 /** 本机组头图标:显示器(与远程的云图标区分机器类别) */
 export function LocalMachineIcon() {
@@ -111,6 +146,10 @@ export interface MachineGroupProps {
   onAddWorkspace?: (machineId: string) => void;
   /** BL-005 AC-6:reconnecting 态「立即重试」→ reconnectController.manualRetry(复位退避即刻再试) */
   onManualRetry?: (machineId: string) => void;
+  /** 折叠该机器分组(隐藏其全部 workspace 行;组头显示聚合会话徽标) */
+  collapsed?: boolean;
+  /** 点组头切换折叠;缺省组头不可点(测试/旧调用零变化) */
+  onToggleCollapse?: (machineId: string) => void;
 }
 
 export function MachineGroup({
@@ -122,6 +161,8 @@ export function MachineGroup({
   onRenameWorkspace,
   onAddWorkspace,
   onManualRetry,
+  collapsed = false,
+  onToggleCollapse,
 }: MachineGroupProps) {
   const isRemote = machine.kind === 'remote';
   const runtime = machine.runtime;
@@ -141,7 +182,10 @@ export function MachineGroup({
           title={reason.detail}
         >
           <span className="sidebar-machine-status-text">✗ {reason.label}</span>
-          <button className="sidebar-machine-connect" onClick={() => onRetry?.(machine.id)}>
+          <button
+            className="sidebar-machine-connect"
+            onClick={(e) => { e.stopPropagation(); onRetry?.(machine.id); }}
+          >
             {t('Retry')}
           </button>
         </span>
@@ -159,8 +203,13 @@ export function MachineGroup({
     );
   }
 
-  // machine.workspaces===null = 未连接分支(AC-1);!==null(含空数组)= 已连接分支渲染行(可能 0 行)
+  // machine.workspaces===null = 未连接分支(AC-1);!==null(含空数组)= 已连接分支渲染行(可能 0 行);
+  // collapsed = 用户折叠(组体整体不渲染,组头聚合徽标兜底可见性)
   const showWorkspaces = machine.workspaces !== null && !machine.foldedLost;
+  const agg =
+    collapsed && machine.workspaces && machine.workspaces.length > 0
+      ? aggregateBadge(machine.workspaces)
+      : null;
 
   // 机器名最多 10 个字符,超出截断加省略号(全名在组头 title=addr 悬浮可见)
   const rawName = isRemote ? (machine.alias ?? '') : (machine.label ?? t('Local'));
@@ -168,11 +217,17 @@ export function MachineGroup({
 
   return (
     <div className={groupClasses} data-testid="machine-group" data-machine-id={machine.id}>
-      <div className="sidebar-machine-header" title={isRemote ? machine.addr : undefined}>
+      <div
+        className={`sidebar-machine-header${onToggleCollapse ? ' sidebar-machine-header--clickable' : ''}`}
+        title={isRemote ? machine.addr : undefined}
+        onClick={onToggleCollapse ? () => onToggleCollapse(machine.id) : undefined}
+      >
+        {onToggleCollapse && <MachineChevron collapsed={collapsed} />}
         {isRemote ? <RemoteMachineIcon /> : <LocalMachineIcon />}
         <span className="sidebar-machine-label" title={rawName}>
           {displayName}
         </span>
+        {agg && <SessionBadge ws={agg} />}
         {/* connected 且有 RTT:单一小圆点并入延迟单元(圆点=毫秒数同色,按分级上色);
             其余状态维持原语义状态圆点 */}
         {isRemote && machine.status === 'connected' && machine.rttMs !== undefined ? (
@@ -201,12 +256,18 @@ export function MachineGroup({
         )}
         {isRemote && machine.status !== 'reconnecting' && runtime && renderRuntimeStatus(runtime)}
         {isRemote && !runtime && machine.foldedLost && (
-          <button className="sidebar-machine-connect" onClick={() => onConnect?.(machine.id)}>
+          <button
+            className="sidebar-machine-connect"
+            onClick={(e) => { e.stopPropagation(); onConnect?.(machine.id); }}
+          >
             {t('Reconnect')}
           </button>
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'disconnected' && (
-          <button className="sidebar-machine-connect" onClick={() => onConnect?.(machine.id)}>
+          <button
+            className="sidebar-machine-connect"
+            onClick={(e) => { e.stopPropagation(); onConnect?.(machine.id); }}
+          >
             {t('Connect')}
           </button>
         )}
@@ -214,31 +275,32 @@ export function MachineGroup({
           <span className="sidebar-machine-connecting">{t('Connecting…')}</span>
         )}
       </div>
-      {showWorkspaces && machine.workspaces ? (
-        machine.workspaces.length > 0 ? (
-          machine.workspaces.map((ws) => (
-            <MachineWorkspaceRow
-              key={ws.id}
-              ws={ws}
-              onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
-              onRemove={onRemoveWorkspace ? () => onRemoveWorkspace(machine, ws) : undefined}
-              onRename={onRenameWorkspace ? () => onRenameWorkspace(machine, ws) : undefined}
-            />
-          ))
+      {!collapsed &&
+        (showWorkspaces && machine.workspaces ? (
+          machine.workspaces.length > 0 ? (
+            machine.workspaces.map((ws) => (
+              <MachineWorkspaceRow
+                key={ws.id}
+                ws={ws}
+                onClick={onSelectWorkspace ? () => onSelectWorkspace(machine, ws) : undefined}
+                onRemove={onRemoveWorkspace ? () => onRemoveWorkspace(machine, ws) : undefined}
+                onRename={onRenameWorkspace ? () => onRenameWorkspace(machine, ws) : undefined}
+              />
+            ))
+          ) : (
+            // 已连接但 0 个 workspace:此前什么都不渲染(看似没反应)→ 给「添加项目」入口
+            <button
+              className="sidebar-machine-empty sidebar-machine-empty--action"
+              onClick={() => onAddWorkspace?.(machine.id)}
+            >
+              {t('No projects on this machine yet · Add one')}
+            </button>
+          )
         ) : (
-          // 已连接但 0 个 workspace:此前什么都不渲染(看似没反应)→ 给「添加项目」入口
-          <button
-            className="sidebar-machine-empty sidebar-machine-empty--action"
-            onClick={() => onAddWorkspace?.(machine.id)}
-          >
-            {t('No projects on this machine yet · Add one')}
-          </button>
-        )
-      ) : (
-        <div className="sidebar-machine-empty">
-          {machine.emptyLabel ?? t('Not connected · Connect to see its workspaces')}
-        </div>
-      )}
+          <div className="sidebar-machine-empty">
+            {machine.emptyLabel ?? t('Not connected · Connect to see its workspaces')}
+          </div>
+        ))}
     </div>
   );
 }

@@ -115,6 +115,8 @@ interface PersistedUi {
   filePanelWidth?: number;
   /** 向上滚动时固定底部输入栏(默认关) */
   pinBottomBar?: boolean;
+  /** Sidebar 折叠中的机器分组('local' | configId);展开为默认态,不入存档 */
+  collapsedMachines?: string[];
 }
 
 /** v1 存档(version:1):未迁移或迁移失败 fallback 的全功能形态 */
@@ -229,6 +231,9 @@ export interface AppState {
   /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
   pinBottomBar: boolean;
   setPinBottomBar(value: boolean): void;
+  /** Sidebar 折叠中的机器分组 id 集('local' | configId),随 ui 存档持久化 */
+  collapsedMachines: string[];
+  toggleMachineCollapsed(machineId: string): void;
 }
 
 
@@ -368,6 +373,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: archive.ui.sidebarWidth ?? 240,
         filePanelWidth: archive.ui.filePanelWidth ?? 280,
         pinBottomBar: archive.ui.pinBottomBar ?? false,
+        collapsedMachines: archive.ui.collapsedMachines ?? [],
       });
     }
 
@@ -777,6 +783,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPinBottomBar(value) {
     set({ pinBottomBar: value });
+  },
+
+  collapsedMachines: [],
+
+  toggleMachineCollapsed(machineId) {
+    set((s) => ({
+      collapsedMachines: s.collapsedMachines.includes(machineId)
+        ? s.collapsedMachines.filter((id) => id !== machineId)
+        : [...s.collapsedMachines, machineId],
+    }));
   },
 
   notifications: [],

@@ -114,6 +114,8 @@ export function serialize(s: AppState): PersistedState {
     sidebarWidth: s.sidebarWidth,
     filePanelWidth: s.filePanelWidth,
     pinBottomBar: s.pinBottomBar,
+    // 空集不写盘(存档整洁;缺省即全展开)
+    ...(s.collapsedMachines.length > 0 ? { collapsedMachines: s.collapsedMachines } : {}),
   };
 
   // 🔴 D-6/ARCH-2:远程 ws(hostId!=='local')是纯视图态,v1+v2 两分支都不写盘——

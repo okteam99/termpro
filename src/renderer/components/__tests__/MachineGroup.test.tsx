@@ -262,3 +262,57 @@ describe('MachineGroup · 断线两段式回落(AC-11/D-8)', () => {
     expect(onConnect).toHaveBeenCalledWith('cfg-1');
   });
 });
+
+describe('MachineGroup · 展开/折叠(用户需求 2026-07-13)', () => {
+  const connected = (): MachineInfo =>
+    remoteMachine({
+      status: 'connected',
+      rttMs: 114,
+      workspaces: [
+        { id: 'w1', name: 'aon-main', meta: 'm1', active: false, tabCount: 2, tabRunning: 1 },
+        { id: 'w2', name: 'okok', meta: 'm2', active: true, tabCount: 3 },
+      ],
+    });
+
+  it('点组头 → onToggleCollapse(machineId);缺省不传则组头不可点(零回归)', () => {
+    const onToggle = vi.fn();
+    const { container, rerender } = render(
+      <MachineGroup machine={connected()} onToggleCollapse={onToggle} />,
+    );
+    fireEvent.click(container.querySelector('.sidebar-machine-header')!);
+    expect(onToggle).toHaveBeenCalledWith('cfg-1');
+
+    rerender(<MachineGroup machine={connected()} />);
+    expect(container.querySelector('.sidebar-machine-header--clickable')).toBeNull();
+    expect(container.querySelector('.sidebar-machine-chevron')).toBeNull();
+  });
+
+  it('collapsed:隐藏全部 workspace 行,组头显聚合徽标(tab 求和 · running 求和)', () => {
+    render(
+      <MachineGroup machine={connected()} collapsed onToggleCollapse={() => {}} />,
+    );
+    expect(screen.queryByText('aon-main')).not.toBeInTheDocument();
+    expect(screen.queryByText('okok')).not.toBeInTheDocument();
+    // aggregateBadge:tabCount=5 · running=1(SessionBadge aria-label 单源 formatTabBadge)
+    expect(screen.getByLabelText('5 session · 1 running')).toBeInTheDocument();
+  });
+
+  it('collapsed 未连接组:隐藏「未连接」提示,组头 Connect 按钮仍在且点击不触发折叠切换', () => {
+    const onToggle = vi.fn();
+    const onConnect = vi.fn();
+    render(
+      <MachineGroup
+        machine={remoteMachine()}
+        collapsed
+        onToggleCollapse={onToggle}
+        onConnect={onConnect}
+      />,
+    );
+    expect(
+      screen.queryByText('Not connected · Connect to see its workspaces'),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(onConnect).toHaveBeenCalledWith('cfg-1');
+    expect(onToggle).not.toHaveBeenCalled(); // stopPropagation:按钮点击不折叠
+  });
+});

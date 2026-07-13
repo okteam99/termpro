@@ -17,7 +17,13 @@ import { RenameModal } from './RenameModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SettingsEntry } from './SettingsEntry';
 import { AddWorkspaceModal } from './AddWorkspaceModal';
-import { LocalMachineIcon, MachineGroup, type MachineInfo } from './MachineGroup';
+import {
+  LocalMachineIcon,
+  MachineChevron,
+  MachineGroup,
+  aggregateBadge,
+  type MachineInfo,
+} from './MachineGroup';
 import {
   PencilIcon,
   SessionBadge,
@@ -155,6 +161,8 @@ export function Sidebar() {
   const renameWorkspace = useAppStore((s) => s.renameWorkspace);
   const moveWorkspace = useAppStore((s) => s.moveWorkspace);
   const notifications = useAppStore((s) => s.notifications);
+  const collapsedMachines = useAppStore((s) => s.collapsedMachines);
+  const toggleMachineCollapsed = useAppStore((s) => s.toggleMachineCollapsed);
 
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
   const reconnectingMap = useRemoteHostRuntimeStore((s) => s.reconnecting);
@@ -603,11 +611,34 @@ export function Sidebar() {
           machine.kind === 'local' ? (
             machine.workspaces && machine.workspaces.length > 0 ? (
               <div key={machine.id} className="sidebar-machine-group" data-testid="machine-group" data-machine-id="local">
-                <div className="sidebar-machine-header">
+                <div
+                  className="sidebar-machine-header sidebar-machine-header--clickable"
+                  onClick={() => toggleMachineCollapsed('local')}
+                >
+                  <MachineChevron collapsed={collapsedMachines.includes('local')} />
                   <LocalMachineIcon />
                   <span className="sidebar-machine-label">{machine.label}</span>
+                  {/* 折叠态兜底可见性:聚合会话徽标 + 全组注意力小丸 */}
+                  {collapsedMachines.includes('local') && (
+                    <>
+                      <SessionBadge ws={aggregateBadge(machine.workspaces)} />
+                      {(() => {
+                        const attention = localWorkspaces.reduce(
+                          (n, w) =>
+                            n + w.tabs.filter((tab) => tab.waiting || tab.unseenDone).length,
+                          0,
+                        );
+                        return attention > 0 ? (
+                          <span className="sidebar-attention-pill sidebar-attention-pill--inline">
+                            {attention}
+                          </span>
+                        ) : null;
+                      })()}
+                    </>
+                  )}
                 </div>
-                {machine.workspaces.map((row, idx) => {
+                {!collapsedMachines.includes('local') &&
+                machine.workspaces.map((row, idx) => {
                   const ws = localWorkspaces[idx];
                   const isDragging = ws.id === draggingId;
                   return (
@@ -663,6 +694,8 @@ export function Sidebar() {
             <MachineGroup
               key={machine.id}
               machine={machine}
+              collapsed={collapsedMachines.includes(machine.id)}
+              onToggleCollapse={toggleMachineCollapsed}
               onConnect={handleConnectMachine}
               onRetry={handleConnectMachine}
               onManualRetry={(id) => reconnectController.manualRetry(id)}
