@@ -206,3 +206,51 @@ describe('E8 remoteHost:event 只推给 getMainWindow() 返回的窗口', () => 
     await expect(orchestrator.connect('vps-hk')).resolves.toBeUndefined();
   });
 });
+
+describe('remoteHost:tunnel 请求方归属校验(P2-1 纵深防御)', () => {
+  it('谓词拒绝的请求方拿到 null(不触达 orchestrator);放行的请求方走 tunnelFor', () => {
+    const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
+    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const orchestrator = makeOrchestrator(credentials, configStore);
+    const tunnelFor = vi
+      .spyOn(orchestrator, 'tunnelFor')
+      .mockReturnValue({ localPort: 50000, token: 'tok' });
+
+    const allowedSender = { id: 1 };
+    registerRemoteHostIpc(
+      orchestrator,
+      credentials,
+      configStore,
+      () => null,
+      (sender, configId) => sender === (allowedSender as never) && configId === 'cfg-1',
+    );
+    const fake = ipcMain as unknown as FakeIpcMain;
+    const tunnelHandler = fake.__handlers.get(REMOTE_HOST_CHANNELS.tunnel)!;
+
+    // 非归属窗口(sender 不匹配)→ null,且不泄露「会话是否存在」(不触达 tunnelFor)
+    expect(tunnelHandler({ sender: { id: 2 } }, { id: 'cfg-1' })).toBeNull();
+    // 归属窗口但请求别台机器的 token(configId 不匹配)→ null
+    expect(tunnelHandler({ sender: allowedSender }, { id: 'cfg-2' })).toBeNull();
+    expect(tunnelFor).not.toHaveBeenCalled();
+
+    // 归属窗口 + 本机器 → 放行到 tunnelFor
+    expect(tunnelHandler({ sender: allowedSender }, { id: 'cfg-1' })).toEqual({
+      localPort: 50000,
+      token: 'tok',
+    });
+    expect(tunnelFor).toHaveBeenCalledWith('cfg-1');
+  });
+
+  it('未传谓词(测试桩场景)→ 不校验,直接走 tunnelFor', () => {
+    const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
+    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const orchestrator = makeOrchestrator(credentials, configStore);
+    vi.spyOn(orchestrator, 'tunnelFor').mockReturnValue(null);
+    registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
+
+    const fake = ipcMain as unknown as FakeIpcMain;
+    const tunnelHandler = fake.__handlers.get(REMOTE_HOST_CHANNELS.tunnel)!;
+    expect(tunnelHandler({ sender: {} }, { id: 'cfg-1' })).toBeNull();
+    expect(orchestrator.tunnelFor).toHaveBeenCalledWith('cfg-1');
+  });
+});

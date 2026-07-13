@@ -24,12 +24,20 @@ interface SavePayload {
  *   Settings/RemoteHostsPage 只存在于主窗口,故只需推给主窗口;调用方传入取「当前
  *   主窗口」的 getter(不能传入固定引用——注册时主窗口可能尚未创建,getter 保证
  *   每次事件触发时都取到最新值)。
+ * @param isTunnelSenderAllowed 纵深防御(E8 同族):tunnel 查询的请求方归属校验——
+ *   只有主窗口或「该 configId 自己的」查看器窗口该拿到 token,查看器窗口 A 不得
+ *   拉取 host B 的 token。不匹配返回 null(与「未连接」不可区分,不泄露存在性)。
+ *   缺省不校验 = 信任所有一方渲染进程(测试桩用;生产 main.ts 必须传)。
  */
 export function registerRemoteHostIpc(
   orchestrator: RemoteHostOrchestrator,
   credentials: CredentialStore,
   configStore: HostConfigStore,
   getMainWindow: () => Electron.BrowserWindow | null | undefined,
+  isTunnelSenderAllowed?: (
+    sender: Electron.WebContents,
+    configId: string,
+  ) => boolean,
 ): () => void {
   const unsubscribeEvents = orchestrator.onEvent((event) => {
     const win = getMainWindow();
@@ -89,7 +97,10 @@ export function registerRemoteHostIpc(
   // 查看器窗口直连远程 host 的按需隧道查询(仅 ready 会话返回 localPort+token,
   // 其余 null)。与 E8 的口径互补:token 不随事件广播落无关窗口,由确要建连的
   // 窗口主动拉取;拿到 token 也只等价于「能连本机 127.0.0.1 转发端口」这一能力。
-  ipcMain.handle(REMOTE_HOST_CHANNELS.tunnel, (_event, payload: { id: string }) => {
+  ipcMain.handle(REMOTE_HOST_CHANNELS.tunnel, (event, payload: { id: string }) => {
+    if (isTunnelSenderAllowed && !isTunnelSenderAllowed(event.sender, payload.id)) {
+      return null;
+    }
     return orchestrator.tunnelFor(payload.id);
   });
 

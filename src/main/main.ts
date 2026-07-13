@@ -144,7 +144,21 @@ const remoteHostOrchestrator = new RemoteHostOrchestrator({
 });
 // E8:事件(含 verifying 阶段的隧道 token)只推给主窗口——getter 而非固定引用,
 // 因为此刻主窗口可能尚未创建(createWindow() 在 app.on('ready') 里才跑)。
-registerRemoteHostIpc(remoteHostOrchestrator, remoteHostCredentials, remoteHostConfigStore, () => mainWin);
+registerRemoteHostIpc(
+  remoteHostOrchestrator,
+  remoteHostCredentials,
+  remoteHostConfigStore,
+  () => mainWin,
+  // tunnel 请求方归属校验(P2-1 纵深防御):token 只发给主窗口(管理面)、该 hostId
+  // 自己的文件查看器窗口、或正在展示该 host diff 的模态窗;其余一律 null。
+  (sender, configId) => {
+    const win = BrowserWindow.fromWebContents(sender);
+    if (!win) return false;
+    if (win === mainWin) return true;
+    if (win === fileWins.get(configId)) return true;
+    return win === diffWin && configId === diffWinHostId;
+  },
+);
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();
 });
@@ -434,7 +448,14 @@ function openFileWindow(
   });
 }
 
+// diff 模态当前服务的 hostId(本机 diff = null):tunnel 请求方归属校验用——
+// host A 的 diff 窗口不得拉取 host B 的 token(P2-1 纵深防御)。
+let diffWinHostId: string | null = null;
+
 function openDiffWindow(payload: unknown): void {
+  const payloadHostId = (payload as { hostId?: string } | undefined)?.hostId;
+  diffWinHostId =
+    typeof payloadHostId === 'string' && payloadHostId ? payloadHostId : null;
   diffWin = new BrowserWindow({
     // 模态:macOS 下呈现为挂在主窗口的 sheet
     parent: mainWin ?? undefined,
@@ -460,6 +481,7 @@ function openDiffWindow(payload: unknown): void {
   });
   diffWin.on('closed', () => {
     diffWin = null;
+    diffWinHostId = null;
   });
   loadViewer(diffWin, payload);
 }
