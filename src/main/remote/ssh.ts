@@ -10,6 +10,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as path from 'node:path';
+import type { Duplex } from 'node:stream';
 
 export interface SshAuth {
   username: string;
@@ -48,6 +49,10 @@ export interface SshConnectionLike {
   sftpRename(from: string, to: string): Promise<void>;
   /** 本地端口转发:127.0.0.1:localPort → 远端 127.0.0.1:remotePort。 */
   forwardOut(localPort: number, remotePort: number): net.Server;
+  /** 动态出站(浏览器 SOCKS 代理用):经 SSH direct-tcpip 打洞到远端网络任意目标。
+   *  目标主机名字符串原样交给远端 sshd 解析(远程 DNS)。resolve 于 channel 打开
+   *  (不同于 exec 的整生命周期占用 serialize 队列——长连接绝不能头阻塞后续 ssh 操作)。 */
+  openOutbound(dstHost: string, dstPort: number): Promise<Duplex>;
   /**
    * 注册连接层 close/error 监听(AC-12 断链检测 · A2):底层 ssh2 Client 的
    * 'close'/'error' 都会触发。本地转发 net.Server 并不会在 SSH 连接掉线时
@@ -377,6 +382,25 @@ export class SshConnection implements SshConnectionLike {
     });
     server.listen(localPort, '127.0.0.1');
     return server;
+  }
+
+  /**
+   * 串行化只护住「发起 channel 请求」这一下(尊 SSH-1 纪律,避免与 exec/sftp
+   * 并发抖动);channel 一旦 open 即 resolve 放行队列——浏览器一条 TCP 连接
+   * 对应一条长期存活的 channel,若像 exec 那样等 stream 结束才 resolve,会把
+   * 后续所有 ssh 操作(exec/sftp/心跳/新的 outbound)阻塞到这条浏览器连接
+   * 结束为止(头阻塞,长连接场景下是致命的)。
+   */
+  openOutbound(dstHost: string, dstPort: number): Promise<Duplex> {
+    return this.serialize(
+      () =>
+        new Promise<Duplex>((resolve, reject) => {
+          this.client.forwardOut('127.0.0.1', 0, dstHost, dstPort, (err, stream) => {
+            if (err) return reject(err);
+            resolve(stream);
+          });
+        }),
+    );
   }
 
   onClose(cb: (err?: Error) => void): void {

@@ -5,6 +5,7 @@
 import { EventEmitter } from 'node:events';
 import { vi } from 'vitest';
 import type { Server as NetServer } from 'node:net';
+import type { Duplex } from 'node:stream';
 import type { ExecResult, SshConnectionLike } from '../ssh';
 
 let fakePortSeq = 41000;
@@ -43,6 +44,9 @@ export interface RoutedSshOptions {
   /** 抛错即模拟 rename 目标已存在(ENOTEMPTY)。 */
   sftpRename?: (from: string, to: string) => void;
   forwardOut?: (localPort: number, remotePort: number) => FakeServer;
+  /** SOCKS 代理动态出站桩(未配置时 reject——本 testKit 的既有调用方均不需要它,
+   *  需要覆盖行为的测试自行传入,如注入 PassThrough 当 Duplex)。 */
+  openOutbound?: (dstHost: string, dstPort: number) => Promise<Duplex>;
   /** host key SHA-256 摘要桩(hostTag 派生源);缺省 null=未捕获(退隔离,现状行为)。 */
   hostKeyFingerprint?: Buffer | null;
 }
@@ -112,6 +116,10 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
     forwardOut: vi.fn((localPort: number, remotePort: number) => {
       const server = opts.forwardOut ? opts.forwardOut(localPort, remotePort) : new FakeServer();
       return asNetServer(server);
+    }),
+    openOutbound: vi.fn((dstHost: string, dstPort: number): Promise<Duplex> => {
+      if (opts.openOutbound) return opts.openOutbound(dstHost, dstPort);
+      return Promise.reject(new Error('RoutedSsh: openOutbound not configured for this test'));
     }),
     close: vi.fn(() => {
       closed = true;
