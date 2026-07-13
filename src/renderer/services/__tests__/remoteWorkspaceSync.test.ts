@@ -31,11 +31,11 @@ vi.mock('../../state/store', () => ({
 // 收养/恢复入口打桩:本测试只断言「注册表落地后先恢复布局、再触发收养」这两条 seam
 // (PENDING-006 + 远程 tab 布局恢复);内部逻辑由 sessionReadopt.test.ts /
 // remoteTabRestore.test.ts 单独覆盖。
-const { readoptRemoteSessions, restoreRemoteTabLayouts } = vi.hoisted(() => ({
-  readoptRemoteSessions: vi.fn(async () => undefined),
+const { readoptHostSessions, restoreRemoteTabLayouts } = vi.hoisted(() => ({
+  readoptHostSessions: vi.fn(async () => undefined),
   restoreRemoteTabLayouts: vi.fn(),
 }));
-vi.mock('../sessionReadopt', () => ({ readoptRemoteSessions, restoreRemoteTabLayouts }));
+vi.mock('../sessionReadopt', () => ({ readoptHostSessions, restoreRemoteTabLayouts }));
 
 import {
   isRemoteWorkspaceSyncing,
@@ -82,7 +82,7 @@ beforeEach(() => {
   storeMock.setHostWorkspaces.mockReset();
   storeMock.dropHostWorkspaces.mockReset();
   routeSessionEvent.mockReset();
-  readoptRemoteSessions.mockClear();
+  readoptHostSessions.mockClear();
   restoreRemoteTabLayouts.mockClear();
 });
 
@@ -114,13 +114,13 @@ describe('startRemoteWorkspaceSync:host ready 编排', () => {
 
     await startRemoteWorkspaceSync('cfg-1', 'ws://x');
 
-    expect(readoptRemoteSessions).toHaveBeenCalledWith('cfg-1');
+    expect(readoptHostSessions).toHaveBeenCalledWith('cfg-1');
     expect(restoreRemoteTabLayouts).toHaveBeenCalledWith('cfg-1');
     // 顺序钉死:setHostWorkspaces(cwd→workspace 映射素材)→ 布局恢复(sessionId 预绑定
     // 须赶在挂载 ensureSession 前 · 用户规则 2026-07)→ 收养
     const setOrder = storeMock.setHostWorkspaces.mock.invocationCallOrder[0];
     const restoreOrder = restoreRemoteTabLayouts.mock.invocationCallOrder[0];
-    const readoptOrder = readoptRemoteSessions.mock.invocationCallOrder[0];
+    const readoptOrder = readoptHostSessions.mock.invocationCallOrder[0];
     expect(setOrder).toBeLessThan(restoreOrder);
     expect(restoreOrder).toBeLessThan(readoptOrder);
   });
@@ -175,7 +175,7 @@ describe('startRemoteWorkspaceSync:host ready 编排', () => {
     await p;
 
     expect(storeMock.setHostWorkspaces).not.toHaveBeenCalled(); // 不注入 ws
-    expect(readoptRemoteSessions).not.toHaveBeenCalled(); // 注册表没落地 → 不收养(无映射素材)
+    expect(readoptHostSessions).not.toHaveBeenCalled(); // 注册表没落地 → 不收养(无映射素材)
     expect(warnSpy).toHaveBeenCalled(); // 不静默吞异常
 
     // 订阅仍照常建立(host 已连通,失败只是 list 这一拍)

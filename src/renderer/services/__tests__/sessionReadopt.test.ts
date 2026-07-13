@@ -3,11 +3,11 @@
 // ① mapSessionCwdToWorkspace:cwd→workspace 最长 root 前缀匹配(纯函数);
 // ② rebuildTabForSnapshot + store.adoptSessionTab:真 store 建 tab 回传 tabId、
 //    不抢已有 activeTabId、无归属 workspace 时跳过;
-// ③ readoptRemoteSessions:同 configId 并发调用串行化(防双重建)+ 失败不断链。
+// ③ readoptHostSessions:同 configId 并发调用串行化(防双重建)+ 失败不断链。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   mapSessionCwdToWorkspace,
-  readoptRemoteSessions,
+  readoptHostSessions,
   rebuildTabForSnapshot,
 } from '../sessionReadopt';
 import { useAppStore, type WorkspaceState } from '../../state/store';
@@ -147,7 +147,7 @@ describe('rebuildTabForSnapshot → store.adoptSessionTab(真 store)', () => {
   });
 });
 
-describe('readoptRemoteSessions:同 configId 串行化', () => {
+describe('readoptHostSessions:同 configId 串行化', () => {
   it('并发两次调用串行执行(第二轮等第一轮完成,防双重建)', async () => {
     const order: string[] = [];
     let release1!: () => void;
@@ -163,8 +163,8 @@ describe('readoptRemoteSessions:同 configId 串行化', () => {
         order.push('start-2');
       });
 
-    const p1 = readoptRemoteSessions('cfg-1', fake);
-    const p2 = readoptRemoteSessions('cfg-1', fake);
+    const p1 = readoptHostSessions('cfg-1', fake);
+    const p2 = readoptHostSessions('cfg-1', fake);
     await Promise.resolve(); // 让第一轮启动
     expect(order).toEqual(['start-1']); // 第二轮尚未进入
     release1();
@@ -179,8 +179,8 @@ describe('readoptRemoteSessions:同 configId 串行化', () => {
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValueOnce(undefined);
 
-    await readoptRemoteSessions('cfg-1', fake);
-    await readoptRemoteSessions('cfg-1', fake);
+    await readoptHostSessions('cfg-1', fake);
+    await readoptHostSessions('cfg-1', fake);
 
     expect(fake).toHaveBeenCalledTimes(2);
     expect(warnSpy).toHaveBeenCalled();
@@ -206,7 +206,7 @@ describe('readoptRemoteSessions:同 configId 串行化', () => {
       },
     );
 
-    const p = readoptRemoteSessions('cfg-1', fake as never);
+    const p = readoptHostSessions('cfg-1', fake as never);
     // 在途期间 drop:stopRemoteWorkspaceSync 的 ② dropHostWorkspaces 效果(该 host ws 全移除)
     useAppStore.setState({ workspaces: [] });
     release();
@@ -228,8 +228,8 @@ describe('readoptRemoteSessions:同 configId 串行化', () => {
       order.push('fast');
     });
 
-    const p1 = readoptRemoteSessions('cfg-1', slow);
-    const p2 = readoptRemoteSessions('cfg-2', fast);
+    const p1 = readoptHostSessions('cfg-1', slow);
+    const p2 = readoptHostSessions('cfg-2', fast);
     await Promise.resolve();
     await Promise.resolve();
     expect(order).toContain('fast'); // cfg-2 不等 cfg-1

@@ -555,7 +555,7 @@ export interface ReadoptHooks {
  * 能力位缺失(旧 host)→ 不发 list/attach,每个 inst 直接 new spawn(QA-B-5)。收养后据快照对账徽标。
  */
 export async function readoptHost(
-  configId: string,
+  hostId: string,
   hooks: ReadoptHooks = {},
 ): Promise<void> {
   const getClient = hooks.getClient ?? ((id) => hostRegistry.forHostId(id));
@@ -566,11 +566,11 @@ export async function readoptHost(
   const reconcileBadge = hooks.reconcileBadge ?? (() => undefined);
   const rebuildTab = hooks.rebuildTab ?? (() => null);
 
-  const client = getClient(configId);
+  const client = getClient(hostId);
   if (!client) return;
 
   const insts = listInstances().filter(
-    ([, inst]) => inst.hostId === configId && inst.sessionId,
+    ([, inst]) => inst.hostId === hostId && inst.sessionId,
   );
 
   // 能力位缺失(旧 host 无 session.resume)→ 不发 list/attach,每个 inst 直接 new spawn(QA-B-5)
@@ -579,7 +579,7 @@ export async function readoptHost(
       inst.sessionId = null;
       inst.renderedBytes = 0;
       inst.exited = false;
-      await spawnNew(tabId, inst.spawnCwd, configId);
+      await spawnNew(tabId, inst.spawnCwd, hostId);
     }
     return;
   }
@@ -595,12 +595,12 @@ export async function readoptHost(
       inst.sessionId = null;
       inst.renderedBytes = 0;
       inst.exited = false;
-      await spawnNew(tabId, inst.spawnCwd, configId);
+      await spawnNew(tabId, inst.spawnCwd, hostId);
       continue;
     }
     adoptedSids.add(sid);
     inst.exited = result.snapshot.status === 'exited';
-    reconcileBadge(configId, sid, result.snapshot);
+    reconcileBadge(hostId, sid, result.snapshot);
   }
 
   // 路径②重建:session.list 有、本地无 inst → 重建 tab 全量回放
@@ -613,15 +613,15 @@ export async function readoptHost(
   }
   const localSids = new Set(
     listInstances()
-      .filter(([, inst]) => inst.hostId === configId && inst.sessionId)
+      .filter(([, inst]) => inst.hostId === hostId && inst.sessionId)
       .map(([, inst]) => inst.sessionId as string),
   );
   for (const snap of sessions) {
     if (adoptedSids.has(snap.sessionId) || localSids.has(snap.sessionId)) continue;
-    const tabId = rebuildTab(configId, snap);
+    const tabId = rebuildTab(hostId, snap);
     if (!tabId) continue;
     const inst = getOrCreateInst(tabId);
-    inst.hostId = configId;
+    inst.hostId = hostId;
     inst.client = client;
     inst.spawnCwd = snap.cwd;
     inst.sessionId = snap.sessionId;
@@ -634,7 +634,7 @@ export async function readoptHost(
       continue;
     }
     inst.exited = result.snapshot.status === 'exited';
-    reconcileBadge(configId, snap.sessionId, result.snapshot);
+    reconcileBadge(hostId, snap.sessionId, result.snapshot);
   }
 }
 

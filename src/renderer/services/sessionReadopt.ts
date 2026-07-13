@@ -4,13 +4,15 @@
 // 服务端会话(live 续跑 + exited 保留)在下次连接时全量回到 UI。
 //
 // 结构:mapSessionCwdToWorkspace(纯函数·最长 root 前缀匹配)→ rebuildTabForSnapshot
-// (store.adoptSessionTab 建 tab 回传 tabId)→ readoptRemoteSessions(readoptHost 的
-// 生产 hooks 单源 + 每 configId 串行化)。reconcileBadge 从 reconnectWiring 迁入本模块
+// (store.adoptSessionTab 建 tab 回传 tabId)→ readoptHostSessions(readoptHost 的
+// 生产 hooks 单源 + 每 hostId 串行化)。reconcileBadge 从 reconnectWiring 迁入本模块
 // (wiring 保留 re-export 兼容),避免 wiring↔本模块循环依赖。
 //
-// 调用方两处:reconnectWiring(闪断重连 onReconnected)与 remoteWorkspaceSync
-// (host ready 首拉 workspace.list 落地后)——后者是「重启后重连」的收养入口:
-// 必须等注册表进 store,cwd→workspace 映射才有素材。
+// 本模块对 hostId 无远程假设('local'|configId 同构收养):client 经 hostRegistry.forHostId
+// 寻址,workspace 映射按 w.hostId 过滤。当前调用方两处(均远程):reconnectWiring(闪断重连
+// onReconnected)与 remoteWorkspaceSync(host ready 首拉 workspace.list 落地后)——后者是
+// 「重启后重连」的收养入口:必须等注册表进 store,cwd→workspace 映射才有素材。
+// 本地('local')收养入口随「本地 host standalone 化」里程碑接入,约束相同:hydrate 落地后调用。
 
 import {
   readoptHost,
@@ -83,7 +85,7 @@ export function rebuildTabForSnapshot(
 /**
  * 远程 tab 布局恢复(用户规则 2026-07:服务端升级/重启后 session 内容可丢,tab 名称/
  * 数量/顺序不能丢)。调用点唯一:startRemoteWorkspaceSync 在首拉 workspace.list 落地
- * (setHostWorkspaces)之后、readoptRemoteSessions 之前**同步**调用——同步是硬约束:
+ * (setHostWorkspaces)之后、readoptHostSessions 之前**同步**调用——同步是硬约束:
  * 恢复 tab 的 sessionId 预绑定必须赶在 React 挂载 TerminalView(ensureSession)之前,
  * 否则挂载先 new spawn,收养路径①就接不回原会话(变成重复 tab)。
  *
@@ -105,30 +107,31 @@ export function restoreRemoteTabLayouts(
   }
 }
 
-/** configId → 在途收养 promise(串行化尾指针) */
+/** hostId → 在途收养 promise(串行化尾指针) */
 const inflight = new Map<string, Promise<void>>();
 
 /**
- * 收养入口(生产 hooks 单源):同 configId 的并发调用串行执行——
- * onReconnected(闪断)与 startRemoteWorkspaceSync(ready 首拉后)可能背靠背触发,
- * 并行跑会双双看到「本地无 inst」而重建两份 tab;串行后后一轮经 adoptedSids/localSids
- * 去重自然收敛为 no-op。失败只 WARN(收养是尽力恢复,不阻断连接可用性)。
+ * 收养入口(生产 hooks 单源·hostId 同构:'local'|configId):同 hostId 的并发调用
+ * 串行执行——onReconnected(闪断)与 startRemoteWorkspaceSync(ready 首拉后)可能
+ * 背靠背触发,并行跑会双双看到「本地无 inst」而重建两份 tab;串行后后一轮经
+ * adoptedSids/localSids 去重自然收敛为 no-op。失败只 WARN(收养是尽力恢复,
+ * 不阻断连接可用性)。
  */
-export function readoptRemoteSessions(
-  configId: string,
+export function readoptHostSessions(
+  hostId: string,
   readopt: typeof readoptHost = readoptHost,
 ): Promise<void> {
-  const prev = inflight.get(configId) ?? Promise.resolve();
+  const prev = inflight.get(hostId) ?? Promise.resolve();
   const next = prev
     .then(() =>
-      readopt(configId, { reconcileBadge, rebuildTab: rebuildTabForSnapshot }),
+      readopt(hostId, { reconcileBadge, rebuildTab: rebuildTabForSnapshot }),
     )
     .catch((err) => {
-      console.warn('[sessionReadopt] readopt failed configId=%s', configId, err);
+      console.warn('[sessionReadopt] readopt failed hostId=%s', hostId, err);
     })
     .finally(() => {
-      if (inflight.get(configId) === next) inflight.delete(configId);
+      if (inflight.get(hostId) === next) inflight.delete(hostId);
     });
-  inflight.set(configId, next);
+  inflight.set(hostId, next);
   return next;
 }
