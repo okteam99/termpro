@@ -3,6 +3,10 @@
 // BrowserPanel 轻量渲染测试:store.ts → terminalRegistry.ts 会拉入 @xterm/* 浏览器模块,
 // 本测试只验证标签条渲染/交互,mock 掉终端注册表断开该链(复刻 FilePanelRemoteDisabled 的惯例)。
 // jsdom 里 <webview> 是惰性自定义元素(不会真正加载页面),测试不触及导航/webview 事件。
+//
+// 浏览器窗格现已绑定终端 tab(TabState.browser),不再有全局 browserTabs/browserActiveTabId——
+// 测试改为播一个含终端 tab 的 workspace,给该 tab 种 browser 窗格(参考 browserPanel.test.ts 的
+// seedWorkspace)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -17,14 +21,25 @@ vi.mock('../../terminal/terminalRegistry', () => ({
 
 import { BrowserPanel } from '../BrowserPanel';
 import { useAppStore } from '../../state/store';
-import type { BrowserTabState } from '../../state/store';
+import type { BrowserPaneState, WorkspaceState } from '../../state/store';
 
-function seedTabs(tabs: BrowserTabState[], activeTabId: string | null): void {
+const TERM = 'term1';
+
+/** 播一个含单个终端 tab(id=term1)的本机 workspace,并给该 tab 装配指定的浏览器窗格。 */
+function seedWorkspace(browser?: BrowserPaneState): void {
+  const ws: WorkspaceState = {
+    id: 'ws1',
+    name: 'w',
+    root: '/w',
+    hostId: 'local',
+    tabs: [{ id: TERM, title: 't', cwd: '/w', browser }],
+    activeTabId: TERM,
+  };
   useAppStore.setState({
-    browserTabs: tabs,
-    browserActiveTabId: activeTabId,
+    workspaces: [ws],
+    activeWorkspaceId: 'ws1',
     browserPanelOpen: true,
-  } as unknown as Parameters<typeof useAppStore.setState>[0]);
+  });
 }
 
 beforeEach(() => {
@@ -34,18 +49,18 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  useAppStore.setState({ browserTabs: [], browserActiveTabId: null, browserPanelOpen: false });
+  useAppStore.setState({ workspaces: [], activeWorkspaceId: null, browserPanelOpen: false });
 });
 
 describe('BrowserPanel', () => {
   it('渲染标签条:一空一有 url,活跃标签高亮', () => {
-    seedTabs(
-      [
+    seedWorkspace({
+      tabs: [
         { id: 'empty', url: '' },
         { id: 'nav', url: 'https://example.com', title: 'Example' },
       ],
-      'nav',
-    );
+      activeTabId: 'nav',
+    });
     render(<BrowserPanel />);
 
     expect(screen.getByText('Example')).toBeInTheDocument();
@@ -56,33 +71,36 @@ describe('BrowserPanel', () => {
     );
   });
 
-  it('点 + 调 addBrowserTab 后新标签出现并激活', () => {
-    seedTabs([{ id: 'a', url: 'https://example.com', title: 'Example' }], 'a');
+  it('点 + 调 addBrowserTab 后新标签出现并激活(落在当前活跃终端 tab)', () => {
+    seedWorkspace({
+      tabs: [{ id: 'a', url: 'https://example.com', title: 'Example' }],
+      activeTabId: 'a',
+    });
     render(<BrowserPanel />);
 
     fireEvent.click(screen.getByTitle('New tab'));
 
-    const tabs = useAppStore.getState().browserTabs;
-    expect(tabs).toHaveLength(2);
-    const newTabId = tabs[1].id;
-    expect(useAppStore.getState().browserActiveTabId).toBe(newTabId);
+    const pane = useAppStore.getState().workspaces[0].tabs[0].browser;
+    expect(pane?.tabs).toHaveLength(2);
+    const newTabId = pane!.tabs[1].id;
+    expect(pane?.activeTabId).toBe(newTabId);
   });
 
   it('空标签显示空态提示', () => {
-    seedTabs([{ id: 'empty', url: '' }], 'empty');
+    seedWorkspace({ tabs: [{ id: 'empty', url: '' }], activeTabId: 'empty' });
     render(<BrowserPanel />);
 
     expect(screen.getByText('Enter a URL or search to get started')).toBeInTheDocument();
   });
 
   it('点 × 关闭标签后从条上消失', () => {
-    seedTabs(
-      [
+    seedWorkspace({
+      tabs: [
         { id: 'a', url: 'https://example.com', title: 'Example' },
         { id: 'b', url: 'https://other.com', title: 'Other' },
       ],
-      'a',
-    );
+      activeTabId: 'a',
+    });
     render(<BrowserPanel />);
 
     const closeBtn = screen.getByText('Example').closest('.browser-panel__tab')!.querySelector(
@@ -92,12 +110,52 @@ describe('BrowserPanel', () => {
 
     expect(screen.queryByText('Example')).not.toBeInTheDocument();
     expect(screen.getByText('Other')).toBeInTheDocument();
-    expect(useAppStore.getState().browserTabs).toHaveLength(1);
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toHaveLength(1);
   });
 
-  it('tabs 为空时渲染 null(防御空列表死态)', () => {
-    seedTabs([], null);
-    const { container } = render(<BrowserPanel />);
-    expect(container).toBeEmptyDOMElement();
+  it('活跃终端 tab 无浏览器窗格时,面板仍渲染(自动种一个空标签,不再 return null)', () => {
+    seedWorkspace(undefined);
+    render(<BrowserPanel />);
+
+    // 面板打开且当前 tab 无窗格 → effect 自动种一个空标签,标签条不再是空的
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toHaveLength(1);
+    expect(screen.getByText('Enter a URL or search to get started')).toBeInTheDocument();
+  });
+
+  it('切换活跃终端 tab 后,面板反映新 tab 的浏览器窗格(跟随切换,像文件面板)', () => {
+    const ws: WorkspaceState = {
+      id: 'ws1',
+      name: 'w',
+      root: '/w',
+      hostId: 'local',
+      tabs: [
+        {
+          id: 'term1',
+          title: 't1',
+          cwd: '/w',
+          browser: { tabs: [{ id: 'a', url: 'https://a.com', title: 'A' }], activeTabId: 'a' },
+        },
+        {
+          id: 'term2',
+          title: 't2',
+          cwd: '/w',
+          browser: { tabs: [{ id: 'b', url: 'https://b.com', title: 'B' }], activeTabId: 'b' },
+        },
+      ],
+      activeTabId: 'term1',
+    };
+    useAppStore.setState({ workspaces: [ws], activeWorkspaceId: 'ws1', browserPanelOpen: true });
+    const { rerender } = render(<BrowserPanel />);
+
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.queryByText('B')).not.toBeInTheDocument();
+
+    useAppStore.setState((s) => ({
+      workspaces: s.workspaces.map((w) => ({ ...w, activeTabId: 'term2' })),
+    }));
+    rerender(<BrowserPanel />);
+
+    expect(screen.getByText('B')).toBeInTheDocument();
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
   });
 });

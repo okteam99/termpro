@@ -117,14 +117,8 @@ export function serialize(s: AppState): PersistedState {
     pinBottomBar: s.pinBottomBar,
     // 折叠态才写盘(缺省即展开)
     ...(s.filePanelCollapsed ? { filePanelCollapsed: true } : {}),
-    // 浏览器面板:打开才写开关;标签只存 {id,url}(title 视图态),空集不写盘
+    // 浏览器面板:打开才写开关(标签已 per-tab 存于 PersistedTab.browser,不再写全局)
     ...(s.browserPanelOpen ? { browserPanelOpen: true } : {}),
-    ...(s.browserTabs.length > 0
-      ? {
-          browserTabs: s.browserTabs.map((b) => ({ id: b.id, url: b.url })),
-          browserActiveTabId: s.browserActiveTabId,
-        }
-      : {}),
     // 空集不写盘(存档整洁;缺省即全展开)
     ...(s.collapsedMachines.length > 0 ? { collapsedMachines: s.collapsedMachines } : {}),
     // 'system' 不写盘(缺省即随系统;main 启动读此字段定 locale)
@@ -206,6 +200,15 @@ function serializeTab(t: AppState['workspaces'][number]['tabs'][number]) {
     cwd: t.cwd,
     customName: t.customName,
     filePanel: t.filePanel,
+    // 浏览器窗格:只存 {id,url}(title 视图态);空/未开 → 不写盘
+    ...(t.browser && t.browser.tabs.length > 0
+      ? {
+          browser: {
+            tabs: t.browser.tabs.map((b) => ({ id: b.id, url: b.url })),
+            activeTabId: t.browser.activeTabId,
+          },
+        }
+      : {}),
   };
 }
 

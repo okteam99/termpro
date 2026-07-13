@@ -35,6 +35,8 @@ export interface TabState {
   /** 会话退出码(AC-12·断线期跑完/本地退出);TabBar 渲染「exit N」。exited 时才有意义。 */
   exitCode?: number;
   filePanel?: TabFilePanelState;
+  /** 该终端 tab 独立的内置浏览器窗格(绑定 tab · 像 filePanel);未开过浏览器 → undefined */
+  browser?: BrowserPaneState;
   // ---- 会话状态(运行时,host 状态机驱动,不持久化)----
   activity?: 'idle' | 'running';
   /** 可能在等输入(铃声/静默/外部通知) */
@@ -61,6 +63,13 @@ export interface BrowserTabState {
   title?: string;
 }
 
+/** 某终端 tab 的浏览器窗格(绑定终端 tab · 像 filePanel):独立标签组 + 活跃标签。
+ *  切终端 tab 时浏览器跟随、非 active 进后台(webview 常驻保活,CSS 显隐)。 */
+export interface BrowserPaneState {
+  tabs: BrowserTabState[];
+  activeTabId: string | null;
+}
+
 export interface WorkspaceState {
   id: string;
   name: string;
@@ -81,6 +90,8 @@ export interface PersistedTab {
   cwd: string;
   customName?: string;
   filePanel?: TabFilePanelState;
+  /** 该 tab 的浏览器窗格(只存 {id,url};title 视图态);空/未开 → 不写盘 */
+  browser?: { tabs: { id: string; url: string }[]; activeTabId: string | null };
 }
 
 /** v1 存档 workspace(迁移前 / 迁移失败 fallback):自带 name/root */
@@ -127,7 +138,8 @@ interface PersistedUi {
   /** 内置浏览器面板打开(默认关;true 才写盘) */
   browserPanelOpen?: boolean;
   browserPanelWidth?: number;
-  /** 内置浏览器标签(只存 url;title 是视图态);空集不写盘 */
+  /** 🔴 旧版全局浏览器标签(面板级);已迁移为 per-tab(PersistedTab.browser)。
+   *  仅保留字段供 hydrate 一次性迁移读取,serialize 不再写出。 */
   browserTabs?: { id: string; url: string }[];
   browserActiveTabId?: string | null;
   /** 向上滚动时固定底部输入栏(默认关) */
@@ -252,18 +264,21 @@ export interface AppState {
   /** 右侧文件面板折叠态,随 ui 存档持久化 */
   filePanelCollapsed: boolean;
   toggleFilePanelCollapsed(): void;
-  /** 内置浏览器面板(右侧最外)开关;打开时若无标签自动种一个空标签 */
+  /** 内置浏览器面板(右侧最外)开关;打开时若当前活跃终端 tab 无浏览器标签自动种一个空标签 */
   browserPanelOpen: boolean;
   toggleBrowserPanel(): void;
-  /** 内置浏览器标签集;url 持久化,title 仅视图态 */
-  browserTabs: BrowserTabState[];
-  browserActiveTabId: string | null;
-  /** 新建标签并激活(url 缺省为空 → 面板显示空态待输入) */
-  addBrowserTab(url?: string): void;
-  /** 关闭标签;关掉最后一个 → 面板收起并清空列表 */
-  closeBrowserTab(id: string): void;
-  setBrowserActiveTab(id: string): void;
-  updateBrowserTab(id: string, patch: { url?: string; title?: string }): void;
+  // 浏览器窗格绑定终端 tab(TabState.browser)。以下 action 均按 terminalTabId 定位——
+  // 因 webview 跨终端 tab 常驻保活,后台 tab 的 window.open 也须落回它自己的窗格。
+  /** 在指定终端 tab 新建浏览器标签并激活(url 缺省空 → 面板空态待输入);面板保持打开 */
+  addBrowserTab(terminalTabId: string, url?: string): void;
+  /** 关闭指定终端 tab 的某浏览器标签;关掉最后一个 → 该 tab 的 browser 清空(面板不再显示标签) */
+  closeBrowserTab(terminalTabId: string, browserTabId: string): void;
+  setBrowserActiveTab(terminalTabId: string, browserTabId: string): void;
+  updateBrowserTab(
+    terminalTabId: string,
+    browserTabId: string,
+    patch: { url?: string; title?: string },
+  ): void;
   /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
   pinBottomBar: boolean;
   setPinBottomBar(value: boolean): void;
@@ -288,7 +303,71 @@ function hydrateTab(t: PersistedTab): TabState {
     cwd: t.cwd,
     customName: t.customName,
     filePanel: t.filePanel,
+    browser: hydrateBrowserPane(t.browser),
   };
+}
+
+/** 持久化浏览器窗格 → 运行时 BrowserPaneState;空/缺省 → undefined(tab 未开过浏览器)。
+ *  activeTabId 失效(指向已不存在的标签)时回落首个标签。 */
+function hydrateBrowserPane(
+  p: { tabs: { id: string; url: string }[]; activeTabId: string | null } | undefined,
+): BrowserPaneState | undefined {
+  if (!p || p.tabs.length === 0) return undefined;
+  const tabs: BrowserTabState[] = p.tabs.map((b) => ({ id: b.id, url: b.url }));
+  const activeTabId = tabs.some((b) => b.id === p.activeTabId)
+    ? p.activeTabId
+    : (tabs[0]?.id ?? null);
+  return { tabs, activeTabId };
+}
+
+/** 当前活跃终端 tab(活跃 workspace 的活跃 tab);无则 null。浏览器窗格绑定它。 */
+function activeTerminalTab(s: {
+  workspaces: WorkspaceState[];
+  activeWorkspaceId: string | null;
+}): TabState | null {
+  const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+  if (!ws) return null;
+  return ws.tabs.find((t) => t.id === ws.activeTabId) ?? null;
+}
+
+/** 更新某终端 tab 的浏览器窗格(immutable);tab 无 browser 时以空窗格起步。 */
+function patchTabBrowser(
+  workspaces: WorkspaceState[],
+  terminalTabId: string,
+  fn: (pane: BrowserPaneState) => BrowserPaneState,
+): WorkspaceState[] {
+  return workspaces.map((w) => ({
+    ...w,
+    tabs: w.tabs.map((t) =>
+      t.id === terminalTabId
+        ? { ...t, browser: fn(t.browser ?? { tabs: [], activeTabId: null }) }
+        : t,
+    ),
+  }));
+}
+
+/** 旧版全局浏览器标签迁移:注入活跃 workspace 的活跃 tab(该 tab 尚无 browser 时);
+ *  无 legacy / 无目标 tab → 原样返回。仅 hydrate 一次性调用。 */
+function injectLegacyBrowser(
+  workspaces: WorkspaceState[],
+  activeWorkspaceId: string | null,
+  legacy: BrowserPaneState | undefined,
+): WorkspaceState[] {
+  if (!legacy) return workspaces;
+  const ws = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  if (!ws) return workspaces;
+  const targetTabId = ws.activeTabId ?? ws.tabs[0]?.id ?? null;
+  if (!targetTabId) return workspaces;
+  return workspaces.map((w) =>
+    w.id === ws.id
+      ? {
+          ...w,
+          tabs: w.tabs.map((t) =>
+            t.id === targetTabId && !t.browser ? { ...t, browser: legacy } : t,
+          ),
+        }
+      : w,
+  );
 }
 
 /** drop 前快照某远程 ws 的 tab 布局(须在 disposeTerminal 之前调用——sessionId 从
@@ -406,12 +485,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   browserPanelWidth: 480,
   filePanelCollapsed: false,
   browserPanelOpen: false,
-  browserTabs: [],
-  browserActiveTabId: null,
   pinBottomBar: false,
   remoteTabLayouts: {},
 
   hydrate(registry, archive) {
+    // 🔴 旧版全局浏览器标签(面板级)→ per-tab 迁移(一次性):新存档不再写 ui.browserTabs,
+    // 仅老存档命中;下面把它注入迁移后的活跃终端 tab 的 browser(该 tab 尚无 browser 时)。
+    let legacyBrowserPane: BrowserPaneState | undefined;
     // ui 恢复(两种模式都读)
     if (archive?.ui) {
       // 语言偏好:显式 en/zh-CN 立即生效;'system'/缺失不重设——启动值已按
@@ -422,20 +502,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (localePref !== 'system') setLocale(localePref);
       // 浏览器标签恢复:只取合法 {id,url} 条目(title 视图态不入档);
       // 非 http(s) 的 url 降级为空标签——防篡改存档让怪 scheme 冷启动自动加载(评审 P2-3)
-      const browserTabs: BrowserTabState[] = (archive.ui.browserTabs ?? [])
+      const legacyTabs: BrowserTabState[] = (archive.ui.browserTabs ?? [])
         .filter((b) => typeof b?.id === 'string' && typeof b?.url === 'string')
         .map((b) => ({ id: b.id, url: /^https?:\/\//i.test(b.url) ? b.url : '' }));
-      const savedBrowserActive = archive.ui.browserActiveTabId ?? null;
+      if (legacyTabs.length > 0) {
+        const savedActive = archive.ui.browserActiveTabId ?? null;
+        legacyBrowserPane = {
+          tabs: legacyTabs,
+          activeTabId: legacyTabs.some((b) => b.id === savedActive)
+            ? savedActive
+            : legacyTabs[0].id,
+        };
+      }
       set({
         sidebarWidth: archive.ui.sidebarWidth ?? 240,
         filePanelWidth: archive.ui.filePanelWidth ?? 280,
         filePanelCollapsed: archive.ui.filePanelCollapsed ?? false,
         browserPanelWidth: archive.ui.browserPanelWidth ?? 480,
         browserPanelOpen: archive.ui.browserPanelOpen ?? false,
-        browserTabs,
-        browserActiveTabId: browserTabs.some((b) => b.id === savedBrowserActive)
-          ? savedBrowserActive
-          : (browserTabs[0]?.id ?? null),
         pinBottomBar: archive.ui.pinBottomBar ?? false,
         collapsedMachines: archive.ui.collapsedMachines ?? [],
         localePref,
@@ -444,7 +528,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // v1 fallback:从存档直接构建(自带 name/root),忽略注册表(全功能)
     if (archive && archive.version === 1) {
-      const workspaces: WorkspaceState[] = archive.workspaces.map((w) => {
+      const built: WorkspaceState[] = archive.workspaces.map((w) => {
         const tabs = w.tabs.map(hydrateTab);
         return {
           id: w.id,
@@ -455,9 +539,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeTabId: resolveActiveTab(tabs, w.activeTabId),
         };
       });
+      const activeWs = resolveActiveWs(built, archive.activeWorkspaceId);
+      const workspaces = injectLegacyBrowser(built, activeWs, legacyBrowserPane);
       set({
         workspaces,
-        activeWorkspaceId: resolveActiveWs(workspaces, archive.activeWorkspaceId),
+        activeWorkspaceId: activeWs,
         persistMode: 'v1',
         migrationFailureCount: archive.migrationFailureCount ?? 0,
         remoteTabLayouts: {}, // v1 fallback 不支持远程布局(远程 CRUD 本就拒绝)
@@ -498,9 +584,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     for (const layout of v2?.remoteTabs ?? []) {
       remoteTabLayouts[layout.workspaceId] = layout;
     }
+    const activeWs = resolveActiveWs(workspaces, v2?.activeWorkspaceId ?? null);
     set({
-      workspaces,
-      activeWorkspaceId: resolveActiveWs(workspaces, v2?.activeWorkspaceId ?? null),
+      workspaces: injectLegacyBrowser(workspaces, activeWs, legacyBrowserPane),
+      activeWorkspaceId: activeWs,
       persistMode: 'v2',
       migrationFailureCount: v2?.migrationFailureCount ?? 0,
       remoteTabLayouts,
@@ -854,54 +941,69 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleBrowserPanel() {
     set((s) => {
       const open = !s.browserPanelOpen;
-      // 首次打开(或标签被清空后)自动种一个空标签,面板不出现无标签死态
-      if (open && s.browserTabs.length === 0) {
-        const tab: BrowserTabState = { id: crypto.randomUUID(), url: '' };
-        return { browserPanelOpen: open, browserTabs: [tab], browserActiveTabId: tab.id };
+      if (!open) return { browserPanelOpen: false };
+      // 打开:当前活跃终端 tab 若无浏览器标签,种一个空标签(面板不出现无标签死态)
+      const activeTab = activeTerminalTab(s);
+      if (!activeTab || (activeTab.browser && activeTab.browser.tabs.length > 0)) {
+        return { browserPanelOpen: true };
       }
-      return { browserPanelOpen: open };
-    });
-  },
-
-  addBrowserTab(url = '') {
-    set((s) => {
-      const tab: BrowserTabState = { id: crypto.randomUUID(), url };
+      const bt: BrowserTabState = { id: crypto.randomUUID(), url: '' };
       return {
         browserPanelOpen: true,
-        browserTabs: [...s.browserTabs, tab],
-        browserActiveTabId: tab.id,
+        workspaces: patchTabBrowser(s.workspaces, activeTab.id, () => ({
+          tabs: [bt],
+          activeTabId: bt.id,
+        })),
       };
     });
   },
 
-  closeBrowserTab(id) {
+  addBrowserTab(terminalTabId, url = '') {
     set((s) => {
-      const idx = s.browserTabs.findIndex((b) => b.id === id);
-      if (idx < 0) return s;
-      const tabs = s.browserTabs.filter((b) => b.id !== id);
-      // 关最后一个 → 面板收起并清空(下次打开重新种空标签)
-      if (tabs.length === 0) {
-        return { browserPanelOpen: false, browserTabs: [], browserActiveTabId: null };
-      }
-      const active =
-        s.browserActiveTabId === id
-          ? (tabs[Math.min(idx, tabs.length - 1)]?.id ?? null)
-          : s.browserActiveTabId;
-      return { browserTabs: tabs, browserActiveTabId: active };
+      const bt: BrowserTabState = { id: crypto.randomUUID(), url };
+      return {
+        browserPanelOpen: true,
+        workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
+          tabs: [...pane.tabs, bt],
+          activeTabId: bt.id,
+        })),
+      };
     });
   },
 
-  setBrowserActiveTab(id) {
-    set((s) =>
-      s.browserTabs.some((b) => b.id === id) ? { browserActiveTabId: id } : s,
-    );
+  closeBrowserTab(terminalTabId, browserTabId) {
+    set((s) => ({
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => {
+        const idx = pane.tabs.findIndex((b) => b.id === browserTabId);
+        if (idx < 0) return pane;
+        const tabs = pane.tabs.filter((b) => b.id !== browserTabId);
+        // 关最后一个 → 该终端 tab 的窗格清空(面板保持打开,显示空态);不影响其它 tab
+        if (tabs.length === 0) return { tabs: [], activeTabId: null };
+        const activeTabId =
+          pane.activeTabId === browserTabId
+            ? (tabs[Math.min(idx, tabs.length - 1)]?.id ?? null)
+            : pane.activeTabId;
+        return { tabs, activeTabId };
+      }),
+    }));
   },
 
-  updateBrowserTab(id, patch) {
+  setBrowserActiveTab(terminalTabId, browserTabId) {
     set((s) => ({
-      browserTabs: s.browserTabs.map((b) =>
-        b.id === id ? { ...b, ...patch } : b,
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) =>
+        pane.tabs.some((b) => b.id === browserTabId)
+          ? { ...pane, activeTabId: browserTabId }
+          : pane,
       ),
+    }));
+  },
+
+  updateBrowserTab(terminalTabId, browserTabId, patch) {
+    set((s) => ({
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
+        ...pane,
+        tabs: pane.tabs.map((b) => (b.id === browserTabId ? { ...b, ...patch } : b)),
+      })),
     }));
   },
 

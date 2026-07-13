@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAppStore } from '../state/store';
+import { useAppStore, selectActiveWorkspace } from '../state/store';
 import { t } from '../../shared/i18n';
 import type { BrowserNetworkState, RemoteHostConfig, RemoteStage } from '../../shared/remoteHost';
 import './BrowserPanel.css';
@@ -69,18 +69,24 @@ function hostOf(url: string): string | null {
 
 interface BrowserWebviewProps {
   tabId: string;
+  /** 该浏览器标签所属的终端 tab id;事件回写(did-navigate 等)据此定位 store 里的窗格,
+   *  因为保活渲染时事件可能来自非活跃终端 tab 的后台 webview。 */
+  ownerTerminalTabId: string;
   url: string;
   active: boolean;
   onWebviewRef: (id: string, el: WebviewElement | null) => void;
   onNavChange: (id: string, patch: Partial<NavState>) => void;
-  onUrlChange: (id: string, url: string) => void;
-  onTitleChange: (id: string, title: string) => void;
+  onUrlChange: (ownerTerminalTabId: string, id: string, url: string) => void;
+  onTitleChange: (ownerTerminalTabId: string, id: string, title: string) => void;
 }
 
 /** 常驻挂载的单标签 webview:src 只设一次(锁定首个非空 url),store 后续 url 更新
- *  (did-navigate 写回)绝不反向绑定回 src,否则会循环 reload。 */
+ *  (did-navigate 写回)绝不反向绑定回 src,否则会循环 reload。
+ *  🔴 保活关键:调用方(BrowserPanel)必须对所有终端 tab 的所有浏览器标签都渲染本组件,
+ *  不能只渲染活跃终端 tab 的——<webview> 一旦被 reparent/卸载重挂就会整页重新加载。 */
 function BrowserWebview({
   tabId,
+  ownerTerminalTabId,
   url,
   active,
   onWebviewRef,
@@ -107,18 +113,18 @@ function BrowserWebview({
 
     function handleDidNavigate(e: Event) {
       const navigatedUrl = (e as Event & { url?: string }).url;
-      if (typeof navigatedUrl === 'string') onUrlChange(tabId, navigatedUrl);
+      if (typeof navigatedUrl === 'string') onUrlChange(ownerTerminalTabId, tabId, navigatedUrl);
       onNavChange(tabId, readNavAvailability(el!));
     }
     function handleDidNavigateInPage(e: Event) {
       const ev = e as Event & { url?: string; isMainFrame?: boolean };
       if (!ev.isMainFrame || typeof ev.url !== 'string') return;
-      onUrlChange(tabId, ev.url);
+      onUrlChange(ownerTerminalTabId, tabId, ev.url);
       onNavChange(tabId, readNavAvailability(el!));
     }
     function handleTitleUpdated(e: Event) {
       const title = (e as Event & { title?: string }).title;
-      if (typeof title === 'string') onTitleChange(tabId, title);
+      if (typeof title === 'string') onTitleChange(ownerTerminalTabId, tabId, title);
     }
     function handleStartLoading() {
       onNavChange(tabId, { loading: true });
@@ -139,7 +145,7 @@ function BrowserWebview({
       el.removeEventListener('did-start-loading', handleStartLoading);
       el.removeEventListener('did-stop-loading', handleStopLoading);
     };
-  }, [el, tabId, onNavChange, onUrlChange, onTitleChange]);
+  }, [el, tabId, ownerTerminalTabId, onNavChange, onUrlChange, onTitleChange]);
 
   if (!srcRef.current) return null;
 
@@ -324,12 +330,24 @@ function BrowserNetSelector() {
 }
 
 export function BrowserPanel() {
-  const tabs = useAppStore((s) => s.browserTabs);
-  const activeTabId = useAppStore((s) => s.browserActiveTabId);
+  // 保活渲染需要「所有」workspace 的所有终端 tab(而不止活跃 workspace 的),
+  // 因为切 workspace 也不该 reparent/卸载已开过的浏览器 webview。
+  const workspaces = useAppStore((s) => s.workspaces);
+  const activeWorkspace = useAppStore(selectActiveWorkspace);
+  const browserPanelOpen = useAppStore((s) => s.browserPanelOpen);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const closeBrowserTab = useAppStore((s) => s.closeBrowserTab);
   const setBrowserActiveTab = useAppStore((s) => s.setBrowserActiveTab);
+  const updateBrowserTab = useAppStore((s) => s.updateBrowserTab);
 
+  // 浏览器窗格绑定当前活跃终端 tab(像 FilePanel 绑定 activeTab 一样);nav 栏/标签条
+  // 都反映它,切终端 tab 面板跟着换一组标签。
+  const activeTermTab =
+    activeWorkspace?.tabs.find((tb) => tb.id === activeWorkspace.activeTabId) ?? null;
+  const activeTermTabId = activeTermTab?.id ?? null;
+  const pane = activeTermTab?.browser ?? null;
+  const tabs = pane?.tabs ?? [];
+  const activeTabId = pane?.activeTabId ?? null;
   const activeTab = tabs.find((tb) => tb.id === activeTabId) ?? null;
 
   const webviewRefs = useRef(new Map<string, WebviewElement>());
@@ -341,26 +359,46 @@ export function BrowserPanel() {
 
   // 新开标签订阅(webview 内 target=_blank/window.open 经主进程回传);测试环境
   // window.okwork 可能不存在,可选链防御。
+  // 🟡 已知简化(本阶段):一律落到当前活跃终端 tab,而非弹窗来源 webview 所属的 tab——
+  // 严格按来源落位需要 main 侧记录 guest webContents → 终端 tab 的映射,留到后续阶段。
   useEffect(() => {
     const unsubscribe = window.okwork?.onBrowserOpenUrl?.((url) => {
-      useAppStore.getState().addBrowserTab(url);
+      const s = useAppStore.getState();
+      const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+      const tab = ws?.tabs.find((tb) => tb.id === ws.activeTabId);
+      if (tab) s.addBrowserTab(tab.id, url);
     });
     return () => unsubscribe?.();
   }, []);
 
-  // 切换活跃标签 → 退出地址栏编辑态
+  // 切换活跃终端 tab 或其浏览器标签 → 退出地址栏编辑态
   useEffect(() => {
     setEditing(false);
-  }, [activeTabId]);
+  }, [activeTermTabId, activeTabId]);
 
-  // 关标签后收敛 navStates(id 是 uuid 不复用,长会话反复开关防无界增长;评审 P2-4)
+  // 面板打开、但当前活跃终端 tab 尚无浏览器窗格(或窗格已空)→ 种一个空标签。
+  // 覆盖两种情形:刚打开面板(toggleBrowserPanel 本身也会种,这里幂等)、以及面板已开着时
+  // 切到一个从没开过浏览器的终端 tab(那次切换不经过 toggleBrowserPanel,靠本 effect 跟随)。
   useEffect(() => {
+    if (!browserPanelOpen || !activeTermTabId) return;
+    if (tabs.length > 0) return;
+    addBrowserTab(activeTermTabId);
+  }, [browserPanelOpen, activeTermTabId, tabs.length, addBrowserTab]);
+
+  // 收敛 navStates:只保留仍存在于任意 workspace/终端 tab 的浏览器标签 id
+  // (id 是 uuid 不复用,长会话反复开关防无界增长;评审 P2-4)
+  useEffect(() => {
+    const liveIds = new Set<string>();
+    for (const w of workspaces) {
+      for (const tb of w.tabs) {
+        for (const bt of tb.browser?.tabs ?? []) liveIds.add(bt.id);
+      }
+    }
     setNavStates((prev) => {
-      const ids = new Set(tabs.map((tb) => tb.id));
-      const kept = Object.entries(prev).filter(([id]) => ids.has(id));
+      const kept = Object.entries(prev).filter(([id]) => liveIds.has(id));
       return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
     });
-  }, [tabs]);
+  }, [workspaces]);
 
   // 空标签(未导航)自动聚焦地址栏。🔴 推迟到下一帧:首开面板时终端/webview 的
   // 焦点竞争可能在同一轮 effect 后又把焦点抢走,rAF 保证我们是最后落焦的一方
@@ -386,26 +424,30 @@ export function BrowserPanel() {
     else webviewRefs.current.delete(id);
   }, []);
 
-  const handleUrlChange = useCallback((id: string, url: string) => {
-    useAppStore.getState().updateBrowserTab(id, { url });
-  }, []);
+  const handleUrlChange = useCallback(
+    (ownerTerminalTabId: string, id: string, url: string) => {
+      updateBrowserTab(ownerTerminalTabId, id, { url });
+    },
+    [updateBrowserTab],
+  );
 
-  const handleTitleChange = useCallback((id: string, title: string) => {
-    useAppStore.getState().updateBrowserTab(id, { title });
-  }, []);
+  const handleTitleChange = useCallback(
+    (ownerTerminalTabId: string, id: string, title: string) => {
+      updateBrowserTab(ownerTerminalTabId, id, { title });
+    },
+    [updateBrowserTab],
+  );
 
   const handleNavChange = useCallback((id: string, patch: Partial<NavState>) => {
     setNavStates((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_NAV_STATE), ...patch } }));
   }, []);
 
-  if (tabs.length === 0) return null;
-
   const activeUrl = activeTab?.url ?? '';
-  const isEmptyTab = activeUrl === '';
+  const isEmptyTab = !activeTab || activeUrl === '';
   const activeNav = (activeTabId && navStates[activeTabId]) || DEFAULT_NAV_STATE;
 
   function handleNavigate(raw: string) {
-    if (!activeTab) return;
+    if (!activeTermTabId || !activeTab) return;
     const url = normalizeUrlInput(raw);
     if (!url) return;
     const el = webviewRefs.current.get(activeTab.id);
@@ -414,7 +456,7 @@ export function BrowserPanel() {
       void el.loadURL(url);
     } else {
       // 空标签:写 store 触发 webview 首次渲染(src 锁定为这个 url)
-      useAppStore.getState().updateBrowserTab(activeTab.id, { url });
+      updateBrowserTab(activeTermTabId, activeTab.id, { url });
     }
   }
 
@@ -441,7 +483,7 @@ export function BrowserPanel() {
             <div
               key={tab.id}
               className={`browser-panel__tab${isActive ? ' browser-panel__tab--active' : ''}`}
-              onClick={() => setBrowserActiveTab(tab.id)}
+              onClick={() => activeTermTabId && setBrowserActiveTab(activeTermTabId, tab.id)}
               title={label}
             >
               <span className="browser-panel__tab-title">{label}</span>
@@ -449,7 +491,7 @@ export function BrowserPanel() {
                 className="browser-panel__tab-close"
                 onClick={(e) => {
                   e.stopPropagation();
-                  closeBrowserTab(tab.id);
+                  if (activeTermTabId) closeBrowserTab(activeTermTabId, tab.id);
                 }}
                 title={t('Close tab')}
               >
@@ -460,7 +502,7 @@ export function BrowserPanel() {
         })}
         <button
           className="browser-panel__tab-add"
-          onClick={() => addBrowserTab()}
+          onClick={() => activeTermTabId && addBrowserTab(activeTermTabId)}
           title={t('New tab')}
         >
           +
@@ -534,18 +576,27 @@ export function BrowserPanel() {
       </div>
 
       <div className="browser-panel__views">
-        {tabs.map((tab) => (
-          <BrowserWebview
-            key={tab.id}
-            tabId={tab.id}
-            url={tab.url}
-            active={tab.id === activeTabId}
-            onWebviewRef={handleWebviewRef}
-            onNavChange={handleNavChange}
-            onUrlChange={handleUrlChange}
-            onTitleChange={handleTitleChange}
-          />
-        ))}
+        {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),
+            为每个浏览器标签渲染一个常驻 webview,可见性用 CSS visibility 切换——绝不能
+            只挂载活跃 tab 的 webview,否则切终端 tab/切 workspace 时旧标签会被卸载重挂,
+            <webview> reparent/remount 必重新加载页面。 */}
+        {workspaces.flatMap((w) =>
+          w.tabs.flatMap((tb) =>
+            (tb.browser?.tabs ?? []).map((bt) => (
+              <BrowserWebview
+                key={bt.id}
+                tabId={bt.id}
+                ownerTerminalTabId={tb.id}
+                url={bt.url}
+                active={tb.id === activeTermTabId && bt.id === (tb.browser?.activeTabId ?? null)}
+                onWebviewRef={handleWebviewRef}
+                onNavChange={handleNavChange}
+                onUrlChange={handleUrlChange}
+                onTitleChange={handleTitleChange}
+              />
+            )),
+          ),
+        )}
         {isEmptyTab && (
           <div className="browser-panel__empty">
             {t('Enter a URL or search to get started')}
