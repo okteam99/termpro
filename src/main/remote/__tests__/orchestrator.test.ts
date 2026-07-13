@@ -53,8 +53,9 @@ function makeHarness(opts: {
   const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
   const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage() });
   const events: RemoteEvent[] = [];
-  // 默认桩:host 版本与 harness appVersion('1.0.0')一致——认领版本门闸放行
-  // (用户规则 2026-07-13:appVersion 落后/缺失的 host 不再收养,连接时升级)。
+  // 默认桩:host 上报 appVersion('1.0.0')且 ≥ HOST_MIN_APP_VERSION——认领版本门闸
+  // 放行(用户规则 2026-07-13:低于客户端最低依赖/缺失 appVersion 的 host 不再收养,
+  // 连接时升级)。
   const probe = vi.fn(
     opts.probeImpl ??
       (async () => ({ ok: true, compatible: true, hostInfo: { appVersion: '1.0.0' } })),
@@ -234,8 +235,9 @@ describe('AC-13 认领驻留进程(不重启)', () => {
   });
 
   it('T-038o 客户端升级后首连 + 活 host 版本过旧 → 先升级服务端:kill 旧 host + 部署 + 重启(2026-07-13)', async () => {
-    // 🔴 用户规则 2026-07-13(反转旧 2026-07 规则):服务端版本低于客户端(旧 host 不上报
-    // appVersion 同判过旧)→ 连接时先升级服务端,在跑任务可以关闭。端到端锁定整条链:
+    // 🔴 用户规则 2026-07-13(反转旧 2026-07 规则):服务端版本低于客户端依赖的最低版本
+    // HOST_MIN_APP_VERSION(旧 host 不上报 appVersion 同判过旧)→ 连接时先升级服务端,
+    // 在跑任务可以关闭。端到端锁定整条链:
     // 候选探测通过但版本过旧 → claiming → reapThenDeploy(kill 654)→ deploying → starting
     // (新启动命令携带 TERMPRO_HOST_APP_VERSION)→ 新 host 端口文件 → ready。
     const configId = 'vps-hk';

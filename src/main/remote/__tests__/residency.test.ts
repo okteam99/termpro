@@ -182,6 +182,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       dataDir: '/home/tester/.termpro-host',
       configId: CONFIG_ID,
       appVersion: '1.0.0',
+      minHostAppVersion: '1.0.0',
       storedToken: 'good-token',
       probeHostInfo: async () => ({ ok: true, compatible: true, hostInfo: hostInfoOf('1.0.0') }),
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 41234 }),
@@ -193,8 +194,10 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(ssh.execCalls.some((c) => c.includes('rm -f'))).toBe(false);
   });
 
-  it('T-038e .ready 缺失但活 host 版本已同步 → 仍建隧道探测并 claim,零 kill/rm/部署', async () => {
-    // 场景:另一同版设备已升级过服务端,本机 bundle/.ready 尚未部署——版本不过旧就收养。
+  it('T-038e .ready 缺失 + 活 host 低于客户端但 ≥ 最低依赖版本 → 仍 claim,零 kill/rm/部署', async () => {
+    // 🔴 用户规则 2026-07-13 精确语义:门闸基准是【客户端依赖的最低服务端版本】
+    // (minHostAppVersion/HOST_MIN_APP_VERSION),不是客户端自身版本——host 1.5.0 <
+    // 客户端 2.0.0 但 ≥ 最低依赖 1.0.0,满足依赖就收养,不为小版本差杀 session。
     const ssh = createRoutedSsh({
       sftpReadFile: (path) => {
         if (path.endsWith('.ready')) return null;
@@ -211,10 +214,11 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       dataDir: '/home/tester/.termpro-host',
       configId: CONFIG_ID,
       appVersion: '2.0.0',
+      minHostAppVersion: '1.0.0',
       storedToken: 'good-token',
       probeHostInfo: async () => {
         probeCalls++;
-        return { ok: true, compatible: true, hostInfo: hostInfoOf('2.0.0') };
+        return { ok: true, compatible: true, hostInfo: hostInfoOf('1.5.0') };
       },
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 46001 }),
     });
@@ -225,10 +229,10 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(ssh.execCalls.some((c) => c.includes('rm -f'))).toBe(false);
   });
 
-  it('🔴 T-038g 活 host 协议兼容但版本过旧(未上报 appVersion 的现网旧 host)→ reapThenDeploy 升级服务端', async () => {
+  it('🔴 T-038g 活 host 协议兼容但低于最低依赖版本(未上报 appVersion 的现网旧 host)→ reapThenDeploy 升级服务端', async () => {
     // 用户规则 2026-07-13 的主场景:旧版 host 一直被收养导致服务端永不升级——
-    // probe 跑通、协议兼容,但 hostInfo 无 appVersion → 过旧,kill 在跑 host + 清端口文件,
-    // 交由 orchestrator 部署新版并重启。
+    // probe 跑通、协议兼容,但 hostInfo 无 appVersion → 低于任何最低依赖 → 过旧,
+    // kill 在跑 host + 清端口文件,交由 orchestrator 部署新版并重启。
     let killSent = false;
     const ssh = createRoutedSsh({
       sftpReadFile: (path) => {
@@ -262,6 +266,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       dataDir: '/home/tester/.termpro-host',
       configId: CONFIG_ID,
       appVersion: '2.0.0',
+      minHostAppVersion: '1.0.0',
       storedToken: 'good-token',
       probeHostInfo: async () => ({ ok: true, compatible: true, hostInfo: hostInfoOf() }),
       buildTunnel: async () => ({ server: asNetServer(candidateServer), localPort: 46003 }),
@@ -406,6 +411,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       dataDir: '/home/tester/.termpro-host',
       configId: CONFIG_ID,
       appVersion: '1.0.0',
+      minHostAppVersion: '1.0.0',
       storedToken: 'good-token',
       probeHostInfo: async () => {
         probeCalls++;
@@ -490,6 +496,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       configId: CONFIG_ID,
       identityTokenPath: '/home/tester/.termpro-host/identity/tag-x/token',
       appVersion: '1.0.0',
+      minHostAppVersion: '1.0.0',
       storedToken: 'stale-local-token',
       probeHostInfo: async (_port, token) => {
         probeTokens.push(token);
@@ -519,6 +526,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       configId: CONFIG_ID,
       identityTokenPath: '/home/tester/.termpro-host/identity/tag-x/token',
       appVersion: '1.0.0',
+      minHostAppVersion: '1.0.0',
       storedToken: 'local-cache-token',
       probeHostInfo: async (_port, token) => {
         probeTokens.push(token);

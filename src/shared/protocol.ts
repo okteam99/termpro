@@ -7,6 +7,15 @@ export const PROTOCOL_VERSION = 1;
 // 仅破坏性变更才上调。缺省(旧 host 不带此字段)按等同 protocolVersion 处理。
 export const PROTOCOL_MIN_COMPATIBLE = 1;
 
+/**
+ * 客户端依赖的服务端(host)最低应用版本(用户规则 2026-07-13)。
+ * 连接时 host.info.appVersion 低于此值(或旧 host 未上报)→ 先升级服务端,在跑任务可关闭;
+ * ≥ 此值即收养(即使低于客户端自身版本——不为无关紧要的小版本差杀 session)。
+ * 🔴 硬编码维护:客户端功能开始依赖更新的 host 行为/RPC 时,上调到该行为首次发布的版本。
+ * 当前 = appVersion 上报机制自身的引入版本(更早的 host 不上报,天然判过旧)。
+ */
+export const HOST_MIN_APP_VERSION = '0.3.56';
+
 // PTY 输出流控水位(未确认字节数):超过 high 暂停 PTY,低于 low 恢复。
 export const FLOW = {
   highWatermark: 512 * 1024,
@@ -43,7 +52,8 @@ export interface HostInfo {
   /**
    * host 软件的应用版本(x.y.z,向后兼容追加)。编排器启动 host 时经
    * TERMPRO_HOST_APP_VERSION 注入,与部署的 bundle/<version>/ 同源。
-   * 🔴 用户规则 2026-07-13:连接时 host 版本低于客户端 → 先升级服务端(在跑任务可关闭)。
+   * 🔴 用户规则 2026-07-13:连接时 host 版本低于客户端依赖的最低版本
+   * (HOST_MIN_APP_VERSION)→ 先升级服务端(在跑任务可关闭)。
    * 旧 host 省略(undefined)→ main 侧视为过旧,一样触发升级(versionCompat.isHostAppOutdated)。
    */
   appVersion?: string;

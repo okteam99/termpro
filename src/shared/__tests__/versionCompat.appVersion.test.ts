@@ -1,4 +1,5 @@
-// 用户规则 2026-07-13:连接时服务端应用版本必须 ≥ 客户端,否则先升级服务端。
+// 用户规则 2026-07-13:连接时服务端应用版本必须 ≥ 客户端依赖的最低版本
+// (HOST_MIN_APP_VERSION 硬编码,客户端功能依赖服务端升级时上调),否则先升级服务端。
 // isHostAppOutdated 是 residency 认领门闸的版本判定源(纯函数,穷举边界)。
 import { describe, it, expect } from 'vitest';
 import { compareAppVersions, isHostAppOutdated } from '../versionCompat';
@@ -27,16 +28,16 @@ describe('compareAppVersions(点分数值比较)', () => {
   });
 });
 
-describe('isHostAppOutdated(认领版本门闸)', () => {
-  it('host < client → 过旧(连接时升级服务端)', () => {
+describe('isHostAppOutdated(认领版本门闸,基准 = 客户端依赖的最低服务端版本)', () => {
+  it('host < 最低依赖 → 过旧(连接时升级服务端)', () => {
     expect(isHostAppOutdated('0.3.55', '0.3.56')).toBe(true);
   });
 
-  it('host == client → 不过旧(收养)', () => {
+  it('host == 最低依赖 → 不过旧(收养)', () => {
     expect(isHostAppOutdated('0.3.56', '0.3.56')).toBe(false);
   });
 
-  it('host > client → 不过旧(只升不降:防多设备新旧客户端互相替换服务端)', () => {
+  it('host > 最低依赖(含高于客户端自身版本)→ 不过旧(满足依赖即收养,不为小版本差杀 session)', () => {
     expect(isHostAppOutdated('0.4.0', '0.3.56')).toBe(false);
   });
 

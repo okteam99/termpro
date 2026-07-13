@@ -11,6 +11,7 @@
 
 import type { Server as NetServer } from 'node:net';
 import type { RemotePortFile } from '../../shared/remoteHost';
+import { HOST_MIN_APP_VERSION } from '../../shared/protocol';
 import { isHostAppOutdated } from '../../shared/versionCompat';
 import type { SshConnectionLike } from './ssh';
 import type { ProbeResult } from './probeHostInfo';
@@ -36,9 +37,9 @@ export interface ResidencyDecisionInput {
   bundleReady: boolean;
   /**
    * 仅当「认领候选」条件成立(portRaw 有效 + storedToken 非空)时才有意义。
-   * hostOutdated:host 应用版本低于客户端(含旧 host 未上报 appVersion),由
-   * resolveResidency 在 probe ok 时经 isHostAppOutdated 计算——true 则禁止认领,
-   * 落回收分支升级服务端(用户规则 2026-07-13)。
+   * hostOutdated:host 应用版本低于客户端依赖的最低服务端版本 HOST_MIN_APP_VERSION
+   * (含旧 host 未上报 appVersion),由 resolveResidency 在 probe ok 时经
+   * isHostAppOutdated 计算——true 则禁止认领,落回收分支升级服务端(用户规则 2026-07-13)。
    */
   probeResult: { ok: boolean; compatible?: boolean; hostOutdated?: boolean } | null;
   /** `kill -0 <pid>` 结果;仅当需要 reap 判定时才有意义。 */
@@ -64,16 +65,18 @@ export function cmdlineMatchesHostTag(cmdline: string | null, configId: string):
 
 /**
  * 纯决策(TECH SSH-4 算法,认领门闸按用户规则 2026-07-13 调整):
- *   1. 认领候选(portRaw 有效 + storedToken 非空)且 probe 通过 且 host 版本 ≥ 客户端 → claim
+ *   1. 认领候选(portRaw 有效 + storedToken 非空)且 probe 通过 且 host 版本 ≥ 客户端
+ *      依赖的最低服务端版本(HOST_MIN_APP_VERSION)→ claim
  *   2. 否则确定性回收:pid 存活 且 cmdline 精确含本 configId 的 --host-tag → reapThenDeploy(唯一
  *      允许 kill 的分支);否则(pid 死 / cmdline 不匹配即「兄弟或无关进程」)→ cleanStaleThenDeploy,
  *      绝不 kill(消 ARCH-B2 误杀)。
  *   3. 未认领且 !bundleReady → freshDeploy(首装场景 · T-037)
  *
  * 🔴 用户规则 2026-07-13(反转旧 2026-07 规则「协议兼容就收养」):连接时服务端版本
- * 必须 ≥ 客户端,否则先升级服务端——在跑任务可以被关闭。协议兼容但 appVersion 落后
- * (或旧 host 根本不上报 appVersion)的活 host 不再收养,落 reapThenDeploy 升级;
- * 只升不降:host 版本高于客户端(多设备新旧客户端并存)仍收养,防互相反复替换。
+ * 必须 ≥ 客户端声明的最低依赖版本,否则先升级服务端——在跑任务可以被关闭。协议兼容
+ * 但 appVersion 低于最低依赖(或旧 host 根本不上报 appVersion)的活 host 不再收养,
+ * 落 reapThenDeploy 升级。基准是硬编码的 HOST_MIN_APP_VERSION 而非客户端自身版本:
+ * 满足最低依赖即收养(含 host 高于客户端的多设备场景),不为无关小版本差杀 session。
  *
  * 认领候选仍【不】要求 bundleReady:bundleReady 按【客户端当前 appVersion】的 bundle
  * 目录判定,客户端一升级它必为 false;版本门闸统一走 probe 结果(协议闭区间 +
@@ -132,6 +135,13 @@ export interface ResidencyContext {
    */
   identityTokenPath?: string;
   appVersion: string;
+  /**
+   * 客户端依赖的服务端最低应用版本(认领版本门闸基准 · 用户规则 2026-07-13)。
+   * 缺省 = HOST_MIN_APP_VERSION(shared/protocol.ts 硬编码,客户端功能依赖更新的
+   * host 行为时上调);测试注入。🔴 不是 ctx.appVersion:host 满足最低依赖即收养,
+   * 不为无关紧要的小版本差杀 session。
+   */
+  minHostAppVersion?: string;
   storedToken: string | null;
   probeHostInfo: (localPort: number, token: string) => Promise<ProbeResult>;
   buildTunnel: (remotePort: number) => Promise<BuiltTunnel>;
@@ -249,10 +259,14 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
         probeResult = {
           ok: fullProbe.ok,
           compatible: fullProbe.compatible,
-          // 🔴 用户规则 2026-07-13:probe 跑通才有版本可比;host 未上报 appVersion
-          // (现网旧版 host)按过旧计——连接时升级服务端,在跑任务可关闭。
+          // 🔴 用户规则 2026-07-13:probe 跑通才有版本可比;基准是【客户端依赖的最低
+          // 服务端版本】(非客户端自身版本)。host 未上报 appVersion(现网旧版 host)
+          // 按过旧计——连接时升级服务端,在跑任务可关闭。
           hostOutdated: fullProbe.ok
-            ? isHostAppOutdated(fullProbe.hostInfo?.appVersion, ctx.appVersion)
+            ? isHostAppOutdated(
+                fullProbe.hostInfo?.appVersion,
+                ctx.minHostAppVersion ?? HOST_MIN_APP_VERSION,
+              )
             : undefined,
         };
       } catch (err) {

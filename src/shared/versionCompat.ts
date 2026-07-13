@@ -98,19 +98,20 @@ function parseDottedVersion(v: string): number[] | null {
 }
 
 /**
- * 服务端应用版本是否低于客户端(用户规则 2026-07-13:连接时服务端必须 ≥ 客户端,
- * 否则先升级服务端——在跑任务可以被关闭;彻底解决「服务端永不升级」)。
+ * 服务端应用版本是否低于客户端依赖的最低版本(用户规则 2026-07-13:连接时服务端
+ * 必须 ≥ 客户端声明的最低依赖版本 HOST_MIN_APP_VERSION,否则先升级服务端——在跑
+ * 任务可以被关闭;彻底解决「服务端永不升级」。不是「必须 ≥ 客户端自身版本」:
+ * 满足最低依赖就收养,不为无关紧要的小版本差杀 session)。
  * - host 未上报 appVersion(旧版 host)→ true(视为过旧)
  * - 任一版本不可解析 → true(不可判定按过旧处理,宁升级不滞留)
- * - host > client(多设备:旧客户端连新 host)→ false
- *   (只升不降:防新旧客户端各按己版反复替换服务端)
+ * - host ≥ 最低依赖(含高于客户端:多设备新旧客户端并存)→ false
  */
 export function isHostAppOutdated(
   hostAppVersion: string | undefined,
-  clientAppVersion: string,
+  requiredMinAppVersion: string,
 ): boolean {
   if (!hostAppVersion) return true;
-  const cmp = compareAppVersions(hostAppVersion, clientAppVersion);
+  const cmp = compareAppVersions(hostAppVersion, requiredMinAppVersion);
   if (cmp === null) return true;
   return cmp < 0;
 }
