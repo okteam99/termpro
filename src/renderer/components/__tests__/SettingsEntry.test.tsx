@@ -27,6 +27,8 @@ function mockTermpro(overrides: { version?: string; devChannel?: boolean } = {})
       devChannel: overrides.devChannel ?? false,
       platform: 'darwin',
       smoke: false,
+      locale: '',
+      setAppLocale: vi.fn(),
       requestHostPort: vi.fn(),
       pickDirectory: vi.fn(),
       onMenu: vi.fn(noop),
@@ -99,9 +101,10 @@ describe('settingsEntry_toggles_menu_with_remote_hosts_and_about_items', () => {
     const menu = screen.getByRole('menu');
     expect(menu).toBeInTheDocument();
     const menuItems = screen.getAllByRole('menuitem');
-    expect(menuItems).toHaveLength(2);
-    expect(menuItems[0]).toHaveTextContent('Remote Hosts');
-    expect(menuItems[1]).toHaveTextContent('About');
+    expect(menuItems).toHaveLength(3);
+    expect(menuItems[0]).toHaveTextContent('Language');
+    expect(menuItems[1]).toHaveTextContent('Remote Hosts');
+    expect(menuItems[2]).toHaveTextContent('About');
 
     // Second click: close (toggle)
     fireEvent.click(entryBtn);
@@ -131,6 +134,46 @@ describe('settingsEntry_pin_bottom_bar_toggle', () => {
 
     // 复位,避免污染其它用例共享的 store 单例
     useAppStore.setState({ pinBottomBar: true });
+  });
+});
+
+// --- 语言切换:Language 项展开三选,选中即时换语言(菜单保持打开)---
+describe('settingsEntry_language_switcher', () => {
+  it('expands locale options and switches UI language + notifies main on pick', async () => {
+    const { setLocale } = await import('../../../shared/i18n');
+    mockTermpro();
+    useAppStore.setState({ localePref: 'system' });
+    render(<SettingsEntry />);
+
+    fireEvent.click(screen.getByTitle('Settings'));
+    // 展开前无单选项;当前值显示在 Language 行右侧
+    expect(screen.queryAllByRole('menuitemradio')).toHaveLength(0);
+    const langItem = screen.getByRole('menuitem', { name: /Language/ });
+    expect(langItem).toHaveTextContent('System');
+
+    fireEvent.click(langItem);
+    const options = screen.getAllByRole('menuitemradio');
+    expect(options.map((o) => o.textContent)).toEqual([
+      '✓System',
+      'English',
+      '简体中文',
+    ]);
+    expect(options[0]).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '简体中文' }));
+
+    // store + main 通知 + 本组件文案即时换中文(菜单保持打开)
+    expect(useAppStore.getState().localePref).toBe('zh-CN');
+    expect(window.termpro.setAppLocale).toHaveBeenCalledWith('zh-CN');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByText('语言')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('menuitemradio', { name: /简体中文/ })).getByText('✓'),
+    ).toBeInTheDocument();
+
+    // 复位共享单例:i18n 回 en,store 回 system
+    setLocale('en');
+    useAppStore.setState({ localePref: 'system' });
   });
 });
 

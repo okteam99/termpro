@@ -1,6 +1,6 @@
 // i18n 核心语义:en 原文即 key 即默认文案 · zh 查字典缺条目回退 · 参数插值 · locale 解析。
 import { afterEach, describe, expect, it } from 'vitest';
-import { getLocale, resolveLocale, setLocale, t } from '../i18n';
+import { getLocale, resolveLocale, resolveLocalePref, setLocale, t } from '../i18n';
 import { zh } from '../i18n.zh';
 
 const initial = getLocale();
@@ -26,6 +26,21 @@ describe('resolveLocale', () => {
     expect(resolveLocale('')).toBe('en');
     expect(resolveLocale(null)).toBe('en');
     expect(resolveLocale(undefined)).toBe('en');
+  });
+});
+
+describe('resolveLocalePref', () => {
+  it('显式偏好 en/zh-CN → 钉死,无视系统 locale', () => {
+    expect(resolveLocalePref('zh-CN', 'en-US')).toBe('zh-CN');
+    expect(resolveLocalePref('en', 'zh-CN')).toBe('en');
+  });
+
+  it("'system'/非法/缺失 → 随系统 locale(兼作输入校验)", () => {
+    expect(resolveLocalePref('system', 'zh-Hans-CN')).toBe('zh-CN');
+    expect(resolveLocalePref('system', 'en-US')).toBe('en');
+    expect(resolveLocalePref('ja-JP', 'zh-CN')).toBe('zh-CN'); // 非法值不透传
+    expect(resolveLocalePref(null, 'zh-CN')).toBe('zh-CN');
+    expect(resolveLocalePref(undefined, null)).toBe('en');
   });
 });
 

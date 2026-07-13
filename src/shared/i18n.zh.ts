@@ -298,12 +298,20 @@ export const zh: Record<string, string> = {
   '{count} entries': '{count} 项',
   'About': '关于',
   'Settings': '设置',
+  'Language': '语言',
+  'System': '跟随系统',
   '‹ OUTLINE': '‹ 大纲',
+
+  // --- 应用菜单(main · buildMenu) ---
+  'New Tab': '新建 Tab',
+  'Quit {name}': '退出 {name}',
+
   // 以下 key 有意留英(两端同文案),勿当漏项:
   //   '0 session' / '{count} session' / '{count} session · {running} running'
   //     —— 用户指定徽章用 "N session"(2026-07-11);
   //   'Rename workspace'(已统一为 'Rename Workspace',无小写调用点);
   //   'DEV'(渠道徽标)/ 'Root' / 'WorkTree' / 'Diff' / 'diff' / 'detached' /
   //   'detached · {head}' / '{branch} · {head}' / 'exit {code}' / 'exited'
-  //     —— git/终端术语与纯插值,不译。
+  //     —— git/终端术语与纯插值,不译;
+  //   'English' / '简体中文'(语言名以本族语显示)/ 'Shell'(菜单标题,终端术语)。
 };
