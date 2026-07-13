@@ -92,6 +92,40 @@ describe('dropHostWorkspaces 布局快照', () => {
     expect(useAppStore.getState().remoteTabLayouts).toEqual({});
   });
 
+  it('浏览器窗格随快照保留(只 {id,url} · title 不入档),恢复后窗格重建——与落盘路径行为一致', () => {
+    const withBrowser: TabState = {
+      ...tab('t1', '/a/x'),
+      browser: {
+        tabs: [{ id: 'b1', url: 'https://example.com', title: '视图态标题' }],
+        activeTabId: 'b1',
+      },
+    };
+    useAppStore.setState({
+      workspaces: [remoteWs('rw1', 'cfg-a', [withBrowser, tab('t2', '/a/y')], 't1')],
+    });
+
+    useAppStore.getState().dropHostWorkspaces('cfg-a');
+
+    const snap = useAppStore.getState().remoteTabLayouts['rw1'];
+    expect(snap.tabs[0].browser).toEqual({
+      tabs: [{ id: 'b1', url: 'https://example.com' }], // title 视图态,不入快照
+      activeTabId: 'b1',
+    });
+    expect(snap.tabs[1].browser).toBeUndefined(); // 无窗格的 tab 不带字段
+
+    // 重连恢复:窗格随 hydrateTab 重建(断线重连与整机重启两条路径行为一致)
+    useAppStore.setState({ workspaces: [remoteWs('rw1', 'cfg-a', [])] });
+    const applied = useAppStore
+      .getState()
+      .restoreWorkspaceTabs('rw1', snap.tabs, snap.activeTabId);
+    expect(applied).toBe(true);
+    const restored = useAppStore.getState().workspaces[0].tabs[0];
+    expect(restored.browser).toEqual({
+      tabs: [{ id: 'b1', url: 'https://example.com' }],
+      activeTabId: 'b1',
+    });
+  });
+
   it('只动本 host 的条目,他机布局原样保留', () => {
     const otherLayout: PersistedRemoteWorkspace = {
       hostId: 'cfg-b',

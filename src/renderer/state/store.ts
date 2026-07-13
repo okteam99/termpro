@@ -382,6 +382,16 @@ function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemot
       cwd: t.cwd,
       customName: t.customName,
       filePanel: t.filePanel,
+      // 浏览器窗格与落盘同投影(只 {id,url}),否则断线重连恢复的 tab 丢浏览器标签,
+      // 而整机重启(serializeTab 路径)却能恢复——两条恢复路径必须行为一致
+      ...(t.browser && t.browser.tabs.length > 0
+        ? {
+            browser: {
+              tabs: t.browser.tabs.map((b) => ({ id: b.id, url: b.url })),
+              activeTabId: t.browser.activeTabId,
+            },
+          }
+        : {}),
       sessionId: getSessionId(t.id) ?? undefined,
     })),
   };
