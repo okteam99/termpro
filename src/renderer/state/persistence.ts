@@ -9,8 +9,9 @@ import {
   PersistedState,
   useAppStore,
 } from './store';
-import { getSessionId } from '../terminal/terminalRegistry';
+import { bindRestoredSessionTab, getSessionId } from '../terminal/terminalRegistry';
 import { hostRegistry } from '../services/hostRegistry';
+import { readoptHostSessions } from '../services/sessionReadopt';
 import { runMigration } from './workspaceMigration';
 import type { MigrationOutcome } from './workspaceMigration';
 import type { WorkspaceEntry } from '../../shared/protocol';
@@ -81,9 +82,42 @@ function scheduleRegistryRetry(): void {
   }, REGISTRY_RETRY_MS);
 }
 
+/**
+ * 本地会话收养预绑定(本地 host standalone 化):存档里带 sessionId 的本机 tab,
+ * hydrate 后**同步**绑 inst + 接 live 管线——与远程 restoreRemoteTabLayouts 同一硬约束:
+ * 必须赶在 React 挂载 TerminalView(ensureSession)之前,否则挂载先 new spawn,
+ * 收养路径①接不回原会话。只绑 hydrate 后仍存活的 tab(孤儿 ws 的 tab 已被丢弃,
+ * 对其绑定会造出无宿主的 inst)。stale sessionId(host 已重启/会话已 kill)无害:
+ * readopt attach miss → 原位重 spawn。
+ */
+function bindLocalRestoredSessions(archive: PersistedState | null | undefined): void {
+  if (!archive) return;
+  // 存档 tabId → 收养键(workspaces 存档只含本机 ws,远程走 remoteTabs,天然不混)
+  const byTab = new Map<string, { sessionId: string; cwd: string }>();
+  for (const w of archive.workspaces) {
+    for (const pt of w.tabs) {
+      if (pt.sessionId) byTab.set(pt.id, { sessionId: pt.sessionId, cwd: pt.cwd });
+    }
+  }
+  if (byTab.size === 0) return;
+  for (const w of useAppStore.getState().workspaces) {
+    if (w.hostId !== 'local') continue;
+    for (const tab of w.tabs) {
+      const rec = byTab.get(tab.id);
+      if (rec) bindRestoredSessionTab(tab.id, 'local', rec.sessionId, rec.cwd);
+    }
+  }
+}
+
 /** hydrate 成功后:合并注册表+存档、接广播、启动防抖写回订阅(写回订阅只在此启动) */
 function finishHydrate(registry: WorkspaceEntry[], outcome: MigrationOutcome): void {
   useAppStore.getState().hydrate(registry, outcome.archive);
+  // 本地会话收养:同步预绑定(见 bindLocalRestoredSessions 时序硬约束)→ 异步收养
+  // (attach 回放存活会话;session.list 补建「存档没有、host 却有」的会话 tab)。
+  // 此刻 local client 已握手完成(App 在 host.info 落地后才 initPersistence),
+  // supportsSessionResume 能力位可信;收养失败只 WARN,不阻断启动可用性。
+  bindLocalRestoredSessions(outcome.archive);
+  void readoptHostSessions('local');
 
   useAppStore
     .getState()

@@ -253,7 +253,10 @@ let hostProc: Electron.UtilityProcess | null = null;
 
 function ensureHost(): Electron.UtilityProcess {
   if (hostProc) return hostProc;
-  hostProc = utilityProcess.fork(path.join(__dirname, 'host.js'), [], {
+  // --standalone:本地 host 走 standalone 会话语义(断开 detach 续跑 + ring 回放收养),
+  // renderer 崩溃/⌘R 重载不再杀本地会话(黑屏事故 2026-07-14 的数据丢失根因)。
+  // host 进程仍随 app 退出整体回收,「退出即清」预期不变;回退 = 去掉此 flag。
+  hostProc = utilityProcess.fork(path.join(__dirname, 'host.js'), ['--standalone'], {
     serviceName: 'okwork-host',
     // Workspace 注册表数据目录:local 模式 = userData(host 视其为不透明「本机注册表目录」,
     // 不知晓 Electron 路径 API,保持零 Electron / 远程就绪)

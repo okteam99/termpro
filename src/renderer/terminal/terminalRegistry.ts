@@ -290,9 +290,11 @@ export async function ensureSession(
       onData: (data, bytes) => ingestPtyData(inst, tabId, client, sessionId, data, bytes),
       onExit: (exitCode) => {
         inst.exited = true;
-        // standalone/远程:保留 sessionId 以便重连回放最终 scrollback(不 dispose·AC-12);
-        // 本地嵌入式:照旧当场回收
-        if (!client.reconnectable) inst.sessionId = null;
+        // host 保留 exited 会话(session.resume 能力位)→ 留 sessionId 供重载/重连回放最终
+        // scrollback(AC-12);无能力位(旧 host/embedded 兜底)→ 照旧当场回收。
+        // 🔴 判据是 host 会话语义而非传输可重连性:本地 standalone 化后 MessagePort 传输
+        // (reconnectable=false)同样保留 exited 会话。
+        if (!client.supportsSessionResume()) inst.sessionId = null;
         inst.callbacks.onExit?.(exitCode);
       },
       onTitle: (processName) => inst.callbacks.onTitle?.(processName),
@@ -447,7 +449,8 @@ function wireLiveSession(
     onData: (data, bytes) => ingestPtyData(inst, tabId, client, sessionId, data, bytes),
     onExit: (exitCode) => {
       inst.exited = true;
-      if (!client.reconnectable) inst.sessionId = null;
+      // 同 ensureSession.onExit:按 host 会话语义(session.resume)而非传输可重连性判留
+      if (!client.supportsSessionResume()) inst.sessionId = null;
       inst.callbacks.onExit?.(exitCode);
     },
     onTitle: (processName) => inst.callbacks.onTitle?.(processName),

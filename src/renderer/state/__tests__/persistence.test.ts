@@ -15,6 +15,12 @@ vi.mock('../../services/hostClient', () => ({
 }));
 vi.mock('../../terminal/terminalRegistry', () => ({
   disposeTerminal: vi.fn(),
+  getSessionId: vi.fn(() => null),
+  bindRestoredSessionTab: vi.fn(),
+}));
+// 本地收养入口打桩:本文件只测 hydrate 降级/重试,收养链路由 localSessionReadopt.test.ts 覆盖
+vi.mock('../../services/sessionReadopt', () => ({
+  readoptHostSessions: vi.fn(async () => undefined),
 }));
 
 import { initPersistence, __resetPersistenceForTests } from '../persistence';

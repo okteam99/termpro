@@ -12,9 +12,13 @@ import { resolveToken, writeIdentityTokenFile } from './token';
 import { startWsServer } from './wsServer';
 
 // 形态注入(D-1 · BL-005):--listen → standalone(远程/loopback · 断线续跑 + 回放收养);
-// 否则 → embedded(本机嵌入式 · 零回归)。分流在 argv 层,createHostCore 之前前移。
+// --standalone → standalone 语义 + parentPort 传输(本地嵌入式崩溃存活:renderer 死/重载
+// 只 detach 不 kill,重连收养回放——形态与传输正交,本机也走远程同款会话生命周期);
+// 都没有 → embedded(kill-on-close 兜底,保留给显式回退)。分流在 argv 层,createHostCore 之前前移。
 const core = createHostCore(
-  process.argv.includes('--listen') ? 'standalone' : 'embedded',
+  process.argv.includes('--listen') || process.argv.includes('--standalone')
+    ? 'standalone'
+    : 'embedded',
 );
 
 // dev/远程冒烟自测:host cwd 即项目仓库时验证 git 链路
