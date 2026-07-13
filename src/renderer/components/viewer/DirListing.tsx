@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { hostClient } from '../../services/hostClient';
 import { tildify } from '../../state/store';
+import { isRemoteHost } from './viewerHost';
 import type { DirEntry } from '../../../shared/protocol';
 import { t } from '../../../shared/i18n';
 
@@ -24,7 +25,10 @@ function sortEntries(entries: DirEntry[]): DirEntry[] {
   });
 }
 
-function openEntry(abs: string, kind: DirEntry['kind']): void {
+function openEntry(abs: string, kind: DirEntry['kind'], hostId?: string): void {
+  // 窗口内导航必须带上本窗口的 hostId:main 按 hostId 键控文件窗口,
+  // 丢了会把远程条目路由进本机窗口(hostClient 连错 host → 读错文件)
+  const hostPart = isRemoteHost(hostId) ? { hostId } : {};
   // 软链类型未知 → stat 后再分流;其余按已知 kind 直接开
   if (kind === 'symlink') {
     void hostClient.rpc('fs.stat', { path: abs }).then(
@@ -33,6 +37,7 @@ function openEntry(abs: string, kind: DirEntry['kind']): void {
           window.termpro.openViewerWindow({
             mode: r.kind === 'dir' ? 'dir' : 'file',
             path: abs,
+            ...hostPart,
           });
         }
       },
@@ -43,10 +48,11 @@ function openEntry(abs: string, kind: DirEntry['kind']): void {
   window.termpro.openViewerWindow({
     mode: kind === 'dir' ? 'dir' : 'file',
     path: abs,
+    ...hostPart,
   });
 }
 
-export function DirListing({ path }: { path: string }) {
+export function DirListing({ path, hostId }: { path: string; hostId?: string }) {
   const [state, setState] = useState<
     | { phase: 'loading' }
     | { phase: 'error'; message: string }
@@ -93,12 +99,7 @@ export function DirListing({ path }: { path: string }) {
           {!atRoot && (
             <button
               className="dir-row dir-row--up"
-              onClick={() =>
-                window.termpro.openViewerWindow({
-                  mode: 'dir',
-                  path: parentOf(path),
-                })
-              }
+              onClick={() => openEntry(parentOf(path), 'dir', hostId)}
             >
               <FolderGlyph />
               <span className="dir-row-name">..</span>
@@ -112,7 +113,7 @@ export function DirListing({ path }: { path: string }) {
               key={e.name}
               className="dir-row"
               title={e.name}
-              onClick={() => openEntry(joinPath(path, e.name), e.kind)}
+              onClick={() => openEntry(joinPath(path, e.name), e.kind, hostId)}
             >
               {e.kind === 'dir' ? <FolderGlyph /> : <FileGlyph />}
               <span className="dir-row-name">{e.name}</span>

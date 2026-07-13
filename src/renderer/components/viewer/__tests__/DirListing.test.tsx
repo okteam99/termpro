@@ -80,6 +80,31 @@ describe('DirListing', () => {
     await screen.findByText('(empty directory)');
   });
 
+  it('远程窗口(hostId):条目点击与 .. 的 payload 都带回 hostId(防跨窗误路由)', async () => {
+    mockTermpro();
+    rpc.mockImplementation((method: string) =>
+      method === 'fs.readdir'
+        ? Promise.resolve({ entries: [{ name: 'a.ts', kind: 'file' }] })
+        : Promise.resolve({ kind: null }),
+    );
+    render(<DirListing path="/repo/docs" hostId="cfg-1" />);
+    await screen.findByText('a.ts');
+
+    fireEvent.click(screen.getByText('a.ts'));
+    expect(openViewerWindow).toHaveBeenCalledWith({
+      mode: 'file',
+      path: '/repo/docs/a.ts',
+      hostId: 'cfg-1',
+    });
+
+    fireEvent.click(screen.getByText('..'));
+    expect(openViewerWindow).toHaveBeenCalledWith({
+      mode: 'dir',
+      path: '/repo',
+      hostId: 'cfg-1',
+    });
+  });
+
   it('软链点击先 stat 再按真实类型开窗', async () => {
     mockTermpro();
     rpc.mockImplementation((method: string) =>

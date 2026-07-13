@@ -9,6 +9,7 @@ import { basename, tildify } from '../../state/store';
 import { FileView } from './FileView';
 import { MarkdownPreview } from './MarkdownPreview';
 import { DirListing } from './DirListing';
+import { connectViewerHost, isRemoteHost } from './viewerHost';
 import { t } from '../../../shared/i18n';
 
 interface FileTab {
@@ -26,10 +27,14 @@ const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
 export function FilesWindow({
   initialPath,
   initialKind = 'file',
+  hostId,
 }: {
   initialPath: string;
   initialKind?: 'file' | 'dir';
+  /** 缺省/'local' = 本机;远程 = configId(本窗口 hostClient 单例连它) */
+  hostId?: string;
 }) {
+  const remote = isRemoteHost(hostId);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tabs, setTabs] = useState<FileTab[]>([]);
@@ -64,14 +69,14 @@ export function FilesWindow({
   }, []);
 
   useEffect(() => {
-    hostClient.connect().then(
+    connectViewerHost(hostId).then(
       () => setReady(true),
-      (e) => setError(String(e)),
+      (e) => setError(e instanceof Error ? e.message : String(e)),
     );
     return hostClient.onDown(() =>
       setError(t('Host process exited — press ⌘R to reload the window')),
     );
-  }, []);
+  }, [hostId]);
 
   const addOrFocus = useCallback((path: string, kind: 'file' | 'dir') => {
     setTabs((prev) => {
@@ -226,7 +231,9 @@ export function FilesWindow({
               {t('Save')}
             </button>
           )}
-          {active && (
+          {/* 「默认应用打开」是本机 OS 动作:远程路径交给本机 shell 会静默作用于
+              本机同名(但无关)文件——远程窗口直接不渲染该入口(D-7) */}
+          {active && !remote && (
             <button
               className="viewer-btn"
               onClick={() => window.termpro.openPath(active.path)}
@@ -254,7 +261,7 @@ export function FilesWindow({
               className="files-body"
               style={{ display: isActive ? 'flex' : 'none' }}
             >
-              <DirListing path={tab.path} />
+              <DirListing path={tab.path} hostId={hostId} />
             </div>
           );
         }
@@ -287,6 +294,7 @@ export function FilesWindow({
               <div className="files-pane" style={{ display: 'flex' }}>
                 <MarkdownPreview
                   path={tab.path}
+                  hostId={hostId}
                   getEditorValue={() =>
                     getValueFns.current.get(tab.id)?.() ?? null
                   }

@@ -65,7 +65,10 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let mainWin: BrowserWindow | null = null;
-let fileWin: BrowserWindow | null = null;
+// 文件内容窗口:按 hostId 一窗('local' = 本机嵌入 host;远程 = configId)。
+// 查看器渲染进程的 hostClient 单例只能连一台 host,跨 host 的 tab 混窗必然误路由,
+// 故窗口键 = hostId,同 host 多文件仍复用同一窗多 tab。
+const fileWins = new Map<string, BrowserWindow>();
 let diffWin: BrowserWindow | null = null;
 
 // .md 文件关联:双击 md / 「打开方式」选 TermPro → 查看器窗口打开。
@@ -356,7 +359,7 @@ if (process.env.TERMPRO_SMOKE) {
 }
 
 // ---- 三窗口模型 ----------------------------------------------------------
-// 主窗口(终端工作台)/ 文件内容窗口(单例,多 tab,所有可编辑文件共用)/
+// 主窗口(终端工作台)/ 文件内容窗口(按 hostId 一窗,多 tab,同 host 可编辑文件共用)/
 // git diff 窗口(单例,模态挂主窗口;打开期间禁止再开任何查看窗口)。
 
 function loadViewer(win: BrowserWindow, payload: unknown): void {
@@ -373,16 +376,21 @@ function loadViewer(win: BrowserWindow, payload: unknown): void {
   }
 }
 
-function openFileWindow(filePath: string, kind: 'file' | 'dir' = 'file'): void {
-  if (fileWin && !fileWin.isDestroyed()) {
-    fileWin.show();
-    fileWin.focus();
-    const wc = fileWin.webContents;
+function openFileWindow(
+  filePath: string,
+  kind: 'file' | 'dir' = 'file',
+  hostId = 'local',
+): void {
+  const existing = fileWins.get(hostId);
+  if (existing && !existing.isDestroyed()) {
+    existing.show();
+    existing.focus();
+    const wc = existing.webContents;
     const tab = { path: filePath, kind };
     if (wc.isLoading()) {
       // 窗口冷启动尚未完成:渲染层还没订阅 add-tab,延迟到加载完成
       wc.once('did-finish-load', () => {
-        if (fileWin && !fileWin.isDestroyed()) {
+        if (!existing.isDestroyed()) {
           wc.send('viewer:add-tab', tab);
         }
       });
@@ -391,7 +399,7 @@ function openFileWindow(filePath: string, kind: 'file' | 'dir' = 'file'): void {
     }
     return;
   }
-  fileWin = new BrowserWindow({
+  const fileWin = new BrowserWindow({
     width: 1100,
     height: 760,
     minWidth: 600,
@@ -411,13 +419,19 @@ function openFileWindow(filePath: string, kind: 'file' | 'dir' = 'file'): void {
       }),
     },
   });
+  fileWins.set(hostId, fileWin);
   installExternalUrlPolicy(fileWin, {
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   });
   fileWin.on('closed', () => {
-    fileWin = null;
+    if (fileWins.get(hostId) === fileWin) fileWins.delete(hostId);
   });
-  loadViewer(fileWin, { mode: 'files', initialPath: filePath, initialKind: kind });
+  loadViewer(fileWin, {
+    mode: 'files',
+    initialPath: filePath,
+    initialKind: kind,
+    ...(hostId !== 'local' ? { hostId } : {}),
+  });
 }
 
 function openDiffWindow(payload: unknown): void {
@@ -456,13 +470,17 @@ ipcMain.on('viewer:open-window', (_event, payload: unknown) => {
     diffWin.focus();
     return;
   }
-  const p = payload as { mode?: string; path?: string } | undefined;
+  const p = payload as
+    | { mode?: string; path?: string; hostId?: string }
+    | undefined;
+  // hostId 缺省 = 本机(既有调用方零变化);远程 = workspace 的 configId
+  const hostId = typeof p?.hostId === 'string' && p.hostId ? p.hostId : 'local';
   if (p?.mode === 'diff') {
     openDiffWindow(payload);
   } else if (p?.mode === 'file' && typeof p.path === 'string') {
-    openFileWindow(p.path, 'file');
+    openFileWindow(p.path, 'file', hostId);
   } else if (p?.mode === 'dir' && typeof p.path === 'string') {
-    openFileWindow(p.path, 'dir');
+    openFileWindow(p.path, 'dir', hostId);
   }
 });
 

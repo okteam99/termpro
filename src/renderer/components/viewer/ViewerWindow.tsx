@@ -5,16 +5,25 @@ import { hostClient } from '../../services/hostClient';
 import { tildify } from '../../state/store';
 import { DiffPanel } from './DiffPanel';
 import { FilesWindow } from './FilesWindow';
+import { connectViewerHost, isRemoteHost } from './viewerHost';
 import { t } from '../../../shared/i18n';
 
 export type ViewerPayload =
-  | { mode: 'files'; initialPath: string; initialKind?: 'file' | 'dir' }
+  | {
+      mode: 'files';
+      initialPath: string;
+      initialKind?: 'file' | 'dir';
+      /** 缺省/'local' = 本机;远程 = workspace 的 configId(一窗一 host) */
+      hostId?: string;
+    }
   | {
       mode: 'diff';
       toplevel: string;
       baseRef: string | null;
       /** 打开时初选的文件(toplevel 相对路径) */
       initialPath?: string;
+      /** 缺省/'local' = 本机;远程 = workspace 的 configId */
+      hostId?: string;
     };
 
 export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
@@ -23,6 +32,7 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
       <FilesWindow
         initialPath={payload.initialPath}
         initialKind={payload.initialKind ?? 'file'}
+        hostId={payload.hostId}
       />
     );
   }
@@ -38,14 +48,14 @@ function DiffWindow({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    hostClient.connect().then(
+    connectViewerHost(payload.hostId).then(
       () => setReady(true),
-      (e) => setError(String(e)),
+      (e) => setError(e instanceof Error ? e.message : String(e)),
     );
     return hostClient.onDown(() =>
       setError(t('Host process exited — press ⌘R to reload the window')),
     );
-  }, []);
+  }, [payload.hostId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -98,13 +108,17 @@ function DiffWindow({
           {title}
         </span>
         <div className="viewer-actions">
-          <button
-            className="viewer-btn"
-            onClick={() => window.termpro.openPath(payload.toplevel)}
-            title={t('Open the repo directory with the default app')}
-          >
-            {t('Open with default app')}
-          </button>
+          {/* 「默认应用打开」是本机 OS 动作:远程仓库路径交给本机 shell 会静默作用于
+              本机同名目录(D-7 误路由),远程窗口直接不渲染该入口 */}
+          {!isRemoteHost(payload.hostId) && (
+            <button
+              className="viewer-btn"
+              onClick={() => window.termpro.openPath(payload.toplevel)}
+              title={t('Open the repo directory with the default app')}
+            >
+              {t('Open with default app')}
+            </button>
+          )}
           <button
             className="viewer-btn viewer-btn--close"
             onClick={() => window.close()}

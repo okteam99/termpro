@@ -78,6 +78,7 @@ export const zh: Record<string, string> = {
   // --- App ---
   'Host process exited — press ⌘R to reload the window': 'Host 进程已退出,⌘R 重载窗口可恢复',
   'Host connection failed: {error}': 'Host 连接失败:{error}',
+  'Remote machine is not connected': '远程机未连接',
   'Connecting to host…': '连接 Host…',
   '⌘T for a new terminal': '⌘T 新建终端',
   'Add a workspace on the left to get started': '在左侧添加一个 Workspace 开始',
@@ -293,6 +294,8 @@ export const zh: Record<string, string> = {
   'New tab': '新 Tab',
   'New tab options': '新 Tab 选项',
   'Close tab': '关闭 Tab',
+  'Show file panel': '显示文件面板',
+  'Hide file panel': '隐藏文件面板',
   'No session': '无会话',
   'Refresh': '刷新',
   'Apply': '应用',

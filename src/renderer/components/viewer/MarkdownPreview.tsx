@@ -10,12 +10,15 @@ import { marked, type Token, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import { hostClient } from '../../services/hostClient';
 import { resolveMarkdownHref } from './markdownLinks';
+import { isRemoteHost } from './viewerHost';
 import { t } from '../../../shared/i18n';
 
 interface Props {
   path: string;
   /** 编辑器有未保存内容时优先取它(无编辑器/未打开则 null → 读磁盘) */
   getEditorValue?: () => string | null;
+  /** 缺省/'local' = 本机;远程 = configId(文件链接跳转须带回,防跨窗误路由) */
+  hostId?: string;
 }
 
 // ---- mermaid 模块级单例:懒加载 + 只初始化一次 ----
@@ -242,7 +245,7 @@ interface OutlineItem {
   level: number;
 }
 
-export function MarkdownPreview({ path, getEditorValue }: Props) {
+export function MarkdownPreview({ path, getEditorValue, hostId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chunksRef = useRef<string[]>([]);
   const [lightboxChunk, setLightboxChunk] = useState<string | null>(null);
@@ -398,11 +401,16 @@ export function MarkdownPreview({ path, getEditorValue }: Props) {
       } else if (target.kind === 'anchor') {
         scrollToHeading(target.id);
       } else {
-        // 本地路径:stat 决定开内容窗还是目录 listing(不存在则静默)
+        // 文件路径(本窗口 host 上的):stat 决定开内容窗还是目录 listing(不存在则静默);
+        // 带回 hostId,远程窗口的链接跳转仍落在本 host 的窗口
         void hostClient.rpc('fs.stat', { path: target.abs }).then(
           (r) => {
             if (r.kind === 'file' || r.kind === 'dir') {
-              window.termpro.openViewerWindow({ mode: r.kind, path: target.abs });
+              window.termpro.openViewerWindow({
+                mode: r.kind,
+                path: target.abs,
+                ...(isRemoteHost(hostId) ? { hostId } : {}),
+              });
             }
           },
           () => undefined,
