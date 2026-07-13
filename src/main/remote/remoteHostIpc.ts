@@ -111,6 +111,10 @@ export function registerRemoteHostIpc(
     return orchestrator.tunnelFor(payload.id);
   });
 
+  // 全部会话阶段快照(浏览器网络选择器列出可用出口)。零敏感信息(仅 configId→stage,
+  // 与 list 同级),不做归属校验;选择器据此只列 ready 的机器可选。
+  ipcMain.handle(REMOTE_HOST_CHANNELS.stages, () => orchestrator.stages());
+
   return () => {
     unsubscribeEvents();
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.list);
@@ -119,6 +123,7 @@ export function registerRemoteHostIpc(
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.delete);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.test);
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.tunnel);
+    ipcMain.removeHandler(REMOTE_HOST_CHANNELS.stages);
     ipcMain.removeAllListeners(REMOTE_HOST_CHANNELS.connect);
     ipcMain.removeAllListeners(REMOTE_HOST_CHANNELS.disconnect);
   };

@@ -120,6 +120,31 @@ export const REMOTE_HOST_CHANNELS = {
   event: 'remoteHost:event',
   tunnel: 'remoteHost:tunnel',
   capabilities: 'remoteHost:capabilities',
+  /** 全部会话阶段快照（浏览器网络选择器列出可用出口 · configId→RemoteStage）。 */
+  stages: 'remoteHost:stages',
+} as const;
+
+/**
+ * 内置浏览器的网络出口选择（面板级，非 per-tab —— persist:browser 是全局唯一 session
+ * partition，代理设在 session 级，所有标签共享同一出口）。
+ * hostId='local' = 本机直连（默认）；否则 = 某台 ready 远程机的 configId，其流量经该机
+ * 上的本地 SOCKS5 代理走远程网络（远程 DNS）。
+ */
+export interface BrowserNetworkState {
+  /** 当前生效出口：'local' 或远程机 configId。 */
+  hostId: string;
+  /** 远程出口的别名（UI 展示用；hostId==='local' 时省略）。 */
+  alias?: string;
+}
+
+/** 浏览器网络出口 IPC 通道（renderer ↔ main）。 */
+export const BROWSER_NET_CHANNELS = {
+  /** 设置出口（renderer→main，invoke）：返回最终生效态；请求远程但该机不可用 → 回退 local。 */
+  set: 'browserNet:set',
+  /** 查询当前出口（renderer→main，invoke）：面板挂载时对齐权威态。 */
+  get: 'browserNet:get',
+  /** 出口变更推送（main→renderer）：含断线自动回退 local——UI 据此同步高亮/提示。 */
+  changed: 'browserNet:changed',
 } as const;
 
 /**

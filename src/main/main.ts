@@ -7,6 +7,7 @@ import {
   ipcMain,
   nativeImage,
   safeStorage,
+  session,
   utilityProcess,
   clipboard,
   shell,
@@ -30,6 +31,8 @@ import { RemoteHostOrchestrator } from './remote/orchestrator';
 import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
+import { BrowserNetworkController } from './browserNetwork';
+import { BROWSER_NET_CHANNELS } from '../shared/remoteHost';
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 import { encodeClipboardImage } from './clipboardImage';
 import { migrateLegacyUserData } from './userDataMigration';
@@ -92,6 +95,10 @@ let mainWin: BrowserWindow | null = null;
 // 故窗口键 = hostId,同 host 多文件仍复用同一窗多 tab。
 const fileWins = new Map<string, BrowserWindow>();
 let diffWin: BrowserWindow | null = null;
+
+// 内置浏览器 guest webContents 台账(browserNet 用):选远程网络出口时对每个 guest
+// 设 WebRTC disable_non_proxied_udp 防 UDP 泄漏本机真实 IP;guest 销毁时移除。
+const browserGuests = new Set<Electron.WebContents>();
 
 // .md 文件关联:双击 md / 「打开方式」选 OkWork → 查看器窗口打开。
 // macOS 冷启动时 open-file 可能早于 ready,先入队,ready 后统一打开(openFileWindow
@@ -181,6 +188,45 @@ registerRemoteHostIpc(
     return win === diffWin && configId === diffWinHostId;
   },
 );
+// ---- 内置浏览器网络出口(browserNet · 面板级)-----------------------------
+// persist:browser session 的代理:local=直连;远程=该机本地 SOCKS5 端口(远程 DNS)。
+const browserNetwork = new BrowserNetworkController({
+  setProxy: (rules) =>
+    session
+      .fromPartition('persist:browser')
+      .setProxy(rules === null ? { mode: 'direct' } : { proxyRules: rules }),
+  browserProxyFor: (configId) => remoteHostOrchestrator.browserProxyFor(configId),
+  releaseBrowserProxy: (configId) => remoteHostOrchestrator.releaseBrowserProxy(configId),
+  setWebRtcPolicy: (policy) => {
+    for (const wc of browserGuests) {
+      if (!wc.isDestroyed()) wc.setWebRTCIPHandlingPolicy(policy);
+    }
+  },
+  aliasOf: (configId) => remoteHostConfigStore.get(configId)?.alias,
+  emitChanged: (state) => {
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send(BROWSER_NET_CHANNELS.changed, state);
+    }
+  },
+});
+
+// 当前出口的远程机断开 → 自动回退 local(SOCKS 端口已随 closeSessionTransport 失效,
+// 不回退浏览器会卡在死端口上,全部请求失败)。orchestrator.onEvent 多播,与
+// registerRemoteHostIpc 的事件推送各自独立订阅,职责不同不合并。
+remoteHostOrchestrator.onEvent((e) => {
+  if (e.stage === 'disconnected' || e.stage === 'failed') {
+    browserNetwork.onHostDown(e.configId);
+  }
+});
+
+// browserNet:set 仅主窗口可改(浏览器面板只在主窗口;拒绝其它渲染进程改全局代理);
+// get 无副作用任意窗口可读。
+ipcMain.handle(BROWSER_NET_CHANNELS.set, (event, payload: { hostId: string }) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return browserNetwork.get();
+  return browserNetwork.set(payload?.hostId ?? 'local');
+});
+ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.get());
+
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();
 });
@@ -631,6 +677,14 @@ const createWindow = () => {
   // http(s) 交回 renderer 在浏览器面板里开新标签(externalUrlPolicy 只管主窗自身导航)。
   // 限频 300ms/guest:恶意页 for(;;)window.open 不能灌爆标签条(评审 P2-5)
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
+    // browserNet 台账:新 guest 纳入(切远程出口时遍历设 WebRTC 策略);guest 销毁移除。
+    // 当前出口已是远程 → 立即对这个「切换之后才 attach」的新标签设防泄漏策略,
+    // 否则它会漏在 setWebRtcPolicy 的既有遍历之外,以本机 UDP 暴露真实 IP。
+    browserGuests.add(guest);
+    guest.on('destroyed', () => browserGuests.delete(guest));
+    if (browserNetwork.get().hostId !== 'local') {
+      guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
+    }
     let lastOpenAt = 0;
     guest.setWindowOpenHandler(({ url }) => {
       const now = Date.now();

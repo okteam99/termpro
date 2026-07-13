@@ -77,6 +77,7 @@ describe('AC-3 CredentialStore', () => {
     // tunnel 返回的是「已就绪会话的本地转发端口 + 隧道 capability token」(查看器窗口
     // 直连 host 用),不触碰 SSH 密码/passphrase/私钥等存储凭据,不违背 AC-3。
     // capabilities 只回 { encryptionAvailable: boolean }(safeStorage 可用性,零敏感值)。
+    // stages 只回 configId→RemoteStage 快照(浏览器网络选择器列出可用出口),零敏感值。
     const channelNames = Object.keys(REMOTE_HOST_CHANNELS);
     expect(channelNames.sort()).toEqual(
       [
@@ -89,6 +90,7 @@ describe('AC-3 CredentialStore', () => {
         'event',
         'tunnel',
         'capabilities',
+        'stages',
       ].sort(),
     );
     expect(channelNames.some((n) => /secret|password|passphrase/i.test(n))).toBe(false);

@@ -1,8 +1,10 @@
 import type {
+  BrowserNetworkState,
   RemoteEvent,
   RemoteHostCapabilities,
   RemoteHostConfig,
   RemoteHostConfigInput,
+  RemoteStage,
   RemoteTunnelInfo,
   TestResult,
 } from '../shared/remoteHost';
@@ -81,7 +83,18 @@ declare global {
         disconnect(payload: { id: string }): void;
         /** 已就绪会话的本地转发隧道(查看器窗口直连远程 host 用);未连接 → null */
         getTunnel(payload: { id: string }): Promise<RemoteTunnelInfo | null>;
+        /** 全部会话阶段快照(浏览器网络选择器列出可用出口;configId→RemoteStage) */
+        stages(): Promise<Record<string, RemoteStage>>;
         onEvent(callback: (e: RemoteEvent) => void): () => void;
+      };
+      /** 内置浏览器网络出口(面板级:'local' 直连 / 远程机 configId 走其 SOCKS5 代理) */
+      browserNet: {
+        /** 设置出口;返回最终生效态(请求远程但该机不可用 → 回退 local) */
+        set(hostId: string): Promise<BrowserNetworkState>;
+        /** 查询当前出口(面板挂载时对齐权威态) */
+        get(): Promise<BrowserNetworkState>;
+        /** 订阅出口变更(含断线自动回退 local),返回退订函数 */
+        onChanged(callback: (s: BrowserNetworkState) => void): () => void;
       };
     };
   }

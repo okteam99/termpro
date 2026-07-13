@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseLocaleArg, parseVersionArg } from './parseVersionArg';
-import { REMOTE_HOST_CHANNELS } from '../shared/remoteHost';
+import { REMOTE_HOST_CHANNELS, BROWSER_NET_CHANNELS } from '../shared/remoteHost';
 import type {
+  BrowserNetworkState,
   RemoteEvent,
   RemoteHostCapabilities,
   RemoteHostConfig,
   RemoteHostConfigInput,
+  RemoteStage,
   RemoteTunnelInfo,
   TestResult,
 } from '../shared/remoteHost';
@@ -172,12 +174,35 @@ contextBridge.exposeInMainWorld('okwork', {
     getTunnel(payload: { id: string }): Promise<RemoteTunnelInfo | null> {
       return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.tunnel, payload);
     },
+    /** 全部会话阶段快照(浏览器网络选择器列出可用出口;configId→RemoteStage) */
+    stages(): Promise<Record<string, RemoteStage>> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.stages);
+    },
     /** 订阅远程机连接生命周期事件,返回退订函数 */
     onEvent(callback: (e: RemoteEvent) => void): () => void {
       const listener = (_e: unknown, payload: RemoteEvent) => callback(payload);
       ipcRenderer.on(REMOTE_HOST_CHANNELS.event, listener);
       return () => {
         ipcRenderer.removeListener(REMOTE_HOST_CHANNELS.event, listener);
+      };
+    },
+  },
+  // 内置浏览器网络出口(面板级:'local' 直连 / 远程机 configId 走其 SOCKS5 代理)。
+  browserNet: {
+    /** 设置出口;返回最终生效态(请求远程但该机不可用 → 回退 local) */
+    set(hostId: string): Promise<BrowserNetworkState> {
+      return ipcRenderer.invoke(BROWSER_NET_CHANNELS.set, { hostId });
+    },
+    /** 查询当前出口(面板挂载时对齐权威态) */
+    get(): Promise<BrowserNetworkState> {
+      return ipcRenderer.invoke(BROWSER_NET_CHANNELS.get);
+    },
+    /** 订阅出口变更(含断线自动回退 local),返回退订函数 */
+    onChanged(callback: (s: BrowserNetworkState) => void): () => void {
+      const listener = (_e: unknown, s: BrowserNetworkState) => callback(s);
+      ipcRenderer.on(BROWSER_NET_CHANNELS.changed, listener);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_NET_CHANNELS.changed, listener);
       };
     },
   },
