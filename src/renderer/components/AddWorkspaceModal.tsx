@@ -435,7 +435,7 @@ export function AddWorkspaceModal({ onClose, initialHostId }: AddWorkspaceModalP
                   onClick={() => void handleCreate()}
                   disabled={dirLoading || !!dirError || creatingWorkspace}
                 >
-                  {t('Create project on {alias}', { alias: selectedHost.alias })}
+                  {t('Select project on {alias}', { alias: selectedHost.alias })}
                 </button>
               </div>
             </div>
