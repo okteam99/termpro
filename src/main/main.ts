@@ -674,7 +674,9 @@ const createWindow = () => {
     if (params.src && !/^https?:\/\//i.test(params.src)) event.preventDefault();
   });
   // 内置浏览器 webview 的弹窗策略:target=_blank / window.open 一律不开原生新窗,
-  // http(s) 交回 renderer 在浏览器面板里开新标签(externalUrlPolicy 只管主窗自身导航)。
+  // http(s) 交回 renderer 在浏览器面板里开新标签(externalUrlPolicy 只管主窗自身导航);
+  // 事件附带来源 guest 的 webContents id,renderer 据此把新标签落回来源 webview
+  // 所属终端 tab 的窗格(后台 tab 的弹窗不落错地方)。
   // 限频 300ms/guest:恶意页 for(;;)window.open 不能灌爆标签条(评审 P2-5)
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
     // browserNet 台账:新 guest 纳入(切远程出口时遍历设 WebRTC 策略);guest 销毁移除。
@@ -694,7 +696,7 @@ const createWindow = () => {
         now - lastOpenAt > 300
       ) {
         lastOpenAt = now;
-        mainWindow.webContents.send('browser:open-url', url);
+        mainWindow.webContents.send('browser:open-url', url, guest.id);
       }
       return { action: 'deny' };
     });

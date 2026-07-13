@@ -55,8 +55,11 @@ declare global {
       clipboardReadText(): Promise<string>;
       clipboardReadImage(): Promise<{ base64: string; size: number } | null>;
       openExternal(url: string): void;
-      /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数 */
-      onBrowserOpenUrl(callback: (url: string) => void): () => void;
+      /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
+       *  sourceWebContentsId=来源 guest 的 webContents id(据此把新标签落回来源终端 tab 的窗格) */
+      onBrowserOpenUrl(
+        callback: (url: string, sourceWebContentsId: number) => void,
+      ): () => void;
       openPath(path: string): void;
       showItemInFolder(path: string): void;
       openInBrowser(path: string): void;

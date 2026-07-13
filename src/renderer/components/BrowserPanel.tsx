@@ -17,6 +17,8 @@ declare global {
     canGoForward(): boolean;
     goBack(): void;
     goForward(): void;
+    /** 🔴 attach + dom-ready 之前调用会 throw(Electron 语义),调用方必须 try/catch */
+    getWebContentsId(): number;
   }
 }
 
@@ -359,14 +361,43 @@ export function BrowserPanel() {
 
   // 新开标签订阅(webview 内 target=_blank/window.open 经主进程回传);测试环境
   // window.okwork 可能不存在,可选链防御。
-  // 🟡 已知简化(本阶段):一律落到当前活跃终端 tab,而非弹窗来源 webview 所属的 tab——
-  // 严格按来源落位需要 main 侧记录 guest webContents → 终端 tab 的映射,留到后续阶段。
+  // 严格按来源落位:main 附带来源 guest 的 webContents id,这里经 webviewRefs 反查
+  // 来源浏览器标签 → 其所属终端 tab,把新标签落回该 tab 的窗格(后台 tab 的弹窗不落
+  // 错地方,也不打扰当前面板显示——面板只展示活跃终端 tab 的窗格)。
+  // 反查不中(来源 dom-ready 前拿不到 id / 来源标签恰被关)→ 回退当前活跃终端 tab。
   useEffect(() => {
-    const unsubscribe = window.okwork?.onBrowserOpenUrl?.((url) => {
+    const unsubscribe = window.okwork?.onBrowserOpenUrl?.((url, sourceWebContentsId) => {
       const s = useAppStore.getState();
-      const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
-      const tab = ws?.tabs.find((tb) => tb.id === ws.activeTabId);
-      if (tab) s.addBrowserTab(tab.id, url);
+      let ownerTabId: string | null = null;
+      if (typeof sourceWebContentsId === 'number') {
+        let sourceBrowserTabId: string | null = null;
+        for (const [btId, el] of webviewRefs.current) {
+          try {
+            if (el.getWebContentsId() === sourceWebContentsId) {
+              sourceBrowserTabId = btId;
+              break;
+            }
+          } catch {
+            // attach/dom-ready 前调用会 throw——该 webview 尚无 guest,必非来源,跳过
+          }
+        }
+        if (sourceBrowserTabId) {
+          for (const w of s.workspaces) {
+            const owner = w.tabs.find((tb) =>
+              tb.browser?.tabs.some((b) => b.id === sourceBrowserTabId),
+            );
+            if (owner) {
+              ownerTabId = owner.id;
+              break;
+            }
+          }
+        }
+      }
+      if (!ownerTabId) {
+        const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+        ownerTabId = ws?.tabs.find((tb) => tb.id === ws.activeTabId)?.id ?? null;
+      }
+      if (ownerTabId) s.addBrowserTab(ownerTabId, url);
     });
     return () => unsubscribe?.();
   }, []);

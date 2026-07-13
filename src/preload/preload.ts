@@ -96,9 +96,11 @@ contextBridge.exposeInMainWorld('okwork', {
   openExternal(url: string): void {
     ipcRenderer.send('shell:open-external', url);
   },
-  /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数 */
-  onBrowserOpenUrl(callback: (url: string) => void): () => void {
-    const listener = (_e: unknown, url: string) => callback(url);
+  /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
+   *  sourceWebContentsId 为来源 guest 的 webContents id(renderer 据此落位来源终端 tab) */
+  onBrowserOpenUrl(callback: (url: string, sourceWebContentsId: number) => void): () => void {
+    const listener = (_e: unknown, url: string, sourceWebContentsId: number) =>
+      callback(url, sourceWebContentsId);
     ipcRenderer.on('browser:open-url', listener);
     return () => {
       ipcRenderer.removeListener('browser:open-url', listener);
