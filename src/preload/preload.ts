@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { parseVersionArg } from './parseVersionArg';
+import { parseLocaleArg, parseVersionArg } from './parseVersionArg';
 import { REMOTE_HOST_CHANNELS } from '../shared/remoteHost';
 import type {
   RemoteEvent,
@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld('termpro', {
   smoke: process.argv.includes('--termpro-smoke'),
   devChannel: process.argv.includes('--termpro-dev'),
   version: parseVersionArg(process.argv),
+  /** 窗口创建时 main 已解析的生效 locale(renderer 首帧前应用) */
+  locale: parseLocaleArg(process.argv),
+  /** 语言偏好切换 → main 即时换语言并重建原生菜单(偏好本体随 ui 存档持久化) */
+  setAppLocale(pref: 'system' | 'en' | 'zh-CN'): void {
+    ipcRenderer.send('locale:set', pref);
+  },
   /** 请求 main 建一条直连 Host 的 MessageChannel,port 经 window message 送达 */
   requestHostPort(): void {
     ipcRenderer.send('host:request-port');

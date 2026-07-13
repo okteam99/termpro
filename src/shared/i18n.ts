@@ -12,9 +12,20 @@ import { zh } from './i18n.zh';
 
 export type Locale = 'en' | 'zh-CN';
 
+/** 用户语言偏好:'system' 随系统语言,显式 Locale 则钉死(随 ui 存档持久化) */
+export type LocalePref = Locale | 'system';
+
 /** 任意 BCP-47/系统 locale 字符串 → 本项目支持的 Locale(zh* → zh-CN,其余 → en) */
 export function resolveLocale(raw: string | null | undefined): Locale {
   return /^zh/i.test(raw ?? '') ? 'zh-CN' : 'en';
+}
+
+/** 偏好 + 系统 locale → 生效 Locale;非法/缺失/'system' 一律随系统(兼作输入校验) */
+export function resolveLocalePref(
+  pref: string | null | undefined,
+  systemRaw: string | null | undefined,
+): Locale {
+  return pref === 'en' || pref === 'zh-CN' ? pref : resolveLocale(systemRaw);
 }
 
 const isVitest =

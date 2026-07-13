@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
-import { registerAppStore } from './appStore';
+import { readPersistedLocalePref, registerAppStore } from './appStore';
 import { buildAdditionalArguments } from './buildAdditionalArguments';
 import {
   ExitLifecycleController,
@@ -30,7 +30,7 @@ import { RemoteHostOrchestrator } from './remote/orchestrator';
 import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
-import { resolveLocale, setLocale, t } from '../shared/i18n';
+import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 
 if (started) {
   app.quit();
@@ -263,6 +263,15 @@ ipcMain.on('clipboard:write-text', (_event, text: string) => {
 });
 ipcMain.handle('clipboard:read-text', () => clipboard.readText());
 
+// 语言偏好切换(renderer Settings 发起):main 即时换语言并重建原生菜单。
+// 偏好本体由 renderer 随 ui 存档持久化(下次启动 ready 时从存档读回)。
+ipcMain.on('locale:set', (_event, pref: unknown) => {
+  setLocale(
+    resolveLocalePref(typeof pref === 'string' ? pref : null, app.getLocale()),
+  );
+  buildMenu();
+});
+
 // Tab 右键菜单:重命名/关闭
 ipcMain.handle('tab:context-menu', (event) => {
   return new Promise<string | null>((resolve) => {
@@ -389,6 +398,13 @@ function openFileWindow(filePath: string, kind: 'file' | 'dir' = 'file'): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 查看窗口沿用当前生效 locale(argv 注入,renderer 首帧前应用)
+      additionalArguments: buildAdditionalArguments({
+        version: app.getVersion(),
+        smoke: false,
+        dev: isDevChannel,
+        locale: getLocale(),
+      }),
     },
   });
   installExternalUrlPolicy(fileWin, {
@@ -413,6 +429,12 @@ function openDiffWindow(payload: unknown): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: buildAdditionalArguments({
+        version: app.getVersion(),
+        smoke: false,
+        dev: isDevChannel,
+        locale: getLocale(),
+      }),
     },
   });
   installExternalUrlPolicy(diffWin, {
@@ -461,7 +483,7 @@ function buildMenu(): void {
       { role: 'unhide' },
       { type: 'separator' },
       {
-        label: `Quit ${app.getName()}`,
+        label: t('Quit {name}', { name: app.getName() }),
         accelerator: 'Command+Q',
         click: requestAppQuit,
       },
@@ -471,21 +493,22 @@ function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [appMenu()] : []),
     {
+      // 'Shell' 有意不译(终端术语,两端同文案)
       label: 'Shell',
       submenu: [
         {
-          label: 'New Tab',
+          label: t('New Tab'),
           accelerator: 'CmdOrCtrl+T',
           click: sendMenu('new-tab'),
         },
         {
-          label: 'Close Tab',
+          label: t('Close Tab'),
           accelerator: 'CmdOrCtrl+W',
           click: sendMenu('close-tab'),
         },
         { type: 'separator' },
         {
-          label: 'Close Window',
+          label: t('Close Window'),
           accelerator: 'CmdOrCtrl+Shift+W',
           role: 'close',
         },
@@ -519,6 +542,7 @@ const createWindow = () => {
         version: app.getVersion(),
         smoke: !!process.env.TERMPRO_SMOKE,
         dev: isDevChannel,
+        locale: getLocale(),
       }),
     },
   });
@@ -552,8 +576,9 @@ const createWindow = () => {
 };
 
 app.on('ready', () => {
-  // 默认文案随系统语言(en 为源文案,zh 查字典)——须在 buildMenu/任何 dialog 之前定死
-  setLocale(resolveLocale(app.getLocale()));
+  // locale = 存档偏好(ui.locale)优先,缺省随系统(en 为源文案,zh 查字典)——
+  // 须在 buildMenu/首窗创建/任何 dialog 之前定死(renderer 经 argv 拿同一值,无闪换)
+  setLocale(resolveLocalePref(readPersistedLocalePref(), app.getLocale()));
   // dev 模式 Dock 图标(打包版由 packagerConfig.icon 提供)
   if (!app.isPackaged && process.platform === 'darwin') {
     const devIcon = path.join(__dirname, '../../assets/icon.png');

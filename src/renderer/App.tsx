@@ -46,6 +46,9 @@ export default function App() {
   const hydrated = useAppStore((s) => s.hydrated);
   const sidebarWidth = useAppStore((s) => s.sidebarWidth);
   const filePanelWidth = useAppStore((s) => s.filePanelWidth);
+  // 语言切换 → 顶层订阅触发整树重渲染(t() 在 render 期取词,树内无 memo 组件,
+  // 级联即全量换语言;setLocalePref 已先切 i18n 再 set,渲染期必为新语言)
+  useAppStore((s) => s.localePref);
 
   useEffect(() => {
     hostRegistry.local().connect().then(setHostInfo, (e) => setError(String(e)));

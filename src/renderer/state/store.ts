@@ -4,7 +4,8 @@ import { hostRegistry } from '../services/hostRegistry';
 import { basename } from './pathLabel';
 import { reconcileWorkspaces } from './workspaceSync';
 import type { WorkspaceEntry } from '../../shared/protocol';
-import { t } from '../../shared/i18n';
+import { resolveLocalePref, setLocale, t } from '../../shared/i18n';
+import type { LocalePref } from '../../shared/i18n';
 
 const LOCAL_HOST_ID = 'local';
 
@@ -117,6 +118,8 @@ interface PersistedUi {
   pinBottomBar?: boolean;
   /** Sidebar 折叠中的机器分组('local' | configId);展开为默认态,不入存档 */
   collapsedMachines?: string[];
+  /** 语言偏好;缺省 = 随系统('system' 不写盘) */
+  locale?: 'en' | 'zh-CN';
 }
 
 /** v1 存档(version:1):未迁移或迁移失败 fallback 的全功能形态 */
@@ -234,6 +237,10 @@ export interface AppState {
   /** Sidebar 折叠中的机器分组 id 集('local' | configId),随 ui 存档持久化 */
   collapsedMachines: string[];
   toggleMachineCollapsed(machineId: string): void;
+  /** 语言偏好('system' 随系统;显式 locale 钉死),随 ui 存档持久化 */
+  localePref: LocalePref;
+  /** 切换语言:即时生效(renderer + main 原生菜单)并随存档持久化 */
+  setLocalePref(pref: LocalePref): void;
 }
 
 
@@ -369,11 +376,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   hydrate(registry, archive) {
     // ui 恢复(两种模式都读)
     if (archive?.ui) {
+      // 语言偏好:显式 en/zh-CN 立即生效;'system'/缺失不重设——启动值已按
+      // argv(main 读同一存档)/navigator 定好,且避免测试环境被宿主语言污染
+      const rawLocale = archive.ui.locale;
+      const localePref: LocalePref =
+        rawLocale === 'en' || rawLocale === 'zh-CN' ? rawLocale : 'system';
+      if (localePref !== 'system') setLocale(localePref);
       set({
         sidebarWidth: archive.ui.sidebarWidth ?? 240,
         filePanelWidth: archive.ui.filePanelWidth ?? 280,
         pinBottomBar: archive.ui.pinBottomBar ?? false,
         collapsedMachines: archive.ui.collapsedMachines ?? [],
+        localePref,
       });
     }
 
@@ -793,6 +807,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? s.collapsedMachines.filter((id) => id !== machineId)
         : [...s.collapsedMachines, machineId],
     }));
+  },
+
+  localePref: 'system',
+
+  setLocalePref(pref) {
+    // 先切 i18n 再 set:set 同步触发订阅重渲染,渲染期 t() 须已是新语言
+    setLocale(
+      resolveLocalePref(
+        pref,
+        typeof navigator !== 'undefined' ? navigator.language : null,
+      ),
+    );
+    // main 同步生效(原生菜单/dialog);bridge 缺失(测试)静默跳过
+    window.termpro?.setAppLocale?.(pref);
+    set({ localePref: pref });
   },
 
   notifications: [],

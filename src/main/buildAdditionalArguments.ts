@@ -6,10 +6,13 @@ export function buildAdditionalArguments({
   version,
   smoke,
   dev,
+  locale,
 }: {
   version: string;
   smoke: boolean;
   dev: boolean;
+  /** 窗口创建时已解析的生效 locale(renderer 首帧前应用,避免语言闪换) */
+  locale?: string;
 }): string[] {
   const args: string[] = [];
   if (version) {
@@ -20,6 +23,9 @@ export function buildAdditionalArguments({
   }
   if (dev) {
     args.push('--termpro-dev');
+  }
+  if (locale) {
+    args.push(`--termpro-locale=${locale}`);
   }
   return args;
 }

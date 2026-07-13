@@ -116,6 +116,8 @@ export function serialize(s: AppState): PersistedState {
     pinBottomBar: s.pinBottomBar,
     // 空集不写盘(存档整洁;缺省即全展开)
     ...(s.collapsedMachines.length > 0 ? { collapsedMachines: s.collapsedMachines } : {}),
+    // 'system' 不写盘(缺省即随系统;main 启动读此字段定 locale)
+    ...(s.localePref !== 'system' ? { locale: s.localePref } : {}),
   };
 
   // 🔴 D-6/ARCH-2:远程 ws(hostId!=='local')是纯视图态,v1+v2 两分支都不写盘——

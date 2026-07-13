@@ -14,6 +14,10 @@ declare global {
       smoke: boolean;
       devChannel: boolean;
       version: string;
+      /** 窗口创建时 main 已解析的生效 locale('en' | 'zh-CN';缺失 → "") */
+      locale: string;
+      /** 语言偏好切换 → main 即时换语言并重建原生菜单 */
+      setAppLocale(pref: 'system' | 'en' | 'zh-CN'): void;
       requestHostPort(): void;
       pickDirectory(): Promise<string | null>;
       onMenu(callback: (action: string) => void): () => void;

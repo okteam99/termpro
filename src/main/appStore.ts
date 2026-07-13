@@ -28,6 +28,22 @@ function writeNow(): void {
   }
 }
 
+/**
+ * 启动期同步读存档里的语言偏好(ui.locale)。缺失/非法/读失败 → null(随系统)。
+ * 供 main 在 buildMenu/首窗创建之前定死 locale(renderer 侧偏好经 argv 注入窗口)。
+ */
+export function readPersistedLocalePref(): 'en' | 'zh-CN' | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(stateFile(), 'utf8')) as {
+      ui?: { locale?: unknown };
+    };
+    const v = raw?.ui?.locale;
+    return v === 'en' || v === 'zh-CN' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 export function registerAppStore(): void {
   ipcMain.handle('store:get', () => {
     try {
