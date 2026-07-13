@@ -26,6 +26,18 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd
 
+# Newer npm than the one bundled with node:22 (npm 12 needs node ^22.22.2 —
+# satisfied by the floating node:22 tag), plus preinstalled agent CLIs:
+# Claude Code + OpenAI Codex. Unpinned on purpose: both release weekly, each
+# image rebuild picks up current versions.
+RUN npm install -g npm@12 \
+    && npm install -g @anthropic-ai/claude-code @openai/codex \
+    # npm 12 skips the postinstall that fetches Claude Code's platform-native
+    # binary; invoke it directly so the binary lands inside the shared global
+    # package dir (works for non-root SSH users too, verified with su).
+    && node /usr/local/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
+    && npm cache clean --force
+
 COPY sshd.conf /etc/ssh/sshd_config.d/10-termpro-node.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh

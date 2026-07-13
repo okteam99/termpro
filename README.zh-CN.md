@@ -62,7 +62,7 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个
 
 ## SSH 沙箱镜像(Docker)
 
-想要一台随开随用的 SSH 主机来体验 TermPro 的远程能力,或单纯需要一个能 SSH 上去的 Node.js 环境?我们发布了现成镜像(Node.js 22 + sshd,支持 `linux/amd64` 与 `linux/arm64`):
+想要一台随开随用的 SSH 主机来体验 TermPro 的远程能力,或单纯需要一个能 SSH 上去的 Node.js 环境?我们发布了现成镜像(Node.js 22 + npm 12 + sshd,内置 Claude Code 与 Codex CLI,支持 `linux/amd64` 与 `linux/arm64`):
 
 **镜像地址**:[`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
 

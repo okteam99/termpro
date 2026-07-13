@@ -70,7 +70,7 @@ To run from source, see [Development](#development).
 
 ## SSH sandbox image (Docker)
 
-Need a disposable SSH host to try TermPro's remote features — or just a Node.js box reachable over SSH? We publish a ready-made image (Node.js 22 + sshd + Docker Engine, `linux/amd64` + `linux/arm64`):
+Need a disposable SSH host to try TermPro's remote features — or just a Node.js box reachable over SSH? We publish a ready-made image (Node.js 22 + npm 12 + sshd + Docker Engine, with Claude Code and Codex CLI preinstalled, `linux/amd64` + `linux/arm64`):
 
 **Image**: [`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
 
