@@ -186,15 +186,14 @@ function serializeRemoteTabs(s: AppState): PersistedRemoteWorkspace[] {
       hostId: w.hostId,
       workspaceId: w.id,
       activeTabId: w.activeTabId,
-      tabs: w.tabs.map((t) => ({
-        ...serializeTab(t),
-        sessionId: getSessionId(t.id) ?? undefined,
-      })),
+      // sessionId 已由 serializeTab 统一写入(本地/远程同构)
+      tabs: w.tabs.map(serializeTab),
     }));
   return [...stored, ...live];
 }
 
 function serializeTab(t: AppState['workspaces'][number]['tabs'][number]) {
+  const sessionId = getSessionId(t.id);
   return {
     id: t.id,
     cwd: t.cwd,
@@ -209,6 +208,8 @@ function serializeTab(t: AppState['workspaces'][number]['tabs'][number]) {
           },
         }
       : {}),
+    // 会话收养键(本地/远程同构):活会话才写盘;本地 embedded 下恒 stale,hydrate 容忍
+    ...(sessionId ? { sessionId } : {}),
   };
 }
 

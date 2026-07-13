@@ -92,6 +92,10 @@ export interface PersistedTab {
   filePanel?: TabFilePanelState;
   /** 该 tab 的浏览器窗格(只存 {id,url};title 视图态);空/未开 → 不写盘 */
   browser?: { tabs: { id: string; url: string }[]; activeTabId: string | null };
+  /** 会话收养键(本地/远程同构):恢复时预绑定收养——host 存活则 attach 回放内容;
+   *  host 已重启/会话不存(attach miss)→ 原位重 spawn,内容可丢但 tab 不丢。
+   *  本地在 embedded host 下恒 stale(会话随 app 死),hydrate 容忍;standalone 化后消费。 */
+  sessionId?: string;
 }
 
 /** v1 存档 workspace(迁移前 / 迁移失败 fallback):自带 name/root */
@@ -111,12 +115,6 @@ export interface PersistedWorkspaceV2 {
   tabs: PersistedTab[];
 }
 
-/** 远程 tab 存档:比本机多存 sessionId——重连恢复时预绑定收养(host 存活则回放内容;
- *  host 已重启则 attach miss → 原位重 spawn,内容可丢但 tab 不丢 · 用户规则 2026-07)。 */
-export interface PersistedRemoteTab extends PersistedTab {
-  sessionId?: string;
-}
-
 /**
  * 远程 workspace 的 tab 布局存档(用户规则 2026-07:服务端升级/重启后 session 内容可丢,
  * tab 名称/数量/顺序不能丢)。远程 ws 本体仍是纯视图态不入 workspaces 存档(D-6/ARCH-2
@@ -127,7 +125,7 @@ export interface PersistedRemoteWorkspace {
   hostId: string;
   workspaceId: string;
   activeTabId: string | null;
-  tabs: PersistedRemoteTab[];
+  tabs: PersistedTab[];
 }
 
 interface PersistedUi {
@@ -224,7 +222,7 @@ export interface AppState {
   /** 布局恢复:仅当远程 ws 存在且当前 0 tab 时按存档原序重建 tabs;返回是否应用 */
   restoreWorkspaceTabs(
     workspaceId: string,
-    tabs: PersistedRemoteTab[],
+    tabs: PersistedTab[],
     activeTabId: string | null,
   ): boolean;
   /** 设置/清除一次性提示 */
