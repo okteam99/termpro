@@ -158,6 +158,14 @@ export interface RpcMethods {
     result: { base64: string | null; size: number };
   };
   'fs.writeFile': { params: { path: string; content: string }; result: undefined };
+  /**
+   * 把受限类型的 base64 数据写入 Host 自分配的临时文件。路径/文件名不由 renderer 指定,
+   * 防目录穿越;当前仅开放 PNG(远程剪贴板图片)。
+   */
+  'fs.writeTempFile': {
+    params: { kind: 'png'; base64: string };
+    result: { path: string };
+  };
   /** 把 src 移动进 destDir(拖拽内部移动);重名自动加后缀不覆盖;原地移动忽略;
    *  禁止把目录移进自身/子孙。返回最终目标绝对路径。 */
   'fs.move': {

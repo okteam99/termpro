@@ -1,7 +1,7 @@
 // AC-1 传输等价冒烟:WS 连上后全 RPC 方法表 roundtrip + fs.watch 推送 + PTY 生命周期
 // + 流控 ack + 二进制读 + git 一致性。与直接调用 host 服务(= MessagePort 基线同一
 // 代码路径)比对功能等价。真实 ws 服务端/客户端。
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { it, expect, afterEach, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -88,6 +88,23 @@ describePty('AC-1 全 RPC 方法表 WS roundtrip (T-031)', () => {
     })) as { content: string | null };
     expect(rf.content).toBe('written');
 
+    // fs.writeTempFile:renderer 的本机剪贴板 PNG 经真实 WS 落在 Host 临时目录。
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    );
+    const tempImage = (await c.rpc('fs.writeTempFile', {
+      kind: 'png',
+      base64: png.toString('base64'),
+    })) as { path: string };
+    try {
+      expect(fs.readFileSync(tempImage.path)).toEqual(png);
+      expect(fs.statSync(tempImage.path).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.dirname(tempImage.path)).mode & 0o777).toBe(0o700);
+    } finally {
+      fs.rmSync(path.dirname(tempImage.path), { recursive: true, force: true });
+    }
+
     // fs.move / fs.copy(各用独立 src,互不消耗)
     const destDir = path.join(tmp, 'dest');
     fs.mkdirSync(destDir);
@@ -151,6 +168,13 @@ describePty('AC-1 全 RPC 方法表 WS roundtrip (T-031)', () => {
     expect(typeof w.watchId).toBe('number');
     await c.rpc('fs.unwatch', { watchId: w.watchId });
   });
+});
+
+it('standalone Host advertises fs.temp-png capability', async () => {
+  host = await startTestHost({ mode: 'standalone' });
+  const client = track(new TestClient(host.url()));
+  const hostInfo = (await client.handshake()) as { capabilities?: string[] };
+  expect(hostInfo.capabilities).toContain('fs.temp-png');
 });
 
 describePty('AC-1 fs.watch 经 WS 推送 (T-032/T-033)', () => {

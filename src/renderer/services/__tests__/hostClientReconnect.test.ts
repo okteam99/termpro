@@ -188,4 +188,23 @@ describe('missing_capabilities_skips_list_attach_falls_back_new_spawn (T-038)', 
     expect(client.supportsSessionResume()).toBe(true);
     client.dispose();
   });
+
+  it('新 client + 旧长期驻留 Host:缺 fs.temp-png 能力位 → 不把新增 RPC 当作可用', async () => {
+    stubGlobalWebSocket(V1_INFO);
+    const client = new HostClient({ reconnectable: true });
+    await client.connect({ wsUrl: 'ws://127.0.0.1:7003?token=a' });
+    expect(client.supportsTempPng()).toBe(false);
+    client.dispose();
+  });
+
+  it('Host 公布 fs.temp-png → 远程图片粘贴可用', async () => {
+    stubGlobalWebSocket({
+      ...V1_INFO,
+      capabilities: [...(V1_INFO.capabilities ?? []), 'fs.temp-png'],
+    });
+    const client = new HostClient({ reconnectable: true });
+    await client.connect({ wsUrl: 'ws://127.0.0.1:7004?token=a' });
+    expect(client.supportsTempPng()).toBe(true);
+    client.dispose();
+  });
 });

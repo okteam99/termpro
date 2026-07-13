@@ -85,6 +85,10 @@ contextBridge.exposeInMainWorld('termpro', {
   clipboardReadText(): Promise<string> {
     return ipcRenderer.invoke('clipboard:read-text');
   },
+  /** 本机系统剪贴板图片统一编码成 PNG;空剪贴板返回 null。 */
+  clipboardReadImage(): Promise<{ base64: string; size: number } | null> {
+    return ipcRenderer.invoke('clipboard:read-image');
+  },
   openExternal(url: string): void {
     ipcRenderer.send('shell:open-external', url);
   },

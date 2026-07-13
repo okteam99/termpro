@@ -31,6 +31,7 @@ import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
+import { encodeClipboardImage } from './clipboardImage';
 
 if (started) {
   app.quit();
@@ -262,6 +263,7 @@ ipcMain.on('clipboard:write-text', (_event, text: string) => {
   if (typeof text === 'string') clipboard.writeText(text);
 });
 ipcMain.handle('clipboard:read-text', () => clipboard.readText());
+ipcMain.handle('clipboard:read-image', () => encodeClipboardImage(clipboard.readImage()));
 
 // 语言偏好切换(renderer Settings 发起):main 即时换语言并重建原生菜单。
 // 偏好本体由 renderer 随 ui 存档持久化(下次启动 ready 时从存档读回)。

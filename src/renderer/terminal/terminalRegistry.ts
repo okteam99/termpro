@@ -22,12 +22,15 @@ import {
 import { BottomBarPin } from './bottomBarPin';
 import { disposeWebglAddon } from './webglContextRelease';
 import { t } from '../../shared/i18n';
+import { installRemoteClipboardPasteHandler } from './remoteClipboardPaste';
+import { RemotePasteInputBarrier } from './remotePasteInputBarrier';
 
 export interface TermCallbacks {
   onTitle?(processName: string): void;
   onExit?(exitCode: number): void;
   onCwd?(cwd: string): void;
   onFirstData?(): void;
+  onNotice?(message: string): void;
 }
 
 export interface TermInstance {
@@ -70,6 +73,14 @@ export interface TermInstance {
   /** 本端订阅被另一设备 exclusive attach 摘除(M2 session:takenover);
    *  tab 重新激活时自动 mirror re-attach 取回(remirrorIfTakenOver)。 */
   takenover: boolean;
+  /** 远程剪贴板图片上传期的输入顺序屏障;完成后图片路径先于随后键入发送。 */
+  remotePaste: {
+    barrier: RemotePasteInputBarrier;
+    client: HostClient;
+    sessionId: string;
+  } | null;
+  /** installRemoteClipboardPasteHandler disposer:tab 关闭时标记异步流程失效。 */
+  remotePasteDispose: (() => void) | null;
 }
 
 const registry = new Map<string, TermInstance>();
@@ -136,8 +147,82 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     exited: false,
     inputWired: false,
     takenover: false,
+    remotePaste: null,
+    remotePasteDispose: null,
   };
   inst.barPin.setEnabled(pinBottomBarEnabled);
+
+  // 一实例只接一次:远程 Ctrl+V 由本机 Electron 读剪贴板,PNG 经该实例绑定的
+  // HostClient 落到远端,再以 bracketed paste 路径送入 TUI。本地会话完全放行原快捷键。
+  inst.remotePasteDispose = installRemoteClipboardPasteHandler(term, {
+    isRemote: () => inst.hostId !== null && inst.hostId !== 'local',
+    readImage: () => window.termpro.clipboardReadImage(),
+    readText: () => window.termpro.clipboardReadText(),
+    begin: () => {
+      const client = inst.client;
+      const sessionId = inst.sessionId;
+      if (inst.disposed || !client || !sessionId) {
+        throw new Error('remote terminal is not ready');
+      }
+      inst.remotePaste = {
+        barrier: new RemotePasteInputBarrier(),
+        client,
+        sessionId,
+      };
+    },
+    writeImage: async (image) => {
+      const pending = inst.remotePaste;
+      if (
+        inst.disposed ||
+        !pending ||
+        inst.client !== pending.client ||
+        inst.sessionId !== pending.sessionId
+      ) {
+        throw new Error('remote terminal session changed while reading the clipboard');
+      }
+      const { client, sessionId } = pending;
+      // 能力门必须晚于剪贴板类型判断:旧 Host 仍应能粘贴本机纯文本,仅图片需要新 RPC。
+      if (!client.supportsTempPng()) {
+        throw new Error(
+          t(
+            'The Remote Host is preserving sessions on an older version; restart the TermPro Host after your tasks finish to enable image paste',
+          ),
+        );
+      }
+      const result = await client.rpc('fs.writeTempFile', {
+        kind: 'png',
+        base64: image.base64,
+      });
+      // 上传期间若断线收养/respawn,绝不把旧机路径注入新会话。
+      if (inst.disposed || inst.client !== client || inst.sessionId !== sessionId) {
+        throw new Error('remote terminal session changed while uploading the image');
+      }
+      return result;
+    },
+    paste: (text) => {
+      const pending = inst.remotePaste;
+      if (!pending) throw new Error('remote paste input barrier is unavailable');
+      if (
+        inst.disposed ||
+        inst.client !== pending.client ||
+        inst.sessionId !== pending.sessionId
+      ) {
+        throw new Error('remote terminal session changed while uploading the image');
+      }
+      pending.barrier.inject(() => term.paste(text));
+    },
+    end: () => {
+      const pending = inst.remotePaste;
+      inst.remotePaste = null;
+      if (!pending || inst.disposed) return;
+      // 会话已换:旧会话上下文中的路径与随后键入都不能串进新会话。
+      if (inst.client !== pending.client || inst.sessionId !== pending.sessionId) return;
+      for (const data of pending.barrier.drain()) {
+        pending.client.input(pending.sessionId, data);
+      }
+    },
+    notify: (message) => inst.callbacks.onNotice?.(message),
+  });
 
   // FsLinkProvider 在此构造,早于 ensureSession 绑定 inst.client(A6)——不能构造期注入
   // client,须用闭包 call-time 读:spawn 前 inst.client 为 null,兜底本机单例解析链接
@@ -263,6 +348,9 @@ export function disposeTerminal(tabId: string): void {
   const inst = registry.get(tabId);
   if (!inst) return;
   inst.disposed = true;
+  inst.remotePasteDispose?.();
+  inst.remotePasteDispose = null;
+  inst.remotePaste = null;
   if (inst.sessionId && inst.client) {
     void inst.client.rpc('pty.kill', { sessionId: inst.sessionId }).catch(() => {
       /* host 可能已回收 */
@@ -335,7 +423,11 @@ function wireInputOnce(inst: TermInstance): void {
   if (inst.inputWired) return;
   inst.inputWired = true;
   inst.term.onData((d) => {
-    if (inst.sessionId && inst.client) inst.client.input(inst.sessionId, d);
+    if (inst.remotePaste) {
+      inst.remotePaste.barrier.capture(d);
+    } else if (inst.sessionId && inst.client) {
+      inst.client.input(inst.sessionId, d);
+    }
   });
   inst.term.onResize(({ cols, rows }) => {
     if (inst.sessionId && inst.client) inst.client.resize(inst.sessionId, cols, rows);

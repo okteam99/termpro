@@ -33,6 +33,7 @@ function callbacksFor(tabId: string): TermCallbacks {
           window.termpro.smokeOk();
         }
       },
+      onNotice: (message) => useAppStore.getState().setTransientNotice(message),
     };
     tabCallbacks.set(tabId, cb);
   }

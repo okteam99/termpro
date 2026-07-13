@@ -25,6 +25,7 @@ import {
   realPath,
   statPath,
   writeTextFile,
+  writeTempPng,
 } from './fsService';
 import {
   gitChangedFiles,
@@ -182,11 +183,12 @@ async function handleRpc(
           platform: os.platform(),
           homedir: os.homedir(),
           shell: process.env.SHELL ?? '/bin/zsh',
-          // 能力位(向后兼容追加):standalone 支持断线重连回放收养 + 多订阅镜像
-          // (M2 · session.attach mode:'mirror');embedded 省略 → renderer 判为不支持
-          // → 重连退化 new spawn / attach 恒 exclusive(旧 host 零破坏 · QA-14)。
+          // 能力位(向后兼容追加):standalone 支持断线重连回放收养、多订阅镜像与
+          // 远程临时 PNG。embedded 省略 → renderer 对旧/本地 host 按各功能安全降级。
           capabilities:
-            mode === 'standalone' ? ['session.resume', 'session.mirror'] : undefined,
+            mode === 'standalone'
+              ? ['session.resume', 'session.mirror', 'fs.temp-png']
+              : undefined,
         };
         result = info;
         break;
@@ -261,6 +263,12 @@ async function handleRpc(
       case 'fs.writeFile': {
         const p = msg.params as { path: string; content: string };
         await writeTextFile(p.path, p.content);
+        break;
+      }
+      case 'fs.writeTempFile': {
+        const p = msg.params as { kind: string; base64: string };
+        if (p.kind !== 'png') throw new Error('unsupported temporary file kind');
+        result = await writeTempPng(p.base64);
         break;
       }
       case 'fs.move': {

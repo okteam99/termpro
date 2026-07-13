@@ -166,6 +166,11 @@ export class HostClient {
     return this.info?.capabilities?.includes('session.mirror') ?? false;
   }
 
+  /** 远端 Host 是否支持受限临时 PNG RPC;旧长期驻留 Host 缺能力位时不得盲发 unknown RPC。 */
+  supportsTempPng(): boolean {
+    return this.info?.capabilities?.includes('fs.temp-png') ?? false;
+  }
+
   /** 订阅 host 进程退出事件,返回退订函数 */
   onDown(cb: () => void): () => void {
     this.downListeners.add(cb);

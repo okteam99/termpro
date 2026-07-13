@@ -49,6 +49,7 @@ declare global {
       showTabContextMenu(): Promise<string | null>;
       clipboardWriteText(text: string): void;
       clipboardReadText(): Promise<string>;
+      clipboardReadImage(): Promise<{ base64: string; size: number } | null>;
       openExternal(url: string): void;
       openPath(path: string): void;
       showItemInFolder(path: string): void;

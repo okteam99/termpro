@@ -102,6 +102,9 @@ export async function readTextFile(path: string): Promise<{
 
 /** 二进制预览上限(图片;base64 后约 ×1.37 经 RPC 传输) */
 const MAX_BINARY_BYTES = 20 * 1024 * 1024;
+const TEMP_PNG_PREFIX = 'termpro-clipboard-';
+const TEMP_PNG_TTL_MS = 24 * 60 * 60 * 1000;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export async function readBinaryFile(
   path: string,
@@ -123,6 +126,78 @@ export async function writeTextFile(
   const stat = await fs.stat(path);
   if (!stat.isFile()) throw new Error('not a regular file');
   await fs.writeFile(path, content, 'utf8');
+}
+
+function decodeStrictBase64(base64: string, maxBytes: number): Buffer {
+  if (!base64) throw new Error('empty temporary PNG');
+  if (
+    base64.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)
+  ) {
+    throw new Error('invalid base64 for temporary PNG');
+  }
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  const decodedSize = (base64.length / 4) * 3 - padding;
+  if (decodedSize > maxBytes) {
+    throw new Error(`temporary PNG exceeds ${maxBytes} bytes`);
+  }
+  return Buffer.from(base64, 'base64');
+}
+
+/** 下次写入时顺手清掉上次异常退出遗留的敏感截图;当前进程创建项另有 unref TTL。 */
+async function pruneExpiredTempPngDirs(root: string, now = Date.now()): Promise<void> {
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(TEMP_PNG_PREFIX))
+      .map(async (entry) => {
+        const p = join(root, entry.name);
+        try {
+          if (now - (await fs.stat(p)).mtimeMs >= TEMP_PNG_TTL_MS) {
+            await fs.rm(p, { recursive: true, force: true });
+          }
+        } catch {
+          /* 竞态删除/权限变化:best effort */
+        }
+      }),
+  );
+}
+
+/**
+ * Host 自分配临时 PNG:renderer 只能给内容,不能给路径。0700 目录 + 0600/wx 文件,
+ * 24h 后删除(给长时间保留的草稿留余量);远程 Host 异常退出的遗留由下次调用 sweep。
+ */
+export async function writeTempPng(
+  base64: string,
+  tempRoot = os.tmpdir(),
+  maxBytes = MAX_BINARY_BYTES,
+): Promise<{ path: string }> {
+  const bytes = decodeStrictBase64(base64, maxBytes);
+  if (bytes.length < PNG_SIGNATURE.length || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    throw new Error('temporary image is not a PNG');
+  }
+
+  await pruneExpiredTempPngDirs(tempRoot);
+  const dir = await fs.mkdtemp(join(tempRoot, TEMP_PNG_PREFIX));
+  await fs.chmod(dir, 0o700);
+  const imagePath = join(dir, 'image.png');
+  try {
+    await fs.writeFile(imagePath, bytes, { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+
+  const timer = setTimeout(() => {
+    void fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }, TEMP_PNG_TTL_MS);
+  timer.unref?.();
+  return { path: imagePath };
 }
 
 /** 新建单层目录:不递归(父目录由浏览器保证存在,防手滑把整链路径落地) */

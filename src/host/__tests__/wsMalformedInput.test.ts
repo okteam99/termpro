@@ -1,9 +1,9 @@
 // AC-7 畸形输入:任意畸形帧下 host 进程不崩、其他客户端不受影响,仅拒绝/断开发送方。
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { it, expect, afterEach, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { startTestHost, TestClient, TestHost, waitFor, delay, describePty } from './wsTestHarness';
+import { startTestHost, TestClient, TestHost, delay, describePty } from './wsTestHarness';
 
 const SMALL_CAP = 512 * 1024;
 
@@ -110,6 +110,22 @@ describePty('AC-7 畸形输入 host 不崩、他客户端无感', () => {
     expect(typeof home.path).toBe('string');
   });
 
+  it('fs.writeTempFile 拒绝畸形 base64/伪 PNG,连接仍可继续使用', async () => {
+    host = await startTestHost();
+    const c = await newClient();
+    await expect(
+      c.rpc('fs.writeTempFile', { kind: 'png', base64: 'not-base64!' }),
+    ).rejects.toThrow(/base64/i);
+    await expect(
+      c.rpc('fs.writeTempFile', {
+        kind: 'png',
+        base64: Buffer.from('not png').toString('base64'),
+      }),
+    ).rejects.toThrow(/PNG/i);
+    const home = (await c.rpc('fs.home')) as { path: string };
+    expect(typeof home.path).toBe('string');
+  });
+
   it('T-052 综合存活性:历经全部畸形场景后,全新客户端仍能正常连接与 RPC', async () => {
     host = await startTestHost({ maxPayload: SMALL_CAP });
     const a = await newClient();
@@ -126,7 +142,7 @@ describePty('AC-7 畸形输入 host 不崩、他客户端无感', () => {
     await delay(50);
     const d = await newClient();
     d.send({ t: 'weird:unknown' });
-    await d.rpc(undefined as unknown as string, {}).catch(() => {});
+    await d.rpc(undefined as unknown as string, {}).catch(() => undefined);
     await delay(100);
     // 全新客户端 C:token + host.info 握手 + 任意 RPC 全部成功
     const c = track(new TestClient(host.url()));

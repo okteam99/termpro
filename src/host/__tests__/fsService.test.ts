@@ -9,10 +9,16 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyInto, listDir, moveInto, realPath } from '../fsService';
+import {
+  copyInto,
+  listDir,
+  moveInto,
+  realPath,
+  writeTempPng,
+} from '../fsService';
 
 async function exists(p: string): Promise<boolean> {
   try {
@@ -203,6 +209,70 @@ describe('fsService.copyInto / moveInto', () => {
       expect(await exists(src)).toBe(false); // 校验目标落地后才删源
     } finally {
       spy.mockRestore();
+    }
+  });
+});
+
+describe('fsService.writeTempPng', () => {
+  it('在指定临时根创建 0600 PNG,返回远端可粘贴的绝对路径', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    // 1x1 transparent PNG
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    const result = await writeTempPng(png.toString('base64'), tempDir);
+
+    expect(relative(tempDir, result.path).startsWith('..')).toBe(false);
+    expect(result.path.endsWith('/image.png')).toBe(true);
+    expect(await readFile(result.path)).toEqual(png);
+    expect((await stat(result.path)).mode & 0o777).toBe(0o600);
+    expect((await stat(dirname(result.path))).mode & 0o777).toBe(0o700);
+  });
+
+  it('拒绝空内容与伪装成 PNG 的任意二进制', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    await expect(writeTempPng('', tempDir)).rejects.toThrow(/empty/i);
+    await expect(
+      writeTempPng(Buffer.from('not png').toString('base64'), tempDir),
+    ).rejects.toThrow(/PNG/i);
+    await expect(writeTempPng('not-base64!', tempDir)).rejects.toThrow(/base64/i);
+  });
+
+  it('在 base64 解码分配/写盘前按 raw bytes 拒绝超限 PNG', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    );
+    await expect(
+      writeTempPng(png.toString('base64'), tempDir, png.length - 1),
+    ).rejects.toThrow(/exceeds/i);
+  });
+
+  it('每次写入分配独立目录,不覆盖上一张截图', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    const png =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    const a = await writeTempPng(png, tempDir);
+    const b = await writeTempPng(png, tempDir);
+    expect(a.path).not.toBe(b.path);
+  });
+
+  it('TTL 清理失败被吞掉,不形成 Host 未处理 rejection', async () => {
+    vi.useFakeTimers();
+    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    const png =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    await writeTempPng(png, tempDir);
+    const rmSpy = vi.spyOn(nodeFs, 'rm').mockRejectedValueOnce(new Error('EACCES'));
+    try {
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+      expect(rmSpy).toHaveBeenCalled();
+    } finally {
+      rmSpy.mockRestore();
+      vi.useRealTimers();
     }
   });
 });
