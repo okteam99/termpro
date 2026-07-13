@@ -70,20 +70,27 @@ To run from source, see [Development](#development).
 
 ## SSH sandbox image (Docker)
 
-Need a disposable SSH host to try TermPro's remote features — or just a Node.js box reachable over SSH? We publish a ready-made image (Node.js 22 + sshd, `linux/amd64` + `linux/arm64`):
+Need a disposable SSH host to try TermPro's remote features — or just a Node.js box reachable over SSH? We publish a ready-made image (Node.js 22 + sshd + Docker Engine, `linux/amd64` + `linux/arm64`):
 
 **Image**: [`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
 
 ```bash
-# Quick start: root login with password dev123, SSH on localhost:2222,
-# host ~/host-workspace mounted at /workspace (the default working directory)
-docker run -d --name termpro-node \
-  -e SSH_PASSWORD=dev123 \
-  -v ~/host-workspace:/workspace \
-  -p 2222:22 bdpgogoup/termpro-node
+# SSH box on localhost:2222 (root / dev123)
+docker run -d --name termpro-node -e SSH_PASSWORD=dev123 -p 2222:22 bdpgogoup/termpro-node
+ssh root@127.0.0.1 -p 2222                # node -v → v22.x
 
-ssh root@127.0.0.1 -p 2222   # lands in /workspace; node -v → v22.x
+# Same + Docker-in-Docker: an isolated inner dockerd per node
+# (own container names / networks / ports / image cache)
+docker run -d --name termpro-node --privileged -e SSH_PASSWORD=dev123 -p 2222:22 bdpgogoup/termpro-node
+ssh root@127.0.0.1 -p 2222 docker run --rm hello-world
 ```
+
+Common add-ons (all flags go **before** the image name):
+
+- `-v ~/some-dir:/workspace` — share a host folder; login shells start in `/workspace`
+- `-e SSH_USER=alice -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)"` — non-root user with key-based login
+- `-v alice-docker:/var/lib/docker` — keep the inner Docker image cache in a named volume so it survives recreating the node (default: a fresh anonymous volume per container; never share one volume between nodes)
+- `--runtime=sysbox-runc` instead of `--privileged` — DinD without privileged mode, for servers shared by mutually untrusted users (requires [Sysbox](https://github.com/nestybox/sysbox) on the host)
 
 Everything is set at `docker run` time via env vars:
 
@@ -96,30 +103,7 @@ Everything is set at `docker run` time via env vars:
 | `DIND` | `auto` | Inner dockerd policy: `auto` starts one unless a host `/var/run/docker.sock` is mounted (DooD) and degrades to SSH-only if it can't start; `1` makes it required (container exits on failure); `0` disables it |
 | `DOCKERD_EXTRA_ARGS` | — | Extra flags for the inner dockerd, e.g. `--registry-mirror=… --mtu=1400` |
 
-```bash
-# Non-root user with key-based login, custom in-container port
-docker run -d --name termpro-node \
-  -e SSH_USER=alice -e SSH_PORT=2222 \
-  -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" \
-  -p 2222:2222 bdpgogoup/termpro-node
-```
-
-```bash
-# Docker-in-Docker: each node gets a fully isolated inner dockerd
-# (own container names / networks / ports / image cache — safe to share
-# one server between users). Requires --privileged, or install Sysbox on
-# the host and use --runtime=sysbox-runc instead for stronger isolation.
-docker run -d --name termpro-node-alice --privileged \
-  -e SSH_PASSWORD=dev123 \
-  -v termpro-dind-alice:/var/lib/docker \
-  -p 2222:22 bdpgogoup/termpro-node
-
-ssh root@127.0.0.1 -p 2222 docker run --rm hello-world
-```
-
-Without `--privileged` (or sysbox) the inner dockerd can't start and the node falls back to SSH-only — `docker logs` shows the status either way. To reuse the host's Docker daemon instead (shared with everything else on the host), mount `-v /var/run/docker.sock:/var/run/docker.sock`. Give each DinD node its **own** `/var/lib/docker` volume — dockerd requires exclusive access.
-
-SFTP is enabled. The default working directory is `/workspace` — login shells start there, so mount a host folder onto it with `-v` to share files. Build source: [`docker/termpro-node/`](docker/termpro-node/).
+Without `--privileged` (or sysbox) the inner dockerd can't start and the node falls back to SSH-only — `docker logs` shows the status either way. To reuse the host's Docker daemon instead (shared with everything else on the host), mount `-v /var/run/docker.sock:/var/run/docker.sock`. SFTP is enabled. Build source: [`docker/termpro-node/`](docker/termpro-node/).
 
 ## Concepts
 
