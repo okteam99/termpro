@@ -1,5 +1,8 @@
 FROM node:22-bookworm
 
+# Base tools + Docker Engine (Docker's apt repo) for DinD: run the container
+# with --privileged (or --runtime=sysbox-runc) and the entrypoint starts an
+# inner dockerd; without it the entrypoint degrades to SSH-only.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         openssh-server \
@@ -7,6 +10,19 @@ RUN apt-get update \
         procps \
         vim \
         less \
+        ca-certificates \
+        curl \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        docker-ce \
+        docker-ce-cli \
+        containerd.io \
+        docker-buildx-plugin \
+        docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd
 
@@ -21,6 +37,11 @@ RUN mkdir -p /workspace \
         '[ -d /workspace ] && cd /workspace' \
         > /etc/profile.d/10-termpro-workspace.sh
 WORKDIR /workspace
+
+# Inner dockerd storage must not sit on the container's own overlayfs
+# (overlay-on-overlay is unsupported and falls back to vfs). Declare a volume
+# so an anonymous one is used even when -v doesn't name one explicitly.
+VOLUME /var/lib/docker
 
 EXPOSE 22
 

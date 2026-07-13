@@ -89,10 +89,12 @@ Everything is set at `docker run` time via env vars:
 
 | Env | Default | Meaning |
 |---|---|---|
-| `SSH_USER` | `root` | Login user; any other name is created on startup with passwordless `sudo` |
+| `SSH_USER` | `root` | Login user; any other name is created on startup with passwordless `sudo` (and added to the `docker` group) |
 | `SSH_PASSWORD` | random, printed in `docker logs` | Login password |
 | `SSH_PORT` | `22` | sshd listen port **inside** the container |
 | `SSH_AUTHORIZED_KEYS` | — | Public key(s) written to `~/.ssh/authorized_keys` |
+| `DIND` | `auto` | Inner dockerd policy: `auto` starts one unless a host `/var/run/docker.sock` is mounted (DooD) and degrades to SSH-only if it can't start; `1` makes it required (container exits on failure); `0` disables it |
+| `DOCKERD_EXTRA_ARGS` | — | Extra flags for the inner dockerd, e.g. `--registry-mirror=… --mtu=1400` |
 
 ```bash
 # Non-root user with key-based login, custom in-container port
@@ -101,6 +103,21 @@ docker run -d --name termpro-node \
   -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" \
   -p 2222:2222 bdpgogoup/termpro-node
 ```
+
+```bash
+# Docker-in-Docker: each node gets a fully isolated inner dockerd
+# (own container names / networks / ports / image cache — safe to share
+# one server between users). Requires --privileged, or install Sysbox on
+# the host and use --runtime=sysbox-runc instead for stronger isolation.
+docker run -d --name termpro-node-alice --privileged \
+  -e SSH_PASSWORD=dev123 \
+  -v termpro-dind-alice:/var/lib/docker \
+  -p 2222:22 bdpgogoup/termpro-node
+
+ssh root@127.0.0.1 -p 2222 docker run --rm hello-world
+```
+
+Without `--privileged` (or sysbox) the inner dockerd can't start and the node falls back to SSH-only — `docker logs` shows the status either way. To reuse the host's Docker daemon instead (shared with everything else on the host), mount `-v /var/run/docker.sock:/var/run/docker.sock`. Give each DinD node its **own** `/var/lib/docker` volume — dockerd requires exclusive access.
 
 SFTP is enabled. The default working directory is `/workspace` — login shells start there, so mount a host folder onto it with `-v` to share files. Build source: [`docker/termpro-node/`](docker/termpro-node/).
 
