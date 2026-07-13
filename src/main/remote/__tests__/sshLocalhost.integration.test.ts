@@ -50,13 +50,13 @@ describe('AC-4 真机 ssh localhost 兜底', () => {
     });
 
     // exec 往返
-    const echoRes = await conn.exec('echo hello-termpro');
+    const echoRes = await conn.exec('echo hello-okwork');
     expect(echoRes.code).toBe(0);
-    expect(echoRes.stdout.trim()).toBe('hello-termpro');
+    expect(echoRes.stdout.trim()).toBe('hello-okwork');
 
     // sftp 往返:本地建一个小目录,上传后读回比对
-    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-sftp-src-'));
-    const remoteBase = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-sftp-dst-'));
+    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-sftp-src-'));
+    const remoteBase = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-sftp-dst-'));
     const remoteDir = path.join(remoteBase, 'uploaded');
     fs.writeFileSync(path.join(localDir, 'hello.txt'), 'hello sftp roundtrip');
     fs.mkdirSync(path.join(localDir, 'sub'));

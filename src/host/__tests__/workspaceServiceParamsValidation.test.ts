@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 async function freshService(): Promise<WorkspaceService> {
-  tempDir = await mkdtemp(join(tmpdir(), 'termpro-wsvc-'));
+  tempDir = await mkdtemp(join(tmpdir(), 'okwork-wsvc-'));
   const svc = new WorkspaceService(tempDir);
   await svc.load();
   return svc;

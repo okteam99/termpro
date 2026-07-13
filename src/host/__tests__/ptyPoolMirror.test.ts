@@ -29,7 +29,7 @@ let clients: TestClient[] = [];
 afterEach(async () => {
   pool?.dispose();
   pool = null;
-  delete process.env.TERMPRO_SESSION_RING_BYTES;
+  delete process.env.OKWORK_SESSION_RING_BYTES;
   for (const c of clients) c.close();
   clients = [];
   await host?.close();
@@ -296,7 +296,7 @@ describePty('PtyPool 多订阅镜像(M2 · Phase4)', () => {
   // 6. 空集等价 detach:双订阅者先后 unsubscribe → 摘空 resume(ring 续录);重 attach 含摘空期输出
   it('空集等价 detach:双订阅者先后 unsubscribe → 摘空 resume;重 attach 回放含摘空期产出', async () => {
     // 大 ring:避免双订阅同时不 ack 时提前触发 desync(本测试要的是「摘空收尾」路径)。
-    process.env.TERMPRO_SESSION_RING_BYTES = String(4 * 1024 * 1024);
+    process.env.OKWORK_SESSION_RING_BYTES = String(4 * 1024 * 1024);
     pool = new PtyPool('standalone');
     let aBytes = 0;
     let bBytes = 0;

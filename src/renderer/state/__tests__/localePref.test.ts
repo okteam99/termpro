@@ -26,13 +26,13 @@ afterEach(() => {
   // 复位:vitest 下 i18n 初值钉死 en(见 i18n.ts 顶注),避免污染其他用例
   setLocale('en');
   useAppStore.setState({ localePref: 'system' });
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 describe('setLocalePref', () => {
   it('显式 zh-CN:i18n 立即切中文(t() 即时换词)+ 通知 main', () => {
     const setAppLocale = vi.fn();
-    (window as unknown as Record<string, unknown>).termpro = { setAppLocale };
+    (window as unknown as Record<string, unknown>).okwork = { setAppLocale };
 
     useAppStore.getState().setLocalePref('zh-CN');
 
@@ -49,7 +49,7 @@ describe('setLocalePref', () => {
     expect(getLocale()).toBe('en');
   });
 
-  it('bridge 缺失(window.termpro 无 setAppLocale)不抛错', () => {
+  it('bridge 缺失(window.okwork 无 setAppLocale)不抛错', () => {
     expect(() => useAppStore.getState().setLocalePref('en')).not.toThrow();
     expect(useAppStore.getState().localePref).toBe('en');
   });

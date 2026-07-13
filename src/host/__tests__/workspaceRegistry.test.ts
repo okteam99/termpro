@@ -8,7 +8,7 @@ import { WorkspaceRegistry } from '../workspaceRegistry';
 let tempDir: string | null = null;
 
 async function freshDir(): Promise<string> {
-  tempDir = await mkdtemp(join(tmpdir(), 'termpro-registry-'));
+  tempDir = await mkdtemp(join(tmpdir(), 'okwork-registry-'));
   return tempDir;
 }
 
@@ -88,8 +88,8 @@ describe('WorkspaceRegistry CRUD / 持久化 / 幂等 / 并发', () => {
   });
 
   it('test_data_dir_injectable_via_constructor_not_electron_api (REG-007)', async () => {
-    const dirA = await mkdtemp(join(tmpdir(), 'termpro-reg-a-'));
-    const dirB = await mkdtemp(join(tmpdir(), 'termpro-reg-b-'));
+    const dirA = await mkdtemp(join(tmpdir(), 'okwork-reg-a-'));
+    const dirB = await mkdtemp(join(tmpdir(), 'okwork-reg-b-'));
     try {
       const regA = new WorkspaceRegistry(dirA);
       const regB = new WorkspaceRegistry(dirB);

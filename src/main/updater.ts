@@ -28,6 +28,9 @@ import {
   setUpdateInstalling,
 } from './updateInstallSession';
 
+// 品牌改名(TermPro → OkWork)后仓库路径未动:GitHub 仓库仍叫 termpro。
+// 若日后重命名仓库,GitHub 会 301 重定向旧路径,此常量可继续工作;
+// 改成新路径前必须确认仓库已真实改名,否则升级检查全挂。
 const REPO = 'okteam99/termpro';
 // 每 10 分钟周期检测;窗口聚焦(用户行为)且距上次检查 >10 分钟时立即触发
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
@@ -187,7 +190,7 @@ async function downloadUpdate(version: string): Promise<string> {
     if (!res.ok || !res.body) throw new Error(`download: HTTP ${res.status}`);
     const total = Number(res.headers.get('content-length') ?? 0);
     downloadHadLength = total > 0;
-    const zipPath = path.join(app.getPath('temp'), `termpro-update-${version}.zip`);
+    const zipPath = path.join(app.getPath('temp'), `okwork-update-${version}.zip`);
     let received = 0;
     let lastTs = 0;
     const progress = new Transform({

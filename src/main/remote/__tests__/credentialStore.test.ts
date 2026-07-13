@@ -10,7 +10,7 @@ import { REMOTE_HOST_CHANNELS } from '../../../shared/remoteHost';
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-creds-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-creds-'));
 });
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -145,8 +145,8 @@ export function AboutModal({ version, onClose }: AboutModalProps) {
         >
           ×
         </button>
-        <img className="about-logo" src={appIconUrl} alt="TermPro" />
-        <div className="about-name">TermPro</div>
+        <img className="about-logo" src={appIconUrl} alt="OkWork" />
+        <div className="about-name">OkWork</div>
         <div className="about-version">{versionText}</div>
       </div>
     </div>
@@ -168,7 +168,7 @@ interface SettingsEntryProps {
 
 /**
  * 左下角用户信息入口:头像占位 + Settings + 上弹菜单(仅 About)→ About 弹版本。
- * devChannel / version 从 window.termpro 读取(安全读,bridge 缺失不抛错)。
+ * devChannel / version 从 window.okwork 读取(安全读,bridge 缺失不抛错)。
  */
 export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -185,7 +185,7 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const setLocalePref = useAppStore((s) => s.setLocalePref);
 
   // 安全读 version:bridge 缺失或 version 空都回退 ""
-  const version = window.termpro?.version ?? '';
+  const version = window.okwork?.version ?? '';
 
   // 菜单:点击外部 / Esc 关闭(对齐 NotificationCenter 交互)
   useEffect(() => {

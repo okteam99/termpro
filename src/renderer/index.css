@@ -73,7 +73,9 @@ body.pane-dragging .pane-handle {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  /* 终端区硬底线(用户指令 2026-07):侧栏/文件面板/浏览器面板全开也不被挤没。
+     配合 PaneHandle 的动态拖拽上限;极端窗口下宁可右侧面板溢出裁切 */
+  min-width: 50px;
   min-height: 0;
 }
 

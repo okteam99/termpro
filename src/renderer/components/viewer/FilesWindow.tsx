@@ -103,7 +103,7 @@ export function FilesWindow({
 
   // 窗口复用:主窗口/listing 再次开 → main 推送 add-tab(带 kind)
   useEffect(
-    () => window.termpro.onViewerAddTab((t) => addOrFocus(t.path, t.kind)),
+    () => window.okwork.onViewerAddTab((t) => addOrFocus(t.path, t.kind)),
     [addOrFocus],
   );
 
@@ -126,7 +126,7 @@ export function FilesWindow({
 
   // ⌘W → 关当前 tab
   useEffect(() => {
-    return window.termpro.onMenu((action) => {
+    return window.okwork.onMenu((action) => {
       if (action === 'close-tab' && activeId) closeTab(activeId);
     });
   }, [activeId, closeTab]);
@@ -148,8 +148,8 @@ export function FilesWindow({
 
   useEffect(() => {
     document.title = active
-      ? `${basename(active.path)}${active.dirty ? ' ●' : ''} — TermPro`
-      : 'TermPro';
+      ? `${basename(active.path)}${active.dirty ? ' ●' : ''} — OkWork`
+      : 'OkWork';
   }, [active]);
 
   if (error) {
@@ -236,7 +236,7 @@ export function FilesWindow({
           {active && !remote && (
             <button
               className="viewer-btn"
-              onClick={() => window.termpro.openPath(active.path)}
+              onClick={() => window.okwork.openPath(active.path)}
               title={t('Open with the default app')}
             >
               {t('Open with default app')}

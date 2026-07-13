@@ -205,16 +205,16 @@ export const zh: Record<string, string> = {
   // --- sessionEvents ---
   '{label} · Command finished': '{label} · 命令完成',
   '{label} · Command finished (exit code {code})': '{label} · 命令完成(退出码 {code})',
-  'TermPro · Done': 'TermPro · 完成',
+  'OkWork · Done': 'OkWork · 完成',
   '{label} · Bell rang (may be waiting for input)': '{label} · 响铃(可能在等输入)',
-  'TermPro · Attention': 'TermPro · 注意',
+  'OkWork · Attention': 'OkWork · 注意',
   '{label} · Quiet for 1+ min, may be waiting for input': '{label} · 静默 1 分钟+,可能在等输入',
 
   // --- terminalRegistry ---
-  '[TermPro] Terminal failed to start: {message}': '[TermPro] 终端启动失败:{message}',
+  '[OkWork] Terminal failed to start: {message}': '[OkWork] 终端启动失败:{message}',
   'Close this tab and reopen it to retry': '关闭该 tab 后重新打开即可重试',
-  '[TermPro] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror':
-    '[TermPro] 会话已被另一设备独占接管 · 回到此 tab 自动恢复镜像',
+  '[OkWork] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror':
+    '[OkWork] 会话已被另一设备独占接管 · 回到此 tab 自动恢复镜像',
 
   // --- bottomBarPin ---
   '↓ Back to bottom': '↓ 回到底部',
@@ -234,8 +234,8 @@ export const zh: Record<string, string> = {
     '请在远端机器安装 Node.js 20 或更高版本后重试连接',
   'Unsupported architecture': '架构不支持',
   'No bundled host build for this remote architecture': '该远端架构暂无内置 host 产物',
-  'Run `npm i -g termpro-host` on the remote machine, then retry':
-    '请在远端执行 `npm i -g termpro-host` 手动安装后重试',
+  'Run `npm i -g okwork-host` on the remote machine, then retry':
+    '请在远端执行 `npm i -g okwork-host` 手动安装后重试',
   'Deploy failed': '部署失败',
   'Host bundle upload interrupted (network / disk / permissions)':
     '上传 host 产物中断（网络 / 磁盘 / 权限）',
@@ -252,14 +252,14 @@ export const zh: Record<string, string> = {
   'Tab content may be lost after closing and reopening. Cancel to keep Workspace, Tab, and Terminal views available.':
     '关闭后再打开，Tab 内容可能丢失。取消后 Workspace、Tab 和 Terminal 视图保持可用。',
   'Close Window': '关闭窗口',
-  'Quit TermPro?': '退出 TermPro？',
+  'Quit OkWork?': '退出 OkWork？',
   'Tab content may be lost after quitting and reopening. State still gets a chance to persist before exit.':
     '退出后再打开，Tab 内容可能丢失。确认退出前会保留原有状态落盘机会。',
   'Quit': '退出',
   'Install v{version} and restart?': '安装 v{version} 并重启？',
   'Install the update and restart?': '安装更新并重启？',
-  'The update has been downloaded. After confirming, TermPro restarts and hands off to Squirrel.Mac to finish installing.':
-    '升级包已下载完成。确认后 TermPro 会重启并交给 Squirrel.Mac 完成安装。',
+  'The update has been downloaded. After confirming, OkWork restarts and hands off to Squirrel.Mac to finish installing.':
+    '升级包已下载完成。确认后 OkWork 会重启并交给 Squirrel.Mac 完成安装。',
   'Later': '稍后',
   'Install and Restart': '安装并重启',
 
@@ -296,6 +296,8 @@ export const zh: Record<string, string> = {
   'Close tab': '关闭 Tab',
   'Show file panel': '显示文件面板',
   'Hide file panel': '隐藏文件面板',
+  'Show browser': '显示内置浏览器',
+  'Hide browser': '隐藏内置浏览器',
   'No session': '无会话',
   'Refresh': '刷新',
   'Apply': '应用',
@@ -322,4 +324,11 @@ export const zh: Record<string, string> = {
   //   'detached · {head}' / '{branch} · {head}' / 'exit {code}' / 'exited'
   //     —— git/终端术语与纯插值,不译;
   //   'English' / '简体中文'(语言名以本族语显示)/ 'Shell'(菜单标题,终端术语)。
+
+  // --- BrowserPanel ---
+  'Back': '后退',
+  'Forward': '前进',
+  'Stop': '停止',
+  'Open in system browser': '用系统浏览器打开',
+  'Enter a URL or search to get started': '输入网址或搜索内容开始浏览',
 };

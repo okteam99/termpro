@@ -184,7 +184,7 @@ describe('sftpWriteDir 保留本地权限位(spawn-helper 执行位)', () => {
     new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
 
   it('0o755 可执行文件与 0o644 普通文件的 mode 原样传给 fastPut', async () => {
-    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-mode-src-'));
+    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-mode-src-'));
     try {
       fs.mkdirSync(path.join(localDir, 'build'));
       fs.writeFileSync(path.join(localDir, 'build', 'spawn-helper'), 'bin');
@@ -209,8 +209,8 @@ describe('sftpWriteDir 保留本地权限位(spawn-helper 执行位)', () => {
 // 下 main 也能较快探活断线(不替代 disconnect-first,只是补一条快感知路径)。
 describe('buildKeepaliveConfig ssh keepalive 纵深防御', () => {
   afterEach(() => {
-    delete process.env.TERMPRO_SSH_KEEPALIVE_MS;
-    delete process.env.TERMPRO_SSH_KEEPALIVE_COUNT;
+    delete process.env.OKWORK_SSH_KEEPALIVE_MS;
+    delete process.env.OKWORK_SSH_KEEPALIVE_COUNT;
   });
 
   it('无 env 覆盖 → 默认 15000ms / 3 次', () => {
@@ -218,14 +218,14 @@ describe('buildKeepaliveConfig ssh keepalive 纵深防御', () => {
   });
 
   it('env 可注入覆盖默认值', () => {
-    process.env.TERMPRO_SSH_KEEPALIVE_MS = '5000';
-    process.env.TERMPRO_SSH_KEEPALIVE_COUNT = '2';
+    process.env.OKWORK_SSH_KEEPALIVE_MS = '5000';
+    process.env.OKWORK_SSH_KEEPALIVE_COUNT = '2';
     expect(buildKeepaliveConfig()).toEqual({ keepaliveInterval: 5000, keepaliveCountMax: 2 });
   });
 
   it('非法/非正数 env → 落回默认值(不产出 0 或 NaN keepalive)', () => {
-    process.env.TERMPRO_SSH_KEEPALIVE_MS = 'not-a-number';
-    process.env.TERMPRO_SSH_KEEPALIVE_COUNT = '-1';
+    process.env.OKWORK_SSH_KEEPALIVE_MS = 'not-a-number';
+    process.env.OKWORK_SSH_KEEPALIVE_COUNT = '-1';
     expect(buildKeepaliveConfig()).toEqual({ keepaliveInterval: 15_000, keepaliveCountMax: 3 });
   });
 });

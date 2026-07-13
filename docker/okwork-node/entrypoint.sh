@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# termpro-node entrypoint: create the SSH user from env, optionally start an
+# okwork-node entrypoint: create the SSH user from env, optionally start an
 # inner dockerd (DinD), then run sshd.
 #   SSH_USER            login user (default: root; other names are created with sudo)
 #   SSH_PASSWORD        login password (default: random, printed to container log)
@@ -44,7 +44,7 @@ echo "$SSH_USER:$SSH_PASSWORD" | chpasswd
 
 HOME_DIR="$(getent passwd "$SSH_USER" | cut -d: -f6)"
 
-# Login shells start in /workspace (see /etc/profile.d/10-termpro-workspace.sh).
+# Login shells start in /workspace (see /etc/profile.d/10-okwork-workspace.sh).
 # Non-recursive chown so a mounted host volume's contents are left untouched.
 mkdir -p /workspace
 chown "$SSH_USER" /workspace 2>/dev/null || true
@@ -120,7 +120,7 @@ if dind_wanted; then
 fi
 
 echo "=============================================="
-echo " termpro-node ready"
+echo " okwork-node ready"
 echo "   node:     $(node -v)   npm: $(npm -v)"
 echo "   user:     $SSH_USER"
 if [ "$GENERATED_PASSWORD" = "1" ]; then

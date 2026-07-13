@@ -51,7 +51,7 @@ beforeEach(async () => {
     removeEventListener: vi.fn(),
     open: windowOpen,
     confirm: windowConfirm,
-    termpro: {
+    okwork: {
       openExternal,
     },
   });
@@ -96,7 +96,7 @@ describe('SystemWebLinkProvider', () => {
 });
 
 describe('createOscLinkHandler (OSC 8 hyperlinks)', () => {
-  // 回归 BUG-TERMPRO-B260614085337-001:OSC 8 超链接由 xterm 核心 OscLinkProvider
+  // 回归 BUG-OKWORK-B260614085337-001:OSC 8 超链接由 xterm 核心 OscLinkProvider
   // 处理,未设 linkHandler 时会落 defaultActivate → confirm 弹框 + window.open。
   // 设 linkHandler 后必须直接走系统浏览器,且不触碰 confirm / window.open。
   const range = {

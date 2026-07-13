@@ -156,8 +156,8 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   // HostClient 落到远端,再以 bracketed paste 路径送入 TUI。本地会话完全放行原快捷键。
   inst.remotePasteDispose = installRemoteClipboardPasteHandler(term, {
     isRemote: () => inst.hostId !== null && inst.hostId !== 'local',
-    readImage: () => window.termpro.clipboardReadImage(),
-    readText: () => window.termpro.clipboardReadText(),
+    readImage: () => window.okwork.clipboardReadImage(),
+    readText: () => window.okwork.clipboardReadText(),
     begin: () => {
       const client = inst.client;
       const sessionId = inst.sessionId;
@@ -308,7 +308,7 @@ export async function ensureSession(
     // 失败必须在终端里说话,不许无声死 tab
     const message = err instanceof Error ? err.message : String(err);
     inst.term.writeln(
-      `\x1b[31m${t('[TermPro] Terminal failed to start: {message}', { message })}\x1b[0m`,
+      `\x1b[31m${t('[OkWork] Terminal failed to start: {message}', { message })}\x1b[0m`,
     );
     inst.term.writeln(`\x1b[2m${t('Close this tab and reopen it to retry')}\x1b[0m`);
     inst.callbacks.onExit?.(-1);
@@ -482,7 +482,7 @@ function markTakenover(inst: TermInstance): void {
   if (inst.takenover) return;
   inst.takenover = true;
   inst.term.writeln(
-    `\r\n\x1b[2m${t('[TermPro] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror')}\x1b[0m`,
+    `\r\n\x1b[2m${t('[OkWork] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror')}\x1b[0m`,
   );
 }
 

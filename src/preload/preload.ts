@@ -11,10 +11,10 @@ import type {
 
 // 壳层 API:仅暴露与「本地 OS / 窗口」相关的能力。
 // 一切工程数据(fs/pty/git)走 HostService 协议,不经过这里。
-contextBridge.exposeInMainWorld('termpro', {
+contextBridge.exposeInMainWorld('okwork', {
   platform: process.platform,
-  smoke: process.argv.includes('--termpro-smoke'),
-  devChannel: process.argv.includes('--termpro-dev'),
+  smoke: process.argv.includes('--okwork-smoke'),
+  devChannel: process.argv.includes('--okwork-dev'),
   version: parseVersionArg(process.argv),
   /** 窗口创建时 main 已解析的生效 locale(renderer 首帧前应用) */
   locale: parseLocaleArg(process.argv),
@@ -92,6 +92,14 @@ contextBridge.exposeInMainWorld('termpro', {
   },
   openExternal(url: string): void {
     ipcRenderer.send('shell:open-external', url);
+  },
+  /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数 */
+  onBrowserOpenUrl(callback: (url: string) => void): () => void {
+    const listener = (_e: unknown, url: string) => callback(url);
+    ipcRenderer.on('browser:open-url', listener);
+    return () => {
+      ipcRenderer.removeListener('browser:open-url', listener);
+    };
   },
   openPath(path: string): void {
     ipcRenderer.send('shell:open-path', path);

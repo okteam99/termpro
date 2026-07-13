@@ -34,8 +34,8 @@ import { AddWorkspaceModal } from '../AddWorkspaceModal';
 import { useAppStore } from '../../state/store';
 import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
 
-function installTermpro() {
-  Object.defineProperty(window, 'termpro', {
+function installOkwork() {
+  Object.defineProperty(window, 'okwork', {
     value: {
       platform: 'darwin',
       pickDirectory: vi.fn(async () => null),
@@ -72,14 +72,14 @@ beforeEach(() => {
     creatingWorkspace: false,
   });
   useRemoteHostRuntimeStore.setState({ runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } } });
-  installTermpro();
+  installOkwork();
   localClient.rpc.mockClear();
   remoteClient.rpc.mockReset();
 });
 
 afterEach(() => {
   cleanup();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 describe('AC-3 · 远程目录浏览器加载态', () => {

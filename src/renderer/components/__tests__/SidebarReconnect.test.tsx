@@ -88,9 +88,9 @@ function deferred<T>(): Deferred<T> {
 
 let eventHandler: (e: Record<string, unknown>) => void = () => undefined;
 
-function installTermpro() {
+function installOkwork() {
   eventHandler = () => undefined;
-  Object.defineProperty(window, 'termpro', {
+  Object.defineProperty(window, 'okwork', {
     value: {
       version: '0.3.13',
       devChannel: false,
@@ -128,13 +128,13 @@ beforeEach(() => {
   remoteClient.rpc.mockResolvedValue({});
   remoteClient.connect.mockResolvedValue(remoteClient.info);
   remoteClient.onReconnectNeeded.mockReturnValue(() => undefined);
-  installTermpro();
+  installOkwork();
 });
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 describe('A1 · readopt 由 reconnect promise resolve 驱动(非 main ready 事件·防终端冻结)', () => {
@@ -204,7 +204,7 @@ describe('Q1 · Sidebar 900ms drop 闸生产路径(CR-1 gate·非死助手)', ()
     });
 
     render(<Sidebar />);
-    await vi.waitFor(() => expect(window.termpro.remoteHost.list).toHaveBeenCalled());
+    await vi.waitFor(() => expect(window.okwork.remoteHost.list).toHaveBeenCalled());
 
     act(() => useRemoteHostRuntimeStore.getState().applyEvent({ configId: 'cfg-1', stage: 'disconnected' }));
     act(() => vi.advanceTimersByTime(5000)); // 远超 900ms
@@ -220,7 +220,7 @@ describe('Q1 · Sidebar 900ms drop 闸生产路径(CR-1 gate·非死助手)', ()
     });
 
     render(<Sidebar />);
-    await vi.waitFor(() => expect(window.termpro.remoteHost.list).toHaveBeenCalled());
+    await vi.waitFor(() => expect(window.okwork.remoteHost.list).toHaveBeenCalled());
 
     act(() => useRemoteHostRuntimeStore.getState().applyEvent({ configId: 'cfg-1', stage: 'disconnected' }));
     act(() => vi.advanceTimersByTime(900));
@@ -236,7 +236,7 @@ describe('Q1 · Sidebar 900ms drop 闸生产路径(CR-1 gate·非死助手)', ()
     });
 
     render(<Sidebar />);
-    await vi.waitFor(() => expect(window.termpro.remoteHost.list).toHaveBeenCalled());
+    await vi.waitFor(() => expect(window.okwork.remoteHost.list).toHaveBeenCalled());
 
     // main 的 disconnected 先于心跳判死到达 → 此刻 isReconnecting=false → 排上 900ms drop timer
     act(() => useRemoteHostRuntimeStore.getState().applyEvent({ configId: 'cfg-1', stage: 'disconnected' }));

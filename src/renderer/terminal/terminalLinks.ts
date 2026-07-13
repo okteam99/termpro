@@ -21,7 +21,7 @@ import {
 const STAT_CACHE_MS = 5_000;
 const CWD_CACHE_MS = 2_500;
 
-// 交给系统打开的扩展名(媒体/压缩包等);图片与文本进 TermPro 文件窗口
+// 交给系统打开的扩展名(媒体/压缩包等);图片与文本进 OkWork 文件窗口
 // export:权威集合单源,测试 import 校验文件分流边界(不硬编码列表)
 export const SYSTEM_OPEN_EXT =
   /\.(icns|pdf|zip|gz|tgz|tar|7z|dmg|app|mp4|mov|avi|mkv|mp3|wav|flac|woff2?|ttf|otf|eot)$/i;
@@ -37,13 +37,13 @@ function openTargetFallback(
   // 远程一律进查看器窗口(带 hostId 直连该 host;目录 → listing,媒体/压缩包 →
   // 查看器给出确定性「二进制/过大」提示),绝不落本机 OS 动作。
   if (hostId && hostId !== 'local') {
-    window.termpro.openViewerWindow({ mode: kind, path: absPath, hostId });
+    window.okwork.openViewerWindow({ mode: kind, path: absPath, hostId });
     return;
   }
   if (kind === 'dir' || SYSTEM_OPEN_EXT.test(absPath)) {
-    window.termpro.openPath(absPath);
+    window.okwork.openPath(absPath);
   } else {
-    window.termpro.openViewerWindow({ mode: 'file', path: absPath });
+    window.okwork.openViewerWindow({ mode: 'file', path: absPath });
   }
 }
 
@@ -63,7 +63,7 @@ export async function openTargetInFilePanelFirst(
 }
 
 // 链接激活路由:目录回 File Panel 定位优先(留在工作面看上下文/git);
-// 单个文件直接打开——文本/图片进 TermPro 窗口,媒体/系统扩展名走系统打开,
+// 单个文件直接打开——文本/图片进 OkWork 窗口,媒体/系统扩展名走系统打开,
 // 不再因落在 root/worktree 内就降级成「只定位」。
 // hostId = 该终端绑定 workspace 的路由键(缺省/'local' = 本机)。
 export function openTarget(
@@ -307,7 +307,7 @@ export function createOscLinkHandler(): ILinkHandler {
   return {
     activate: (event, uri) => {
       event.preventDefault();
-      window.termpro.openExternal(uri);
+      window.okwork.openExternal(uri);
     },
   };
 }
@@ -346,7 +346,7 @@ export class SystemWebLinkProvider implements ILinkProvider {
           // 文件链接(FsLinkProvider)从不 stopPropagation,故只有 url 会犯——根因即此。
           activate: (event, text) => {
             event.preventDefault();
-            window.termpro.openExternal(text);
+            window.okwork.openExternal(text);
           },
         };
       })
@@ -479,7 +479,7 @@ export class FsLinkProvider implements ILinkProvider {
   }
 
   /**
-   * 跨缩进拼接(BUG-TERMPRO-B260710093647-001):从候选 i 起沿「贴行尾 + 续行
+   * 跨缩进拼接(BUG-OKWORK-B260710093647-001):从候选 i 起沿「贴行尾 + 续行
    * 缩进续接段」链尽量延伸(续接段从文本派生 · 可不含斜杠 · REVIEW E2),
    * 按最长优先 stat 拼接文本(不含缝隙字符)。
    * 命中 → 合并为一条链接(返回 endIdx 供调用方吞掉链覆盖区间内的候选);

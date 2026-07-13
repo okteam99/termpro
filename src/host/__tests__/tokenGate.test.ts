@@ -282,7 +282,7 @@ describePty('AC-3 token 闸 (集成:真实 ws)', () => {
     c.send({
       t: 'pty:input',
       sessionId,
-      data: 'echo "LEAK["""$TERMPRO_HOST_TOKEN"""]END"\n',
+      data: 'echo "LEAK["""$OKWORK_HOST_TOKEN"""]END"\n',
     });
     await waitFor(
       () => (c.ptyData.get(sessionId) ?? '').includes('LEAK[]END'),

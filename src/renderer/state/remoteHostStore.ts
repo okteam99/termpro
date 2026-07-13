@@ -2,8 +2,8 @@
 // 刻意独立于 state/store.ts(BL-003 write scope 隔离,避免与并行 Feature 改动冲突);
 // BL-004 前瞻:Sidebar 可直接订阅同一份 useRemoteHostRuntimeStore,无需重构本切片。
 //
-// 订阅时机:由消费方(当前 = RemoteHostsPage)在挂载时调 window.termpro.remoteHost.onEvent(applyEvent),
-// 卸载时退订。不做模块级自动订阅——window.termpro 桥在测试/构建时机不定,模块顶层订阅会绑死
+// 订阅时机:由消费方(当前 = RemoteHostsPage)在挂载时调 window.okwork.remoteHost.onEvent(applyEvent),
+// 卸载时退订。不做模块级自动订阅——window.okwork 桥在测试/构建时机不定,模块顶层订阅会绑死
 // import 时刻的桥状态,不可测;交给组件生命周期管理更符合本仓已用惯例(如 hostClient 的 onDown)。
 
 import { create } from 'zustand';

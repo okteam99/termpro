@@ -13,11 +13,11 @@ created_at: 2026-07-09T07:40:00Z
 planned_at: 2026-07-09T07:50:00Z
 
 affected_subprojects:
-  - TERMPRO
+  - OKWORK
 
 features:
   - id: WS-01-S1
-    target: TERMPRO
+    target: OKWORK
     bl: BL-001
     scope: "Workspace 注册表迁移 Host 侧（模型 A 地基 · 本地先行）：protocol 增 workspace.* RPC 与变更事件；Host 侧注册表持久化；renderer 按 host 发现 workspace；UI 持久化 v1→v2 一次性迁移"
     current_state: "workspace 注册表现存 renderer zustand store + PersistedState v1（appStore IPC 落盘）；Host 进程零 workspace 概念（host.ts 仅 PTY/fs/git/watch 服务）；protocol.ts 无 workspace.* 方法；hostClient 为单例单连接"
@@ -25,7 +25,7 @@ features:
     dependencies: []
     status: planned
   - id: WS-01-S2
-    target: TERMPRO
+    target: OKWORK
     bl: BL-002
     scope: "Host standalone 可执行 + WebSocket 传输 + 协议版本握手：host 独立入口（--listen loopback + token）；HostClient 支持 WS 传输（本地回环冒烟）；握手 RPC 协商/拒绝不兼容；esbuild 单文件打包 + node-pty native 二进制矩阵"
     current_state: "host.ts 无 parentPort 即 exit(1)（standalone 未实现，源码注释明示）；协议消息形状已传输无关；PROTOCOL_VERSION=1 存在但无握手 RPC；多客户端路由（attachClient）与会话归属校验已就绪"
@@ -33,7 +33,7 @@ features:
     dependencies: []
     status: planned
   - id: WS-01-S3
-    target: TERMPRO
+    target: OKWORK
     bl: BL-003
     scope: "远程机管理与 SSH 连接编排：远程机配置 CRUD（手动添加 + 最近使用）+ 凭据入系统钥匙串（SSH 密钥 / 密码，Q-003 · 实现语义 safeStorage · BL-003 ADR-001）；ssh 隧道建立 + 首次连接自动部署 host bundle（上传/启动/握手进度）+ 连接生命周期事件；Settings → Remote Hosts 管理 UI"
     current_state: "全仓零 SSH 代码；main.ts 仅本地 utilityProcess 拉起 Host；全景页 /settings/remote-hosts 已用户确认（最近使用 + 手动添加 · 密钥/密码认证）"
@@ -41,7 +41,7 @@ features:
     dependencies: [WS-01-S2]
     status: delivered
   - id: WS-01-S4
-    target: TERMPRO
+    target: OKWORK
     bl: BL-004
     scope: "机器分组 Sidebar + 添加项目流程：Sidebar 按机器分组（本机 + 远程机 · 连接即发现该机 workspace 与会话徽标）；添加项目 = 选择机器 → 本机系统对话框 / 远程目录浏览器（fs.readdir over 远程 host）→ 创建落对应 Host 注册表"
     current_state: "Sidebar.tsx 为平铺 workspace 列表（单 host 假设）；创建项目走 dialog:pick-directory 原生对话框；全景页 /workspace/add-workspace（模型 A 版）已用户确认"
@@ -49,7 +49,7 @@ features:
     dependencies: [WS-01-S1, WS-01-S3]
     status: delivered
   - id: WS-01-S5
-    target: TERMPRO
+    target: OKWORK
     bl: BL-005
     scope: "断线重连与会话连续性：host 侧 scrollback 环形缓冲 + 远程会话存活策略（UI 断开不杀会话）+ 重连回放与认领 + 状态徽标/通知对账 + 重连横幅与自动重连策略"
     current_state: "ptyPool 有流控无 scrollback 缓冲；host.ts 端口 close 即 kill 该客户端全部会话（本地语义，与远程『UI 断开会话存活』相悖，需按 host 形态分语义）；sessionTracker 状态机已驻留 host 侧"
@@ -107,7 +107,7 @@ risks:
 用户提出「配置 SSH 登录后，部分项目使用远程机开发」。规划讨论中用户拍板两个产品决策（详 product-overview 议题追踪）：
 
 - **Q-002 · 模型 A（远程机为中心）**：workspace 注册表驻留各机器的 Host 侧，UI 是可断开视图，连接机器即发现其全部 workspace 与活跃会话。动因：未来 mobile 客户端直连远程机即见全部内容，此模型更直接。
-- **Q-003 · 远程机自管**：不做 ~/.ssh/config 导入；远程机由 TermPro 管理（最近使用 + 手动添加），SSH 密钥或密码登录，密码凭据存系统钥匙串（实现语义 safeStorage · BL-003 ADR-001）。
+- **Q-003 · 远程机自管**：不做 ~/.ssh/config 导入；远程机由 OkWork 管理（最近使用 + 手动添加），SSH 密钥或密码登录，密码凭据存系统钥匙串（实现语义 safeStorage · BL-003 ADR-001）。
 
 架构已按远程就绪设计（UI 零 fs/PTY/git 直连、Host 零 Electron import、协议传输无关），本 WS 兑现 M5 全部范围。
 
@@ -137,11 +137,11 @@ risks:
 
 | feature | BL | 子项目 | 功能 | 状态 | 当前阶段 | F |
 |---------|----|--------|------|------|----------|---|
-| S1 | BL-001 | TERMPRO | Workspace 注册表驻留 Host（本地先行） | ✅ 已交付 | - | TERMPRO-F260709092258 |
-| S2 | BL-002 | TERMPRO | Host standalone + WebSocket + 协议握手 | ✅ 已交付 | - | TERMPRO-F260709092310 |
-| S3 | BL-003 | TERMPRO | 远程机管理与 SSH 连接编排 | ✅ 已交付 | - | TERMPRO-F260709180208 |
-| S4 | BL-004 | TERMPRO | 机器分组 Sidebar + 添加项目流程 | ✅ 已交付 | - | TERMPRO-F260710011342 |
-| S5 | BL-005 | TERMPRO | 断线重连与会话连续性 | 待开始 | - | - |
+| S1 | BL-001 | OKWORK | Workspace 注册表驻留 Host（本地先行） | ✅ 已交付 | - | OKWORK-F260709092258 |
+| S2 | BL-002 | OKWORK | Host standalone + WebSocket + 协议握手 | ✅ 已交付 | - | OKWORK-F260709092310 |
+| S3 | BL-003 | OKWORK | 远程机管理与 SSH 连接编排 | ✅ 已交付 | - | OKWORK-F260709180208 |
+| S4 | BL-004 | OKWORK | 机器分组 Sidebar + 添加项目流程 | ✅ 已交付 | - | OKWORK-F260710011342 |
+| S5 | BL-005 | OKWORK | 断线重连与会话连续性 | 待开始 | - | - |
 <!-- WS-PROGRESS:END -->
 
 ## feature 依赖关系图（工具汇总）
@@ -165,31 +165,31 @@ flowchart LR
 
 ## 拆出的 feature（拆解明细 · 规划态 · 人维护）
 
-### WS-01-S1（→ TERMPRO ROADMAP · BL-001）
+### WS-01-S1（→ OKWORK ROADMAP · BL-001）
 - **范围**：Workspace 注册表迁移 Host 侧（本地先行）。protocol 增 `workspace.list/create/remove/update` + `workspace:changed` 事件；Host 侧注册表持久化；renderer 改为按 host 发现 workspace；UI 持久化 v1→v2 一次性迁移（workspace 定义迁入本地 Host 注册表，UI 只留布局等视图态）。
 - **flow_type**：feature
 - **依赖**：无
 - **核心 AC**：① workspace 增删改经协议落 Host 注册表并跨重启存活 ② 旧版用户存档无损迁移（幂等 + 备份回退）③ 多客户端（主窗口 + 查看器）看到一致的 workspace 列表与变更推送。
 
-### WS-01-S2（→ TERMPRO ROADMAP · BL-002）
+### WS-01-S2（→ OKWORK ROADMAP · BL-002）
 - **范围**：Host standalone 可执行 + WebSocket 传输 + 协议版本握手 + 单文件打包（node-pty native 矩阵）。
 - **flow_type**：feature
 - **依赖**：无（与 S1 同改 protocol.ts，分区块追加）
 - **核心 AC**：① standalone host 可独立启动并经 WebSocket（loopback + token）服务完整协议（PTY/fs/git 冒烟通过）② 版本握手：不兼容连接被拒绝且 UI 有明确提示 ③ 打包产物在 darwin-arm64 + linux-x64 实机可运行。
 
-### WS-01-S3（→ TERMPRO ROADMAP · BL-003）
+### WS-01-S3（→ OKWORK ROADMAP · BL-003）
 - **范围**：远程机管理与 SSH 连接编排。配置 CRUD（手动添加 + 最近使用）、凭据钥匙串（密钥/密码 · Q-003）、ssh 隧道、首次连接自动部署 host bundle（上传/启动/握手进度）、连接生命周期事件、Settings → Remote Hosts 管理 UI（全景 `settings-remote-hosts` 页）。
 - **flow_type**：feature
 - **依赖**：S2
 - **核心 AC**：① 添加一台远程机（密钥或密码）→ 测试连接可达 ② 首次连接自动部署并拉起远程 host，握手成功，进度可视 ③ 凭据零明文——实现语义 = safeStorage（加密密钥在系统钥匙串·凭据密文落 userData·私钥仅路径引用不入库·BL-003 D-2/ADR-001 用户已确认），仓库/日志/配置文件零明文。
 
-### WS-01-S4（→ TERMPRO ROADMAP · BL-004）
+### WS-01-S4（→ OKWORK ROADMAP · BL-004）
 - **范围**：机器分组 Sidebar + 添加项目流程（全景 `workspace-add-workspace` 页）。连接即发现该机 workspace 与会话徽标；添加项目 = 选择机器 → 本机系统对话框 / 远程目录浏览器 → 创建落对应 Host 注册表。
 - **flow_type**：feature
 - **依赖**：S1、S3
 - **核心 AC**：① Sidebar 按机器分组，连接一台远程机即列出其全部 workspace（含活跃会话徽标）② 在远程机上浏览目录并创建项目，新 workspace 注册到该机 Host、任一客户端可见 ③ 远程 workspace 的终端/文件面板/git 全链路走该机 host。
 
-### WS-01-S5（→ TERMPRO ROADMAP · BL-005）
+### WS-01-S5（→ OKWORK ROADMAP · BL-005）
 - **范围**：断线重连与会话连续性。host 侧 scrollback 环形缓冲、远程会话存活策略（UI 断开不杀会话）、重连回放与会话认领、状态徽标/通知对账、重连横幅与自动重连。
 - **flow_type**：feature
 - **依赖**：S2、S3
@@ -197,7 +197,7 @@ flowchart LR
 
 ## 跨子项目依赖
 
-单子项目（TERMPRO）· 无跨项目依赖。
+单子项目（OKWORK）· 无跨项目依赖。
 
 ## 执行顺序与并行建议
 

@@ -8,7 +8,7 @@ import { HostConfigStore } from '../credentialStore';
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-hostcfg-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-hostcfg-'));
 });
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });

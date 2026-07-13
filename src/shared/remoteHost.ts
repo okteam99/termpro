@@ -157,7 +157,7 @@ export function failReasonCopyMap(): Record<FailReason, FailReasonCopy> {
     archUnsupported: {
       label: t('Unsupported architecture'),
       detail: t('No bundled host build for this remote architecture'),
-      guidance: t('Run `npm i -g termpro-host` on the remote machine, then retry'),
+      guidance: t('Run `npm i -g okwork-host` on the remote machine, then retry'),
     },
     deployFailed: {
       label: t('Deploy failed'),

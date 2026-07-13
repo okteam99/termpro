@@ -12,8 +12,8 @@ vi.mock('../../../services/hostClient', () => ({
 import { connectViewerHost, isRemoteHost } from '../viewerHost';
 
 const getTunnel = vi.fn();
-function mockTermpro() {
-  Object.defineProperty(window, 'termpro', {
+function mockOkwork() {
+  Object.defineProperty(window, 'okwork', {
     value: { remoteHost: { getTunnel } },
     writable: true,
     configurable: true,
@@ -23,7 +23,7 @@ function mockTermpro() {
 afterEach(() => {
   connect.mockReset();
   getTunnel.mockReset();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 describe('isRemoteHost', () => {
@@ -37,7 +37,7 @@ describe('isRemoteHost', () => {
 
 describe('connectViewerHost', () => {
   it('本机(缺省 hostId):直接 connect(),不查隧道', async () => {
-    mockTermpro();
+    mockOkwork();
     connect.mockResolvedValue({ hostId: 'local' });
 
     await connectViewerHost(undefined);
@@ -47,7 +47,7 @@ describe('connectViewerHost', () => {
   });
 
   it('远程:getTunnel → 经 ws://127.0.0.1:{port}?token=… 连接(token 做 URL 编码)', async () => {
-    mockTermpro();
+    mockOkwork();
     getTunnel.mockResolvedValue({ localPort: 50123, token: 'a+b/c' });
     connect.mockResolvedValue({ hostId: 'local' });
 
@@ -60,7 +60,7 @@ describe('connectViewerHost', () => {
   });
 
   it('远程但隧道不存在(未连接):确定性拒绝,绝不回落本机 connect()', async () => {
-    mockTermpro();
+    mockOkwork();
     getTunnel.mockResolvedValue(null);
 
     await expect(connectViewerHost('cfg-1')).rejects.toThrow(

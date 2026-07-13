@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /// <reference types="@testing-library/jest-dom" />
 // BL-003 RemoteHostsPage(移植自 docs/design/preview-project · ARCH-B6)。
-// hostRegistry 全 mock(避免真实 WebSocket/PTY 依赖),window.termpro.remoteHost 用内存态假桥。
+// hostRegistry 全 mock(避免真实 WebSocket/PTY 依赖),window.okwork.remoteHost 用内存态假桥。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
@@ -133,7 +133,7 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
 
 async function renderPage(initial: RemoteHostConfig[] = []) {
   const { bridge, emit, configs } = makeRemoteHostBridge(initial);
-  Object.defineProperty(window, 'termpro', {
+  Object.defineProperty(window, 'okwork', {
     value: { remoteHost: bridge },
     writable: true,
     configurable: true,
@@ -154,7 +154,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useRemoteHostRuntimeStore.setState({ runtime: {} });
-  delete (window as unknown as { termpro?: unknown }).termpro;
+  delete (window as unknown as { okwork?: unknown }).okwork;
 });
 
 // --- T-003: settings 列表随 save 实时更新,无需重开弹层(AC-1) ---

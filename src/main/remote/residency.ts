@@ -119,7 +119,7 @@ export interface BuiltTunnel {
 
 export interface ResidencyContext {
   ssh: SshConnectionLike;
-  /** 远端绝对数据目录(TERMPRO_HOST_DATA_DIR 值,路径全程绝对 · ARCH-B9)。 */
+  /** 远端绝对数据目录(OKWORK_HOST_DATA_DIR 值,路径全程绝对 · ARCH-B9)。 */
   dataDir: string;
   configId: string;
   /**
@@ -208,7 +208,7 @@ const DEFAULT_CLAIM_PROBE_RETRY_DELAY_MS = 300;
  * 不该直接判定回收(否则连同断线期跑完的 build 一并销毁)。env 可注入。
  */
 function claimProbeRetries(): number {
-  const raw = process.env.TERMPRO_CLAIM_PROBE_RETRIES;
+  const raw = process.env.OKWORK_CLAIM_PROBE_RETRIES;
   if (raw === undefined) return DEFAULT_CLAIM_PROBE_RETRIES;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_CLAIM_PROBE_RETRIES;

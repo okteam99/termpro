@@ -39,7 +39,7 @@ beforeEach(() => {
   vi.stubGlobal('window', {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
-    termpro: { openPath: vi.fn(), openViewerWindow: vi.fn() },
+    okwork: { openPath: vi.fn(), openViewerWindow: vi.fn() },
   });
 });
 

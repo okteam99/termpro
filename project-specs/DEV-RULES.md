@@ -1,4 +1,4 @@
-# TermPro 开发规范(DEV-RULES)
+# OkWork 开发规范(DEV-RULES)
 
 > 本项目团队约定的开发规矩 · blueprint/dev 必须遵守 · 与之冲突要么改方案、要么在 TECH 显式记原因。
 > 维护:人工 · 新规矩讨论后由人加入(AI 在 review/dev 发现值得固化的新约定 → 提示用户加,不代写)。
@@ -66,7 +66,7 @@ host 维护输出环形缓冲，重连回放。
 - host 层核心逻辑（流控、状态机、扫描器）必须有单元测试，放 `src/host/__tests__/`
 - 每个里程碑收尾跑**无头冒烟**：
   ```bash
-  TERMPRO_SMOKE=1 npx electron-forge start
+  OKWORK_SMOKE=1 npx electron-forge start
   # 打印 SMOKE_OK 视为通过；30 s 超时打印 SMOKE_TIMEOUT 以 exit(1) 退出
   ```
 - 验证门禁（提交前三绿才提交）：`npm run typecheck` + `npm test` + 冒烟

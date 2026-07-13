@@ -26,7 +26,7 @@
 - **端口文件 O_EXCL**:`fs.openSync(portFile,'wx',0o600)`(`host.ts:111`),陈旧即 `exit(1)`。这是并发首启互斥的现成原子原语,但**语义粗糙**(后到者自杀,不认领)。
 - **部署锁**:`bundle/.deploying-<v>` 用 `mkdir` O_EXCL 等价互斥 + 陈旧 break-and-reacquire + `waitForReady` 轮询(`deploy.ts:115-147,193-209`)。M1 首启锁复用此**成熟模式**。
 - **residency reap 安全性质②③**:仅杀 cmdline `--host-tag` **全等** configId 的进程(`residency.ts:86-89`);pid 死/tag 不匹配 → `cleanStaleThenDeploy` 绝不 kill(`residency.ts:91-95`)。迁移期新旧 tag 并存**天然不误杀**(tag 全等才 kill)。
-- **workspaces 跨进程竞态**:所有 host 共享 `TERMPRO_HOST_DATA_DIR`(`hostCore.ts:86-88`),各 host 各持一个 `WorkspaceService` 读写**同一** registry 文件 → 今有跨进程写覆盖竞态。收敛为单 Host 后,单 `WorkspaceService` → 竞态自动消失(红利)。
+- **workspaces 跨进程竞态**:所有 host 共享 `OKWORK_HOST_DATA_DIR`(`hostCore.ts:86-88`),各 host 各持一个 `WorkspaceService` 读写**同一** registry 文件 → 今有跨进程写覆盖竞态。收敛为单 Host 后,单 `WorkspaceService` → 竞态自动消失(红利)。
 - **ring 回放**:`RingBuffer.sliceFrom(offset)` 据 `absoluteOffset`/`startOffset` 产增量或整缓冲(`ringBuffer.ts:84-101`);默认 256 KiB(`ringBuffer.ts:10`)。M2 每订阅者复用同一 ring,各持独立游标。
 - **renderer 收养**:`renderedBytes` 同步累加(`terminalRegistry.ts:280-299`),`adoptInst` attach 换 `resumeOffset=renderedBytes`(`terminalRegistry.ts:363-387`),`readoptHost` 双路径(`415-497`),`bindRestoredSessionTab`(`509-526`)。M2 下每设备是**独立订阅者持独立 renderedBytes**,这些逻辑**原样成立**(见 §B7)。
 
@@ -120,7 +120,7 @@ ${dataDir}/                                 # 0700(收紧,现状隐式创建未�
 | **轮换时机** | 仅随 **host 进程重启**(协议不兼容重部署 / 陈旧清理后新起)自然轮换;无周期轮换 | token 生命周期 = host 进程生命周期,YAGNI;新 host 原子替换 token 文件 + `cleanStale` 清端口文件 |
 | **与 `--token-stdin` 关系** | 启动路径**不变**:赢家仍经 `--token-stdin` 注入生成的 token(off argv/ps);host **额外**落盘身份文件供他设备认领 | 复用现成 off-ps 通道;仅新增 host 侧「落盘一份」 |
 
-**host.ts 改动**:新增 env `TERMPRO_HOST_IDENTITY_FILE=${dataDir}/identity/${hostTag}/token`;host 解析出 token 后(`resolveToken` 之后、`startWsServer` 之前),若该 env 存在则原子写入 0600,写在端口文件之前。
+**host.ts 改动**:新增 env `OKWORK_HOST_IDENTITY_FILE=${dataDir}/identity/${hostTag}/token`;host 解析出 token 后(`resolveToken` 之后、`startWsServer` 之前),若该 env 存在则原子写入 0600,写在端口文件之前。
 
 **residency 改动**:`storedToken` 输入源从「本地 credentialStore」改为「**sftp 读服务端身份文件**」(`orchestrator.ts:564` 的 `getSecret(tokenKey)` → 新增 `sftpReadFile(identity/<hostTag>/token)`)。本地 credentialStore 仍可缓存(键改 `hosttoken:<hostTag>`)供心跳/快速重连,但**服务端文件为权威**。
 
@@ -420,7 +420,7 @@ PTY 尺寸 = `min(所有订阅者 cols) × min(所有订阅者 rows)`。订阅�
 - **验收断言**:existing 远程 connect 行为逐字不变(tag==configId);`deriveHostTag` 单测(确定性 / fp 敏感 / username 敏感 / 隔离退化);typecheck+vitest 绿。
 
 ### Phase 2 — 服务端 token 托管 + 收敛认领
-- host.ts 写 `identity/<hostTag>/token`(0600,原子,排序先于端口文件);env `TERMPRO_HOST_IDENTITY_FILE`。
+- host.ts 写 `identity/<hostTag>/token`(0600,原子,排序先于端口文件);env `OKWORK_HOST_IDENTITY_FILE`。
 - residency `storedToken` 源改 sftp 读服务端身份文件;claim 用 server token;`decideResidency` tag 比对基准 → hostTag。
 - **翻转默认 isolate=false → 收敛生效。**
 - **验收断言**:双设备集成(桩 ssh)→ 第二设备 claim 第一设备的 host(**零 kill**);reap 安全表(②③)穷举测试仍绿;token 文件 0600 + 目录 0700 断言;新旧 tag 并存不误杀测试。

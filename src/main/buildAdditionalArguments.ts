@@ -16,16 +16,16 @@ export function buildAdditionalArguments({
 }): string[] {
   const args: string[] = [];
   if (version) {
-    args.push(`--termpro-version=${version}`);
+    args.push(`--okwork-version=${version}`);
   }
   if (smoke) {
-    args.push('--termpro-smoke');
+    args.push('--okwork-smoke');
   }
   if (dev) {
-    args.push('--termpro-dev');
+    args.push('--okwork-dev');
   }
   if (locale) {
-    args.push(`--termpro-locale=${locale}`);
+    args.push(`--okwork-locale=${locale}`);
   }
   return args;
 }

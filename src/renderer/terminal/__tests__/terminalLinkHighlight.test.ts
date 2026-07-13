@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// LinkHighlighter 常驻高亮回归(REVIEW Q1 · BUG-TERMPRO-B260710093647-001):
+// LinkHighlighter 常驻高亮回归(REVIEW Q1 · BUG-OKWORK-B260710093647-001):
 // 跨缩进拼接的链接按 parts 分段上色 —— decoration 恰好覆盖两个候选段,
 // 缩进缝(续行行首空白)不上色。spy registerDecoration 记录 x/width/行,
 // 不依赖真实渲染上下文(marker 用真实 registerMarker · 行号取 marker.line)。
@@ -27,7 +27,7 @@ beforeEach(async () => {
   rpc.mockReset();
   vi.stubGlobal('window', {
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    termpro: { openPath: vi.fn(), openViewerWindow: vi.fn(), requestHostPort: vi.fn() },
+    okwork: { openPath: vi.fn(), openViewerWindow: vi.fn(), requestHostPort: vi.fn() },
   });
   ({ FsLinkProvider, LinkHighlighter } = await import('../terminalLinks'));
 });

@@ -1,4 +1,4 @@
-// TermPro Host 进程入口 — 纯 Node,零 Electron import(README §5 远程就绪)。
+// OkWork Host 进程入口 — 纯 Node,零 Electron import(README §5 远程就绪)。
 // 入口分流:
 //   argv 含 --listen 127.0.0.1:<port> → standalone WebSocket 模式(远程/loopback)
 //   否则                              → 嵌入式模式(utilityProcess + parentPort,现状)
@@ -19,7 +19,7 @@ const core = createHostCore(
 
 // dev/远程冒烟自测:host cwd 即项目仓库时验证 git 链路
 function maybeGitSmoke(): void {
-  if (process.env.TERMPRO_SMOKE) {
+  if (process.env.OKWORK_SMOKE) {
     void gitInfo(process.cwd()).then(
       (info) => console.log('[host] git smoke:', JSON.stringify(info)),
       (err) => console.error('[host] git smoke failed:', err),
@@ -65,7 +65,7 @@ if (process.argv.includes('--listen')) {
   // Origin 白名单(AC-10 纵深):main 侧(dev-main buildStartCommand)按打包/dev 场景算出
   // 完整白名单经 env 注入,逗号分隔;缺省(embedded 本机路径/未注入)→ 维持 wsServer 内建
   // DEFAULT_ALLOWED_ORIGINS(向后兼容,行为不变)。
-  const allowedOriginsEnv = process.env.TERMPRO_ALLOWED_ORIGINS;
+  const allowedOriginsEnv = process.env.OKWORK_ALLOWED_ORIGINS;
   const allowedOrigins = allowedOriginsEnv
     ? new Set(
         allowedOriginsEnv
@@ -84,13 +84,13 @@ if (process.argv.includes('--listen')) {
   }).then(
     (handle) => {
       // 自动生成 token 时单行打印供调用方/ssh exec 捕获(显式传入则不回显)。
-      // 结构上仅限非驻留模式(无 TERMPRO_HOST_PORT_FILE):驻留态由 main 编排经
+      // 结构上仅限非驻留模式(无 OKWORK_HOST_PORT_FILE):驻留态由 main 编排经
       // --token-stdin 注入(source==='stdin',本就不会走这条分支),但仅凭「调用方
       // 永远传 --token-stdin」这一隐性契约维持不落盘 —— 任何未来误将驻留 host 以
       // generated token 起、或调试改动绕过 --token-stdin,都会把 128-bit token 明文
       // 写进被 main 重定向的 host.log。改为显式结构约束:驻留态(有端口文件)恒不
       // 打印 token,即便 source 意外为 'generated' 也不落盘(纵深 · E12)。
-      const isResident = Boolean(process.env.TERMPRO_HOST_PORT_FILE);
+      const isResident = Boolean(process.env.OKWORK_HOST_PORT_FILE);
       if (source === 'generated' && !isResident) {
         console.log('[host] token=%s', token);
       }
@@ -104,7 +104,7 @@ if (process.argv.includes('--listen')) {
       // 驻留端口交接文件(main sftp 回读用 · SSH-4)。O_CREAT|O_EXCL|O_WRONLY:
       // 陈旧文件视为 main 未先清理 = bug,fail-closed 拒绝覆盖而非静默复用
       // (无 TOCTOU 窗口 · AC-8)。
-      const portFile = process.env.TERMPRO_HOST_PORT_FILE;
+      const portFile = process.env.OKWORK_HOST_PORT_FILE;
       if (portFile) {
         let fd: number;
         try {
@@ -119,7 +119,7 @@ if (process.argv.includes('--listen')) {
         // 覆盖赢家 token(否则身份文件≠现网 host 的 token → 第三设备 probe 必败
         // → 误 reap 服役中 host)。happens-before 仍成立:身份提交先于端口文件
         // 【合法内容】写入,读者(pollPortFile/parsePortFile)对空/畸形内容重试。
-        const identityFile = process.env.TERMPRO_HOST_IDENTITY_FILE;
+        const identityFile = process.env.OKWORK_HOST_IDENTITY_FILE;
         if (identityFile) {
           try {
             writeIdentityTokenFile(identityFile, token);
@@ -132,7 +132,7 @@ if (process.argv.includes('--listen')) {
           }
           // dataDir 权限收紧(best-effort · TECH §A.2):失败不阻断启动
           try {
-            const dataDir = process.env.TERMPRO_HOST_DATA_DIR;
+            const dataDir = process.env.OKWORK_HOST_DATA_DIR;
             if (dataDir) fs.chmodSync(dataDir, 0o700);
           } catch {
             /* best-effort */

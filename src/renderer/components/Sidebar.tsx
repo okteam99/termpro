@@ -77,7 +77,7 @@ function UpdatePill() {
     percent?: number;
   } | null>(null);
 
-  useEffect(() => window.termpro.onUpdateEvent(setEv), []);
+  useEffect(() => window.okwork.onUpdateEvent(setEv), []);
 
   if (!ev) return null;
   // 真实下载进度(主进程流式下载广播);无 Content-Length 时退回脉冲动画
@@ -126,7 +126,7 @@ function UpdatePill() {
         ev.state === 'confirming' ||
         ev.state === 'restarting'
       }
-      onClick={() => window.termpro.installUpdate()}
+      onClick={() => window.okwork.installUpdate()}
       title={t('Download the new version, then confirm to install and restart')}
     >
       {label}
@@ -200,7 +200,7 @@ export function Sidebar() {
     const knownIds = new Set<string>();
 
     async function refresh() {
-      const list = await window.termpro.remoteHost.list();
+      const list = await window.okwork.remoteHost.list();
       if (!alive) return;
       const nextIds = new Set(list.map((c) => c.id));
       // 配置已从列表消失(被删除)→ 清理该机残留 sync 订阅 + runtime 展示态 + client(防已删
@@ -284,7 +284,7 @@ export function Sidebar() {
         });
     }
 
-    return window.termpro.remoteHost.onEvent((e) => {
+    return window.okwork.remoteHost.onEvent((e) => {
       applyRuntimeEvent(e);
       if (e.stage === 'verifying' && e.tunnel) {
         beginHandshake(e.configId, e.tunnel);
@@ -449,7 +449,7 @@ export function Sidebar() {
   }
 
   function handleConnectMachine(id: string) {
-    window.termpro.remoteHost.connect({ id });
+    window.okwork.remoteHost.connect({ id });
   }
 
   function openRemoteHostsModal() {
@@ -733,7 +733,7 @@ export function Sidebar() {
       {/* 左下角:升级提示 + 用户信息入口(含 DEV 徽标) */}
       <div className="sidebar-footer">
         <UpdatePill />
-        <SettingsEntry devChannel={window.termpro.devChannel} />
+        <SettingsEntry devChannel={window.okwork.devChannel} />
       </div>
 
       {/* Rename modal — rendered at sidebar root level */}

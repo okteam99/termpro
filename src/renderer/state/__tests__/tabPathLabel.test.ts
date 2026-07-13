@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { tabPathLabel } from '../pathLabel';
 
-const ROOT = '/Users/liam/apps/okok/TermPro';
+const ROOT = '/Users/liam/apps/okok/OkWork';
 const HOME = '/Users/liam';
 
 describe('tabPathLabel', () => {
   it('工作区根 → 文件夹名', () => {
-    expect(tabPathLabel(ROOT, ROOT)).toBe('TermPro');
-    expect(tabPathLabel(ROOT, `${ROOT}/`)).toBe('TermPro');
+    expect(tabPathLabel(ROOT, ROOT)).toBe('OkWork');
+    expect(tabPathLabel(ROOT, `${ROOT}/`)).toBe('OkWork');
   });
 
   it('根内子目录 → 相对路径(随 cd 联动)', () => {
@@ -15,8 +15,8 @@ describe('tabPathLabel', () => {
   });
 
   it('worktree 兄弟目录 → ../xx', () => {
-    expect(tabPathLabel(ROOT, '/Users/liam/apps/okok/termpro-w2')).toBe(
-      '../termpro-w2',
+    expect(tabPathLabel(ROOT, '/Users/liam/apps/okok/okwork-w2')).toBe(
+      '../okwork-w2',
     );
     expect(tabPathLabel(ROOT, '/Users/liam/apps/other/x')).toBe('../../other/x');
   });

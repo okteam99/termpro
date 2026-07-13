@@ -43,7 +43,7 @@ async function main() {
   console.log(`[verify] spawning: ${opts.node} host.js --listen 127.0.0.1:0 (cwd=${dir})`);
   const child = spawn(opts.node, ['host.js', '--listen', '127.0.0.1:0'], {
     cwd: dir,
-    env: { ...process.env, TERMPRO_HOST_TOKEN: token },
+    env: { ...process.env, OKWORK_HOST_TOKEN: token },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -133,16 +133,16 @@ async function main() {
           JSON.stringify({
             t: 'pty:input',
             sessionId,
-            data: 'echo TERMPRO_SPIKE_OK\n',
+            data: 'echo OKWORK_SPIKE_OK\n',
           }),
         );
         return;
       }
 
       if (msg.t === 'pty:data' && msg.sessionId === sessionId) {
-        if (msg.data.includes('TERMPRO_SPIKE_OK')) {
+        if (msg.data.includes('OKWORK_SPIKE_OK')) {
           ptyOk = true;
-          console.log('[verify] pty output received: TERMPRO_SPIKE_OK matched');
+          console.log('[verify] pty output received: OKWORK_SPIKE_OK matched');
           ws.send(JSON.stringify({ t: 'rpc:req', id: 3, method: 'pty.kill', params: { sessionId } }));
         }
         return;

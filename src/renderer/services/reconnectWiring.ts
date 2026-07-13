@@ -1,5 +1,5 @@
 // 断线重连编排的默认实例接线(BL-005)。把纯 reconnectController(注入式)接到真实
-// window.termpro.remoteHost / remoteHostStore / remoteWorkspaceSync / sessionReadopt。
+// window.okwork.remoteHost / remoteHostStore / remoteWorkspaceSync / sessionReadopt。
 // 与 reconnectController.ts 分离:后者零重依赖便于单测,本文件承接 store/registry 具体接线。
 //
 // readopt 走 sessionReadopt.readoptRemoteSessions(生产 hooks 单源 + 每 configId 串行化):
@@ -19,9 +19,9 @@ import { readoptRemoteSessions } from './sessionReadopt';
 export { reconcileBadge } from './sessionReadopt';
 
 export const reconnectController: ReconnectController = createReconnectController({
-  connect: (configId) => window.termpro.remoteHost.connect({ id: configId }),
+  connect: (configId) => window.okwork.remoteHost.connect({ id: configId }),
   // disconnect-first:复位 main stage ready→disconnected(否则 connect() 在 ready 是 no-op)
-  disconnect: (configId) => window.termpro.remoteHost.disconnect({ id: configId }),
+  disconnect: (configId) => window.okwork.remoteHost.disconnect({ id: configId }),
   setReconnecting: (configId, on) =>
     useRemoteHostRuntimeStore.getState().setReconnecting(configId, on),
   isReconnecting: (configId) =>

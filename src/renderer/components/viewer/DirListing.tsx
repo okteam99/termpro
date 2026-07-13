@@ -34,7 +34,7 @@ function openEntry(abs: string, kind: DirEntry['kind'], hostId?: string): void {
     void hostClient.rpc('fs.stat', { path: abs }).then(
       (r) => {
         if (r.kind) {
-          window.termpro.openViewerWindow({
+          window.okwork.openViewerWindow({
             mode: r.kind === 'dir' ? 'dir' : 'file',
             path: abs,
             ...hostPart,
@@ -45,7 +45,7 @@ function openEntry(abs: string, kind: DirEntry['kind'], hostId?: string): void {
     );
     return;
   }
-  window.termpro.openViewerWindow({
+  window.okwork.openViewerWindow({
     mode: kind === 'dir' ? 'dir' : 'file',
     path: abs,
     ...hostPart,

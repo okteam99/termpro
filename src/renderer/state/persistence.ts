@@ -33,13 +33,13 @@ export async function initPersistence(): Promise<void> {
 }
 
 async function hydrateFromHost(): Promise<void> {
-  const raw = await window.termpro.storeGet();
+  const raw = await window.okwork.storeGet();
 
   // 壳层驱动迁移(只对本机注册表):读 v1 逐条 workspace.create 保留原 id → 全成功备份并翻 v2 / 失败继续 v1
   const outcome = await runMigration(raw, {
     createWorkspace: (input) => hostRegistry.local().rpc('workspace.create', input),
-    backupV1: () => window.termpro.backupV1Archive(),
-    writeArchive: (state) => window.termpro.storeSet(state),
+    backupV1: () => window.okwork.backupV1Archive(),
+    writeArchive: (state) => window.okwork.storeSet(state),
   });
 
   // 从本机 Host 拉权威注册表(v2 hydrate 的 name/root 单源;v1 fallback 忽略)。
@@ -104,7 +104,7 @@ function finishHydrate(registry: WorkspaceEntry[], outcome: MigrationOutcome): v
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      window.termpro.storeSet(serialize(state));
+      window.okwork.storeSet(serialize(state));
     }, PERSIST_DEBOUNCE_MS);
   });
 }
@@ -113,7 +113,18 @@ export function serialize(s: AppState): PersistedState {
   const ui = {
     sidebarWidth: s.sidebarWidth,
     filePanelWidth: s.filePanelWidth,
+    browserPanelWidth: s.browserPanelWidth,
     pinBottomBar: s.pinBottomBar,
+    // 折叠态才写盘(缺省即展开)
+    ...(s.filePanelCollapsed ? { filePanelCollapsed: true } : {}),
+    // 浏览器面板:打开才写开关;标签只存 {id,url}(title 视图态),空集不写盘
+    ...(s.browserPanelOpen ? { browserPanelOpen: true } : {}),
+    ...(s.browserTabs.length > 0
+      ? {
+          browserTabs: s.browserTabs.map((b) => ({ id: b.id, url: b.url })),
+          browserActiveTabId: s.browserActiveTabId,
+        }
+      : {}),
     // 空集不写盘(存档整洁;缺省即全展开)
     ...(s.collapsedMachines.length > 0 ? { collapsedMachines: s.collapsedMachines } : {}),
     // 'system' 不写盘(缺省即随系统;main 启动读此字段定 locale)

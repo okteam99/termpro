@@ -1,6 +1,6 @@
 {
-  "name": "termpro",
-  "productName": "TermPro",
+  "name": "okwork",
+  "productName": "OkWork",
   "version": "0.3.58",
   "description": "Terminal-first workbench for running many AI coding agents in parallel — agent-agnostic, macOS.",
   "main": ".vite/build/main.js",
@@ -16,7 +16,7 @@
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "make:dev": "TERMPRO_DEV_BUILD=1 electron-forge make"
+    "make:dev": "OKWORK_DEV_BUILD=1 electron-forge make"
   },
   "keywords": [
     "terminal",

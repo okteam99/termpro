@@ -100,7 +100,7 @@ jobs:
           npm test
 
       - name: 端到端冒烟(渲染层↔Host↔PTY)
-        run: TERMPRO_SMOKE=1 npx electron-forge start
+        run: OKWORK_SMOKE=1 npx electron-forge start
         timeout-minutes: 6
 
       # ---- SSH-5:下载三架构 host bundle,逐 arch 存在性判断(R2-2 降级阀)----
@@ -207,7 +207,7 @@ jobs:
       - name: 上传构建产物(所有触发方式)
         uses: actions/upload-artifact@v5
         with:
-          name: termpro-darwin-arm64
+          name: okwork-darwin-arm64
           path: |
             out/make/**/*.zip
             out/make/**/*.dmg

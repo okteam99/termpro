@@ -21,9 +21,9 @@ type TimerHandle = ReturnType<typeof setTimeout>;
 
 /** reconnectController 的外部依赖(全注入·单测喂 fake)。 */
 export interface ReconnectControllerDeps {
-  /** 触发 main 重建隧道(window.termpro.remoteHost.connect)。 */
+  /** 触发 main 重建隧道(window.okwork.remoteHost.connect)。 */
   connect(configId: string): void;
-  /** disconnect-first:复位 main stage ready→disconnected(window.termpro.remoteHost.disconnect)。 */
+  /** disconnect-first:复位 main stage ready→disconnected(window.okwork.remoteHost.disconnect)。 */
   disconnect(configId: string): void;
   /** 同步置/清 reconnecting 态(remoteHostStore.setReconnecting)。 */
   setReconnecting(configId: string, on: boolean): void;

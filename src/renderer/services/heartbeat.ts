@@ -127,7 +127,7 @@ export function readHeartbeatEnv(): HeartbeatConfig {
     return Number.isFinite(n) && n > 0 ? n : fallback;
   };
   return {
-    intervalMs: read('TERMPRO_HEARTBEAT_INTERVAL_MS', DEFAULT_HEARTBEAT.intervalMs),
-    timeoutMs: read('TERMPRO_HEARTBEAT_TIMEOUT_MS', DEFAULT_HEARTBEAT.timeoutMs),
+    intervalMs: read('OKWORK_HEARTBEAT_INTERVAL_MS', DEFAULT_HEARTBEAT.intervalMs),
+    timeoutMs: read('OKWORK_HEARTBEAT_TIMEOUT_MS', DEFAULT_HEARTBEAT.timeoutMs),
   };
 }

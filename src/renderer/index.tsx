@@ -9,7 +9,7 @@ import './index.css';
 
 // 首帧前应用 main 已解析的生效 locale(argv 注入,含持久化偏好)——
 // 覆盖 i18n 模块默认的 navigator 自检,主窗/查看窗一致且无语言闪换
-const argLocale = window.termpro?.locale;
+const argLocale = window.okwork?.locale;
 if (argLocale === 'en' || argLocale === 'zh-CN') setLocale(argLocale);
 
 // 全局选区拖拽兜底:防 xterm「丢失 mouseup → 未按键却自动延展选区」(详见模块顶注)

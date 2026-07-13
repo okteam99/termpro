@@ -32,21 +32,36 @@ import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 import { encodeClipboardImage } from './clipboardImage';
+import { migrateLegacyUserData } from './userDataMigration';
 
 if (started) {
   app.quit();
 }
 
-// DEV 渠道:npm start(未打包)或 make:dev 出的 "TermPro Dev" 包。
+// DEV 渠道:npm start(未打包)或 make:dev 出的 "OkWork Dev" 包。
 // 独立 userData、不查更新、UI 显示红色 DEV 徽标,与正式版可同时安装。
 const isDevChannel = !app.isPackaged || app.getName().includes('Dev');
-if (!app.isPackaged && !process.env.TERMPRO_SMOKE) {
-  app.setPath('userData', path.join(app.getPath('appData'), 'TermPro-Dev'));
+if (!app.isPackaged && !process.env.OKWORK_SMOKE) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'OkWork-Dev'));
 }
 
 // 冒烟模式用独立 userData:不污染真实布局存档,且结果可复现
-if (process.env.TERMPRO_SMOKE) {
-  app.setPath('userData', path.join(os.tmpdir(), 'termpro-smoke'));
+if (process.env.OKWORK_SMOKE) {
+  app.setPath('userData', path.join(os.tmpdir(), 'okwork-smoke'));
+}
+
+// 品牌改名(TermPro → OkWork)一次性迁移:旧 userData 整目录搬到新路径。
+// 必须先于单实例锁与一切 userData 读写;冒烟模式用独立临时目录,无需迁移。
+if (!process.env.OKWORK_SMOKE) {
+  const legacyName = !app.isPackaged
+    ? 'TermPro-Dev'
+    : app.getName().includes('Dev')
+      ? 'TermPro Dev'
+      : 'TermPro';
+  migrateLegacyUserData(
+    path.join(app.getPath('appData'), legacyName),
+    app.getPath('userData'),
+  );
 }
 
 // 单实例锁(按 userData 区分:dev 与正式版可共存,各自只跑一个);
@@ -71,7 +86,7 @@ let mainWin: BrowserWindow | null = null;
 const fileWins = new Map<string, BrowserWindow>();
 let diffWin: BrowserWindow | null = null;
 
-// .md 文件关联:双击 md / 「打开方式」选 TermPro → 查看器窗口打开。
+// .md 文件关联:双击 md / 「打开方式」选 OkWork → 查看器窗口打开。
 // macOS 冷启动时 open-file 可能早于 ready,先入队,ready 后统一打开(openFileWindow
 // 为函数声明,已提升,此处引用安全)。
 let appIsReady = false;
@@ -186,14 +201,14 @@ let hostProc: Electron.UtilityProcess | null = null;
 function ensureHost(): Electron.UtilityProcess {
   if (hostProc) return hostProc;
   hostProc = utilityProcess.fork(path.join(__dirname, 'host.js'), [], {
-    serviceName: 'termpro-host',
+    serviceName: 'okwork-host',
     // Workspace 注册表数据目录:local 模式 = userData(host 视其为不透明「本机注册表目录」,
     // 不知晓 Electron 路径 API,保持零 Electron / 远程就绪)
     env: {
       ...process.env,
-      TERMPRO_HOST_DATA_DIR: app.getPath('userData'),
+      OKWORK_HOST_DATA_DIR: app.getPath('userData'),
       // host.info.appVersion 数据源(本机嵌入式恒与应用同版,仅保持上报一致性)
-      TERMPRO_HOST_APP_VERSION: app.getVersion(),
+      OKWORK_HOST_APP_VERSION: app.getVersion(),
     },
   });
   hostProc.on('exit', (code) => {
@@ -358,9 +373,9 @@ ipcMain.handle('dialog:pick-directory', async (event) => {
   return res.canceled ? null : res.filePaths[0];
 });
 
-// ---- 冒烟模式:TERMPRO_SMOKE=1 时,渲染层完成 Host 握手即退出(CI 可用)----
+// ---- 冒烟模式:OKWORK_SMOKE=1 时,渲染层完成 Host 握手即退出(CI 可用)----
 
-if (process.env.TERMPRO_SMOKE) {
+if (process.env.OKWORK_SMOKE) {
   const timer = setTimeout(() => {
     console.error('SMOKE_TIMEOUT');
     app.exit(1);
@@ -581,10 +596,12 @@ const createWindow = () => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 内置浏览器面板用 <webview>(guest 独立进程,默认无 node)
+      webviewTag: true,
       // 沙箱 preload 没有 process.env,冒烟开关经 argv 传递
       additionalArguments: buildAdditionalArguments({
         version: app.getVersion(),
-        smoke: !!process.env.TERMPRO_SMOKE,
+        smoke: !!process.env.OKWORK_SMOKE,
         dev: isDevChannel,
         locale: getLocale(),
       }),
@@ -593,10 +610,42 @@ const createWindow = () => {
   installExternalUrlPolicy(mainWindow, {
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   });
+  // 🔴 webview 硬化(opus 评审 P1):guest webPreferences 在创建前锁定——即使 renderer
+  // 被注入任意 HTML,也造不出带 node/自定义 preload 的 webview(Electron 安全清单项);
+  // 初始 src 同步收口为 http(s)(与 renderer 地址栏/hydrate 的 scheme 过滤一致)
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    delete (webPreferences as { preloadURL?: string }).preloadURL;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    if (params.src && !/^https?:\/\//i.test(params.src)) event.preventDefault();
+  });
+  // 内置浏览器 webview 的弹窗策略:target=_blank / window.open 一律不开原生新窗,
+  // http(s) 交回 renderer 在浏览器面板里开新标签(externalUrlPolicy 只管主窗自身导航)。
+  // 限频 300ms/guest:恶意页 for(;;)window.open 不能灌爆标签条(评审 P2-5)
+  mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
+    let lastOpenAt = 0;
+    guest.setWindowOpenHandler(({ url }) => {
+      const now = Date.now();
+      if (
+        /^https?:\/\//i.test(url) &&
+        !mainWindow.isDestroyed() &&
+        now - lastOpenAt > 300
+      ) {
+        lastOpenAt = now;
+        mainWindow.webContents.send('browser:open-url', url);
+      }
+      return { action: 'deny' };
+    });
+    // 主框架导航只许 http(s)/about:file:// javascript: 等进不了内置浏览器(评审 P2-2)
+    guest.on('will-navigate', (e, url) => {
+      if (!/^(https?:|about:)/i.test(url)) e.preventDefault();
+    });
+  });
 
-  if (process.env.TERMPRO_SMOKE || process.env.TERMPRO_DEBUG) {
+  if (process.env.OKWORK_SMOKE || process.env.OKWORK_DEBUG) {
     // 冒烟/调试模式把渲染层 console 转发到 stdout;
-    // TERMPRO_DEBUG=1 用真实 userData,从 CLI 启动即可排查线上问题
+    // OKWORK_DEBUG=1 用真实 userData,从 CLI 启动即可排查线上问题
     mainWindow.webContents.on('console-message', (details) => {
       console.log(`[renderer:${details.level}] ${details.message}`);
     });

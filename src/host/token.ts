@@ -10,7 +10,7 @@ import * as path from 'node:path';
 export const TOKEN_BYTES = 16;
 
 /** 读后即抹的环境变量名(读取后立即 delete,防经 {...process.env} 泄露进 PTY)。 */
-export const TOKEN_ENV = 'TERMPRO_HOST_TOKEN';
+export const TOKEN_ENV = 'OKWORK_HOST_TOKEN';
 
 export type TokenSource = 'env' | 'file' | 'fd' | 'stdin' | 'generated';
 

@@ -411,8 +411,8 @@ describe('部署版本单调闸(只允许更高版本)', () => {
     expect(ssh.sftpWriteDir).toHaveBeenCalled();
   });
 
-  it('逃生阀 TERMPRO_DEPLOY_ALLOW_OLDER=1:跳过闸门(连版本列举都不发起)照常部署', async () => {
-    vi.stubEnv('TERMPRO_DEPLOY_ALLOW_OLDER', '1');
+  it('逃生阀 OKWORK_DEPLOY_ALLOW_OLDER=1:跳过闸门(连版本列举都不发起)照常部署', async () => {
+    vi.stubEnv('OKWORK_DEPLOY_ALLOW_OLDER', '1');
     const ssh = createRoutedSsh({ execHandlers: [listRoute(['9.9.9'])] });
     const result = await deployBundle({
       ssh,
@@ -433,7 +433,7 @@ describe('listReadyVersionsCommand 真实 shell 集成', () => {
   const shells = ['/bin/sh', ...(existsSync('/bin/zsh') ? ['/bin/zsh'] : [])];
 
   function makeFixture(): string {
-    const root = mkdtempSync(join(tmpdir(), 'termpro-deploy-it-'));
+    const root = mkdtempSync(join(tmpdir(), 'okwork-deploy-it-'));
     mkdirSync(join(root, 'bundle', '0.3.9'), { recursive: true });
     writeFileSync(join(root, 'bundle', '0.3.9', '.ready'), '');
     mkdirSync(join(root, 'bundle', '0.3.10'), { recursive: true }); // 无 .ready → 不该出现
@@ -448,7 +448,7 @@ describe('listReadyVersionsCommand 真实 shell 集成', () => {
       const out = execFileSync(shell, ['-c', listReadyVersionsCommand(root)], { encoding: 'utf8' });
       expect(out.split('\n').filter(Boolean)).toEqual(['0.3.9']);
 
-      const emptyRoot = mkdtempSync(join(tmpdir(), 'termpro-deploy-it-empty-'));
+      const emptyRoot = mkdtempSync(join(tmpdir(), 'okwork-deploy-it-empty-'));
       mkdirSync(join(emptyRoot, 'bundle'));
       const outEmpty = execFileSync(shell, ['-c', listReadyVersionsCommand(emptyRoot)], {
         encoding: 'utf8',

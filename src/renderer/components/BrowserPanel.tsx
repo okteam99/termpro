@@ -1,0 +1,432 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAppStore } from '../state/store';
+import { t } from '../../shared/i18n';
+import './BrowserPanel.css';
+
+// webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
+// (src/partition 等属性)与全局 HTMLWebViewElement,但该接口是空壳——这里用声明合并补上
+// 实际用到的 webview 方法,不重新声明 IntrinsicElements(会与内置声明类型冲突,TS2717)。
+declare global {
+  interface HTMLWebViewElement {
+    loadURL(url: string): Promise<void>;
+    getURL(): string;
+    reload(): void;
+    stop(): void;
+    canGoBack(): boolean;
+    canGoForward(): boolean;
+    goBack(): void;
+    goForward(): void;
+  }
+}
+
+type WebviewElement = HTMLWebViewElement;
+
+/** canGoBack/canGoForward 安全读取:jsdom 里 <webview> 只是惰性自定义元素,不带这些方法
+ *  (真实 Electron 里恒有);🔴 真实 Electron 里 dom-ready 之前调用会 throw
+ *  (冷启动恢复持久化标签时首帧必经此态)——一律兜底「不可导航」,不让读取崩组件。 */
+function readNavAvailability(el: WebviewElement): { canGoBack: boolean; canGoForward: boolean } {
+  try {
+    return {
+      canGoBack: typeof el.canGoBack === 'function' && el.canGoBack(),
+      canGoForward: typeof el.canGoForward === 'function' && el.canGoForward(),
+    };
+  } catch {
+    return { canGoBack: false, canGoForward: false };
+  }
+}
+
+/** 单个标签的导航态(nav bar 依据活跃标签展示,由 webview 事件驱动) */
+interface NavState {
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+const DEFAULT_NAV_STATE: NavState = { loading: false, canGoBack: false, canGoForward: false };
+
+/** 地址栏提交时的 URL 规整:http(s) 原样;其它 scheme 一律拒绝(评审 P2-2:
+ *  file:/javascript:/chrome: 等不进 webview);像域名/localhost → 补 https://;其余当搜索词 */
+function normalizeUrlInput(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^https?:/i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
+  const looksLikeHost =
+    !/\s/.test(trimmed) && (trimmed.includes('.') || trimmed.startsWith('localhost'));
+  if (looksLikeHost) return `https://${trimmed}`;
+  return `https://www.bing.com/search?q=${encodeURIComponent(trimmed)}`;
+}
+
+/** 标签标题兜底:url 解析失败(空标签/非法值)→ null,由调用方再兜底默认名 */
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host || null;
+  } catch {
+    return null;
+  }
+}
+
+interface BrowserWebviewProps {
+  tabId: string;
+  url: string;
+  active: boolean;
+  onWebviewRef: (id: string, el: WebviewElement | null) => void;
+  onNavChange: (id: string, patch: Partial<NavState>) => void;
+  onUrlChange: (id: string, url: string) => void;
+  onTitleChange: (id: string, title: string) => void;
+}
+
+/** 常驻挂载的单标签 webview:src 只设一次(锁定首个非空 url),store 后续 url 更新
+ *  (did-navigate 写回)绝不反向绑定回 src,否则会循环 reload。 */
+function BrowserWebview({
+  tabId,
+  url,
+  active,
+  onWebviewRef,
+  onNavChange,
+  onUrlChange,
+  onTitleChange,
+}: BrowserWebviewProps) {
+  const srcRef = useRef(url);
+  if (!srcRef.current && url) srcRef.current = url;
+
+  // 用 state(而非纯 ref)持有 webview 元素:ref 变化不触发重渲染,下面的事件绑定
+  // effect 需要在元素真正挂载后才跑一次,靠 state 变化驱动。
+  const [el, setEl] = useState<WebviewElement | null>(null);
+  const setRef = useCallback(
+    (node: WebviewElement | null) => {
+      setEl(node);
+      onWebviewRef(tabId, node);
+    },
+    [tabId, onWebviewRef],
+  );
+
+  useEffect(() => {
+    if (!el) return;
+
+    function handleDidNavigate(e: Event) {
+      const navigatedUrl = (e as Event & { url?: string }).url;
+      if (typeof navigatedUrl === 'string') onUrlChange(tabId, navigatedUrl);
+      onNavChange(tabId, readNavAvailability(el!));
+    }
+    function handleDidNavigateInPage(e: Event) {
+      const ev = e as Event & { url?: string; isMainFrame?: boolean };
+      if (!ev.isMainFrame || typeof ev.url !== 'string') return;
+      onUrlChange(tabId, ev.url);
+      onNavChange(tabId, readNavAvailability(el!));
+    }
+    function handleTitleUpdated(e: Event) {
+      const title = (e as Event & { title?: string }).title;
+      if (typeof title === 'string') onTitleChange(tabId, title);
+    }
+    function handleStartLoading() {
+      onNavChange(tabId, { loading: true });
+    }
+    function handleStopLoading() {
+      onNavChange(tabId, { loading: false });
+    }
+
+    el.addEventListener('did-navigate', handleDidNavigate);
+    el.addEventListener('did-navigate-in-page', handleDidNavigateInPage);
+    el.addEventListener('page-title-updated', handleTitleUpdated);
+    el.addEventListener('did-start-loading', handleStartLoading);
+    el.addEventListener('did-stop-loading', handleStopLoading);
+    return () => {
+      el.removeEventListener('did-navigate', handleDidNavigate);
+      el.removeEventListener('did-navigate-in-page', handleDidNavigateInPage);
+      el.removeEventListener('page-title-updated', handleTitleUpdated);
+      el.removeEventListener('did-start-loading', handleStartLoading);
+      el.removeEventListener('did-stop-loading', handleStopLoading);
+    };
+  }, [el, tabId, onNavChange, onUrlChange, onTitleChange]);
+
+  if (!srcRef.current) return null;
+
+  return (
+    <webview
+      ref={setRef}
+      src={srcRef.current}
+      partition="persist:browser"
+      // 🔴 无 allowpopups 时 target=_blank/window.open 在 guest 层被直接吞掉,
+      // 主进程 setWindowOpenHandler 收不到请求;开了它,请求才会到达拦截器——
+      // 拦截器恒 deny 原生新窗,把 http(s) URL 转成面板新标签(main.ts did-attach-webview)。
+      // 🔴 webview 对 React 是「未知元素」,布尔 true 会被丢弃(不落 DOM)——必须传字符串,
+      // 类型声明(@types/react)却是 boolean,故 cast(React 会警告 string 值但照写 DOM)
+      allowpopups={'true' as unknown as boolean}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        // webview 不支持 display:none(会丢内部状态/停止渲染进程),非活跃标签用 visibility 隐藏
+        visibility: active ? 'visible' : 'hidden',
+      }}
+    />
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="7.5,2.5 3.5,6 7.5,9.5" />
+    </svg>
+  );
+}
+
+function ForwardIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="4.5,2.5 8.5,6 4.5,9.5" />
+    </svg>
+  );
+}
+
+export function BrowserPanel() {
+  const tabs = useAppStore((s) => s.browserTabs);
+  const activeTabId = useAppStore((s) => s.browserActiveTabId);
+  const addBrowserTab = useAppStore((s) => s.addBrowserTab);
+  const closeBrowserTab = useAppStore((s) => s.closeBrowserTab);
+  const setBrowserActiveTab = useAppStore((s) => s.setBrowserActiveTab);
+
+  const activeTab = tabs.find((tb) => tb.id === activeTabId) ?? null;
+
+  const webviewRefs = useRef(new Map<string, WebviewElement>());
+  const [navStates, setNavStates] = useState<Record<string, NavState>>({});
+  // 地址栏编辑态:聚焦进入(draft=当前 url),Enter 提交/Esc 放弃后失焦退出
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const addressInputRef = useRef<HTMLInputElement>(null);
+
+  // 新开标签订阅(webview 内 target=_blank/window.open 经主进程回传);测试环境
+  // window.okwork 可能不存在,可选链防御。
+  useEffect(() => {
+    const unsubscribe = window.okwork?.onBrowserOpenUrl?.((url) => {
+      useAppStore.getState().addBrowserTab(url);
+    });
+    return () => unsubscribe?.();
+  }, []);
+
+  // 切换活跃标签 → 退出地址栏编辑态
+  useEffect(() => {
+    setEditing(false);
+  }, [activeTabId]);
+
+  // 关标签后收敛 navStates(id 是 uuid 不复用,长会话反复开关防无界增长;评审 P2-4)
+  useEffect(() => {
+    setNavStates((prev) => {
+      const ids = new Set(tabs.map((tb) => tb.id));
+      const kept = Object.entries(prev).filter(([id]) => ids.has(id));
+      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
+    });
+  }, [tabs]);
+
+  // 空标签(未导航)自动聚焦地址栏。🔴 推迟到下一帧:首开面板时终端/webview 的
+  // 焦点竞争可能在同一轮 effect 后又把焦点抢走,rAF 保证我们是最后落焦的一方
+  useEffect(() => {
+    if (!(activeTab && activeTab.url === '')) return;
+    const raf = requestAnimationFrame(() => addressInputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [activeTab?.id, activeTab?.url]);
+
+  // 切换活跃标签时,后退/前进可用态从对应 webview 即时刷新一次(补首帧,事件到达前的窗口)
+  useEffect(() => {
+    if (!activeTabId) return;
+    const el = webviewRefs.current.get(activeTabId);
+    if (!el) return;
+    setNavStates((prev) => ({
+      ...prev,
+      [activeTabId]: { ...(prev[activeTabId] ?? DEFAULT_NAV_STATE), ...readNavAvailability(el) },
+    }));
+  }, [activeTabId]);
+
+  const handleWebviewRef = useCallback((id: string, node: WebviewElement | null) => {
+    if (node) webviewRefs.current.set(id, node);
+    else webviewRefs.current.delete(id);
+  }, []);
+
+  const handleUrlChange = useCallback((id: string, url: string) => {
+    useAppStore.getState().updateBrowserTab(id, { url });
+  }, []);
+
+  const handleTitleChange = useCallback((id: string, title: string) => {
+    useAppStore.getState().updateBrowserTab(id, { title });
+  }, []);
+
+  const handleNavChange = useCallback((id: string, patch: Partial<NavState>) => {
+    setNavStates((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_NAV_STATE), ...patch } }));
+  }, []);
+
+  if (tabs.length === 0) return null;
+
+  const activeUrl = activeTab?.url ?? '';
+  const isEmptyTab = activeUrl === '';
+  const activeNav = (activeTabId && navStates[activeTabId]) || DEFAULT_NAV_STATE;
+
+  function handleNavigate(raw: string) {
+    if (!activeTab) return;
+    const url = normalizeUrlInput(raw);
+    if (!url) return;
+    const el = webviewRefs.current.get(activeTab.id);
+    if (el) {
+      // 已有 webview:直接导航,store 由 did-navigate 回写(避免 src 反向绑定循环 reload)
+      void el.loadURL(url);
+    } else {
+      // 空标签:写 store 触发 webview 首次渲染(src 锁定为这个 url)
+      useAppStore.getState().updateBrowserTab(activeTab.id, { url });
+    }
+  }
+
+  function handleAddressKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      handleNavigate(draft);
+      setEditing(false);
+      e.currentTarget.blur();
+    } else if (e.key === 'Escape') {
+      setEditing(false);
+      e.currentTarget.blur();
+    }
+  }
+
+  return (
+    <div className="browser-panel">
+      {/* 品牌标题行:与终端 tab 视觉区隔(用户指令),兼作窗口拖拽区 */}
+      <div className="browser-panel__header">OkTerm Browser</div>
+      <div className="browser-panel__tabs">
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTabId;
+          const label = tab.title ?? hostOf(tab.url) ?? t('New Tab');
+          return (
+            <div
+              key={tab.id}
+              className={`browser-panel__tab${isActive ? ' browser-panel__tab--active' : ''}`}
+              onClick={() => setBrowserActiveTab(tab.id)}
+              title={label}
+            >
+              <span className="browser-panel__tab-title">{label}</span>
+              <button
+                className="browser-panel__tab-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeBrowserTab(tab.id);
+                }}
+                title={t('Close tab')}
+              >
+                &times;
+              </button>
+            </div>
+          );
+        })}
+        <button
+          className="browser-panel__tab-add"
+          onClick={() => addBrowserTab()}
+          title={t('New tab')}
+        >
+          +
+        </button>
+      </div>
+
+      <div className="browser-panel__nav">
+        <button
+          className="browser-panel__nav-btn"
+          disabled={isEmptyTab || !activeNav.canGoBack}
+          onClick={() => activeTab && webviewRefs.current.get(activeTab.id)?.goBack()}
+          title={t('Back')}
+        >
+          <BackIcon />
+        </button>
+        <button
+          className="browser-panel__nav-btn"
+          disabled={isEmptyTab || !activeNav.canGoForward}
+          onClick={() => activeTab && webviewRefs.current.get(activeTab.id)?.goForward()}
+          title={t('Forward')}
+        >
+          <ForwardIcon />
+        </button>
+        <button
+          className="browser-panel__nav-btn"
+          disabled={isEmptyTab}
+          onClick={() => {
+            if (!activeTab) return;
+            const el = webviewRefs.current.get(activeTab.id);
+            if (!el) return;
+            if (activeNav.loading) el.stop();
+            else el.reload();
+          }}
+          title={activeNav.loading ? t('Stop') : t('Refresh')}
+        >
+          {activeNav.loading ? '✕' : '⟳'}
+        </button>
+        <input
+          ref={addressInputRef}
+          className="browser-panel__address-input"
+          type="text"
+          value={editing ? draft : activeUrl}
+          // 🔴 Electron webview 持焦时,宿主页输入框的原生点击聚焦可能失效——
+          // mousedown 先摘掉 webview 焦点,原生聚焦流程才可靠
+          onMouseDown={() => {
+            if (activeTab) webviewRefs.current.get(activeTab.id)?.blur();
+          }}
+          onFocus={() => {
+            setEditing(true);
+            setDraft(activeUrl);
+          }}
+          onChange={(e) => {
+            // 🔴 自愈:任何竞态把 editing 留在 false(受控值钉死在 activeUrl,表现为
+            // 「打不进字」)时,首次按键即恢复编辑态,以 DOM 实际值为准
+            if (!editing) setEditing(true);
+            setDraft(e.target.value);
+          }}
+          onKeyDown={handleAddressKeyDown}
+          onBlur={() => setEditing(false)}
+          spellCheck={false}
+        />
+        <button
+          className="browser-panel__nav-btn"
+          disabled={!activeUrl}
+          onClick={() => activeTab && window.okwork.openExternal(activeTab.url)}
+          title={t('Open in system browser')}
+        >
+          ↗
+        </button>
+      </div>
+
+      <div className="browser-panel__views">
+        {tabs.map((tab) => (
+          <BrowserWebview
+            key={tab.id}
+            tabId={tab.id}
+            url={tab.url}
+            active={tab.id === activeTabId}
+            onWebviewRef={handleWebviewRef}
+            onNavChange={handleNavChange}
+            onUrlChange={handleUrlChange}
+            onTitleChange={handleTitleChange}
+          />
+        ))}
+        {isEmptyTab && (
+          <div className="browser-panel__empty">
+            {t('Enter a URL or search to get started')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -38,16 +38,16 @@ RUN npm install -g npm@12 \
     && node /usr/local/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
     && npm cache clean --force
 
-COPY sshd.conf /etc/ssh/sshd_config.d/10-termpro-node.conf
+COPY sshd.conf /etc/ssh/sshd_config.d/10-okwork-node.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 # Default working directory: /workspace (mount a host folder here with -v).
 # WORKDIR covers docker exec; the profile.d hook makes SSH login shells land there too.
 RUN mkdir -p /workspace \
-    && printf '%s\n' '# termpro-node: login shells start in /workspace' \
+    && printf '%s\n' '# okwork-node: login shells start in /workspace' \
         '[ -d /workspace ] && cd /workspace' \
-        > /etc/profile.d/10-termpro-workspace.sh
+        > /etc/profile.d/10-okwork-workspace.sh
 WORKDIR /workspace
 
 # Inner dockerd storage must not sit on the container's own overlayfs

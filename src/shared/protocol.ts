@@ -51,7 +51,7 @@ export interface HostInfo {
   capabilities?: string[];
   /**
    * host 软件的应用版本(x.y.z,向后兼容追加)。编排器启动 host 时经
-   * TERMPRO_HOST_APP_VERSION 注入,与部署的 bundle/<version>/ 同源。
+   * OKWORK_HOST_APP_VERSION 注入,与部署的 bundle/<version>/ 同源。
    * 🔴 用户规则 2026-07-13:连接时 host 版本低于客户端依赖的最低版本
    * (HOST_MIN_APP_VERSION)→ 先升级服务端(在跑任务可关闭)。
    * 旧 host 省略(undefined)→ main 侧视为过旧,一样触发升级(versionCompat.isHostAppOutdated)。

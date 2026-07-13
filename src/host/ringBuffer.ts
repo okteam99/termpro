@@ -6,11 +6,11 @@
 // = 缓冲内最旧字节的绝对偏移。sliceFrom(offset) 据此产出增量切片(full=false)或整缓冲
 // 回退(full=true)。驱逐点 / 缓冲切片起点均对齐 UTF-8 码点边界(无状态 · 看高位 bit)。
 
-/** 默认容量:256 KiB。env TERMPRO_SESSION_RING_BYTES 可注入(测试/运维调优)。 */
+/** 默认容量:256 KiB。env OKWORK_SESSION_RING_BYTES 可注入(测试/运维调优)。 */
 export const DEFAULT_RING_BYTES = 256 * 1024;
 
 function envCapacity(): number {
-  const raw = process.env.TERMPRO_SESSION_RING_BYTES;
+  const raw = process.env.OKWORK_SESSION_RING_BYTES;
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_RING_BYTES;
 }

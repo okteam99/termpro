@@ -1,6 +1,6 @@
-# Contributing to TermPro
+# Contributing to OkWork
 
-Thank you for your interest in TermPro! We welcome contributions of all kinds — bug reports, feature requests, documentation improvements, translations, UX feedback, and code. If you are new to the project, look for issues tagged **good first issue** or **help wanted** to find a good starting point. Non-code contributions are just as valuable as code.
+Thank you for your interest in OkWork! We welcome contributions of all kinds — bug reports, feature requests, documentation improvements, translations, UX feedback, and code. If you are new to the project, look for issues tagged **good first issue** or **help wanted** to find a good starting point. Non-code contributions are just as valuable as code.
 
 ---
 
@@ -19,7 +19,7 @@ npm test             # vitest unit tests
 **Headless smoke test** (also used in CI):
 
 ```bash
-TERMPRO_SMOKE=1 npx electron-forge start
+OKWORK_SMOKE=1 npx electron-forge start
 ```
 
 The app starts, completes the Host handshake, writes one PTY output, prints `SMOKE_OK`, and exits. If it times out (30 s), it prints `SMOKE_TIMEOUT` and exits with code 1.
@@ -34,7 +34,7 @@ Every commit and every PR must pass all three checks before it is considered rea
 |---|---|---|
 | Type check | `npm run typecheck` | Zero TypeScript errors |
 | Unit tests | `npm test` | vitest suite green |
-| Smoke | `TERMPRO_SMOKE=1 npx electron-forge start` | App boots and Host handshake succeeds |
+| Smoke | `OKWORK_SMOKE=1 npx electron-forge start` | App boots and Host handshake succeeds |
 
 Do not submit a PR that fails any of these.
 
@@ -42,7 +42,7 @@ Do not submit a PR that fails any of these.
 
 ## Architecture red lines
 
-These rules exist to keep TermPro's "remote-ready" architecture intact. PRs that violate them will not be merged.
+These rules exist to keep OkWork's "remote-ready" architecture intact. PRs that violate them will not be merged.
 
 ### 1. UI never directly touches the filesystem, PTY, or git
 
@@ -98,7 +98,7 @@ The authoritative deep-dive specs (currently in Chinese) are:
 
 ## Platform notes
 
-TermPro currently targets **macOS only** (Apple Silicon and Intel). Windows and Linux are on the roadmap — if you want to help with that, please open an issue to discuss first.
+OkWork currently targets **macOS only** (Apple Silicon and Intel). Windows and Linux are on the roadmap — if you want to help with that, please open an issue to discuss first.
 
 ---
 

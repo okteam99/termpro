@@ -19,9 +19,9 @@ import { Sidebar } from '../Sidebar';
 
 const noop = () => undefined;
 
-// Helper: set up window.termpro mock for the renderer bridge.
-function mockTermpro(overrides: { version?: string; devChannel?: boolean } = {}) {
-  Object.defineProperty(window, 'termpro', {
+// Helper: set up window.okwork mock for the renderer bridge.
+function mockOkwork(overrides: { version?: string; devChannel?: boolean } = {}) {
+  Object.defineProperty(window, 'okwork', {
     value: {
       version: overrides.version ?? '0.3.12',
       devChannel: overrides.devChannel ?? false,
@@ -67,13 +67,13 @@ function mockTermpro(overrides: { version?: string; devChannel?: boolean } = {})
 
 afterEach(() => {
   cleanup();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 // --- T-003: renders avatar placeholder and Settings label (AC-1) ---
 describe('settingsEntry_renders_avatar_placeholder_and_settings_label', () => {
   it('renders Settings label and avatar container', () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     // Settings label
@@ -88,7 +88,7 @@ describe('settingsEntry_renders_avatar_placeholder_and_settings_label', () => {
 // --- T-004: toggles menu with Remote Hosts + About items (AC-2 · BL-003 adds Remote Hosts) ---
 describe('settingsEntry_toggles_menu_with_remote_hosts_and_about_items', () => {
   it('shows Remote Hosts + About menuitems on click and hides on second click', () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     const entryBtn = screen.getByTitle('Settings');
@@ -115,7 +115,7 @@ describe('settingsEntry_toggles_menu_with_remote_hosts_and_about_items', () => {
 // --- 底部输入栏固定:开关项渲染 + 点击切换 store(默认开)---
 describe('settingsEntry_pin_bottom_bar_toggle', () => {
   it('shows checked toggle by default and flips store on click', () => {
-    mockTermpro();
+    mockOkwork();
     useAppStore.setState({ pinBottomBar: true });
     render(<SettingsEntry />);
 
@@ -141,7 +141,7 @@ describe('settingsEntry_pin_bottom_bar_toggle', () => {
 describe('settingsEntry_language_switcher', () => {
   it('expands locale options and switches UI language + notifies main on pick', async () => {
     const { setLocale } = await import('../../../shared/i18n');
-    mockTermpro();
+    mockOkwork();
     useAppStore.setState({ localePref: 'system' });
     render(<SettingsEntry />);
 
@@ -164,7 +164,7 @@ describe('settingsEntry_language_switcher', () => {
 
     // store + main 通知 + 本组件文案即时换中文(菜单保持打开)
     expect(useAppStore.getState().localePref).toBe('zh-CN');
-    expect(window.termpro.setAppLocale).toHaveBeenCalledWith('zh-CN');
+    expect(window.okwork.setAppLocale).toHaveBeenCalledWith('zh-CN');
     expect(screen.getByRole('menu')).toBeInTheDocument();
     expect(screen.getByText('语言')).toBeInTheDocument();
     expect(
@@ -180,7 +180,7 @@ describe('settingsEntry_language_switcher', () => {
 // --- T-005: menu closes on outside click and Esc (AC-3) ---
 describe('settingsEntry_menu_closes_on_outside_click_and_esc', () => {
   it('closes menu on outside mousedown', () => {
-    mockTermpro();
+    mockOkwork();
     render(
       <div>
         <SettingsEntry />
@@ -197,7 +197,7 @@ describe('settingsEntry_menu_closes_on_outside_click_and_esc', () => {
   });
 
   it('closes menu on Esc key', () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     fireEvent.click(screen.getByTitle('Settings'));
@@ -211,7 +211,7 @@ describe('settingsEntry_menu_closes_on_outside_click_and_esc', () => {
 // --- T-006: About click opens modal and closes menu (AC-4) ---
 describe('settingsEntry_about_click_opens_modal_and_closes_menu', () => {
   it('clicking About opens the About modal and closes the menu', () => {
-    mockTermpro({ version: '0.3.12' });
+    mockOkwork({ version: '0.3.12' });
     render(<SettingsEntry />);
 
     // Open menu
@@ -222,7 +222,7 @@ describe('settingsEntry_about_click_opens_modal_and_closes_menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     // Modal is open
-    expect(screen.getByText('TermPro')).toBeInTheDocument();
+    expect(screen.getByText('OkWork')).toBeInTheDocument();
 
     // Menu is closed
     expect(screen.queryByRole('menu')).toBeNull();
@@ -232,7 +232,7 @@ describe('settingsEntry_about_click_opens_modal_and_closes_menu', () => {
 // --- T-006b: no menu behind open about modal (AC-4 mutual exclusion) ---
 describe('settingsEntry_no_menu_behind_open_about_modal', () => {
   it('menu is not present when about modal is open', () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     fireEvent.click(screen.getByTitle('Settings'));
@@ -240,14 +240,14 @@ describe('settingsEntry_no_menu_behind_open_about_modal', () => {
 
     // Modal is open, menu is gone
     expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByText('TermPro')).toBeInTheDocument();
+    expect(screen.getByText('OkWork')).toBeInTheDocument();
   });
 });
 
 // --- T-007a: About modal shows version from bridge (AC-5) ---
 describe('aboutModal_shows_version_from_bridge', () => {
-  it('reads version from window.termpro.version and displays it', () => {
-    mockTermpro({ version: '0.3.12' });
+  it('reads version from window.okwork.version and displays it', () => {
+    mockOkwork({ version: '0.3.12' });
     render(<SettingsEntry />);
 
     // Open menu → click About
@@ -260,8 +260,8 @@ describe('aboutModal_shows_version_from_bridge', () => {
 
 // --- T-007b: About modal shows fallback when version is empty (AC-8) ---
 describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
-  it('shows 版本未知 when window.termpro.version is empty', () => {
-    mockTermpro({ version: '' });
+  it('shows 版本未知 when window.okwork.version is empty', () => {
+    mockOkwork({ version: '' });
     render(<SettingsEntry />);
 
     fireEvent.click(screen.getByTitle('Settings'));
@@ -270,8 +270,8 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
     expect(screen.getByText('Version unknown')).toBeInTheDocument();
   });
 
-  it('shows 版本未知 when window.termpro is undefined (bridge absent)', () => {
-    // No mockTermpro() — afterEach deletes window.termpro so it is absent here.
+  it('shows 版本未知 when window.okwork is undefined (bridge absent)', () => {
+    // No mockOkwork() — afterEach deletes window.okwork so it is absent here.
     render(<SettingsEntry />);
     fireEvent.click(screen.getByTitle('Settings'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
@@ -285,7 +285,7 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
 // handleCloseAbout, so each sub-test focuses the entry, opens, closes, and asserts return.
 describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
   it('closes via close button and restores focus', () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     const entryBtn = screen.getByTitle('Settings');
@@ -301,13 +301,13 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     fireEvent.click(closeBtn);
 
     // Modal closed
-    expect(screen.queryByText('TermPro')).toBeNull();
+    expect(screen.queryByText('OkWork')).toBeNull();
     // Focus restored to the Settings entry
     expect(document.activeElement).toBe(entryBtn);
   });
 
   it('closes via Esc key and restores focus', () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     const entryBtn = screen.getByTitle('Settings');
@@ -315,16 +315,16 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
 
     fireEvent.click(entryBtn);
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
-    expect(screen.getByText('TermPro')).toBeInTheDocument();
+    expect(screen.getByText('OkWork')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByText('TermPro')).toBeNull();
+    expect(screen.queryByText('OkWork')).toBeNull();
     // Focus restored to the Settings entry
     expect(document.activeElement).toBe(entryBtn);
   });
 
   it('closes via backdrop click and restores focus', () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     const entryBtn = screen.getByTitle('Settings');
@@ -338,7 +338,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
 
     // Clicking backdrop itself (not the card)
     fireEvent.mouseDown(backdrop);
-    expect(screen.queryByText('TermPro')).toBeNull();
+    expect(screen.queryByText('OkWork')).toBeNull();
     // Focus restored to the Settings entry
     expect(document.activeElement).toBe(entryBtn);
   });
@@ -347,7 +347,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
 // --- BL-003: Remote Hosts menu item opens RemoteHostsPage, closes menu, restores focus ---
 describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
   it('clicking Remote Hosts opens the modal and closes the menu (mutually exclusive with About)', async () => {
-    mockTermpro();
+    mockOkwork();
     render(<SettingsEntry />);
 
     fireEvent.click(screen.getByTitle('Settings'));
@@ -358,15 +358,15 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     // Modal open, menu closed, About modal absent
     expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
     expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.queryByText('TermPro')).toBeNull();
+    expect(screen.queryByText('OkWork')).toBeNull();
 
     // list() called on mount (async effect)
     await Promise.resolve();
-    expect(window.termpro.remoteHost.list).toHaveBeenCalled();
+    expect(window.okwork.remoteHost.list).toHaveBeenCalled();
   });
 
   it('closes via close button, Esc, and backdrop, restoring focus each time (AC-6 parity)', () => {
-    mockTermpro();
+    mockOkwork();
     const { unmount } = render(<SettingsEntry />);
     const entryBtn = screen.getByTitle('Settings');
 
@@ -403,7 +403,7 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
 // --- T-009: footer renders entry, devbadge, UpdatePill as siblings (AC-7) ---
 describe('footer_renders_entry_devbadge_updatepill_as_siblings', () => {
   it('SettingsEntry renders DEV badge when devChannel is true', () => {
-    mockTermpro({ devChannel: true });
+    mockOkwork({ devChannel: true });
     render(<SettingsEntry devChannel={true} />);
 
     // DEV badge inside the entry
@@ -413,7 +413,7 @@ describe('footer_renders_entry_devbadge_updatepill_as_siblings', () => {
   });
 
   it('SettingsEntry does not render DEV badge when devChannel is false', () => {
-    mockTermpro({ devChannel: false });
+    mockOkwork({ devChannel: false });
     render(<SettingsEntry devChannel={false} />);
 
     expect(screen.queryByText('DEV')).toBeNull();
@@ -422,10 +422,10 @@ describe('footer_renders_entry_devbadge_updatepill_as_siblings', () => {
   it('real Sidebar footer renders UpdatePill and Settings entry as coexisting siblings', () => {
     // Real coexistence: mount the actual Sidebar (hostClient mocked above; the real
     // zustand store defaults to empty workspaces). The footer always renders.
-    // window.termpro.onUpdateEvent immediately emits an "available" event so the
+    // window.okwork.onUpdateEvent immediately emits an "available" event so the
     // UpdatePill becomes visible without any timer.
-    mockTermpro({ devChannel: true });
-    (window.termpro as unknown as { onUpdateEvent: unknown }).onUpdateEvent = (
+    mockOkwork({ devChannel: true });
+    (window.okwork as unknown as { onUpdateEvent: unknown }).onUpdateEvent = (
       cb: (e: { state: string; version?: string }) => void,
     ) => {
       cb({ state: 'available', version: '0.4.0' });

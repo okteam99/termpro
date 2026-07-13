@@ -53,7 +53,7 @@ afterEach(async () => {
   clients = [];
   await host?.close();
   host = null;
-  delete process.env.TERMPRO_MAX_SESSIONS;
+  delete process.env.OKWORK_MAX_SESSIONS;
 });
 
 describePty('Reconnect continuity (BL-005 · host 协议侧)', () => {
@@ -261,7 +261,7 @@ describePty('Reconnect continuity (BL-005 · host 协议侧)', () => {
 
   // T-017: session_count_cap_rejects_new_spawn_never_evicts_running (AC-9)
   it('会话数上限:拒新建(rpc ok:false)· 绝不逐运行中 · 手动 kill 腾位后可再建', async () => {
-    process.env.TERMPRO_MAX_SESSIONS = '2';
+    process.env.OKWORK_MAX_SESSIONS = '2';
     host = await startTestHost({ mode: 'standalone' });
     const a = mkClient();
     await a.handshake();

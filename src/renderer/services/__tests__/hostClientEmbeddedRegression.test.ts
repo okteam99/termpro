@@ -6,7 +6,7 @@ import { HostClient, hostClient } from '../hostClient';
 import type { HostInfo } from '../../../shared/protocol';
 
 /**
- * 建一个假的「main + host」:window.termpro.requestHostPort 触发时,经 MessageChannel
+ * 建一个假的「main + host」:window.okwork.requestHostPort 触发时,经 MessageChannel
  * 把 port2 以 host:port 事件投递给 renderer,并在 port1 侧应答 host.info。
  * @returns 记录 renderer→host 收到的消息,用于往返计数。
  */
@@ -14,7 +14,7 @@ function installFakeEmbeddedHost(info: HostInfo): {
   received: Array<{ t?: string; method?: string; id?: number }>;
 } {
   const received: Array<{ t?: string; method?: string; id?: number }> = [];
-  (window as unknown as { termpro: { requestHostPort(): void } }).termpro = {
+  (window as unknown as { okwork: { requestHostPort(): void } }).okwork = {
     requestHostPort() {
       const ch = new MessageChannel();
       // host 侧(port1)应答 host.info
@@ -51,7 +51,7 @@ const V1_INFO: HostInfo = {
 };
 
 beforeEach(() => {
-  delete (window as unknown as { termpro?: unknown }).termpro;
+  delete (window as unknown as { okwork?: unknown }).okwork;
 });
 
 describe('AC-5 hostClient 公共 API 签名不变 (T-061)', () => {

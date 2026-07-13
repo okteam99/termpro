@@ -35,7 +35,7 @@ beforeEach(async () => {
   rpc.mockReset();
   vi.stubGlobal('window', {
     addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    termpro: { openPath: vi.fn(), openViewerWindow: vi.fn(), requestHostPort: vi.fn() },
+    okwork: { openPath: vi.fn(), openViewerWindow: vi.fn(), requestHostPort: vi.fn() },
   });
   ({ FsLinkProvider } = await import('../terminalLinks'));
 });
@@ -86,7 +86,7 @@ describe('wrapped path links', () => {
     expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } }); // 仅首行
   });
 
-  // BUG-TERMPRO-B260710093647-001:Ink/Claude Code 硬折行 + 续行悬挂缩进 ——
+  // BUG-OKWORK-B260710093647-001:Ink/Claude Code 硬折行 + 续行悬挂缩进 ——
   // 路径在缩进处被切成两个候选,前缀恰为真实目录时只高亮半截。
   // 修复:跨缩进拼接(贴行尾候选 + 续行缩进候选 · stat 拼接文本 · 最长优先)。
   it('Ink hanging-indent hard wrap: full path linked across rows (beats real prefix dir)', async () => {

@@ -86,8 +86,8 @@ function envPositiveInt(name: string, fallback: number): number {
  */
 export function buildKeepaliveConfig(): Pick<ConnectConfig, 'keepaliveInterval' | 'keepaliveCountMax'> {
   return {
-    keepaliveInterval: envPositiveInt('TERMPRO_SSH_KEEPALIVE_MS', DEFAULT_KEEPALIVE_INTERVAL_MS),
-    keepaliveCountMax: envPositiveInt('TERMPRO_SSH_KEEPALIVE_COUNT', DEFAULT_KEEPALIVE_COUNT_MAX),
+    keepaliveInterval: envPositiveInt('OKWORK_SSH_KEEPALIVE_MS', DEFAULT_KEEPALIVE_INTERVAL_MS),
+    keepaliveCountMax: envPositiveInt('OKWORK_SSH_KEEPALIVE_COUNT', DEFAULT_KEEPALIVE_COUNT_MAX),
   };
 }
 

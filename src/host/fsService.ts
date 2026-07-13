@@ -102,7 +102,7 @@ export async function readTextFile(path: string): Promise<{
 
 /** 二进制预览上限(图片;base64 后约 ×1.37 经 RPC 传输) */
 const MAX_BINARY_BYTES = 20 * 1024 * 1024;
-const TEMP_PNG_PREFIX = 'termpro-clipboard-';
+const TEMP_PNG_PREFIX = 'okwork-clipboard-';
 const TEMP_PNG_TTL_MS = 24 * 60 * 60 * 1000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 

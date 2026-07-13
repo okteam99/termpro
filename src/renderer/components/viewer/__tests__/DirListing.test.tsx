@@ -11,8 +11,8 @@ vi.mock('../../../services/hostClient', () => ({
 import { DirListing } from '../DirListing';
 
 const openViewerWindow = vi.fn();
-function mockTermpro() {
-  Object.defineProperty(window, 'termpro', {
+function mockOkwork() {
+  Object.defineProperty(window, 'okwork', {
     value: { openViewerWindow },
     writable: true,
     configurable: true,
@@ -23,7 +23,7 @@ afterEach(() => {
   cleanup();
   rpc.mockReset();
   openViewerWindow.mockReset();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 const names = () =>
@@ -33,7 +33,7 @@ const names = () =>
 
 describe('DirListing', () => {
   it('列举条目(目录优先、组内字母序),点击开对应窗口', async () => {
-    mockTermpro();
+    mockOkwork();
     rpc.mockImplementation((method: string) =>
       method === 'fs.readdir'
         ? Promise.resolve({
@@ -65,7 +65,7 @@ describe('DirListing', () => {
   });
 
   it('点 .. 回上级目录', async () => {
-    mockTermpro();
+    mockOkwork();
     rpc.mockResolvedValue({ entries: [] });
     render(<DirListing path="/repo/docs" />);
     await screen.findByText('..');
@@ -74,14 +74,14 @@ describe('DirListing', () => {
   });
 
   it('空目录给出提示', async () => {
-    mockTermpro();
+    mockOkwork();
     rpc.mockResolvedValue({ entries: [] });
     render(<DirListing path="/repo/docs" />);
     await screen.findByText('(empty directory)');
   });
 
   it('远程窗口(hostId):条目点击与 .. 的 payload 都带回 hostId(防跨窗误路由)', async () => {
-    mockTermpro();
+    mockOkwork();
     rpc.mockImplementation((method: string) =>
       method === 'fs.readdir'
         ? Promise.resolve({ entries: [{ name: 'a.ts', kind: 'file' }] })
@@ -106,7 +106,7 @@ describe('DirListing', () => {
   });
 
   it('软链点击先 stat 再按真实类型开窗', async () => {
-    mockTermpro();
+    mockOkwork();
     rpc.mockImplementation((method: string) =>
       method === 'fs.readdir'
         ? Promise.resolve({ entries: [{ name: 'link', kind: 'symlink' }] })

@@ -1,4 +1,4 @@
-// TermPro Host 核心:传输无关的多客户端路由 + RPC 分发 + 会话/watcher 归属回收。
+// OkWork Host 核心:传输无关的多客户端路由 + RPC 分发 + 会话/watcher 归属回收。
 // 纯 Node,零 Electron import(README §5 远程就绪)。两条传输(嵌入式 MessagePort /
 // standalone WebSocket)都把自己包装成 PortLike 后调 attachClient 复用本模块全部逻辑。
 
@@ -85,8 +85,10 @@ export function createHostCore(
 
   // Workspace 注册表:数据目录经壳层(main)注入 env,不调 app.getPath(零 Electron)。
   // 未注入时兜底到 homedir 下的隐藏目录(dev/edge;正常 local 由 main 注入 userData)。
+  // 品牌改名(TermPro → OkWork)刻意保留 `.termpro-host` 旧目录名:远端存量
+  // host 的身份 token/会话 ring/已部署 bundle 都在这里,改名即全部失联。勿改。
   const hostDataDir =
-    process.env.TERMPRO_HOST_DATA_DIR || path.join(os.homedir(), '.termpro-host');
+    process.env.OKWORK_HOST_DATA_DIR || path.join(os.homedir(), '.termpro-host');
   const workspaces = new WorkspaceService(hostDataDir);
   // 启动即预读注册表进内存(RPC 到达前完成;handle 内亦 await load 幂等兜底)
   void workspaces.load().catch((err) =>
@@ -192,7 +194,7 @@ async function handleRpc(
           // 应用版本:启动方(远程编排 buildStartCommand / 本机 main fork)经 env 注入,
           // 与部署的 bundle/<version>/ 同源。缺省(旧启动方/手工启动)→ 字段省略,
           // main 侧按过旧处理,连接时升级(用户规则 2026-07-13)。
-          appVersion: process.env.TERMPRO_HOST_APP_VERSION || undefined,
+          appVersion: process.env.OKWORK_HOST_APP_VERSION || undefined,
         };
         result = info;
         break;

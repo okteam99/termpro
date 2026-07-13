@@ -78,8 +78,8 @@ function readNumEnv(key: string, fallback: number): number {
 /** 从 env 读退避/预算配置(VITE_ 前缀走 import.meta.env,裸名走 process.env)。 */
 export function readReconnectBudgetEnv(): ReconnectBudgetConfig {
   return {
-    baseMs: readNumEnv('TERMPRO_RECONNECT_BASE_MS', DEFAULT_RECONNECT_BUDGET.baseMs),
-    capMs: readNumEnv('TERMPRO_RECONNECT_CAP_MS', DEFAULT_RECONNECT_BUDGET.capMs),
-    budget: readNumEnv('TERMPRO_RECONNECT_BUDGET', DEFAULT_RECONNECT_BUDGET.budget),
+    baseMs: readNumEnv('OKWORK_RECONNECT_BASE_MS', DEFAULT_RECONNECT_BUDGET.baseMs),
+    capMs: readNumEnv('OKWORK_RECONNECT_CAP_MS', DEFAULT_RECONNECT_BUDGET.capMs),
+    budget: readNumEnv('OKWORK_RECONNECT_BUDGET', DEFAULT_RECONNECT_BUDGET.budget),
   };
 }

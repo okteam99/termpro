@@ -42,7 +42,7 @@ function pushNotif(tabId: string): void {
   });
 }
 
-describe('通知角标随 tab 查看递减(BUG-TERMPRO-B260614065346-001)', () => {
+describe('通知角标随 tab 查看递减(BUG-OKWORK-B260614065346-001)', () => {
   beforeEach(seed);
 
   it('激活有未读通知的 tab → 该 tab 通知标已读 · 角标 -1', () => {

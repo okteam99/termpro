@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HostClient } from '../../services/hostClient';
 
 // fake host client — only the FsLinkProvider end-to-end test (T-006) hits it;
-// the openTarget routing tests stay synchronous on window.termpro.
+// the openTarget routing tests stay synchronous on window.okwork.
 // BL-004: FsLinkProvider no longer imports the hostClient singleton — it takes
 // a getClient() closure (call-time, bound post-spawn to the routed host). Tests
 // inject a fake client directly instead of mocking the services/hostClient module.
@@ -55,7 +55,7 @@ beforeEach(async () => {
   vi.stubGlobal('window', {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
-    termpro: { openPath, openViewerWindow, requestHostPort: vi.fn() },
+    okwork: { openPath, openViewerWindow, requestHostPort: vi.fn() },
   });
   ({ openTarget, FsLinkProvider, SYSTEM_OPEN_EXT } = await import('../terminalLinks'));
   ({ registerFilePanelLocateHandler } = await import('../../filepanel/locateRegistry'));

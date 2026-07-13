@@ -1,7 +1,7 @@
 // 「可能在等输入」(quiet 软标记)的提示门控 —— 纯逻辑,无 DOM / store 依赖,便于单测。
 //
 // 背景:host 的 quiet 软标记纯按「running && 静默≥60s」触发,不分 tab 离开后有无新内容。
-// 期望(PRD TERMPRO-F260613041948-quiet-notify):后台 tab 只在「离开后产生过新输出、随后
+// 期望(PRD OKWORK-F260613041948-quiet-notify):后台 tab 只在「离开后产生过新输出、随后
 // 停住」时才提示;离开后一直没动静的 tab 不提示。
 //
 // 判据(同源 renderer 时钟):per-tab 记 lastOutputAt(终端输出到达时刻)+ deactivatedAt

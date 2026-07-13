@@ -44,7 +44,7 @@ const CONFIRM_BUTTON_INDEX = 1;
 export function shouldBypassExitConfirmation(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return env.TERMPRO_SMOKE === '1';
+  return env.OKWORK_SMOKE === '1';
 }
 
 export function buildExitConfirmationOptions(
@@ -66,7 +66,7 @@ export function buildExitConfirmationOptions(
   if (request.kind === 'app-quit') {
     return {
       type: 'warning',
-      title: t('Quit TermPro?'),
+      title: t('Quit OkWork?'),
       message: t(
         'Tab content may be lost after quitting and reopening. State still gets a chance to persist before exit.',
       ),
@@ -82,7 +82,7 @@ export function buildExitConfirmationOptions(
       ? t('Install v{version} and restart?', { version: request.version })
       : t('Install the update and restart?'),
     message: t(
-      'The update has been downloaded. After confirming, TermPro restarts and hands off to Squirrel.Mac to finish installing.',
+      'The update has been downloaded. After confirming, OkWork restarts and hands off to Squirrel.Mac to finish installing.',
     ),
     buttons: [t('Later'), t('Install and Restart')],
     defaultId: 0,

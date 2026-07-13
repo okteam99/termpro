@@ -146,15 +146,15 @@ export default function TerminalView({ tabId, cwd, hostId, active, callbacks }: 
     e.preventDefault();
     const inst = getOrCreateTerminal(tabId);
     const selection = inst.term.getSelection();
-    const action = await window.termpro.showTerminalContextMenu({
+    const action = await window.okwork.showTerminalContextMenu({
       hasSelection: selection.length > 0,
     });
     switch (action) {
       case 'copy':
-        if (selection) window.termpro.clipboardWriteText(selection);
+        if (selection) window.okwork.clipboardWriteText(selection);
         break;
       case 'paste': {
-        const text = await window.termpro.clipboardReadText();
+        const text = await window.okwork.clipboardReadText();
         if (text) inst.term.paste(text);
         inst.term.focus();
         break;

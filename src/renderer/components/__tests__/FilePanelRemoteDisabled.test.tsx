@@ -91,8 +91,8 @@ function seedWorkspace(hostId: string): void {
   } as unknown as Parameters<typeof useAppStore.setState>[0]);
 }
 
-function mockTermpro() {
-  Object.defineProperty(window, 'termpro', {
+function mockOkwork() {
+  Object.defineProperty(window, 'okwork', {
     value: {
       openViewerWindow: vi.fn(),
       pickDirectory: vi.fn(),
@@ -110,7 +110,7 @@ function mockTermpro() {
 const LOCAL_ONLY_HINT = 'Local-only action — unavailable in remote workspaces';
 
 beforeEach(() => {
-  mockTermpro();
+  mockOkwork();
   hostRegistryMock.local.mockClear();
   hostRegistryMock.forWorkspace.mockClear();
   localClient.rpc.mockClear();
@@ -121,7 +121,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7)', () => {
@@ -134,7 +134,7 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
 
     fireEvent.click(diffBtn);
 
-    expect(window.termpro.openViewerWindow).toHaveBeenCalledWith({
+    expect(window.okwork.openViewerWindow).toHaveBeenCalledWith({
       mode: 'diff',
       toplevel: '/repo',
       baseRef: null,
@@ -150,7 +150,7 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
 
     fireEvent.click(fileRow);
 
-    expect(window.termpro.openViewerWindow).toHaveBeenCalledWith({
+    expect(window.okwork.openViewerWindow).toHaveBeenCalledWith({
       mode: 'file',
       path: '/repo/README.md',
       hostId: 'cfg-1',
@@ -165,7 +165,7 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
 
     fireEvent.click(rowDiffBtn);
 
-    expect(window.termpro.openViewerWindow).toHaveBeenCalledWith({
+    expect(window.okwork.openViewerWindow).toHaveBeenCalledWith({
       mode: 'diff',
       toplevel: '/repo',
       baseRef: null,
@@ -184,7 +184,7 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
 
     fireEvent.click(globeBtn);
 
-    expect(window.termpro.openInBrowser).not.toHaveBeenCalled();
+    expect(window.okwork.openInBrowser).not.toHaveBeenCalled();
     expect(screen.getByText(LOCAL_ONLY_HINT)).toBeInTheDocument();
   });
 
@@ -197,7 +197,7 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
 
     fireEvent.click(folderShowBtn);
 
-    expect(window.termpro.showItemInFolder).not.toHaveBeenCalled();
+    expect(window.okwork.showItemInFolder).not.toHaveBeenCalled();
     expect(screen.getByText(LOCAL_ONLY_HINT)).toBeInTheDocument();
   });
 
@@ -209,7 +209,7 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
 
     fireEvent.click(folderOpenBtn);
 
-    expect(window.termpro.openPath).not.toHaveBeenCalled();
+    expect(window.okwork.openPath).not.toHaveBeenCalled();
     expect(screen.getByText(LOCAL_ONLY_HINT)).toBeInTheDocument();
     // 按钮点击 stopPropagation,不应连带触发行的 toggleDir
     expect(toggleDir).not.toHaveBeenCalled();
@@ -262,7 +262,7 @@ describe('本机 workspace:零回归', () => {
 
     fireEvent.click(diffBtn);
 
-    expect(window.termpro.openViewerWindow).toHaveBeenCalledWith({
+    expect(window.okwork.openViewerWindow).toHaveBeenCalledWith({
       mode: 'diff',
       toplevel: '/repo',
       baseRef: null,
@@ -277,7 +277,7 @@ describe('本机 workspace:零回归', () => {
 
     fireEvent.click(fileRow);
 
-    expect(window.termpro.openViewerWindow).toHaveBeenCalledWith({
+    expect(window.okwork.openViewerWindow).toHaveBeenCalledWith({
       mode: 'file',
       path: '/repo/README.md',
     });
@@ -298,7 +298,7 @@ describe('本机 workspace:零回归', () => {
 
     fireEvent.click(globeBtn);
 
-    expect(window.termpro.openInBrowser).toHaveBeenCalledWith('/repo/index.html');
+    expect(window.okwork.openInBrowser).toHaveBeenCalledWith('/repo/index.html');
   });
 
   it('Finder 中显示(文件行):正常调用 showItemInFolder(无禁用)', () => {
@@ -309,7 +309,7 @@ describe('本机 workspace:零回归', () => {
 
     fireEvent.click(folderShowBtn);
 
-    expect(window.termpro.showItemInFolder).toHaveBeenCalledWith('/repo/README.md');
+    expect(window.okwork.showItemInFolder).toHaveBeenCalledWith('/repo/README.md');
   });
 
   it('Finder 中打开(目录行):正常调用 openPath(无禁用)', () => {
@@ -320,6 +320,6 @@ describe('本机 workspace:零回归', () => {
 
     fireEvent.click(folderOpenBtn);
 
-    expect(window.termpro.openPath).toHaveBeenCalledWith('/repo/src');
+    expect(window.okwork.openPath).toHaveBeenCalledWith('/repo/src');
   });
 });

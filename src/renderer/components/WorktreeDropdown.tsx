@@ -204,7 +204,7 @@ export function WorktreeDropdown({ worktrees, selectedPath, mainPath, disabled, 
 
   const handleCopy = useCallback((path: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    window.termpro.clipboardWriteText(path);
+    window.okwork.clipboardWriteText(path);
     setCopiedPath(path);
     if (copyTimer.current) window.clearTimeout(copyTimer.current);
     copyTimer.current = window.setTimeout(() => setCopiedPath(null), 1200);

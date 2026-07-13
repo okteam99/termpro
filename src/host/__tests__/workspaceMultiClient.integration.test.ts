@@ -32,7 +32,7 @@ async function harness(): Promise<{
   a: FakeClient;
   b: FakeClient;
 }> {
-  tempDir = await mkdtemp(join(tmpdir(), 'termpro-mc-'));
+  tempDir = await mkdtemp(join(tmpdir(), 'okwork-mc-'));
   const svc = new WorkspaceService(tempDir);
   await svc.load();
   const mk = (id: number): FakeClient => {

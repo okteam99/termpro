@@ -40,19 +40,19 @@ afterEach(async () => {
 
 describe('fsService.realPath', () => {
   it('returns the real path for existing files', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-realpath-'));
     const file = join(tempDir, 'file.txt');
     await writeFile(file, 'ok');
     await expect(realPath(file)).resolves.toEqual({ path: await realpath(file) });
   });
 
   it('returns null for missing paths', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-realpath-'));
     await expect(realPath(join(tempDir, 'missing.txt'))).resolves.toEqual({ path: null });
   });
 
   it('classifies symlinks to directories as expandable directories', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-realpath-'));
     const realDir = join(tempDir, 'real');
     const linkDir = join(tempDir, 'link');
     await mkdir(realDir);
@@ -67,7 +67,7 @@ describe('fsService.realPath', () => {
   });
 
   it('classifies symlinks to files as files', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-realpath-'));
     const realFile = join(tempDir, 'real.txt');
     const linkFile = join(tempDir, 'link.txt');
     await writeFile(realFile, 'ok');
@@ -82,7 +82,7 @@ describe('fsService.realPath', () => {
   });
 
   it('keeps broken symlinks as symlinks', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-realpath-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-realpath-'));
     await symlink(join(tempDir, 'missing'), join(tempDir, 'broken'));
 
     await expect(listDir(tempDir)).resolves.toEqual({
@@ -93,7 +93,7 @@ describe('fsService.realPath', () => {
 
 describe('fsService.copyInto / moveInto', () => {
   it('copyInto: 复制文件进目录,源仍在,内容一致', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-cp-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-cp-'));
     const src = join(tempDir, 'a.txt');
     const dstDir = join(tempDir, 'sub');
     await writeFile(src, 'hello');
@@ -106,7 +106,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('copyInto: 重名自动加「 (2)」后缀,不覆盖', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-cp-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-cp-'));
     const src = join(tempDir, 'a.txt');
     const dstDir = join(tempDir, 'sub');
     await writeFile(src, 'new');
@@ -120,7 +120,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('copyInto: 递归复制目录', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-cp-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-cp-'));
     const srcDir = join(tempDir, 'src');
     const dstDir = join(tempDir, 'dst');
     await mkdir(join(srcDir, 'nested'), { recursive: true });
@@ -134,7 +134,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('moveInto: 移动文件,源消失', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-mv-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-mv-'));
     const src = join(tempDir, 'a.txt');
     const dstDir = join(tempDir, 'sub');
     await writeFile(src, 'move me');
@@ -147,7 +147,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('moveInto: 原地移动(目标=当前目录)忽略,不改名', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-mv-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-mv-'));
     const src = join(tempDir, 'a.txt');
     await writeFile(src, 'stay');
 
@@ -157,7 +157,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('moveInto: 重名加后缀,不覆盖目标已有', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-mv-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-mv-'));
     const src = join(tempDir, 'a.txt');
     const dstDir = join(tempDir, 'sub');
     await writeFile(src, 'src');
@@ -170,7 +170,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('禁止把目录移进自身子孙', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-mv-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-mv-'));
     const dir = join(tempDir, 'd');
     const child = join(dir, 'child');
     await mkdir(child, { recursive: true });
@@ -180,7 +180,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('禁止大小写变体的自身子孙(APFS 大小写不敏感)', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-mv-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-mv-'));
     const dir = join(tempDir, 'Foo');
     await mkdir(dir);
     // 目标用小写 foo/bar,词法大小写归一后应判为子孙
@@ -190,7 +190,7 @@ describe('fsService.copyInto / moveInto', () => {
   });
 
   it('moveInto: 跨设备(EXDEV)回退 = 复制后校验落地再删源', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-mv-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-mv-'));
     const src = join(tempDir, 'a.txt');
     const dstDir = join(tempDir, 'sub');
     await writeFile(src, 'xdev');
@@ -215,7 +215,7 @@ describe('fsService.copyInto / moveInto', () => {
 
 describe('fsService.writeTempPng', () => {
   it('在指定临时根创建 0600 PNG,返回远端可粘贴的绝对路径', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-temp-png-test-'));
     // 1x1 transparent PNG
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
@@ -232,7 +232,7 @@ describe('fsService.writeTempPng', () => {
   });
 
   it('拒绝空内容与伪装成 PNG 的任意二进制', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-temp-png-test-'));
     await expect(writeTempPng('', tempDir)).rejects.toThrow(/empty/i);
     await expect(
       writeTempPng(Buffer.from('not png').toString('base64'), tempDir),
@@ -241,7 +241,7 @@ describe('fsService.writeTempPng', () => {
   });
 
   it('在 base64 解码分配/写盘前按 raw bytes 拒绝超限 PNG', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-temp-png-test-'));
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
       'base64',
@@ -252,7 +252,7 @@ describe('fsService.writeTempPng', () => {
   });
 
   it('每次写入分配独立目录,不覆盖上一张截图', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-temp-png-test-'));
     const png =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
     const a = await writeTempPng(png, tempDir);
@@ -262,7 +262,7 @@ describe('fsService.writeTempPng', () => {
 
   it('TTL 清理失败被吞掉,不形成 Host 未处理 rejection', async () => {
     vi.useFakeTimers();
-    tempDir = await mkdtemp(join(tmpdir(), 'termpro-temp-png-test-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'okwork-temp-png-test-'));
     const png =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
     await writeTempPng(png, tempDir);

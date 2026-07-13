@@ -129,7 +129,7 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
       if (!el) return;
 
       const editor = monaco.editor.createDiffEditor(el, {
-        theme: 'termpro-dark',
+        theme: 'okwork-dark',
         readOnly: true,
         renderSideBySide: true,
         automaticLayout: true,
@@ -246,10 +246,10 @@ export function DiffPanel({ toplevel, baseRef, initialPath }: Props) {
 
       // Create new models with synthetic URIs to avoid collisions
       const origUri = mc.Uri.parse(
-        `termpro-diff://orig/${encodeURIComponent(entry.path)}`,
+        `okwork-diff://orig/${encodeURIComponent(entry.path)}`,
       );
       const modUri = mc.Uri.parse(
-        `termpro-diff://mod/${encodeURIComponent(entry.path)}`,
+        `okwork-diff://mod/${encodeURIComponent(entry.path)}`,
       );
       mc.editor.getModel(origUri)?.dispose();
       mc.editor.getModel(modUri)?.dispose();

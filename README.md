@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.webp" alt="TermPro" width="112" />
+<img src="assets/logo.webp" alt="OkWork" width="112" />
 
-# TermPro
+# OkWork
 
 **A terminal-first workbench for running many AI coding agents in parallel.**
 
@@ -24,7 +24,7 @@ The terminal doesn't care which agent runs inside it — **agent-agnostic** is t
 
 ## What is this
 
-TermPro is a macOS desktop workbench (Electron) built for the workflow of driving multiple CLI agents in parallel across several projects and branches. The terminal is the product; everything around it — project management, session awareness, file browsing, git integration, Markdown preview — is the value layer on top.
+OkWork is a macOS desktop workbench (Electron) built for the workflow of driving multiple CLI agents in parallel across several projects and branches. The terminal is the product; everything around it — project management, session awareness, file browsing, git integration, Markdown preview — is the value layer on top.
 
 ## The problem it solves
 
@@ -32,12 +32,12 @@ Your day now looks like this: five Claude Code / Codex / other CLI agents grindi
 
 Agent managers do the opposite — they lock you to one specific agent and treat the terminal as a second-class citizen.
 
-TermPro takes the middle ground: **the terminal is the product; everything around it is the value.**
+OkWork takes the middle ground: **the terminal is the product; everything around it is the value.**
 
 One window, many projects, many parallel sessions. The app tells you who is running, who finished, and who is waiting for input — without caring which agent is inside.
 
 <p align="center">
-  <img src="snapshot/01.webp" alt="TermPro main UI: workspace list on the left, terminal in the center, file panel on the right" width="860" />
+  <img src="snapshot/01.webp" alt="OkWork main UI: workspace list on the left, terminal in the center, file panel on the right" width="860" />
 </p>
 
 ## Features
@@ -45,7 +45,7 @@ One window, many projects, many parallel sessions. The app tells you who is runn
 - **Truly agent-agnostic** — the terminal stays dumb. Status detection uses only standard terminal-layer signals (foreground process name, OSC sequences, BEL). No parsing of agent-specific output. No dependency on agent hooks.
 - **Projects and parallel sessions as first-class citizens** — Workspace / Tab are product-level abstractions. One window manages multiple projects and sessions. Layout and session structure persist across restarts.
 - **Active status awareness, less screen-watching** — four agent-agnostic signals (foreground process name, OSC 133 command boundaries, BEL/OSC notifications, silence timeout) roll up into tab status dots, a sidebar attention counter, a notification center, Dock badge, and system notifications. The focused tab is never interrupted.
-- **File panel with deep git worktree integration** — the file tree tracks the active session's working directory (Root or WorkTree view). The WorkTree selector pulls from `git worktree list`. Files are colored by git status (untracked / modified / ignored), with directory-level rollup. Auto-refreshes on changes while preserving expanded state. Read-only — TermPro shows worktree state; it doesn't manage worktree lifecycle.
+- **File panel with deep git worktree integration** — the file tree tracks the active session's working directory (Root or WorkTree view). The WorkTree selector pulls from `git worktree list`. Files are colored by git status (untracked / modified / ignored), with directory-level rollup. Auto-refreshes on changes while preserving expanded state. Read-only — OkWork shows worktree state; it doesn't manage worktree lifecycle.
 - **Built-in Markdown preview and editing with native Mermaid** — read docs and review plans without switching apps. Toggle between preview and edit mode (default: preview). Rendered with marked + DOMPurify; Mermaid diagrams load lazily in strict mode with click-to-enlarge.
 - **Monaco file viewer, light editor, and diff** — click any file to view it; ⌘S to save (binary / >2 MB files degrade gracefully). Diff view for uncommitted changes vs HEAD, and worktree vs merge-base with the base branch. Jump to VS Code or Zed for heavy editing.
 - **Remote-ready architecture** — UI and Host process are fully separated; the UI depends on exactly one `HostService` interface. Locally this runs over MessagePort. In the future it runs over SSH tunnel + WebSocket with no UI changes.
@@ -62,26 +62,26 @@ One window, many projects, many parallel sessions. The app tells you who is runn
 
 > macOS (Apple Silicon / Intel). Windows / Linux planned for the future.
 
-1. Download the latest `.dmg` from [Releases](https://github.com/okteam99/termpro/releases) and drag TermPro to Applications.
+1. Download the latest `.dmg` from [Releases](https://github.com/okteam99/termpro/releases) and drag OkWork to Applications.
 2. On first launch, macOS may warn "unidentified developer" — go to System Settings › Privacy & Security › Open Anyway.
-3. After that, no manual downloads needed. TermPro polls GitHub Releases and shows an upgrade capsule in the bottom-left sidebar when a new version is available. One click downloads and restarts via Squirrel.Mac (falls back to the release page if the update fails).
+3. After that, no manual downloads needed. OkWork polls GitHub Releases and shows an upgrade capsule in the bottom-left sidebar when a new version is available. One click downloads and restarts via Squirrel.Mac (falls back to the release page if the update fails).
 
 To run from source, see [Development](#development).
 
 ## SSH sandbox image (Docker)
 
-Need a disposable SSH host to try TermPro's remote features — or just a Node.js box reachable over SSH? We publish a ready-made image (Node.js 22 + npm 12 + sshd + Docker Engine, with Claude Code and Codex CLI preinstalled, `linux/amd64` + `linux/arm64`):
+Need a disposable SSH host to try OkWork's remote features — or just a Node.js box reachable over SSH? We publish a ready-made image (Node.js 22 + npm 12 + sshd + Docker Engine, with Claude Code and Codex CLI preinstalled, `linux/amd64` + `linux/arm64`):
 
-**Image**: [`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
+**Image**: [`bdpgogoup/okwork-node`](https://hub.docker.com/r/bdpgogoup/okwork-node)
 
 ```bash
 # SSH box on localhost:2222 (root / dev123)
-docker run -d --name termpro-node -e SSH_PASSWORD=dev123 -p 2222:22 bdpgogoup/termpro-node
+docker run -d --name okwork-node -e SSH_PASSWORD=dev123 -p 2222:22 bdpgogoup/okwork-node
 ssh root@127.0.0.1 -p 2222                # node -v → v22.x
 
 # Same + Docker-in-Docker: an isolated inner dockerd per node
 # (own container names / networks / ports / image cache)
-docker run -d --name termpro-node --privileged -e SSH_PASSWORD=dev123 -p 2222:22 bdpgogoup/termpro-node
+docker run -d --name okwork-node --privileged -e SSH_PASSWORD=dev123 -p 2222:22 bdpgogoup/okwork-node
 ssh root@127.0.0.1 -p 2222 docker run --rm hello-world
 ```
 
@@ -103,7 +103,7 @@ Everything is set at `docker run` time via env vars:
 | `DIND` | `auto` | Inner dockerd policy: `auto` starts one unless a host `/var/run/docker.sock` is mounted (DooD) and degrades to SSH-only if it can't start; `1` makes it required (container exits on failure); `0` disables it |
 | `DOCKERD_EXTRA_ARGS` | — | Extra flags for the inner dockerd, e.g. `--registry-mirror=… --mtu=1400` |
 
-Without `--privileged` (or sysbox) the inner dockerd can't start and the node falls back to SSH-only — `docker logs` shows the status either way. To reuse the host's Docker daemon instead (shared with everything else on the host), mount `-v /var/run/docker.sock:/var/run/docker.sock`. SFTP is enabled. Build source: [`docker/termpro-node/`](docker/termpro-node/).
+Without `--privileged` (or sysbox) the inner dockerd can't start and the node falls back to SSH-only — `docker logs` shows the status either way. To reuse the host's Docker daemon instead (shared with everything else on the host), mount `-v /var/run/docker.sock:/var/run/docker.sock`. SFTP is enabled. Build source: [`docker/okwork-node/`](docker/okwork-node/).
 
 ## Concepts
 
@@ -114,7 +114,7 @@ Without `--privileged` (or sysbox) the inner dockerd can't start and the node fa
 | **Terminal** | A dumb terminal running any CLI | Center area |
 | **File Panel** | File tree for the active session, switchable between Root and WorkTree root | Right panel |
 
-> Core rule: the terminal stays dumb and agent-agnostic. All status detection goes through standard terminal-layer signals (process name, OSC sequences, BEL). TermPro never parses agent-specific output and never requires agent-specific hooks. Optional adapters may be added in the future, but the core will never depend on them.
+> Core rule: the terminal stays dumb and agent-agnostic. All status detection goes through standard terminal-layer signals (process name, OSC sequences, BEL). OkWork never parses agent-specific output and never requires agent-specific hooks. Optional adapters may be added in the future, but the core will never depend on them.
 
 ## UI tour
 
@@ -147,7 +147,7 @@ Current release is a daily-usable local workbench (M1–M4 + v0.2/v0.3 increment
 - **Preview / edit / diff** — Monaco file viewer with light editing (⌘S save; binary / >2 MB degrades gracefully); diff view (uncommitted vs HEAD, worktree vs merge-base); Markdown preview/edit with marked + DOMPurify sanitization and strict Mermaid rendering; one-click jump to VS Code / Zed.
 - **Windows and updates** — three-window model (main terminal window / file content window / git diff modal); Host shares PTY pool across clients and routes by ownership; GitHub Release polling + sidebar upgrade capsule with Squirrel.Mac one-click update; dirty-tab close confirmation.
 
-> Full milestone breakdown and roadmap: [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md)
+> Full milestone breakdown and roadmap: [`product-overview/OkWork_业务架构与产品规划.md`](product-overview/OkWork_业务架构与产品规划.md)
 
 ## Architecture
 
@@ -208,7 +208,7 @@ npm run typecheck  # type check
 npm test           # unit tests
 ```
 
-Headless smoke test: `TERMPRO_SMOKE=1 npx electron-forge start` — pass if it prints `SMOKE_OK`.
+Headless smoke test: `OKWORK_SMOKE=1 npx electron-forge start` — pass if it prints `SMOKE_OK`.
 
 Release: `npm version patch && git push --follow-tags` — CI builds and publishes the Release automatically.
 
@@ -220,7 +220,7 @@ Next up is **M5: Remote Host** — evolving the local Host into SSH/WebSocket re
 
 Full architecture, execution plan, and milestone tracking:
 
-- [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md) — product positioning, business architecture, execution plan, MVP scope, roadmap (upstream source of truth)
+- [`product-overview/OkWork_业务架构与产品规划.md`](product-overview/OkWork_业务架构与产品规划.md) — product positioning, business architecture, execution plan, MVP scope, roadmap (upstream source of truth)
 - [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md) — architecture source of truth
 - [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md) — development rules and hard constraints
 

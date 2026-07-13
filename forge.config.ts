@@ -62,7 +62,7 @@ const canNotarize =
   !!process.env.APPLE_TEAM_ID;
 
 // make:dev 出 DEV 渠道包:独立名称/bundleId/userData,与正式版可同时安装
-const isDevBuild = !!process.env.TERMPRO_DEV_BUILD;
+const isDevBuild = !!process.env.OKWORK_DEV_BUILD;
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -74,12 +74,14 @@ const config: ForgeConfig = {
     asar: { unpack: '**/node_modules/node-pty/**' },
     // BL-003 SSH-5:三架构 host standalone 部署产物,见上 hostBundlesDir 注释。
     extraResource: hasHostBundles ? [hostBundlesDir] : [],
-    name: isDevBuild ? 'TermPro Dev' : 'TermPro',
+    name: isDevBuild ? 'OkWork Dev' : 'OkWork',
+    // 品牌改名(TermPro → OkWork)刻意保留旧 bundleId:改了会重置 macOS TCC
+    // 权限、割裂 Squirrel 升级连续性,存量安装无法平滑升级。勿改。
     appBundleId: isDevBuild
       ? 'com.okteam99.termpro.dev'
       : 'com.okteam99.termpro',
     icon: './assets/icon', // packager 自动按平台补 .icns/.ico
-    // Markdown 文件关联:Finder「打开方式」推荐 TermPro(Alternate = 不抢默认,
+    // Markdown 文件关联:Finder「打开方式」推荐 OkWork(Alternate = 不抢默认,
     // 仅进候选列表);双击 .md 由 main 的 open-file 事件路由到查看器窗口。
     // 仅对打包后的 .app 生效(Launch Services 扫描 bundle);dev 模式不注册。
     extendInfo: {

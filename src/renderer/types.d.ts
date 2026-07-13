@@ -10,7 +10,7 @@ export {};
 
 declare global {
   interface Window {
-    termpro: {
+    okwork: {
       platform: string;
       smoke: boolean;
       devChannel: boolean;
@@ -52,6 +52,8 @@ declare global {
       clipboardReadText(): Promise<string>;
       clipboardReadImage(): Promise<{ base64: string; size: number } | null>;
       openExternal(url: string): void;
+      /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数 */
+      onBrowserOpenUrl(callback: (url: string) => void): () => void;
       openPath(path: string): void;
       showItemInFolder(path: string): void;
       openInBrowser(path: string): void;

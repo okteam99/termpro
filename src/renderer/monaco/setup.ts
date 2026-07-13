@@ -10,7 +10,7 @@ self.MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
 };
 
-monaco.editor.defineTheme('termpro-dark', {
+monaco.editor.defineTheme('okwork-dark', {
   base: 'vs-dark',
   inherit: true,
   rules: [],

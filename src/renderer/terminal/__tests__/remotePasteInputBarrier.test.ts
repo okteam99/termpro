@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RemotePasteInputBarrier } from '../remotePasteInputBarrier';
 
 describe('RemotePasteInputBarrier', () => {
-  it('图片上传期间的后续键入排在 TermPro 注入的 bracketed paste 之后', () => {
+  it('图片上传期间的后续键入排在 OkWork 注入的 bracketed paste 之后', () => {
     const barrier = new RemotePasteInputBarrier();
     barrier.capture('typed-after-ctrl-v');
     barrier.inject(() => {

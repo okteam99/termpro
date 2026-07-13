@@ -1,4 +1,4 @@
-# TermPro — 开发者文档
+# OkWork — 开发者文档
 
 > 面向新 agent / 开发者的工程速查手册。产品背景与里程碑见 [README.md](../README.md)。
 
@@ -24,9 +24,9 @@ npm run typecheck            # tsc --noEmit 全量类型检查（无构建产物
 npm run lint                 # eslint .ts/.tsx
 
 # 无头冒烟（CI 可用）
-TERMPRO_SMOKE=1 npx electron-forge start
+OKWORK_SMOKE=1 npx electron-forge start
 # 渲染层完成 Host 握手 + 首个 PTY 输出后打印 SMOKE_OK 自动退出，30s 超时打印 SMOKE_TIMEOUT 以 exit(1) 退出
-# userData 隔离至 os.tmpdir()/termpro-smoke，不污染本地布局存档
+# userData 隔离至 os.tmpdir()/okwork-smoke，不污染本地布局存档
 ```
 
 ---
@@ -40,7 +40,7 @@ src/
 │   ├── appStore.ts   布局持久化 IPC 实现（store:get / store:set）
 │   └── updater.ts    更新检查 + Squirrel.Mac 一键升级
 ├── preload/       沙箱 preload（contextBridge）
-│   └── preload.ts    暴露 window.termpro API；Host MessagePort 经 window.postMessage 转移
+│   └── preload.ts    暴露 window.okwork API；Host MessagePort 经 window.postMessage 转移
 ├── host/          纯 Node Host 进程（零 Electron import，远程就绪）
 │   ├── host.ts             utilityProcess 入口；多客户端路由；RPC dispatch
 │   ├── ptyPool.ts          PTY 会话池；流控（highWatermark/lowWatermark）；进程名轮询
@@ -152,7 +152,7 @@ git push --follow-tags   # 推 tag 即触发出包
 forge 的 `osxSign`/`osxNotarize` 从环境变量读取;secrets 未配置时自动回退
 ad-hoc 签名(下载后首次打开需右键 → 打开,或 `xattr -dr com.apple.quarantine`)。
 
-termpro 仓库需要与 cmux-pro 同名的 6 个 secrets(值从你保存证书的地方取,
+okwork 仓库需要与 cmux-pro 同名的 6 个 secrets(值从你保存证书的地方取,
 GitHub API 读不出已存 secret 的值):
 
 ```bash
@@ -165,7 +165,7 @@ gh secret set APPLE_TEAM_ID                -R okteam99/termpro
 ```
 
 更省事的做法:在 okteam99 组织设置里把这 6 个升级为 **org-level secrets**
-(可见范围选 cmux-pro + termpro),两个仓库共用、以后新仓库也免配。
+(可见范围选 cmux-pro + okwork),两个仓库共用、以后新仓库也免配。
 配好后 Actions 手动触发一次 Release 工作流即可验证签名+公证全链路
 (流水线带 Gatekeeper 验收步骤:codesign --verify + stapler validate + spctl)。
 
@@ -175,10 +175,10 @@ gh secret set APPLE_TEAM_ID                -R okteam99/termpro
 |---|---|
 | ~~单窗口单客户端~~（v0.2 已解） | Host 现支持多客户端：共享 PTY 池、会话按归属路由、窗口关闭只回收自己的资源（v0.2 2026-06 交付） |
 | Electron 升级需重编 node-pty | forge 的 `rebuild` 配置自动处理，直接 `npm start` / `make` 即可 |
-| 沙箱 preload 无 process.env | 冒烟开关 `TERMPRO_SMOKE` 不能在 preload 读取；main 通过 `additionalArguments: ['--termpro-smoke']` 传入，preload 读 `process.argv` |
+| 沙箱 preload 无 process.env | 冒烟开关 `OKWORK_SMOKE` 不能在 preload 读取；main 通过 `additionalArguments: ['--okwork-smoke']` 传入，preload 读 `process.argv` |
 | 协议版本 | `PROTOCOL_VERSION = 1`；M5 远程接入时需做版本握手校验 |
 | UI 关闭期间无系统通知 | M1-M4 靠重连对账兜底；推送通道留 M5 后 |
-| shell integration 仅 zsh | spawn zsh 时经 ZDOTDIR 包装自动注入 OSC 133/7；`TERMPRO_NO_SHELL_INTEGRATION=1` 关闭；bash/fish 待后续 |
+| shell integration 仅 zsh | spawn zsh 时经 ZDOTDIR 包装自动注入 OSC 133/7；`OKWORK_NO_SHELL_INTEGRATION=1` 关闭；bash/fish 待后续 |
 | 查看器保存无 mtime 守卫 | 轻编辑场景:文件被外部修改后保存会直接覆盖（跟进项：读时记 mtime，写时校验） |
 | p10k instant prompt | 注入钩子在 .zshrc 末尾输出 OSC 序列，Powerlevel10k instant-prompt 可能提示"console output during init"（与 VS Code 同模式，无功能影响） |
 | FilePanel 编排已知 P2 | 编排收敛在 `src/renderer/filepanel/`（单 reducer 三道过期闸：resolveDone 按 generation、树/着色按 root、top/status 按单调 seq）。遗留 P2（opus 评审 2026-06，均与重构前等价或更优）：① refresh / lockRoot 回写后 resolveDone 会冗余二拉 git.status（seq 闸丢弃旧值，自纠正）；② childDone 无 seq，同目录懒拉与 partial 重拉并发时 last-writer-wins（旧实现同病）；③ dispose 与 watchReady 同 tick 边界无专测 |

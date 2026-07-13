@@ -19,7 +19,7 @@ export function isRemoteHost(hostId: string | undefined): boolean {
  */
 export function connectViewerHost(hostId: string | undefined): Promise<HostInfo> {
   if (!isRemoteHost(hostId)) return hostClient.connect();
-  return window.termpro.remoteHost.getTunnel({ id: hostId! }).then((tunnel) => {
+  return window.okwork.remoteHost.getTunnel({ id: hostId! }).then((tunnel) => {
     if (!tunnel) {
       throw new Error(t('Remote machine is not connected'));
     }

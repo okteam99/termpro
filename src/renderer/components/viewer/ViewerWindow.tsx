@@ -74,7 +74,7 @@ function DiffWindow({
       window.close();
     };
     window.addEventListener('keydown', onKey);
-    const offMenu = window.termpro.onMenu((action) => {
+    const offMenu = window.okwork.onMenu((action) => {
       if (action === 'close-tab') window.close();
     });
     return () => {
@@ -113,7 +113,7 @@ function DiffWindow({
           {!isRemoteHost(payload.hostId) && (
             <button
               className="viewer-btn"
-              onClick={() => window.termpro.openPath(payload.toplevel)}
+              onClick={() => window.okwork.openPath(payload.toplevel)}
               title={t('Open the repo directory with the default app')}
             >
               {t('Open with default app')}

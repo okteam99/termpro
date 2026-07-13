@@ -1,4 +1,4 @@
-// AC-8 端口文件交接(SSH-4):listening 后按 TERMPRO_HOST_PORT_FILE 写 {port,pid,hostTag}
+// AC-8 端口文件交接(SSH-4):listening 后按 OKWORK_HOST_PORT_FILE 写 {port,pid,hostTag}
 // (wx=O_CREAT|O_EXCL|O_WRONLY,0600,无 TOCTOU);陈旧文件 EEXIST → fail-closed(T-016/T-017)。
 // 以及 --host-tag 仅自证(端口文件/日志),绝不参与 token 端口闸(T-038)。
 //
@@ -59,8 +59,8 @@ describe('AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag}', () => {
       const portFile = path.join(dataDir, 'host.port');
       const host = track(
         spawnHost(bundlePath, ['--listen', '127.0.0.1:0', '--host-tag', 'cfg-portfile-1'], {
-          TERMPRO_HOST_TOKEN: 'portfile-token-1',
-          TERMPRO_HOST_PORT_FILE: portFile,
+          OKWORK_HOST_TOKEN: 'portfile-token-1',
+          OKWORK_HOST_PORT_FILE: portFile,
         }),
       );
       const m = await host.waitForStdout(
@@ -94,8 +94,8 @@ describe('AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag}', () => {
 
       const host = track(
         spawnHost(bundlePath, ['--listen', '127.0.0.1:0', '--host-tag', 'cfg-portfile-2'], {
-          TERMPRO_HOST_TOKEN: 'portfile-token-2',
-          TERMPRO_HOST_PORT_FILE: portFile,
+          OKWORK_HOST_TOKEN: 'portfile-token-2',
+          OKWORK_HOST_PORT_FILE: portFile,
         }),
       );
       // ws server 已成功起来(listening 日志会打),失败只发生在随后写端口文件那一步
@@ -118,8 +118,8 @@ describe('AC-8 --host-tag 自证不入端口闸', () => {
       const portFile = path.join(dataDir, 'host.port');
       const host = track(
         spawnHost(bundlePath, ['--listen', '127.0.0.1:0', '--host-tag', 'cfg-portfile-3'], {
-          TERMPRO_HOST_TOKEN: 'right-token-3',
-          TERMPRO_HOST_PORT_FILE: portFile,
+          OKWORK_HOST_TOKEN: 'right-token-3',
+          OKWORK_HOST_PORT_FILE: portFile,
         }),
       );
       const m = await host.waitForStdout(/\[host\] listening ws:\/\/([^:]+):(\d+)/);
@@ -206,7 +206,7 @@ function waitOutcome(ws: WebSocket, timeoutMs = 4_000): Promise<'opened' | 'clos
   });
 }
 
-describe('A6 · TERMPRO_ALLOWED_ORIGINS env 注入(host 侧接线)', () => {
+describe('A6 · OKWORK_ALLOWED_ORIGINS env 注入(host 侧接线)', () => {
   it(
     '设置该 env 后白名单按注入值生效(注入 origin 放行 · 非注入 origin 仍拒,即不回落 DEFAULT)',
     async () => {
@@ -214,9 +214,9 @@ describe('A6 · TERMPRO_ALLOWED_ORIGINS env 注入(host 侧接线)', () => {
       const portFile = path.join(dataDir, 'host.port');
       const host = track(
         spawnHost(bundlePath, ['--listen', '127.0.0.1:0'], {
-          TERMPRO_HOST_TOKEN: 'origin-env-token',
-          TERMPRO_HOST_PORT_FILE: portFile,
-          TERMPRO_ALLOWED_ORIGINS: 'http://localhost:5173,file://',
+          OKWORK_HOST_TOKEN: 'origin-env-token',
+          OKWORK_HOST_PORT_FILE: portFile,
+          OKWORK_ALLOWED_ORIGINS: 'http://localhost:5173,file://',
         }),
       );
       const m = await host.waitForStdout(/\[host\] listening ws:\/\/([^:]+):(\d+)/);
@@ -247,8 +247,8 @@ describe('A6 · TERMPRO_ALLOWED_ORIGINS env 注入(host 侧接线)', () => {
       const portFile = path.join(dataDir, 'host.port');
       const host = track(
         spawnHost(bundlePath, ['--listen', '127.0.0.1:0'], {
-          TERMPRO_HOST_TOKEN: 'origin-default-token',
-          TERMPRO_HOST_PORT_FILE: portFile,
+          OKWORK_HOST_TOKEN: 'origin-default-token',
+          OKWORK_HOST_PORT_FILE: portFile,
         }),
       );
       const m = await host.waitForStdout(/\[host\] listening ws:\/\/([^:]+):(\d+)/);
@@ -275,7 +275,7 @@ describe('Q2 · AC-8 token-stdin 零落盘/零回显(host 侧证否,补 TC 落�
         spawnHost(
           bundlePath,
           ['--listen', '127.0.0.1:0', '--token-stdin', '--host-tag', 'cfg-portfile-q2'],
-          { TERMPRO_HOST_PORT_FILE: portFile },
+          { OKWORK_HOST_PORT_FILE: portFile },
           `${secretToken}\n`,
         ),
       );
@@ -303,14 +303,14 @@ describe('Q2 · AC-8 token-stdin 零落盘/零回显(host 侧证否,补 TC 落�
 
 describe('E12 · 驻留态恒不回显 token(结构纵深,防未来误用 generated token 起驻留 host)', () => {
   it(
-    '设置 TERMPRO_HOST_PORT_FILE 且未显式传 token(落到 generated 分支)时,stdout 恒不出现 "[host] token=" 回显行',
+    '设置 OKWORK_HOST_PORT_FILE 且未显式传 token(落到 generated 分支)时,stdout 恒不出现 "[host] token=" 回显行',
     async () => {
       const dataDir = tmpDataDir();
       const portFile = path.join(dataDir, 'host.port');
       const host = track(
         spawnHost(bundlePath, ['--listen', '127.0.0.1:0', '--host-tag', 'cfg-portfile-e12'], {
-          TERMPRO_HOST_PORT_FILE: portFile,
-          // 故意不传 TERMPRO_HOST_TOKEN / --token-*:resolveToken 落到 generated 分支
+          OKWORK_HOST_PORT_FILE: portFile,
+          // 故意不传 OKWORK_HOST_TOKEN / --token-*:resolveToken 落到 generated 分支
           // (source==='generated'),验证「驻留态」这一结构约束独立生效,不依赖 source。
         }),
       );

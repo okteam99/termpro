@@ -251,7 +251,7 @@ export function FilePanel() {
   // ── Header control: Root mode ──
   const handleRootChoose = useCallback(async () => {
     if (!activeTab) return;
-    const dir = await window.termpro.pickDirectory();
+    const dir = await window.okwork.pickDirectory();
     if (dir) {
       updateTabFilePanel(activeTab.id, { rootPath: dir });
     }
@@ -318,7 +318,7 @@ export function FilePanel() {
       dragState.path = null;
       const dropped: string[] = [];
       for (const f of Array.from(dt.files)) {
-        const p = window.termpro.getPathForFile(f);
+        const p = window.okwork.getPathForFile(f);
         if (p) dropped.push(p);
       }
       const ops: { src: string; move: boolean }[] = dropped.length
@@ -485,7 +485,7 @@ export function FilePanel() {
               onClick={() => {
                 const { toplevel, baseRef } = diffContext();
                 // 远程带 hostId:diff 窗口按它直连远程 host 跑 git RPC
-                window.termpro.openViewerWindow({
+                window.okwork.openViewerWindow({
                   mode: 'diff',
                   toplevel,
                   baseRef,
@@ -575,7 +575,7 @@ export function FilePanel() {
                       // 交给原生 startDrag:可拖到 Finder(复制),落回面板则据
                       // dragState 判为内部移动。preventDefault 取消 HTML5 拖拽。
                       e.preventDefault();
-                      window.termpro.startFileDrag(node.absPath);
+                      window.okwork.startFileDrag(node.absPath);
                     }
               }
               onDragEnd={isErr ? undefined : () => { dragState.path = null; }}
@@ -615,7 +615,7 @@ export function FilePanel() {
                     ? () => handleToggleDir(node.absPath)
                     : () => {
                         // 远程带 hostId:文件内容窗口按它直连远程 host(读/编辑/保存)
-                        window.termpro.openViewerWindow({
+                        window.okwork.openViewerWindow({
                           mode: 'file',
                           path: node.absPath,
                           ...(remoteHostId ? { hostId: remoteHostId } : {}),
@@ -634,7 +634,7 @@ export function FilePanel() {
                     e.stopPropagation();
                     const { toplevel, baseRef } = diffContext();
                     if (!node.absPath.startsWith(toplevel + '/')) return;
-                    window.termpro.openViewerWindow({
+                    window.okwork.openViewerWindow({
                       mode: 'diff',
                       toplevel,
                       baseRef,
@@ -660,7 +660,7 @@ export function FilePanel() {
                       showLocalOnlyHint();
                       return;
                     }
-                    window.termpro.openInBrowser(node.absPath);
+                    window.okwork.openInBrowser(node.absPath);
                   }}
                 >
                   <GlobeIcon />
@@ -678,7 +678,7 @@ export function FilePanel() {
                       showLocalOnlyHint();
                       return;
                     }
-                    window.termpro.showItemInFolder(node.absPath);
+                    window.okwork.showItemInFolder(node.absPath);
                   }}
                 >
                   <FolderIcon />
@@ -698,7 +698,7 @@ export function FilePanel() {
                       showLocalOnlyHint();
                       return;
                     }
-                    window.termpro.openPath(node.absPath);
+                    window.okwork.openPath(node.absPath);
                   }}
                 >
                   <FolderIcon />

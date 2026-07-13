@@ -14,7 +14,7 @@ import { createRoutedSsh, bufferOf, flushMicrotasks, type RoutedSsh } from './te
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-orch-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-orch-'));
 });
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -239,7 +239,7 @@ describe('AC-13 认领驻留进程(不重启)', () => {
     // HOST_MIN_APP_VERSION(旧 host 不上报 appVersion 同判过旧)→ 连接时先升级服务端,
     // 在跑任务可以关闭。端到端锁定整条链:
     // 候选探测通过但版本过旧 → claiming → reapThenDeploy(kill 654)→ deploying → starting
-    // (新启动命令携带 TERMPRO_HOST_APP_VERSION)→ 新 host 端口文件 → ready。
+    // (新启动命令携带 OKWORK_HOST_APP_VERSION)→ 新 host 端口文件 → ready。
     const configId = 'vps-hk';
     let killSent = false;
     let reaped = false;
@@ -311,7 +311,7 @@ describe('AC-13 认领驻留进程(不重启)', () => {
     expect(routed.execCalls.some((c) => c.startsWith('kill "654"'))).toBe(true);
     expect(routed.execDetached).toHaveBeenCalledTimes(1);
     // 新启动命令注入版本 env(host.info.appVersion 数据源)
-    expect(routed.execDetachedCalls[0]?.cmd).toContain('TERMPRO_HOST_APP_VERSION="1.0.0"');
+    expect(routed.execDetachedCalls[0]?.cmd).toContain('OKWORK_HOST_APP_VERSION="1.0.0"');
   });
 });
 
@@ -382,7 +382,7 @@ describe('多设备同屏 Phase 1:hostTag 贯穿(TECH §A.4)', () => {
 
     const cmd = routed.execDetachedCalls[0]?.cmd ?? '';
     expect(cmd).toMatch(/--host-tag "id-[A-Za-z0-9_-]{26}"/);
-    expect(cmd).toMatch(/TERMPRO_HOST_IDENTITY_FILE="[^"]*\/identity\/id-[A-Za-z0-9_-]{26}\/token"/);
+    expect(cmd).toMatch(/OKWORK_HOST_IDENTITY_FILE="[^"]*\/identity\/id-[A-Za-z0-9_-]{26}\/token"/);
   });
 
   it('isolate=true 显式隔离 / 指纹缺失 fail-safe → tag==configId,不注入身份文件 env', async () => {
@@ -403,7 +403,7 @@ describe('多设备同屏 Phase 1:hostTag 贯穿(TECH §A.4)', () => {
     await h1.orchestrator.connect('vps-hk');
     const cmd1 = routedIsolate.execDetachedCalls[0]?.cmd ?? '';
     expect(cmd1).toContain('--host-tag "vps-hk"');
-    expect(cmd1).not.toContain('TERMPRO_HOST_IDENTITY_FILE');
+    expect(cmd1).not.toContain('OKWORK_HOST_IDENTITY_FILE');
 
     // ② 指纹缺失(桩默认 null)→ 收敛不可得,退隔离
     const routedNoFp = createFreshDeploySsh('vps-hk');
@@ -412,7 +412,7 @@ describe('多设备同屏 Phase 1:hostTag 贯穿(TECH §A.4)', () => {
     await h2.orchestrator.connect('vps-hk');
     const cmd2 = routedNoFp.execDetachedCalls[0]?.cmd ?? '';
     expect(cmd2).toContain('--host-tag "vps-hk"');
-    expect(cmd2).not.toContain('TERMPRO_HOST_IDENTITY_FILE');
+    expect(cmd2).not.toContain('OKWORK_HOST_IDENTITY_FILE');
   });
 });
 

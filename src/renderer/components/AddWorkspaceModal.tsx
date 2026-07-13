@@ -111,7 +111,7 @@ export function AddWorkspaceModal({ onClose, initialHostId }: AddWorkspaceModalP
 
   useEffect(() => {
     let alive = true;
-    window.termpro.remoteHost.list().then((list) => {
+    window.okwork.remoteHost.list().then((list) => {
       if (!alive) return;
       setRemoteConfigs(list);
       // 空态入口预选:该机在列且已连接 → 跳过选机步直达目录浏览器;否则留在选机步
@@ -142,7 +142,7 @@ export function AddWorkspaceModal({ onClose, initialHostId }: AddWorkspaceModalP
   function closeRemoteHosts() {
     setRemoteHostsOpen(false);
     // 弹层里可能刚增/删/连了机器:刷新配置列表(连接态走 runtime store,本就是活订阅)
-    void window.termpro.remoteHost.list().then(setRemoteConfigs);
+    void window.okwork.remoteHost.list().then(setRemoteConfigs);
   }
 
   const connectedHosts = remoteConfigs.filter((h) => runtimeMap[h.id]?.stage === 'ready');
@@ -182,7 +182,7 @@ export function AddWorkspaceModal({ onClose, initialHostId }: AddWorkspaceModalP
 
   async function selectLocal() {
     if (creatingWorkspace) return;
-    const path = await window.termpro.pickDirectory();
+    const path = await window.okwork.pickDirectory();
     if (!path) return;
     await addWorkspace(path);
     onClose();
@@ -277,7 +277,7 @@ export function AddWorkspaceModal({ onClose, initialHostId }: AddWorkspaceModalP
                   </span>
                   <span className="add-ws__host-alias">{t('Local')}</span>
                   <span className="add-ws__host-addr">
-                    {t('{platform} · Local directory', { platform: window.termpro.platform })}
+                    {t('{platform} · Local directory', { platform: window.okwork.platform })}
                   </span>
                   <span className="add-ws__host-chevron">›</span>
                 </button>

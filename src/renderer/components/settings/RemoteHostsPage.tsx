@@ -1,7 +1,7 @@
 // 远程机管理与 SSH 连接编排(BL-003)· 从设计预览工程移植的生产组件(ARCH-B6)。
 // 移植源:docs/design/preview-project/src/main.jsx E 节(RemoteHostsModal/RemoteHostsPage · 第 1194 行起)。
-// 与预览的关键差异:mock hostRuntime 定时器 → 真实 window.termpro.remoteHost.onEvent 事件驱动;
-// mock manualHosts state → window.termpro.remoteHost.{list,save,delete} IPC 往返;
+// 与预览的关键差异:mock hostRuntime 定时器 → 真实 window.okwork.remoteHost.onEvent 事件驱动;
+// mock manualHosts state → window.okwork.remoteHost.{list,save,delete} IPC 往返;
 // stage 集合改用 shared/remoteHost.ts 单源(main 产 · renderer 派生,杜绝字面量漂移 · EXT-6)。
 //
 // 未新增路由(TECH §前端技术方案):本组件即弹层本体,由 SettingsEntry 的 Settings 菜单挂载/卸载,
@@ -148,7 +148,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   const clearRuntime = useRemoteHostRuntimeStore((s) => s.clear);
 
   const refreshList = useCallback(async () => {
-    const list = await window.termpro.remoteHost.list();
+    const list = await window.okwork.remoteHost.list();
     setConfigs(list);
     setLoaded(true);
   }, []);
@@ -224,7 +224,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         });
     }
 
-    const unsubscribe = window.termpro.remoteHost.onEvent((e) => {
+    const unsubscribe = window.okwork.remoteHost.onEvent((e) => {
       if (
         abandonedRef.current.has(e.configId) &&
         e.stage !== 'disconnected' &&
@@ -260,7 +260,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   async function runTest(id: string) {
     setTestState((prev) => ({ ...prev, [id]: 'testing' }));
-    const result = await window.termpro.remoteHost.test({ id });
+    const result = await window.okwork.remoteHost.test({ id });
     if (result.ok) {
       setTestState((prev) => ({ ...prev, [id]: 'ok' }));
     } else {
@@ -273,7 +273,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   function handleConnect(config: RemoteHostConfig) {
     abandonedRef.current.delete(config.id); // E6:重新发起连接,解除此前的"已弃"过滤
     setTestState((prev) => omitKey(prev, config.id));
-    window.termpro.remoteHost.connect({ id: config.id });
+    window.okwork.remoteHost.connect({ id: config.id });
   }
 
   /**
@@ -287,7 +287,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   function handleDisconnect(id: string) {
     abandonedRef.current.add(id);
     reconnectController.cancel(id);
-    window.termpro.remoteHost.disconnect({ id });
+    window.okwork.remoteHost.disconnect({ id });
     clearRuntime(id);
     hostRegistry.drop(id);
   }
@@ -352,7 +352,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     ) {
       payload.passphrase = formValues.passphrase;
     }
-    await window.termpro.remoteHost.save(payload);
+    await window.okwork.remoteHost.save(payload);
     await refreshList();
     setFormMode(null);
     setFormHostId(null);
@@ -368,7 +368,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   /** AC-14:删机随删清凭据(main 侧执行);renderer 同步清运行态/测试态,防孤儿展示态。 */
   async function confirmDelete(id: string) {
-    await window.termpro.remoteHost.delete({ id });
+    await window.okwork.remoteHost.delete({ id });
     clearRuntime(id);
     hostRegistry.drop(id);
     setTestState((prev) => omitKey(prev, id));

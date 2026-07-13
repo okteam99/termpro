@@ -54,7 +54,7 @@ beforeEach(() => {
     hydrated: false,
     transientNotice: null,
   });
-  (window as unknown as { termpro: unknown }).termpro = {
+  (window as unknown as { okwork: unknown }).okwork = {
     storeGet: (...a: unknown[]) => storeGet(...a),
     storeSet: (...a: unknown[]) => storeSet(...a),
     backupV1Archive: (...a: unknown[]) => backupV1Archive(...a),

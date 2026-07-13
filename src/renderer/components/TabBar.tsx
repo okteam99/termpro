@@ -36,6 +36,77 @@ function TerminalIcon() {
   );
 }
 
+/** 文件面板开关图标:圆角矩形 + 右侧分栏竖线(panel-right) */
+function FilePanelIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="0.6" y="1.2" width="10.8" height="9.6" rx="1.6" ry="1.6" />
+      <line x1="7.6" y1="1.2" x2="7.6" y2="10.8" />
+    </svg>
+  );
+}
+
+/** 内置浏览器开关图标:地球 12×12 */
+function GlobeIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="6" cy="6" r="4.9" />
+      <ellipse cx="6" cy="6" rx="2.2" ry="4.9" />
+      <line x1="1.1" y1="6" x2="10.9" y2="6" />
+    </svg>
+  );
+}
+
+/** tabbar 最右的内置浏览器开关(与文件面板开关并列) */
+function BrowserToggle() {
+  const open = useAppStore((s) => s.browserPanelOpen);
+  const toggle = useAppStore((s) => s.toggleBrowserPanel);
+  return (
+    <button
+      className={`tabbar-panel-btn${open ? ' tabbar-panel-btn--active' : ''}`}
+      onClick={toggle}
+      title={open ? t('Hide browser') : t('Show browser')}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
+      <GlobeIcon />
+    </button>
+  );
+}
+
+/** tabbar 最右的文件面板折叠/展开按钮(空 tabbar 也渲染,保证随时能展开) */
+function FilePanelToggle() {
+  const collapsed = useAppStore((s) => s.filePanelCollapsed);
+  const toggle = useAppStore((s) => s.toggleFilePanelCollapsed);
+  return (
+    <button
+      className={`tabbar-panel-btn${collapsed ? '' : ' tabbar-panel-btn--active'}`}
+      onClick={toggle}
+      title={collapsed ? t('Show file panel') : t('Hide file panel')}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
+      <FilePanelIcon />
+    </button>
+  );
+}
+
 export function TabBar() {
   const ws = useAppStore(selectActiveWorkspace);
   const addTab = useAppStore((s) => s.addTab);
@@ -81,13 +152,16 @@ export function TabBar() {
     };
   }, [menuOpen]);
 
-  // 无活跃工作区时渲染空拖拽条
+  // 无活跃工作区时渲染空拖拽条(保留文件面板开关)
   if (!ws) {
     return (
       <div
         className="tabbar tabbar--empty"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      />
+      >
+        <BrowserToggle />
+        <FilePanelToggle />
+      </div>
     );
   }
 
@@ -110,7 +184,7 @@ export function TabBar() {
   // 右键菜单(原生):重命名 / 关闭
   async function handleContextMenu(e: React.MouseEvent, tab: TabState) {
     e.preventDefault();
-    const action = await window.termpro.showTabContextMenu();
+    const action = await window.okwork.showTabContextMenu();
     if (action === 'rename') setRenamingTabId(tab.id);
     else if (action === 'close' && ws) closeTab(ws.id, tab.id);
   }
@@ -118,7 +192,7 @@ export function TabBar() {
   async function handleAddWithDir() {
     if (!ws) return;
     setMenuOpen(false);
-    const dir = await window.termpro.pickDirectory();
+    const dir = await window.okwork.pickDirectory();
     if (dir) addTab(ws.id, dir);
   }
 
@@ -268,6 +342,10 @@ export function TabBar() {
         className="tabbar-drag-strip"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
+
+      {/* 文件面板 / 内置浏览器开关 */}
+      <BrowserToggle />
+      <FilePanelToggle />
 
       {/* Tab 改名 modal:留空保存 = 恢复默认名 */}
       {renamingTabId &&

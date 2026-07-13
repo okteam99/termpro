@@ -84,7 +84,7 @@ describe('RingBuffer', () => {
     expect(ring.absoluteOffset - ring.startOffset).toBe(ring.length);
   });
 
-  it('env TERMPRO_SESSION_RING_BYTES 缺省 → 256 KiB', () => {
+  it('env OKWORK_SESSION_RING_BYTES 缺省 → 256 KiB', () => {
     const ring = new RingBuffer();
     expect(ring.capacityBytes).toBe(DEFAULT_RING_BYTES);
   });

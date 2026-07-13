@@ -53,6 +53,14 @@ export interface NotificationItem {
   read: boolean;
 }
 
+/** 内置浏览器标签:url 随导航更新并持久化;title 是页面标题(视图态不写盘) */
+export interface BrowserTabState {
+  id: string;
+  /** 空串 = 空标签(未导航,面板显示空态待输入) */
+  url: string;
+  title?: string;
+}
+
 export interface WorkspaceState {
   id: string;
   name: string;
@@ -114,6 +122,14 @@ export interface PersistedRemoteWorkspace {
 interface PersistedUi {
   sidebarWidth?: number;
   filePanelWidth?: number;
+  /** 右侧文件面板折叠(默认展开;true 才写盘) */
+  filePanelCollapsed?: boolean;
+  /** 内置浏览器面板打开(默认关;true 才写盘) */
+  browserPanelOpen?: boolean;
+  browserPanelWidth?: number;
+  /** 内置浏览器标签(只存 url;title 是视图态);空集不写盘 */
+  browserTabs?: { id: string; url: string }[];
+  browserActiveTabId?: string | null;
   /** 向上滚动时固定底部输入栏(默认关) */
   pinBottomBar?: boolean;
   /** Sidebar 折叠中的机器分组('local' | configId);展开为默认态,不入存档 */
@@ -227,10 +243,27 @@ export interface AppState {
   clearTabAttention(tabId: string): void;
   sidebarWidth: number;
   filePanelWidth: number;
+  browserPanelWidth: number;
   setPaneWidths(patch: {
     sidebarWidth?: number;
     filePanelWidth?: number;
+    browserPanelWidth?: number;
   }): void;
+  /** 右侧文件面板折叠态,随 ui 存档持久化 */
+  filePanelCollapsed: boolean;
+  toggleFilePanelCollapsed(): void;
+  /** 内置浏览器面板(右侧最外)开关;打开时若无标签自动种一个空标签 */
+  browserPanelOpen: boolean;
+  toggleBrowserPanel(): void;
+  /** 内置浏览器标签集;url 持久化,title 仅视图态 */
+  browserTabs: BrowserTabState[];
+  browserActiveTabId: string | null;
+  /** 新建标签并激活(url 缺省为空 → 面板显示空态待输入) */
+  addBrowserTab(url?: string): void;
+  /** 关闭标签;关掉最后一个 → 面板收起并清空列表 */
+  closeBrowserTab(id: string): void;
+  setBrowserActiveTab(id: string): void;
+  updateBrowserTab(id: string, patch: { url?: string; title?: string }): void;
   /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
   pinBottomBar: boolean;
   setPinBottomBar(value: boolean): void;
@@ -332,7 +365,7 @@ function buildDefaultWorkspace(
  * - 该 tab 未读通知标已读(源 A:notifications[].read)→ 顶部铃铛角标随之递减
  * 返回可并入 zustand set() 的局部 state(workspaces + notifications)。
  * 切 tab(setActiveTab)与切工作区使其 active tab 可见(setActiveWorkspace)共用此逻辑,
- * 避免两个"查看"入口对两套状态的清除不对称(BUG-TERMPRO-B260614065346-001)。
+ * 避免两个"查看"入口对两套状态的清除不对称(BUG-OKWORK-B260614065346-001)。
  */
 function markTabViewed(
   s: AppState,
@@ -370,6 +403,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   pendingWorkspaceIds: [],
   sidebarWidth: 240,
   filePanelWidth: 280,
+  browserPanelWidth: 480,
+  filePanelCollapsed: false,
+  browserPanelOpen: false,
+  browserTabs: [],
+  browserActiveTabId: null,
   pinBottomBar: false,
   remoteTabLayouts: {},
 
@@ -382,9 +420,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       const localePref: LocalePref =
         rawLocale === 'en' || rawLocale === 'zh-CN' ? rawLocale : 'system';
       if (localePref !== 'system') setLocale(localePref);
+      // 浏览器标签恢复:只取合法 {id,url} 条目(title 视图态不入档);
+      // 非 http(s) 的 url 降级为空标签——防篡改存档让怪 scheme 冷启动自动加载(评审 P2-3)
+      const browserTabs: BrowserTabState[] = (archive.ui.browserTabs ?? [])
+        .filter((b) => typeof b?.id === 'string' && typeof b?.url === 'string')
+        .map((b) => ({ id: b.id, url: /^https?:\/\//i.test(b.url) ? b.url : '' }));
+      const savedBrowserActive = archive.ui.browserActiveTabId ?? null;
       set({
         sidebarWidth: archive.ui.sidebarWidth ?? 240,
         filePanelWidth: archive.ui.filePanelWidth ?? 280,
+        filePanelCollapsed: archive.ui.filePanelCollapsed ?? false,
+        browserPanelWidth: archive.ui.browserPanelWidth ?? 480,
+        browserPanelOpen: archive.ui.browserPanelOpen ?? false,
+        browserTabs,
+        browserActiveTabId: browserTabs.some((b) => b.id === savedBrowserActive)
+          ? savedBrowserActive
+          : (browserTabs[0]?.id ?? null),
         pinBottomBar: archive.ui.pinBottomBar ?? false,
         collapsedMachines: archive.ui.collapsedMachines ?? [],
         localePref,
@@ -792,6 +843,65 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       sidebarWidth: patch.sidebarWidth ?? s.sidebarWidth,
       filePanelWidth: patch.filePanelWidth ?? s.filePanelWidth,
+      browserPanelWidth: patch.browserPanelWidth ?? s.browserPanelWidth,
+    }));
+  },
+
+  toggleFilePanelCollapsed() {
+    set((s) => ({ filePanelCollapsed: !s.filePanelCollapsed }));
+  },
+
+  toggleBrowserPanel() {
+    set((s) => {
+      const open = !s.browserPanelOpen;
+      // 首次打开(或标签被清空后)自动种一个空标签,面板不出现无标签死态
+      if (open && s.browserTabs.length === 0) {
+        const tab: BrowserTabState = { id: crypto.randomUUID(), url: '' };
+        return { browserPanelOpen: open, browserTabs: [tab], browserActiveTabId: tab.id };
+      }
+      return { browserPanelOpen: open };
+    });
+  },
+
+  addBrowserTab(url = '') {
+    set((s) => {
+      const tab: BrowserTabState = { id: crypto.randomUUID(), url };
+      return {
+        browserPanelOpen: true,
+        browserTabs: [...s.browserTabs, tab],
+        browserActiveTabId: tab.id,
+      };
+    });
+  },
+
+  closeBrowserTab(id) {
+    set((s) => {
+      const idx = s.browserTabs.findIndex((b) => b.id === id);
+      if (idx < 0) return s;
+      const tabs = s.browserTabs.filter((b) => b.id !== id);
+      // 关最后一个 → 面板收起并清空(下次打开重新种空标签)
+      if (tabs.length === 0) {
+        return { browserPanelOpen: false, browserTabs: [], browserActiveTabId: null };
+      }
+      const active =
+        s.browserActiveTabId === id
+          ? (tabs[Math.min(idx, tabs.length - 1)]?.id ?? null)
+          : s.browserActiveTabId;
+      return { browserTabs: tabs, browserActiveTabId: active };
+    });
+  },
+
+  setBrowserActiveTab(id) {
+    set((s) =>
+      s.browserTabs.some((b) => b.id === id) ? { browserActiveTabId: id } : s,
+    );
+  },
+
+  updateBrowserTab(id, patch) {
+    set((s) => ({
+      browserTabs: s.browserTabs.map((b) =>
+        b.id === id ? { ...b, ...patch } : b,
+      ),
     }));
   },
 
@@ -820,7 +930,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     );
     // main 同步生效(原生菜单/dialog);bridge 缺失(测试)静默跳过
-    window.termpro?.setAppLocale?.(pref);
+    window.okwork?.setAppLocale?.(pref);
     set({ localePref: pref });
   },
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Component, useEffect, useState, type ReactNode } from 'react';
 import { hostRegistry } from './services/hostRegistry';
 import { t } from '../shared/i18n';
 import { selectActiveWorkspace, useAppStore } from './state/store';
@@ -8,6 +8,7 @@ import { initSettingsSync } from './services/settingsSync';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
+import { BrowserPanel } from './components/BrowserPanel';
 import { PaneHandle } from './components/PaneHandle';
 import { TransientToast } from './components/TransientToast';
 import TerminalView from './terminal/TerminalView';
@@ -15,6 +16,21 @@ import type { TermCallbacks } from './terminal/terminalRegistry';
 import type { HostInfo } from '../shared/protocol';
 
 let smokeSent = false;
+
+/** 侧面板错误边界:面板内异常降级为隐藏该面板,绝不炸掉整树(黑屏)。
+ *  终端/侧栏不受影响,面板开关仍可见,用户可关掉重开尝试恢复。 */
+class PanelErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error('[renderer] side panel crashed:', error);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 // 终端事件 → store 的稳定回调(getState 始终取最新 action,不受组件卸载影响)
 const tabCallbacks = new Map<string, TermCallbacks>();
@@ -30,7 +46,7 @@ function callbacksFor(tabId: string): TermCallbacks {
       onFirstData: () => {
         if (!smokeSent) {
           smokeSent = true;
-          window.termpro.smokeOk();
+          window.okwork.smokeOk();
         }
       },
       onNotice: (message) => useAppStore.getState().setTransientNotice(message),
@@ -47,6 +63,9 @@ export default function App() {
   const hydrated = useAppStore((s) => s.hydrated);
   const sidebarWidth = useAppStore((s) => s.sidebarWidth);
   const filePanelWidth = useAppStore((s) => s.filePanelWidth);
+  const filePanelCollapsed = useAppStore((s) => s.filePanelCollapsed);
+  const browserPanelWidth = useAppStore((s) => s.browserPanelWidth);
+  const browserPanelOpen = useAppStore((s) => s.browserPanelOpen);
   // 语言切换 → 顶层订阅触发整树重渲染(t() 在 render 期取词,树内无 memo 组件,
   // 级联即全量换语言;setLocalePref 已先切 i18n 再 set,渲染期必为新语言)
   useAppStore((s) => s.localePref);
@@ -68,7 +87,7 @@ export default function App() {
 
   // 冒烟模式:空状态自动建一个 workspace,跑通 store→终端全链路
   useEffect(() => {
-    if (!hostInfo || !hydrated || !window.termpro.smoke) return;
+    if (!hostInfo || !hydrated || !window.okwork.smoke) return;
     const s = useAppStore.getState();
     if (s.workspaces.length === 0) void s.addWorkspace(hostInfo.homedir);
   }, [hostInfo, hydrated]);
@@ -98,7 +117,7 @@ export default function App() {
 
   // 原生菜单事件(⌘T 新建 tab / ⌘W 关闭 tab)
   useEffect(() => {
-    return window.termpro.onMenu((action) => {
+    return window.okwork.onMenu((action) => {
       const s = useAppStore.getState();
       const ws = selectActiveWorkspace(s);
       if (!ws) return;
@@ -150,11 +169,12 @@ export default function App() {
         {
           '--sidebar-w': `${sidebarWidth}px`,
           '--filepanel-w': `${filePanelWidth}px`,
+          '--browser-w': `${browserPanelWidth}px`,
         } as React.CSSProperties
       }
     >
       <Sidebar />
-      <PaneHandle side="left" />
+      <PaneHandle pane="sidebar" />
       <div className="main-column">
         <TabBar />
         <div className="terminal-area">
@@ -176,8 +196,20 @@ export default function App() {
           )}
         </div>
       </div>
-      <PaneHandle side="right" />
-      <FilePanel />
+      {browserPanelOpen && (
+        <>
+          <PaneHandle pane="browser" />
+          <PanelErrorBoundary>
+            <BrowserPanel />
+          </PanelErrorBoundary>
+        </>
+      )}
+      {!filePanelCollapsed && (
+        <>
+          <PaneHandle pane="filepanel" />
+          <FilePanel />
+        </>
+      )}
       <TransientToast />
     </div>
   );

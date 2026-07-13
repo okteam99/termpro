@@ -53,7 +53,7 @@ jobs:
           node scripts/package-host.mjs \
             --out out/host-${{ matrix.platform }} \
             --platform ${{ matrix.platform }} \
-            --tar out/termpro-host-${{ matrix.platform }}.tar.gz
+            --tar out/okwork-host-${{ matrix.platform }}.tar.gz
 
       - name: 验证产物(真实进程 + WS 握手 + PTY 真实 spawn)
         run: node scripts/verify-host-artifact.mjs --dir out/host-${{ matrix.platform }}
@@ -61,6 +61,6 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v5
         with:
-          name: termpro-host-${{ matrix.platform }}
-          path: out/termpro-host-${{ matrix.platform }}.tar.gz
+          name: okwork-host-${{ matrix.platform }}
+          path: out/okwork-host-${{ matrix.platform }}.tar.gz
           retention-days: 14

@@ -8,7 +8,7 @@ const scenarios = {
     mode: 'worktree',
     terminalPath: 'src/renderer/components/FilePanel.tsx:81:5',
     terminalStatus: 'located in WorkTree',
-    root: '/Users/liam/apps/okok/TermPro/.worktree/TERMPRO-F260613053134-Terminal-Path-FilePanel',
+    root: '/Users/liam/apps/okok/OkWork/.worktree/OKWORK-F260613053134-Terminal-Path-FilePanel',
     hint: 'feature/terminal-path-file-panel · 7c44c74',
     target: 'FilePanel.tsx',
     rows: [
@@ -27,10 +27,10 @@ const scenarios = {
   root: {
     label: 'Root',
     mode: 'root',
-    terminalPath: 'file:///Users/liam/apps/okok/TermPro/project-specs/GLOSSARY.md',
+    terminalPath: 'file:///Users/liam/apps/okok/OkWork/project-specs/GLOSSARY.md',
     terminalStatus: 'located in Root',
-    root: '/Users/liam/apps/okok/TermPro',
-    hint: '~/apps/okok/TermPro',
+    root: '/Users/liam/apps/okok/OkWork',
+    hint: '~/apps/okok/OkWork',
     target: 'GLOSSARY.md',
     rows: [
       { name: 'AGENTS.md', kind: 'file', depth: 0, status: 'untracked' },
@@ -50,7 +50,7 @@ const scenarios = {
     mode: 'worktree',
     terminalPath: '/tmp/agent-output/build-report.html',
     terminalStatus: 'external fallback',
-    root: '/Users/liam/apps/okok/TermPro/.worktree/TERMPRO-F260613053134-Terminal-Path-FilePanel',
+    root: '/Users/liam/apps/okok/OkWork/.worktree/OKWORK-F260613053134-Terminal-Path-FilePanel',
     hint: 'feature/terminal-path-file-panel · unchanged',
     target: null,
     rows: [
@@ -143,7 +143,7 @@ function PreviewPage({ currentPath, onNavigate, statePresets, activeStateKey, on
 }
 
 const DEFAULT_WORKSPACES = [
-  { id: 'termpro', name: 'TermPro', active: true, meta: 'main · ~/apps/okok/TermPro' },
+  { id: 'okwork', name: 'OkWork', active: true, meta: 'main · ~/apps/okok/OkWork' },
   { id: 'aon-core', name: 'aon-core', active: false, meta: 'staging · ~/apps/joli/aon' },
 ];
 
@@ -439,7 +439,7 @@ function AboutModal({ version, onClose }) {
       <div className="about-card" onMouseDown={(e) => e.stopPropagation()}>
         <button className="about-close" onClick={onClose} title="关闭">×</button>
         <div className="about-logo">T</div>
-        <div className="about-name">TermPro</div>
+        <div className="about-name">OkWork</div>
         <div className="about-version">{version ? `版本 ${version}` : '版本未知'}</div>
       </div>
     </div>
@@ -546,7 +546,7 @@ const confirmationScenarios = {
   quit: {
     label: 'App Quit',
     shellEvent: 'application quit requested',
-    title: '退出 TermPro?',
+    title: '退出 OkWork?',
     message: '退出后再打开，Tab 内容可能丢失。确认退出前会保留原有状态落盘机会。',
     confirm: '退出',
     cancel: '取消',
@@ -559,7 +559,7 @@ const confirmationScenarios = {
     label: 'Install Ready',
     shellEvent: 'update downloaded, install pending',
     title: '安装 v0.4.0 并重启?',
-    message: '升级包已下载完成。确认后 TermPro 会重启并交给 Squirrel.Mac 完成安装。',
+    message: '升级包已下载完成。确认后 OkWork 会重启并交给 Squirrel.Mac 完成安装。',
     confirm: '安装并重启',
     cancel: '稍后',
     accent: 'primary',
@@ -625,7 +625,7 @@ function ConfirmationTerminal({ scenario, onScenario }) {
     ['event', scenario.shellEvent],
     ['guard', scenario.title ? 'confirmation pending' : 'retryable state restored'],
     ['result', scenario.note],
-    ['smoke', 'TERMPRO_SMOKE bypasses this confirmation path'],
+    ['smoke', 'OKWORK_SMOKE bypasses this confirmation path'],
   ];
 
   return (
@@ -706,7 +706,7 @@ function Terminal({ scenario, onScenario }) {
   const lines = useMemo(() => [
     ['codex', 'review found path candidate'],
     ['path', scenario.terminalPath],
-    ['termpro', scenario.terminalStatus],
+    ['okwork', scenario.terminalStatus],
     ['shell', 'ready'],
   ], [scenario]);
 
@@ -895,7 +895,7 @@ const DISCOVERED_WORKSPACES = [
 const BASE_MACHINES = [
   {
     id: 'local', kind: 'local', label: '本机',
-    workspaces: [{ name: 'TermPro', meta: 'main · ~/apps/okok/TermPro', active: true }],
+    workspaces: [{ name: 'OkWork', meta: 'main · ~/apps/okok/OkWork', active: true }],
   },
   {
     id: 'mini-pc', kind: 'remote', alias: 'mini-pc', addr: 'liam@192.168.1.40', status: 'connected',
@@ -2020,7 +2020,7 @@ const SIDEBAR_MG_STATE_PRESETS = [
 ];
 
 const SIDEBAR_MG_LOCAL_WORKSPACES = [
-  { name: 'TermPro', meta: 'main · ~/apps/okok/TermPro', tabCount: 2, tabRunning: 1 },
+  { name: 'OkWork', meta: 'main · ~/apps/okok/OkWork', tabCount: 2, tabRunning: 1 },
 ];
 
 const SIDEBAR_MG_MINIPC_WORKSPACES = [
@@ -2086,12 +2086,12 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
       setLostPhase('panel');
       lostTimer.current = setTimeout(() => {
         setLostPhase('folded');
-        setActive({ machineId: 'local', name: 'TermPro' });
+        setActive({ machineId: 'local', name: 'OkWork' });
       }, 900);
     } else if (devState === 'idle') {
       setActive({ machineId: 'mini-pc', name: 'aon-edge' });
     } else {
-      setActive({ machineId: 'local', name: 'TermPro' });
+      setActive({ machineId: 'local', name: 'OkWork' });
     }
 
     return () => { if (lostTimer.current) clearTimeout(lostTimer.current); };
@@ -2213,7 +2213,7 @@ const RECONNECT_STATE_PRESETS = [
 ];
 
 const RC_LOCAL_WORKSPACES = [
-  { name: 'TermPro', meta: 'main · ~/apps/okok/TermPro', tabCount: 1, tabRunning: 0 },
+  { name: 'OkWork', meta: 'main · ~/apps/okok/OkWork', tabCount: 1, tabRunning: 0 },
 ];
 
 const RC_DEFAULT_TABS = [

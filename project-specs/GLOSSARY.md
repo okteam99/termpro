@@ -1,4 +1,4 @@
-# TermPro 术语表（GLOSSARY）
+# OkWork 术语表（GLOSSARY）
 
 > teamwork 在以下场景按需 read：
 > - PMO triage 期承接需求时（防业务词漂移）
@@ -24,7 +24,7 @@
 | 通知中心 | 通知中心（🔔） | 聚合所有 Tab 的「等待输入 / 已完成」事件列表；点击条目跳转对应 Tab；侧栏左上角 🔔 图标触发 | README §二、§三；`src/renderer/components/` |
 | 升级胶囊 | 升级胶囊 | 侧栏左下角更新检查与一键升级 UI；轮询 GitHub Release，由 Squirrel.Mac 下载并自动重启升级；失败时兜底打开发布页 | README §四 v0.2；`src/renderer/components/` |
 | 会话状态（Session State） | 会话状态 | 每个 Tab/PTY 会话的运行阶段：`running`（前台有进程）/ `waiting`（等待用户输入）/ `done`（命令完成）/ `idle`（shell 空闲）；由 Host 侧状态机持续追踪 | README §四 M3；`src/host/sessionTracker.ts` |
-| shell integration | Shell 集成 | 通过 zsh ZDOTDIR 包装自动注入 OSC 133（命令边界事件）和 OSC 7（cwd 变化），使 Host 侧状态机获得精确命令边界信号；`TERMPRO_NO_SHELL_INTEGRATION=1` 可关闭 | README §四 M3；`src/host/shellIntegration.ts` |
+| shell integration | Shell 集成 | 通过 zsh ZDOTDIR 包装自动注入 OSC 133（命令边界事件）和 OSC 7（cwd 变化），使 Host 侧状态机获得精确命令边界信号；`OKWORK_NO_SHELL_INTEGRATION=1` 可关闭 | README §四 M3；`src/host/shellIntegration.ts` |
 
 ---
 
@@ -78,14 +78,14 @@ erDiagram
 
 | 缩写 | 全称 | 说明 |
 |------|------|------|
-| PTY | Pseudo-Terminal | 伪终端；TermPro 使用 node-pty 实现，`pty.process` 属性给出前台进程名 = 状态信号① |
+| PTY | Pseudo-Terminal | 伪终端；OkWork 使用 node-pty 实现，`pty.process` 属性给出前台进程名 = 状态信号① |
 | RPC | Remote Procedure Call | Host 协议三类消息之一（请求/响应），消息类型 `rpc:req` / `rpc:res`；方法注册表在 `src/shared/protocol.ts` 的 `RpcMethods` |
-| OSC | Operating System Command | 终端转义序列前缀（`\x1b]`）；TermPro 使用：OSC 133（命令边界，shell integration）、OSC 7（cwd 变化）、OSC 9/777（应用内通知） |
-| BEL | Bell / ASCII 0x07 | 终端铃声字节；TermPro 将其映射为通知中心事件 + 系统通知（5 秒/Tab 限流） |
+| OSC | Operating System Command | 终端转义序列前缀（`\x1b]`）；OkWork 使用：OSC 133（命令边界，shell integration）、OSC 7（cwd 变化）、OSC 9/777（应用内通知） |
+| BEL | Bell / ASCII 0x07 | 终端铃声字节；OkWork 将其映射为通知中心事件 + 系统通知（5 秒/Tab 限流） |
 | HMR | Hot Module Replacement | Vite 开发模式下渲染层热更新；`npm start` 启用 |
-| IPC | Inter-Process Communication | Electron 主进程与渲染进程之间的通信机制；TermPro 主要用 MessagePort（转移给 hostClient）+ ipcRenderer（辅助握手）|
+| IPC | Inter-Process Communication | Electron 主进程与渲染进程之间的通信机制；OkWork 主要用 MessagePort（转移给 hostClient）+ ipcRenderer（辅助握手）|
 | PR | Pull Request | GitHub 合并请求；侧栏 workspace 项可展示 PR 徽标 |
-| MR | Merge Request | GitLab 合并请求（与 PR 同义，TermPro 当前仅用 GitHub / gh CLI）|
+| MR | Merge Request | GitLab 合并请求（与 PR 同义，OkWork 当前仅用 GitHub / gh CLI）|
 | WebGL | Web Graphics Library | xterm.js 的 `WebglAddon` 渲染后端；仅挂载在可见 Tab，切走时卸载 context 以防超出 GPU context 上限 |
 | FLOW | Flow Control Constants | `src/shared/protocol.ts` 中的流控水位常量对象：`highWatermark = 512 KB`（暂停 PTY）/ `lowWatermark = 128 KB`（恢复 PTY）|
 | cwd | Current Working Directory | 当前工作目录；Host 通过 `pty.cwd` / lsof 按需查询，OSC 7 可用时即时跟随 |
@@ -101,4 +101,4 @@ erDiagram
   - 业务方向变更后新术语出现 → PL 在 product-overview/ 更新前同步更新本文档
 - **写入硬规则**：每条术语必须含中英文 + 一句话定义 + 出现位置（防止抽象孤立）
 - **PMO preflight 扫描**：triage 期 PMO 自动 read 业务术语段，命中关键词时引用到主对话
-- **单项目场景**：TermPro 单仓无子项目，所有实现层术语统一维护在本文件；如后续拆出子包，子包内部术语可移至各子包 KNOWLEDGE.md § Glossary 子段
+- **单项目场景**：OkWork 单仓无子项目，所有实现层术语统一维护在本文件；如后续拆出子包，子包内部术语可移至各子包 KNOWLEDGE.md § Glossary 子段

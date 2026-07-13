@@ -2,7 +2,7 @@
 // 页数推到上限(macOS 上 ~ min(32, MAX_TEXTURE_IMAGE_UNITS) ≈ 16),触发页合并/删页
 // (TextureAtlas._createNewPage → _mergePages),重排被合并页里字形的 texturePage 索引。
 //
-// 真因(BUG-TERMPRO-B260615152207-001):addon 的 GPU 纹理上传是 version 门控的——
+// 真因(BUG-OKWORK-B260615152207-001):addon 的 GPU 纹理上传是 version 门控的——
 // GlyphRenderer.render() 仅当 `page.version !== _atlasTextures[i].version` 才重传该页纹理
 // (GlyphRenderer.ts)。合并后被重排的页 version 是各页独立的小计数器(从 0 起、++),
 // _pages 数组多轮 splice 后同一下标会被不同页复用,新页的低 version 可能与该纹理单元
@@ -24,7 +24,7 @@
 // 且**保留图集像素与 GL 上下文**:代价仅是 ≤16 页纹理的一次 GPU 重传(几 ms)。
 //
 // ⚠️ 不可用「重建整个 WebglAddon」做常规路径(2026-07 滚动卡顿/重影根因,
-// BUG-TERMPRO 滚动性能):重建会清空整个字形图集 → 快速滚过高多样性内容
+// BUG-OKWORK 滚动性能):重建会清空整个字形图集 → 快速滚过高多样性内容
 // (truecolor 渐变 + CJK,现代 TUI 的常态)时,刚栅格化的字形全部作废、页很快again填满
 // → 再合并 → 再重建……自馈风暴。实测一次快划触发 8 次重建、单帧最长 66ms
 // (稳态 8.3ms/120Hz),表现为滚动卡顿 + 换画布瞬间旧帧闪烁(重影),停稳后无新字形

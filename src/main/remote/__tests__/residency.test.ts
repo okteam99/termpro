@@ -472,7 +472,7 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 45002 }),
       sleep: async () => undefined,
     });
-    // 默认 TERMPRO_CLAIM_PROBE_RETRIES=3(不含首次)→ 共 4 次尝试后才判定失败
+    // 默认 OKWORK_CLAIM_PROBE_RETRIES=3(不含首次)→ 共 4 次尝试后才判定失败
     expect(probeCalls).toBe(4);
     expect(resolution.decision.action).toBe('reapThenDeploy');
     expect(server.closed).toBe(true);

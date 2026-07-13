@@ -397,7 +397,7 @@ export function MarkdownPreview({ path, getEditorValue, hostId }: Props) {
       );
       if (!target) return;
       if (target.kind === 'external') {
-        window.termpro.openExternal(target.url);
+        window.okwork.openExternal(target.url);
       } else if (target.kind === 'anchor') {
         scrollToHeading(target.id);
       } else {
@@ -406,7 +406,7 @@ export function MarkdownPreview({ path, getEditorValue, hostId }: Props) {
         void hostClient.rpc('fs.stat', { path: target.abs }).then(
           (r) => {
             if (r.kind === 'file' || r.kind === 'dir') {
-              window.termpro.openViewerWindow({
+              window.okwork.openViewerWindow({
                 mode: r.kind,
                 path: target.abs,
                 ...(isRemoteHost(hostId) ? { hostId } : {}),

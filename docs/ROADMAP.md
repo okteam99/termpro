@@ -1,4 +1,4 @@
-# TermPro - Roadmap
+# OkWork - Roadmap
 
 > 状态：✅ 已确认
 
@@ -6,7 +6,7 @@
 
 以终端为主体的多工程、多并行会话工作台；M5 兑现远程 Host（模型 A · 远程机为中心）。
 
-📎 完整业务描述与执行线见 [product-overview/TermPro_业务架构与产品规划.md](../product-overview/TermPro_业务架构与产品规划.md) · 拆解与并行编排权威见 [product-overview/workstream/WS-01-remote-host.md](../product-overview/workstream/WS-01-remote-host.md)
+📎 完整业务描述与执行线见 [product-overview/OkWork_业务架构与产品规划.md](../product-overview/OkWork_业务架构与产品规划.md) · 拆解与并行编排权威见 [product-overview/workstream/WS-01-remote-host.md](../product-overview/workstream/WS-01-remote-host.md)
 
 ## 执行批次（Wave）
 
@@ -17,8 +17,8 @@
 
 | Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
 |-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
-| BL-001 | Workspace 注册表驻留 Host（本地先行） | P0 | workspace.* 协议 + Host 侧注册表持久化 + renderer 按 host 发现 + 存档 v1→v2 迁移 | ① 增删改经协议落 Host 注册表跨重启存活 ② 旧存档无损迁移（幂等+备份回退） ③ 多客户端列表与变更推送一致 | 无 | ✅ 已交付 | - | TERMPRO-F260709092258 | WS-01 |
-| BL-002 | Host standalone + WebSocket + 协议握手 | P0 | host 独立入口（loopback+token）+ WS 传输 + 版本握手 + 单文件打包（node-pty 矩阵） | ① standalone 经 WS 服务完整协议冒烟通过 ② 不兼容连接被拒且 UI 明示 ③ 产物在 darwin-arm64 与 linux-x64 实机可运行 | 无 | ✅ 已交付 | - | TERMPRO-F260709092310 | WS-01 |
+| BL-001 | Workspace 注册表驻留 Host（本地先行） | P0 | workspace.* 协议 + Host 侧注册表持久化 + renderer 按 host 发现 + 存档 v1→v2 迁移 | ① 增删改经协议落 Host 注册表跨重启存活 ② 旧存档无损迁移（幂等+备份回退） ③ 多客户端列表与变更推送一致 | 无 | ✅ 已交付 | - | OKWORK-F260709092258 | WS-01 |
+| BL-002 | Host standalone + WebSocket + 协议握手 | P0 | host 独立入口（loopback+token）+ WS 传输 + 版本握手 + 单文件打包（node-pty 矩阵） | ① standalone 经 WS 服务完整协议冒烟通过 ② 不兼容连接被拒且 UI 明示 ③ 产物在 darwin-arm64 与 linux-x64 实机可运行 | 无 | ✅ 已交付 | - | OKWORK-F260709092310 | WS-01 |
 
 > ✅ 完成条件：Wave 1 全部 Feature「已完成」后进入 Wave 2（⚠️ 两者同改 protocol.ts，分区块追加、先合先赢）
 
@@ -26,7 +26,7 @@
 
 | Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
 |-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
-| BL-003 | 远程机管理与 SSH 连接编排 | P0 | 远程机 CRUD（最近使用+手动添加）+ 凭据钥匙串（密钥/密码）+ ssh 隧道 + 首次连接自动部署 host + Remote Hosts 管理 UI | ① 添加远程机（密钥或密码）测试连接可达 ② 首次连接自动部署拉起远程 host 且进度可视 ③ 凭据零明文（safeStorage·密钥在钥匙串·BL-003 ADR-001） | BL-002 | ✅ 已交付 | - | TERMPRO-F260709180208 | WS-01 |
+| BL-003 | 远程机管理与 SSH 连接编排 | P0 | 远程机 CRUD（最近使用+手动添加）+ 凭据钥匙串（密钥/密码）+ ssh 隧道 + 首次连接自动部署 host + Remote Hosts 管理 UI | ① 添加远程机（密钥或密码）测试连接可达 ② 首次连接自动部署拉起远程 host 且进度可视 ③ 凭据零明文（safeStorage·密钥在钥匙串·BL-003 ADR-001） | BL-002 | ✅ 已交付 | - | OKWORK-F260709180208 | WS-01 |
 
 > ✅ 完成条件：BL-003「已完成」后进入 Wave 3
 
@@ -34,7 +34,7 @@
 
 | Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
 |-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
-| BL-004 | 机器分组 Sidebar + 添加项目流程 | P0 | Sidebar 按机器分组（连接即发现该机 workspace）+ 添加项目=选择机器→远程目录浏览器→创建落该机注册表 | ① 连接远程机即列出其全部 workspace（含会话徽标） ② 远程选目录创建项目、任一客户端可见 ③ 远程 workspace 终端/文件树/git 全链路走该机 host（查看器窗口 v1 出范围·PENDING-005） | BL-001 · BL-003 | ✅ 已交付 | - | TERMPRO-F260710011342 | WS-01 |
+| BL-004 | 机器分组 Sidebar + 添加项目流程 | P0 | Sidebar 按机器分组（连接即发现该机 workspace）+ 添加项目=选择机器→远程目录浏览器→创建落该机注册表 | ① 连接远程机即列出其全部 workspace（含会话徽标） ② 远程选目录创建项目、任一客户端可见 ③ 远程 workspace 终端/文件树/git 全链路走该机 host（查看器窗口 v1 出范围·PENDING-005） | BL-001 · BL-003 | ✅ 已交付 | - | OKWORK-F260710011342 | WS-01 |
 | BL-005 | 断线重连与会话连续性 | P1 | host 侧 scrollback 环形缓冲 + 远程会话存活 + 重连回放认领 + 状态/通知对账 + 重连横幅 | ① UI 断开后远程会话继续运行 ② 重连回放屏幕并对账徽标 ③ 断线横幅 + 自动重连 + 手动重试 | BL-002 · BL-003 | 待开始 | - | - | WS-01 |
 
 > ✅ 完成条件：Wave 3 全部「已完成」= M5 远程 Host 里程碑达成

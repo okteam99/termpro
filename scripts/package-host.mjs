@@ -144,7 +144,7 @@ async function writeArtifactMeta(outDir, platformLabel) {
     path.join(outDir, 'package.json'),
     JSON.stringify(
       {
-        name: 'termpro-host',
+        name: 'okwork-host',
         version: rootPkg.version,
         private: true,
         main: 'host.js',
@@ -156,11 +156,11 @@ async function writeArtifactMeta(outDir, platformLabel) {
   );
   await fs.promises.writeFile(
     path.join(outDir, 'README.md'),
-    `# TermPro Host — standalone artifact (spike, platform: ${platformLabel})\n\n` +
+    `# OkWork Host — standalone artifact (spike, platform: ${platformLabel})\n\n` +
       `产物内容:\`host.js\`(vite bundle,ws 已打入,node-pty 保持 external)+ \`node_modules/node-pty\`\n` +
       `(仅本平台原生二进制)。要求 Node >= 20。\n\n` +
-      `## 启动\n\n\`\`\`sh\nTERMPRO_HOST_TOKEN=<your-token> node host.js --listen 127.0.0.1:<port>\n\`\`\`\n\n` +
-      `不传 \`TERMPRO_HOST_TOKEN\` 时自动生成 128-bit token,单行打印:\n\`\`\`\n[host] token=<token>\n\`\`\`\n\n` +
+      `## 启动\n\n\`\`\`sh\nOKWORK_HOST_TOKEN=<your-token> node host.js --listen 127.0.0.1:<port>\n\`\`\`\n\n` +
+      `不传 \`OKWORK_HOST_TOKEN\` 时自动生成 128-bit token,单行打印:\n\`\`\`\n[host] token=<token>\n\`\`\`\n\n` +
       `就绪日志(可 grep):\n\`\`\`\n[host] listening ws://127.0.0.1:<port> protocol=v1\n\`\`\`\n\n` +
       `见 \`scripts/verify-host-artifact.mjs\`(仓库内)对本产物做端到端验证(WS 握手 + PTY 真实 spawn)。\n`,
   );

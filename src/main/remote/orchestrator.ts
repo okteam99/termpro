@@ -105,7 +105,7 @@ export interface OrchestratorDeps {
   /** 首启锁陈旧阈值(TECH §A.3,默认 120s 与部署锁同口径;测试注入)。 */
   startLockStaleMs?: number;
   /**
-   * A6:注入远端 host 进程的 TERMPRO_ALLOWED_ORIGINS(逗号分隔,host.ts 侧已按此
+   * A6:注入远端 host 进程的 OKWORK_ALLOWED_ORIGINS(逗号分隔,host.ts 侧已按此
    * 格式解析)。main.ts 按打包/dev 场景算出(打包=null,file://;dev 追加 vite
    * origin)。未传时退化为 DEFAULT_ALLOWED_ORIGINS(与本机 embedded host 的内建
    * 默认同口径)。
@@ -177,7 +177,7 @@ function buildAuth(config: RemoteHostConfig, credentials: CredentialStore): SshA
 /**
  * 启动命令(TECH SSH-4):`--host-tag` 显式 argv,路径全程绝对(ARCH-B9)。
  * 🔴 A7/E6:全部远端路径统一双引号包裹(防路径含空格/特殊字符破坏 shell 解析)。
- * 🔴 A6:注入 TERMPRO_ALLOWED_ORIGINS(host.ts 侧已实现按逗号分隔解析,见
+ * 🔴 A6:注入 OKWORK_ALLOWED_ORIGINS(host.ts 侧已实现按逗号分隔解析,见
  * host.ts:61-72)。
  * 🔴 darwin 远端修复:macOS 无 setsid(util-linux 专属),恒前缀 setsid 会
  * `command not found` 启动必败——`$s` 惯用式按远端实际有无 setsid 降级为裸
@@ -199,7 +199,7 @@ export function buildStartCommand(opts: {
   /** 服务端身份键(多设备同屏 TECH §0.3):端口/日志路径 + --host-tag 以此为基准。
    *  缺省 = configId(隔离模式/旧测试零变化)。 */
   hostTag?: string;
-  /** 身份 token 文件远端绝对路径(收敛模式注入 TERMPRO_HOST_IDENTITY_FILE;隔离模式省略)。 */
+  /** 身份 token 文件远端绝对路径(收敛模式注入 OKWORK_HOST_IDENTITY_FILE;隔离模式省略)。 */
   identityFile?: string;
   allowedOrigins?: string;
   /** 远端 node 绝对路径(nodeProbe 解析);缺省 'node' 仅供测试兜底,生产恒传。 */
@@ -213,13 +213,13 @@ export function buildStartCommand(opts: {
   const nodeBin = (opts.nodePath ?? 'node').replace(/["'\r\n]/g, '');
   // 收敛模式(TECH §A.2):注入身份 token 文件路径,host 自写 0600(先于端口文件)
   const identityEnv = opts.identityFile
-    ? `TERMPRO_HOST_IDENTITY_FILE="${opts.identityFile}" `
+    ? `OKWORK_HOST_IDENTITY_FILE="${opts.identityFile}" `
     : '';
   return (
     `sh -c 't=$(cat); s=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
-    `printf %s "$t" | $s nohup env TERMPRO_HOST_DATA_DIR="${opts.dataDir}" ` +
-    `TERMPRO_HOST_PORT_FILE="${portFile}" TERMPRO_HOST_APP_VERSION="${opts.appVersion}" ` +
-    `${identityEnv}TERMPRO_ALLOWED_ORIGINS="${allowedOrigins}" ` +
+    `printf %s "$t" | $s nohup env OKWORK_HOST_DATA_DIR="${opts.dataDir}" ` +
+    `OKWORK_HOST_PORT_FILE="${portFile}" OKWORK_HOST_APP_VERSION="${opts.appVersion}" ` +
+    `${identityEnv}OKWORK_ALLOWED_ORIGINS="${allowedOrigins}" ` +
     `"${nodeBin}" "${entry}" --listen 127.0.0.1:0 --token-stdin --host-tag "${tag}" ` +
     `> "${logFile}" 2>&1 &'`
   );
@@ -582,6 +582,7 @@ export class RemoteHostOrchestrator {
         ssh.close();
         return;
       }
+      // 品牌改名(TermPro → OkWork)刻意保留旧目录名,理由见 hostCore.ts 同名注释。
       const dataDir = `${home}/.termpro-host`;
 
       // 🔴 探测不走裸 `node -v`(exec 通道是非交互 shell,nvm/fnm/Homebrew 装的

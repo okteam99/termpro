@@ -9,7 +9,7 @@ import { writeIdentityTokenFile } from '../token';
 let tmpRoot: string;
 
 beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-identity-'));
+  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-identity-'));
 });
 
 afterEach(() => {

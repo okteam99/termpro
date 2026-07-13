@@ -2,7 +2,7 @@
 // 这是 UI 访问工程数据(fs/pty/git)的唯一通道(README §5)。
 //
 // 传输抽象:Transport 接口两实现 —— MessagePortTransport(嵌入式,默认,行为等价现状)
-// 与 WebSocketTransport(standalone/远程,dev 开关 VITE_TERMPRO_REMOTE_WS)。公共 API
+// 与 WebSocketTransport(standalone/远程,dev 开关 VITE_OKWORK_REMOTE_WS)。公共 API
 // (connect/rpc/attachPty/input/resize/ack/onDown/onFsChanged/onSessionEvent/info)签名不变。
 
 import {
@@ -267,7 +267,7 @@ export class HostClient {
 
   /**
    * opts.wsUrl 存在 → 走 connectViaWebSocket(opts.wsUrl)(远程 per-host 客户端 · SSH-6);
-   * 否则现状分支一字不变:dev 开关 VITE_TERMPRO_REMOTE_WS → WS,缺省 → MessagePort。
+   * 否则现状分支一字不变:dev 开关 VITE_OKWORK_REMOTE_WS → WS,缺省 → MessagePort。
    * 🔴 本地单例调用 connect() 不传参,行为零变化(40+ 消费方兼容)。
    */
   connect(opts?: { wsUrl?: string }): Promise<HostInfo> {
@@ -373,7 +373,7 @@ export class HostClient {
         }
       };
       window.addEventListener('message', onMsg);
-      window.termpro.requestHostPort();
+      window.okwork.requestHostPort();
     });
   }
 
@@ -543,12 +543,12 @@ export class HostClient {
   }
 }
 
-/** dev 开关读取:VITE_TERMPRO_REMOTE_WS(build-time env),缺失/非 dev 恒空。 */
+/** dev 开关读取:VITE_OKWORK_REMOTE_WS(build-time env),缺失/非 dev 恒空。 */
 function readRemoteWsEnv(): string | undefined {
   try {
     const env = (import.meta as unknown as { env?: Record<string, string> })
       .env;
-    const val = env?.VITE_TERMPRO_REMOTE_WS;
+    const val = env?.VITE_OKWORK_REMOTE_WS;
     return typeof val === 'string' && val.length > 0 ? val : undefined;
   } catch {
     return undefined;

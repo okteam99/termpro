@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键配置 TermPro 出包签名所需的剩余 4 个 secrets(仓库级,okteam99/termpro)。
+# 一键配置 OkWork 出包签名所需的剩余 4 个 secrets(仓库级,okteam99/termpro)。
 # 凭据全程交互输入/从本地文件读取,不落 shell 历史、不写临时文件。
 #
 # 前置(手动,一次):Keychain Access → 我的证书 →

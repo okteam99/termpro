@@ -1,4 +1,4 @@
-# TermPro — Agent 工作守则
+# OkWork — Agent 工作守则
 
 ## 模型分工(固定原则)
 
@@ -16,7 +16,7 @@
 ## 常用命令
 
 - 开发:`npm start`;类型:`npm run typecheck`;单测:`npm test`
-- 无头冒烟:`TERMPRO_SMOKE=1 npx electron-forge start`(SMOKE_OK 即通过)
+- 无头冒烟:`OKWORK_SMOKE=1 npx electron-forge start`(SMOKE_OK 即通过)
 - 发版:`npm version patch && git push --follow-tags`(CI 自动出包发 Release)
 
 ## 流程纪律(本项目已验证的节奏)

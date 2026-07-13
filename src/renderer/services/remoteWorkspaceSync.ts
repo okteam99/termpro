@@ -6,7 +6,7 @@
 // 调用方(Sidebar/MachineGroup,不在本 Feature RD write scope 内):观测到
 // useRemoteHostRuntimeStore.runtime[configId].stage === 'ready' → startRemoteWorkspaceSync;
 // 断线/删除该远程机 → stopRemoteWorkspaceSync。本模块不做模块级自动订阅(与既有
-// remoteHostStore 同惯例:window.termpro/hostRegistry 在测试/构建时机不定,交给调用方
+// remoteHostStore 同惯例:window.okwork/hostRegistry 在测试/构建时机不定,交给调用方
 // 生命周期管理更可测)。
 
 import { hostRegistry } from './hostRegistry';
@@ -86,7 +86,7 @@ export async function startRemoteWorkspaceSync(
     } catch (err) {
       if (attempt === LIST_RETRY_MAX) {
         console.warn(
-          `[remoteWorkspaceSync] workspace.list failed feature=TERMPRO-F260710011342 configId=${configId} attempts=${attempt}`,
+          `[remoteWorkspaceSync] workspace.list failed feature=OKWORK-F260710011342 configId=${configId} attempts=${attempt}`,
           err,
         );
         return;

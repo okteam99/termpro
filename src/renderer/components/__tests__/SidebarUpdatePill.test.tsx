@@ -15,7 +15,7 @@ import { Sidebar } from '../Sidebar';
 
 const noop = () => undefined;
 
-function mockTermproUpdateEvent(event: {
+function mockOkworkUpdateEvent(event: {
   state:
     | 'available'
     | 'checking'
@@ -26,7 +26,7 @@ function mockTermproUpdateEvent(event: {
   version?: string;
   percent?: number;
 }) {
-  Object.defineProperty(window, 'termpro', {
+  Object.defineProperty(window, 'okwork', {
     value: {
       version: '0.3.13',
       devChannel: false,
@@ -74,12 +74,12 @@ function mockTermproUpdateEvent(event: {
 
 afterEach(() => {
   cleanup();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 describe('Sidebar UpdatePill copy', () => {
   it('updatePill_available_and_downloading_copy_requires_confirmation_not_auto_restart', () => {
-    mockTermproUpdateEvent({ state: 'available', version: '0.4.0' });
+    mockOkworkUpdateEvent({ state: 'available', version: '0.4.0' });
     const available = render(<Sidebar />);
 
     const availablePill = screen.getByRole('button', {
@@ -94,7 +94,7 @@ describe('Sidebar UpdatePill copy', () => {
     available.unmount();
     cleanup();
 
-    mockTermproUpdateEvent({
+    mockOkworkUpdateEvent({
       state: 'downloading',
       version: '0.4.0',
       percent: 42,
@@ -107,7 +107,7 @@ describe('Sidebar UpdatePill copy', () => {
 
     cleanup();
 
-    mockTermproUpdateEvent({ state: 'confirming', version: '0.4.0' });
+    mockOkworkUpdateEvent({ state: 'confirming', version: '0.4.0' });
     render(<Sidebar />);
 
     const confirmingPill = screen.getByRole('button', {

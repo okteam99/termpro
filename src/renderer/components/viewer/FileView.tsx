@@ -231,7 +231,7 @@ function TextFileView({
       model = monaco.editor.createModel(file.content, undefined, uri);
       editor = monaco.editor.create(el, {
         model,
-        theme: 'termpro-dark',
+        theme: 'okwork-dark',
         fontSize: 12,
         minimap: { enabled: false },
         automaticLayout: true,

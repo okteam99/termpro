@@ -11,17 +11,43 @@
 
 .tabbar--empty {
   width: 100%;
+  justify-content: flex-end;
 }
 
-/* 横向可滚动标签容器,隐藏滚动条 */
+/* 文件面板折叠/展开按钮(tabbar 最右,与 + 相同的扁平风格) */
+.tabbar-panel-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0 10px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.tabbar-panel-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fg);
+}
+
+.tabbar-panel-btn--active {
+  color: var(--fg);
+}
+
+/* 横向可滚动标签容器,隐藏滚动条。可收缩(min-width:0):空间不足时标签区内部
+   滚动,右侧功能开关(文件面板/浏览器)恒可见,不被 overflow:hidden 裁掉 */
 .tabbar-tabs {
   display: flex;
   flex-direction: row;
   align-items: stretch;
   overflow-x: auto;
   scrollbar-width: none; /* Firefox */
-  flex-shrink: 0;
-  max-width: calc(100% - 20px);
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .tabbar-tabs::-webkit-scrollbar {

@@ -45,7 +45,7 @@ interface FakeIpcMain {
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termpro-ipc-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-ipc-'));
   const fake = ipcMain as unknown as FakeIpcMain;
   fake.__handlers.clear();
   fake.__onListeners.clear();

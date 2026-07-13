@@ -73,12 +73,12 @@ const DEFAULT_SUBSCRIBER_ID = -1;
 const DEFAULT_DESYNC_UNACKED = 2 * FLOW.highWatermark;
 
 function envDesyncUnacked(): number {
-  const n = Number(process.env.TERMPRO_DESYNC_UNACKED);
+  const n = Number(process.env.OKWORK_DESYNC_UNACKED);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_DESYNC_UNACKED;
 }
 
 function envMaxSessions(): number {
-  const n = Number(process.env.TERMPRO_MAX_SESSIONS);
+  const n = Number(process.env.OKWORK_MAX_SESSIONS);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_MAX_SESSIONS;
 }
 
@@ -142,7 +142,7 @@ export class PtyPool {
     const tracker = new SessionTracker({
       shellName,
       emit: (event) => {
-        if (process.env.TERMPRO_SMOKE) {
+        if (process.env.OKWORK_SMOKE) {
           console.log('[host] session:event %s %s', id, JSON.stringify(event));
         }
         this.broadcastAll(session, { t: 'session:event', sessionId: id, event });

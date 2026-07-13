@@ -1,4 +1,4 @@
-# TermPro · Workspace 架构
+# OkWork · Workspace 架构
 
 > **workspace 级系统架构**(实例化:`project-specs/ARCHITECTURE.md`)—— 子项目拓扑 + 依赖契约 + 代码目录布局。
 > 🔴 **区别于** per-subproject 内部技术架构文档 · 本文件只画 **UI 壳 ↔ Host 进程** 这条核心边界（本项目单子项目 N=1，跨子项目拓扑即此边界）。
@@ -56,7 +56,7 @@ graph TD
 
 ### 远程接入拓扑（M5 · BL-003 已交付）
 
-远程 host 的连接编排**全在 main 进程**（`src/main/remote/`，UI 零 SSH）：SSH 连接/隧道（node `ssh2`）、凭据 safeStorage、首次部署（版本隔离 bundle + 部署锁）、驻留进程认领-或-确定性回收、生命周期事件推送。renderer 侧新增 **per-host `HostClient` 注册表**（`src/renderer/services/hostRegistry.ts`：`'local'` 键复用既有单例 + 远程键按 TermPro 配置 id），远程连接经 main 建的 **SSH 本地端口转发**直连 `ws://127.0.0.1:<port>?token=…`（PTY 字节流经 main ssh2 流式中继·尊重 FLOW 水位·不经 Electron IPC）。协议本身**零改动**——隧道内跑的是同一套 HostService 协议。`host.info.hostId` 恒 `'local'` 的真实化留 BL-004（BL-003 一律用配置 id 为 per-host 键）。
+远程 host 的连接编排**全在 main 进程**（`src/main/remote/`，UI 零 SSH）：SSH 连接/隧道（node `ssh2`）、凭据 safeStorage、首次部署（版本隔离 bundle + 部署锁）、驻留进程认领-或-确定性回收、生命周期事件推送。renderer 侧新增 **per-host `HostClient` 注册表**（`src/renderer/services/hostRegistry.ts`：`'local'` 键复用既有单例 + 远程键按 OkWork 配置 id），远程连接经 main 建的 **SSH 本地端口转发**直连 `ws://127.0.0.1:<port>?token=…`（PTY 字节流经 main ssh2 流式中继·尊重 FLOW 水位·不经 Electron IPC）。协议本身**零改动**——隧道内跑的是同一套 HostService 协议。`host.info.hostId` 恒 `'local'` 的真实化留 BL-004（BL-003 一律用配置 id 为 per-host 键）。
 
 ---
 
@@ -75,7 +75,7 @@ src/
 │   └── updater.ts               # 更新检查与 Squirrel.Mac 升级逻辑
 │
 ├── preload/                     # 沙箱 preload（contextBridge）
-│   └── preload.ts               # 暴露 window.termpro API；Host MessagePort 经 window.postMessage 转移
+│   └── preload.ts               # 暴露 window.okwork API；Host MessagePort 经 window.postMessage 转移
 │
 ├── host/                        # 纯 Node Host 进程（零 Electron import，远程就绪）
 │   ├── host.ts                  # utilityProcess 入口；多客户端路由；RPC dispatch

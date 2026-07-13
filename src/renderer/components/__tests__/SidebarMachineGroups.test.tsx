@@ -3,7 +3,7 @@
 // BL-004 · Sidebar 机器分组:本机组置顶(AC-1)· M=0 单本机组头(AC-10)·
 // 连接展开 + 徽标(AC-2)· 组头连接态(AC-8)· 断线两段式回落(AC-11)。
 // hostRegistry/remoteWorkspaceSync 全 mock(避免真实 WebSocket/PTY 依赖),
-// window.termpro.remoteHost 用内存态假配置,store 直接 setState 种子(复刻
+// window.okwork.remoteHost 用内存态假配置,store 直接 setState 种子(复刻
 // notificationBadge.test.ts / RemoteHostsPage.test.tsx 既有模式)。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -65,8 +65,8 @@ function makeConfig(overrides: Partial<RemoteHostConfig> = {}): RemoteHostConfig
   };
 }
 
-function installTermpro(remoteHostList: () => Promise<RemoteHostConfig[]> = async () => []) {
-  Object.defineProperty(window, 'termpro', {
+function installOkwork(remoteHostList: () => Promise<RemoteHostConfig[]> = async () => []) {
+  Object.defineProperty(window, 'okwork', {
     value: {
       version: '0.3.13',
       devChannel: false,
@@ -137,17 +137,17 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
   vi.clearAllMocks();
 });
 
 describe('AC-1 · 本机组置顶 + 远程机组未连接态', () => {
   it('本机组是首个 machine-group,含 N 个 workspace 行;远程组显别名 + 连接入口,不展开', async () => {
     useAppStore.setState({
-      workspaces: [localWs('l1', 'TermPro'), localWs('l2', 'aon-core')],
+      workspaces: [localWs('l1', 'OkWork'), localWs('l2', 'aon-core')],
       activeWorkspaceId: 'l1',
     });
-    installTermpro(async () => [
+    installOkwork(async () => [
       makeConfig({ id: 'cfg-1', alias: 'mini-pc' }),
       makeConfig({ id: 'cfg-2', alias: 'dev-server' }),
     ]);
@@ -159,7 +159,7 @@ describe('AC-1 · 本机组置顶 + 远程机组未连接态', () => {
 
     const groups = screen.queryAllByTestId('machine-group');
     expect(groups[0]).toHaveAttribute('data-machine-id', 'local');
-    expect(screen.getByText('TermPro')).toBeInTheDocument();
+    expect(screen.getByText('OkWork')).toBeInTheDocument();
     expect(screen.getByText('aon-core')).toBeInTheDocument();
 
     // 两个远程机组各有一个"连接"入口,workspace 行数为 0(未展开)
@@ -170,11 +170,11 @@ describe('AC-1 · 本机组置顶 + 远程机组未连接态', () => {
 
 describe('AC-10 · M=0 纯本机退化态', () => {
   it('恰好渲染 1 个 machine-group,无远程占位', async () => {
-    useAppStore.setState({ workspaces: [localWs('l1', 'TermPro')], activeWorkspaceId: 'l1' });
-    installTermpro(async () => []);
+    useAppStore.setState({ workspaces: [localWs('l1', 'OkWork')], activeWorkspaceId: 'l1' });
+    installOkwork(async () => []);
 
     render(<Sidebar />);
-    await waitFor(() => expect(window.termpro.remoteHost.list).toHaveBeenCalled());
+    await waitFor(() => expect(window.okwork.remoteHost.list).toHaveBeenCalled());
 
     expect(screen.queryAllByTestId('machine-group')).toHaveLength(1);
     expect(screen.queryByText(/远程/)).not.toBeInTheDocument();
@@ -187,7 +187,7 @@ describe('AC-2 · 连接后展开 workspace + 会话徽标(含 0)', () => {
       workspaces: [remoteWs('r1', 'aon-edge', 'cfg-1', 0)],
       activeWorkspaceId: 'r1',
     });
-    installTermpro(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
+    installOkwork(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
 
     render(<Sidebar />);
     await waitFor(() => expect(screen.getByText('mini-pc')).toBeInTheDocument());
@@ -207,7 +207,7 @@ describe('AC-2 · 连接后展开 workspace + 会话徽标(含 0)', () => {
 describe('AC-8 · 组头连接生命周期', () => {
   it('connecting/deploying → CONNECT_STAGE_LABEL 文案;failed → 失败原因 + 重试', async () => {
     useAppStore.setState({ workspaces: [], activeWorkspaceId: null });
-    installTermpro(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
+    installOkwork(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
 
     render(<Sidebar />);
     await waitFor(() => expect(screen.getByText('mini-pc')).toBeInTheDocument());
@@ -235,7 +235,7 @@ describe('AC-11 · 断线两段式回落', () => {
     useRemoteHostRuntimeStore.setState({
       runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } },
     });
-    installTermpro(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
+    installOkwork(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
 
     render(<Sidebar />);
     expect(await screen.findByText('aon-edge')).toBeInTheDocument();
@@ -265,7 +265,7 @@ describe('E1 · 本机组内拖拽落位映射到全量数组坐标(review 修 �
     useAppStore.setState({
       workspaces: [
         remoteWs('r1', 'aon-edge', 'cfg-1', 0),
-        localWs('l1', 'TermPro'),
+        localWs('l1', 'OkWork'),
         localWs('l2', 'aon-core'),
       ],
       activeWorkspaceId: 'l1',
@@ -273,13 +273,13 @@ describe('E1 · 本机组内拖拽落位映射到全量数组坐标(review 修 �
     useRemoteHostRuntimeStore.setState({
       runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } },
     });
-    installTermpro(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
+    installOkwork(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
 
     render(<Sidebar />);
     await screen.findByText('aon-edge');
 
     const l2Row = screen.getByText('aon-core').closest('.sidebar-item') as HTMLElement;
-    const l1Row = screen.getByText('TermPro').closest('.sidebar-item') as HTMLElement;
+    const l1Row = screen.getByText('OkWork').closest('.sidebar-item') as HTMLElement;
     expect(l2Row).toBeTruthy();
     expect(l1Row).toBeTruthy();
 
@@ -324,7 +324,7 @@ describe('E4 · Sidebar 会话中远程机配置列表轮询刷新(review 修)',
   it('list 变化后远程组更新:新机出现;已删机器组消失 + 触发 stopRemoteWorkspaceSync', async () => {
     vi.useFakeTimers();
     let currentList: RemoteHostConfig[] = [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })];
-    installTermpro(async () => currentList);
+    installOkwork(async () => currentList);
     useRemoteHostRuntimeStore.setState({
       runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } },
     });

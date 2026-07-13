@@ -32,8 +32,8 @@ import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
 // 可变配置源:模拟用户在 RemoteHostsPage 里添加+连接了一台机器后的 list() 结果变化
 let remoteConfigs: Array<Record<string, unknown>> = [];
 
-function installTermpro() {
-  Object.defineProperty(window, 'termpro', {
+function installOkwork() {
+  Object.defineProperty(window, 'okwork', {
     value: {
       platform: 'darwin',
       pickDirectory: vi.fn(async () => null),
@@ -61,12 +61,12 @@ beforeEach(() => {
     creatingWorkspace: false,
   });
   useRemoteHostRuntimeStore.setState({ runtime: {}, reconnecting: {} });
-  installTermpro();
+  installOkwork();
 });
 
 afterEach(() => {
   cleanup();
-  delete (window as unknown as Record<string, unknown>).termpro;
+  delete (window as unknown as Record<string, unknown>).okwork;
 });
 
 describe('添加项目 ·「添加远程机」入口', () => {

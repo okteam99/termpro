@@ -145,7 +145,7 @@ export async function deployBundle(opts: DeployOptions): Promise<DeployResult> {
   // 🔴 版本单调闸(用户规则 2026-07):远端已有【更高版本】完成部署时,拒绝把
   // 更低版本铺上去——旧安装版 app 只能复用它已有的 bundle(上方 .ready 快路径),
   // 不能向已前进的远端写旧产物(0.3.42/0.3.43 坏 spawn-helper 借旧 app 重新扩散
-  // 的事故路径)。开发逃生阀:TERMPRO_DEPLOY_ALLOW_OLDER=1(如在旧分支调远程)。
+  // 的事故路径)。开发逃生阀:OKWORK_DEPLOY_ALLOW_OLDER=1(如在旧分支调远程)。
   //
   // 边界口径(opus 评审 P2/P3,勿误当强保证):
   // - 尽力而为的 TOCTOU 检查,只拦【已 .ready】的更高版本;不与并发在传的部署
@@ -154,14 +154,14 @@ export async function deployBundle(opts: DeployOptions): Promise<DeployResult> {
   // - 版本比较只认纯数字 x.y.z(发布版恒如此);预发布形如 1.2.3-beta 的
   //   appVersion 比较为 NaN → 判「不更高」→ 闸门放行,属有意 fail-open
   //   (非发布构建不受闸门约束)。
-  if (process.env.TERMPRO_DEPLOY_ALLOW_OLDER !== '1') {
+  if (process.env.OKWORK_DEPLOY_ALLOW_OLDER !== '1') {
     const newer = (await listReadyVersions(opts.ssh, opts.dataDir))
       .filter((v) => compareDotted(v, opts.appVersion) > 0)
       .sort(compareDotted)
       .pop();
     if (newer !== undefined) {
       throw new Error(
-        `deployBlockedByNewerVersion: remote already has v${newer} (this app is v${opts.appVersion}) — upgrade the app to connect, or set TERMPRO_DEPLOY_ALLOW_OLDER=1 to override`,
+        `deployBlockedByNewerVersion: remote already has v${newer} (this app is v${opts.appVersion}) — upgrade the app to connect, or set OKWORK_DEPLOY_ALLOW_OLDER=1 to override`,
       );
     }
   }

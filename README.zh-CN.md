@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.webp" alt="TermPro" width="112" />
+<img src="assets/logo.webp" alt="OkWork" width="112" />
 
-# TermPro
+# OkWork
 
 **以终端为主体的多工程、多并行会话工作台**
 
@@ -24,7 +24,7 @@
 
 ## 这是什么
 
-TermPro 是一个面向「同时驱动多个 CLI agent 并行开发」场景的桌面工作台（macOS，Electron）。
+OkWork 是一个面向「同时驱动多个 CLI agent 并行开发」场景的桌面工作台（macOS，Electron）。
 终端作为主体,外围补齐通用终端缺失的能力:**工程与并行会话管理、终端状态感知与通知、与 git worktree 深度整合的文件管理、内置 Markdown(mermaid)预览/编辑与 diff**——并按「远程就绪」的架构设计,为将来把会话搬到远程机器留好接口。
 
 ## 解决什么问题
@@ -34,10 +34,10 @@ TermPro 是一个面向「同时驱动多个 CLI agent 并行开发」场景的�
 - **相比通用终端**:只有"窗口 + tab",没有"工程"和"并行会话"的概念,更不会告诉你哪个会话在等你输入;
 - **相比通用 agent 管理器**:往往反过来绑定特定 agent,终端体验从属、可替换性差。
 
-TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个窗口里同时管理多个工程、多条并行会话,系统主动告诉你"谁在跑、谁完成了、谁在等输入",文件与 git 视图随当前会话自动联动——不绑定任何 agent,也不解析任何 agent 的私有输出。
+OkWork 取中间立场:**终端是主体,外围能力是产品**。你在一个窗口里同时管理多个工程、多条并行会话,系统主动告诉你"谁在跑、谁完成了、谁在等输入",文件与 git 视图随当前会话自动联动——不绑定任何 agent,也不解析任何 agent 的私有输出。
 
 <p align="center">
-  <img src="snapshot/01.webp" alt="TermPro 主界面:左侧 workspace 列表 · 中间终端 · 右侧文件面板" width="860" />
+  <img src="snapshot/01.webp" alt="OkWork 主界面:左侧 workspace 列表 · 中间终端 · 右侧文件面板" width="860" />
 </p>
 
 ## 核心特点
@@ -62,17 +62,17 @@ TermPro 取中间立场:**终端是主体,外围能力是产品**。你在一个
 
 ## SSH 沙箱镜像(Docker)
 
-想要一台随开随用的 SSH 主机来体验 TermPro 的远程能力,或单纯需要一个能 SSH 上去的 Node.js 环境?我们发布了现成镜像(Node.js 22 + npm 12 + sshd,内置 Claude Code 与 Codex CLI,支持 `linux/amd64` 与 `linux/arm64`):
+想要一台随开随用的 SSH 主机来体验 OkWork 的远程能力,或单纯需要一个能 SSH 上去的 Node.js 环境?我们发布了现成镜像(Node.js 22 + npm 12 + sshd,内置 Claude Code 与 Codex CLI,支持 `linux/amd64` 与 `linux/arm64`):
 
-**镜像地址**:[`bdpgogoup/termpro-node`](https://hub.docker.com/r/bdpgogoup/termpro-node)
+**镜像地址**:[`bdpgogoup/okwork-node`](https://hub.docker.com/r/bdpgogoup/okwork-node)
 
 ```bash
 # 快速开始:root 登录 / 密码 dev123,SSH 暴露在 localhost:2222,
 # 宿主机 ~/host-workspace 挂载到容器 /workspace(默认工作目录)
-docker run -d --name termpro-node \
+docker run -d --name okwork-node \
   -e SSH_PASSWORD=dev123 \
   -v ~/host-workspace:/workspace \
-  -p 2222:22 bdpgogoup/termpro-node
+  -p 2222:22 bdpgogoup/okwork-node
 
 ssh root@127.0.0.1 -p 2222   # 登录即在 /workspace;node -v → v22.x
 ```
@@ -88,13 +88,13 @@ ssh root@127.0.0.1 -p 2222   # 登录即在 /workspace;node -v → v22.x
 
 ```bash
 # 非 root 用户 + 公钥免密登录 + 自定义容器内端口
-docker run -d --name termpro-node \
+docker run -d --name okwork-node \
   -e SSH_USER=alice -e SSH_PORT=2222 \
   -e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" \
-  -p 2222:2222 bdpgogoup/termpro-node
+  -p 2222:2222 bdpgogoup/okwork-node
 ```
 
-SFTP 可用。默认工作目录为 `/workspace`,SSH 登录后直接落在这里,用 `-v` 把宿主机目录挂载到它即可共享文件。构建源码见 [`docker/termpro-node/`](docker/termpro-node/)。
+SFTP 可用。默认工作目录为 `/workspace`,SSH 登录后直接落在这里,用 `-v` 把宿主机目录挂载到它即可共享文件。构建源码见 [`docker/okwork-node/`](docker/okwork-node/)。
 
 ## 概念模型
 
@@ -145,7 +145,7 @@ SFTP 可用。默认工作目录为 `/workspace`,SSH 登录后直接落在这里
   <img src="snapshot/04.webp" alt="Markdown 预览(marked + mermaid)" width="49%" />
 </p>
 
-> 完整里程碑分解、已完成基线与下一阶段路线图见 [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md)。
+> 完整里程碑分解、已完成基线与下一阶段路线图见 [`product-overview/OkWork_业务架构与产品规划.md`](product-overview/OkWork_业务架构与产品规划.md)。
 
 ## 架构
 
@@ -201,7 +201,7 @@ SFTP 可用。默认工作目录为 `/workspace`,SSH 登录后直接落在这里
 ## 开发
 
 - 开发:`npm start`;类型:`npm run typecheck`;单测:`npm test`
-- 无头冒烟:`TERMPRO_SMOKE=1 npx electron-forge start`(打印 `SMOKE_OK` 即通过)
+- 无头冒烟:`OKWORK_SMOKE=1 npx electron-forge start`(打印 `SMOKE_OK` 即通过)
 - 发版:`npm version patch && git push --follow-tags`(CI 自动出包发 Release)
 
 更多开发细节与已知约束见 [`docs/DEV.md`](docs/DEV.md);开发规范(架构红线、性能红线、测试与发版纪律)见 [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md)。
@@ -212,7 +212,7 @@ SFTP 可用。默认工作目录为 `/workspace`,SSH 登录后直接落在这里
 
 完整业务架构、执行线、里程碑跟踪统一维护在:
 
-- [`product-overview/TermPro_业务架构与产品规划.md`](product-overview/TermPro_业务架构与产品规划.md) — 产品定位、业务架构、执行线、MVP 范围、路线图(上游权威)
+- [`product-overview/OkWork_业务架构与产品规划.md`](product-overview/OkWork_业务架构与产品规划.md) — 产品定位、业务架构、执行线、MVP 范围、路线图(上游权威)
 - [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md) — 架构事实来源
 - [`project-specs/DEV-RULES.md`](project-specs/DEV-RULES.md) — 开发规范与红线
 

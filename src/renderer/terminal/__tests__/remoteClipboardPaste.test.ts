@@ -48,7 +48,7 @@ describe('remote clipboard paste handler', () => {
   it('远程 Ctrl+V:拦住 0x16,本地读图→远端临时文件→bracketed paste 图片路径', async () => {
     const { terminal, dispatch } = makeTerminal();
     const readImage = vi.fn(async () => PNG);
-    const writeImage = vi.fn(async () => ({ path: '/tmp/termpro-clipboard-a/image.png' }));
+    const writeImage = vi.fn(async () => ({ path: '/tmp/okwork-clipboard-a/image.png' }));
     const readText = vi.fn(async () => 'should-not-win');
     const notify = vi.fn();
     const preventDefault = vi.fn();
@@ -72,7 +72,7 @@ describe('remote clipboard paste handler', () => {
     expect(readImage).toHaveBeenCalledTimes(1);
     expect(writeImage).toHaveBeenCalledWith(PNG);
     expect(readText).not.toHaveBeenCalled();
-    expect(terminal.paste).toHaveBeenCalledWith('/tmp/termpro-clipboard-a/image.png');
+    expect(terminal.paste).toHaveBeenCalledWith('/tmp/okwork-clipboard-a/image.png');
     expect(terminal.focus).toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
   });

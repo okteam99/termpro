@@ -27,7 +27,7 @@ describe('exit confirmation dialog options', () => {
     expect(close.cancelId).toBe(0);
 
     const quit = buildExitConfirmationOptions({ kind: 'app-quit' });
-    expect(quit.title).toBe('Quit TermPro?');
+    expect(quit.title).toBe('Quit OkWork?');
     expect(quit.message).toContain('Tab content may be lost after quitting and reopening');
     expect(quit.buttons).toEqual(['Cancel', 'Quit']);
 

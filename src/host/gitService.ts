@@ -1,5 +1,5 @@
 // git 感知服务:全部 shell out 到 git CLI(execFile,无 shell 注入面),
-// 只读操作,TermPro 不代办任何 worktree 写操作(README §四 M2 边界)。
+// 只读操作,OkWork 不代办任何 worktree 写操作(README §四 M2 边界)。
 
 import { execFile } from 'node:child_process';
 import {

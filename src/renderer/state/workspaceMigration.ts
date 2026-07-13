@@ -21,9 +21,9 @@ export interface MigrationDeps {
     name: string;
     root: string;
   }): Promise<WorkspaceEntry>;
-  /** 备份原 v1 存档(= window.termpro.backupV1Archive());失败 reject */
+  /** 备份原 v1 存档(= window.okwork.backupV1Archive());失败 reject */
   backupV1(): Promise<void>;
-  /** 落盘存档(= window.termpro.storeSet(...)) */
+  /** 落盘存档(= window.okwork.storeSet(...)) */
   writeArchive(state: PersistedState): void;
 }
 

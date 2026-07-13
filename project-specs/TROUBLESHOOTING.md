@@ -1,4 +1,4 @@
-# TermPro 排查手册（TROUBLESHOOTING）
+# OkWork 排查手册（TROUBLESHOOTING）
 
 > teamwork PMO 在 mode A query / E · discuss 触及「排查 / 报错 / 查 log / 查环境」时按需 read。
 > 与 [KNOWLEDGE.md](./KNOWLEDGE.md) 互补：KNOWLEDGE = 踩坑注意点 · 本文 = 操作步骤。
@@ -41,10 +41,10 @@ npm run lint
 npm test
 
 # 无头冒烟（CI 可用）
-TERMPRO_SMOKE=1 npx electron-forge start
+OKWORK_SMOKE=1 npx electron-forge start
 # 渲染层完成 Host 握手 + 首个 PTY 输出后打印 SMOKE_OK 自动退出
 # 30s 超时打印 SMOKE_TIMEOUT，以 exit(1) 退出
-# userData 隔离至 os.tmpdir()/termpro-smoke，不污染本地布局存档
+# userData 隔离至 os.tmpdir()/okwork-smoke，不污染本地布局存档
 ```
 
 验证门禁（每阶段提交前必须三绿）：`npm run typecheck` + `npm test` + 冒烟 `SMOKE_OK`。
@@ -68,7 +68,7 @@ TERMPRO_SMOKE=1 npx electron-forge start
 
 ### 3.2 冒烟超时（SMOKE_TIMEOUT）
 
-**现象**：`TERMPRO_SMOKE=1 npx electron-forge start` 30s 后打印 `SMOKE_TIMEOUT`，进程以 exit(1) 退出。
+**现象**：`OKWORK_SMOKE=1 npx electron-forge start` 30s 后打印 `SMOKE_TIMEOUT`，进程以 exit(1) 退出。
 
 **原因**：渲染层未完成 Host 握手，或首个 PTY 输出未到达。
 
@@ -106,7 +106,7 @@ TERMPRO_SMOKE=1 npx electron-forge start
 **排查链**：
 1. 用环境变量关闭 shell integration 来隔离复现：
    ```bash
-   TERMPRO_NO_SHELL_INTEGRATION=1 npm start
+   OKWORK_NO_SHELL_INTEGRATION=1 npm start
    ```
 2. 如关闭后问题消失，排查 `src/host/shellIntegration.ts` 注入逻辑
 3. 如关闭后仍异常，问题在其他路径（与 shell integration 无关）
@@ -126,7 +126,7 @@ TERMPRO_SMOKE=1 npx electron-forge start
 
 ## 四、日志在哪 / 怎么看
 
-TermPro 是开发态桌面应用，没有集中日志文件。排查时看以下几处：
+OkWork 是开发态桌面应用，没有集中日志文件。排查时看以下几处：
 
 | 来源 | 位置 / 方式 |
 |------|------------|
@@ -168,11 +168,11 @@ APPLE_TEAM_ID
 
 **secrets 缺失时**：forge 自动回退 ad-hoc 签名。用户下载后首次打开需：
 - 右键 → 打开，或
-- `xattr -dr com.apple.quarantine /Applications/TermPro.app`
+- `xattr -dr com.apple.quarantine /Applications/OkWork.app`
 
 **流水线带 Gatekeeper 验收步骤**：`codesign --verify` + `stapler validate` + `spctl`。
 
-**配置更省事的做法**：在 okteam99 组织设置里把 6 个 secrets 升为 org-level secrets（可见范围选 termpro），手动触发一次 Release 工作流即可验证签名+公证全链路。
+**配置更省事的做法**：在 okteam99 组织设置里把 6 个 secrets 升为 org-level secrets（可见范围选 okwork），手动触发一次 Release 工作流即可验证签名+公证全链路。
 
 > 发版后**不要**替用户安装/升级 `/Applications` 里的应用——用户通过应用内升级胶囊（侧栏左下角）自行更新。
 
@@ -204,7 +204,7 @@ gh secret set APPLE_CERTIFICATE_PASSWORD -R okteam99/termpro
 
 🔴 PMO 排查时必守：
 
-- **无线上服务端环境**（TermPro 是桌面应用）——不存在 staging / production 写操作授权问题
+- **无线上服务端环境**（OkWork 是桌面应用）——不存在 staging / production 写操作授权问题
 - 不写 secret / token / 证书真值到本文（用 `$ENV_VAR` 占位符）· **真值放 `.teamwork-local-env/` 或 GitHub Secrets**
 - 不复述 secret 到主对话
 - Apple 证书 / signing identity 等敏感凭据仅通过 GitHub Secrets 或本地 `.teamwork-local-env/` 传递

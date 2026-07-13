@@ -104,7 +104,7 @@ export function routeSessionEvent(
             ? t('{label} · Command finished', { label })
             : t('{label} · Command finished (exit code {code})', { label, code: ec });
         s.pushNotification({ workspaceId: ws.id, tabId, kind: 'done', text });
-        osNotify(t('TermPro · Done'), text, ws.id, tabId);
+        osNotify(t('OkWork · Done'), text, ws.id, tabId);
       }
       break;
     }
@@ -123,7 +123,7 @@ export function routeSessionEvent(
       waitingNotified.add(tabId);
       const text = t('{label} · Bell rang (may be waiting for input)', { label });
       s.pushNotification({ workspaceId: ws.id, tabId, kind: 'bell', text });
-      osNotify(t('TermPro · Attention'), text, ws.id, tabId);
+      osNotify(t('OkWork · Attention'), text, ws.id, tabId);
       break;
     }
 
@@ -139,7 +139,7 @@ export function routeSessionEvent(
       if (waitingNotified.has(tabId)) break;
       waitingNotified.add(tabId);
       s.pushNotification({ workspaceId: ws.id, tabId, kind: 'notify', text });
-      osNotify(event.title || 'TermPro', event.body, ws.id, tabId);
+      osNotify(event.title || 'OkWork', event.body, ws.id, tabId);
       break;
     }
 
@@ -219,7 +219,7 @@ export function initSessionEvents(): void {
     pruneClosedTabs(liveTabs);
     if (count !== lastBadge) {
       lastBadge = count;
-      window.termpro.setDockBadge(count);
+      window.okwork.setDockBadge(count);
     }
   });
 }
@@ -240,7 +240,7 @@ function osNotify(
   try {
     const n = new Notification(title, { body });
     n.onclick = () => {
-      window.termpro.focusWindow();
+      window.okwork.focusWindow();
       const s = useAppStore.getState();
       s.setActiveWorkspace(workspaceId);
       s.setActiveTab(workspaceId, tabId);
