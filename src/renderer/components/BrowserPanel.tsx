@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../state/store';
 import { t } from '../../shared/i18n';
+import type { BrowserNetworkState, RemoteHostConfig, RemoteStage } from '../../shared/remoteHost';
 import './BrowserPanel.css';
 
 // webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
@@ -196,6 +197,129 @@ function ForwardIcon() {
     >
       <polyline points="4.5,2.5 8.5,6 4.5,9.5" />
     </svg>
+  );
+}
+
+/** 网络出口候选项:'local' 恒在首位,其后是 ready 状态的远程机(configId + alias)。 */
+interface NetOption {
+  hostId: string;
+  alias?: string;
+}
+
+/**
+ * 内置浏览器「网络出口」选择器:session 级(persist:browser 全局唯一,所有标签共享),
+ * 权威态单源在 main —— 本组件只镜像 browserNet.get()/onChanged,绝不本地臆测出口
+ * (远程不可用时的回退 local 全靠 main 推事件/set() 返回值反映,不做乐观更新)。
+ */
+function BrowserNetSelector() {
+  const [currentNet, setCurrentNet] = useState<BrowserNetworkState>({ hostId: 'local' });
+  const [open, setOpen] = useState(false);
+  const [candidates, setCandidates] = useState<NetOption[]>([]);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // 拉权威态对齐 + 订阅变更(含断线自动回退 local);window.okwork 可能不存在(测试态),可选链防御
+  useEffect(() => {
+    let cancelled = false;
+    window.okwork?.browserNet
+      ?.get?.()
+      .then((s) => {
+        if (!cancelled) setCurrentNet(s);
+      });
+    const unsubscribe = window.okwork?.browserNet?.onChanged?.((s) => setCurrentNet(s));
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  // 打开期间:外部点击关闭(mousedown,复刻 WorktreeDropdown 的惯例)
+  useEffect(() => {
+    if (!open) return;
+    function onMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [open]);
+
+  // 每次打开都重新拉阶段快照 + 配置列表(远程机可能刚就绪/刚断线,不用陈旧候选)
+  const openMenu = useCallback(() => {
+    setOpen(true);
+    const stagesP =
+      window.okwork?.remoteHost?.stages?.() ?? Promise.resolve({} as Record<string, RemoteStage>);
+    const listP = window.okwork?.remoteHost?.list?.() ?? Promise.resolve([] as RemoteHostConfig[]);
+    Promise.all([stagesP, listP]).then(([stages, list]) => {
+      const ready = list.filter((cfg) => stages[cfg.id] === 'ready');
+      setCandidates(ready.map((cfg) => ({ hostId: cfg.id, alias: cfg.alias })));
+    });
+  }, []);
+
+  // 用 set() 的返回值收尾(不乐观更新):请求远程但该机已不可用时 main 会回退 local,
+  // UI 必须反映真实生效态,而非用户点的那一项
+  const handleSelect = useCallback(async (hostId: string) => {
+    if (!window.okwork?.browserNet?.set) {
+      setOpen(false);
+      return;
+    }
+    const next = await window.okwork.browserNet.set(hostId);
+    setCurrentNet(next);
+    setOpen(false);
+  }, []);
+
+  const isRemote = currentNet.hostId !== 'local';
+  const label = isRemote ? (currentNet.alias ?? currentNet.hostId) : t('Local network');
+
+  return (
+    <div className="browser-panel__net">
+      <button
+        type="button"
+        ref={triggerRef}
+        className={`browser-panel__nav-btn browser-panel__net-btn${
+          isRemote ? ' browser-panel__net-btn--active' : ''
+        }`}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        title={t('Browser network exit: {name}', { name: label })}
+      >
+        {isRemote && <span className="browser-panel__net-dot" />}
+        <span className="browser-panel__net-icon">🌐</span>
+        <span className="browser-panel__net-label">{label}</span>
+      </button>
+
+      {open && (
+        <div className="browser-panel__net-menu" ref={menuRef}>
+          <div
+            className={`browser-panel__net-item${
+              !isRemote ? ' browser-panel__net-item--selected' : ''
+            }`}
+            onClick={() => handleSelect('local')}
+          >
+            <span className="browser-panel__net-check">{!isRemote ? '✓' : ''}</span>
+            <span className="browser-panel__net-item-label">{t('Local network')}</span>
+          </div>
+          {candidates.map((c) => {
+            const selected = currentNet.hostId === c.hostId;
+            return (
+              <div
+                key={c.hostId}
+                className={`browser-panel__net-item${
+                  selected ? ' browser-panel__net-item--selected' : ''
+                }`}
+                onClick={() => handleSelect(c.hostId)}
+              >
+                <span className="browser-panel__net-check">{selected ? '✓' : ''}</span>
+                <span className="browser-panel__net-item-label">{c.alias ?? c.hostId}</span>
+              </div>
+            );
+          })}
+          {candidates.length === 0 && (
+            <div className="browser-panel__net-empty">{t('No connected remote machines')}</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -406,6 +530,7 @@ export function BrowserPanel() {
         >
           ↗
         </button>
+        <BrowserNetSelector />
       </div>
 
       <div className="browser-panel__views">

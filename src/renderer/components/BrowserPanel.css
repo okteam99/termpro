@@ -158,6 +158,107 @@
   border-color: var(--fg-dim);
 }
 
+/* ── 网络出口选择器(session 级,所有标签共享同一出口) ── */
+.browser-panel__net {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.browser-panel__net-btn {
+  width: auto;
+  max-width: 130px;
+  padding: 0 6px;
+  gap: 3px;
+}
+
+.browser-panel__net-icon {
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.browser-panel__net-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* 远程出口生效时的激活态:文字着色 + 小圆点,一眼区分「不是走本机网络」 */
+.browser-panel__net-btn--active {
+  color: var(--fg);
+}
+
+.browser-panel__net-btn--active .browser-panel__net-label {
+  color: var(--green);
+}
+
+.browser-panel__net-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+.browser-panel__net-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 150px;
+  max-width: 240px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  z-index: 20;
+  -webkit-app-region: no-drag;
+}
+
+.browser-panel__net-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+.browser-panel__net-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+}
+
+.browser-panel__net-item--selected {
+  color: var(--fg);
+}
+
+.browser-panel__net-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-panel__net-check {
+  width: 11px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.browser-panel__net-empty {
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  opacity: 0.7;
+}
+
 /* ── 视图区(所有标签的 webview 常驻挂载,仅活跃可见) ── */
 .browser-panel__views {
   position: relative;

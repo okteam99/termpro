@@ -335,4 +335,7 @@ export const zh: Record<string, string> = {
   'Stop': '停止',
   'Open in system browser': '用系统浏览器打开',
   'Enter a URL or search to get started': '输入网址或搜索内容开始浏览',
+  'Local network': '本机网络',
+  'No connected remote machines': '无已连接的远程机',
+  'Browser network exit: {name}': '浏览器网络出口:{name}',
 };
