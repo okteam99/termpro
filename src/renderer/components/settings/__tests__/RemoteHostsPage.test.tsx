@@ -46,6 +46,15 @@ vi.mock('../../../services/hostRegistry', () => ({
   hostRegistry: hostRegistryMock,
 }));
 
+// reconnectWiring 全 mock:页面只依赖 cancel(用户主动断开终止在途重连编排),
+// 真实模块会拖入 remoteWorkspaceSync/sessionReadopt 等重依赖,与本文件无关。
+const { reconnectControllerMock } = vi.hoisted(() => ({
+  reconnectControllerMock: { cancel: vi.fn() },
+}));
+vi.mock('../../../services/reconnectWiring', () => ({
+  reconnectController: reconnectControllerMock,
+}));
+
 function makeConfig(overrides: Partial<RemoteHostConfig> = {}): RemoteHostConfig {
   return {
     id: 'cfg-1',
@@ -382,6 +391,8 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
 
     expect(bridge.disconnect).toHaveBeenCalledWith({ id: 'mini-pc' });
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('mini-pc');
+    // 用户意图 = 保持断开:在途重连编排(退避计时器/尝试)必须一并终止,否则会被重新拉起
+    expect(reconnectControllerMock.cancel).toHaveBeenCalledWith('mini-pc');
     await waitFor(() => expect(screen.queryByText('✓ Connected')).toBeNull());
     expect(screen.getByText('Connect')).toBeInTheDocument();
   });

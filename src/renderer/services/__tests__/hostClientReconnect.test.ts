@@ -170,6 +170,42 @@ describe('markdown_fork_local_terminal_vs_remote_triggers_reconnect (T-020)', ()
   });
 });
 
+describe('user_disconnect_stays_disconnected_no_auto_reconnect', () => {
+  it('dispose 摘除 ws.onclose:迟到的异步 close 事件不触发 reconnectNeeded(主动断开保持断开)', async () => {
+    stubGlobalWebSocket();
+    const client = new HostClient({ reconnectable: true });
+    await client.connect({ wsUrl: 'ws://127.0.0.1:6004?token=a' });
+    const reconnectCb = vi.fn();
+    client.onReconnectNeeded(reconnectCb);
+
+    const ws = FakeWebSocket.instances[0];
+    client.dispose(); // 用户主动断开(hostRegistry.drop 路径)
+
+    // 浏览器 ws.close() 的 close 事件异步派发:dispose 返回(tearingDown 已复位)后才到——
+    // 主动关闭必须已摘 onclose,否则误入 reconnectable 分叉 → 自动重连
+    expect(ws.closed).toBe(true);
+    expect(ws.onclose).toBeNull();
+    ws.onclose?.();
+    expect(reconnectCb).not.toHaveBeenCalled();
+  });
+
+  it('reconnect 关旧 transport 同样摘 onclose:旧 ws 迟到 close 不再次触发 reconnectNeeded', async () => {
+    stubGlobalWebSocket();
+    const client = new HostClient({ reconnectable: true });
+    await client.connect({ wsUrl: 'ws://127.0.0.1:6005?token=a' });
+    const reconnectCb = vi.fn();
+    client.onReconnectNeeded(reconnectCb);
+
+    const oldWs = FakeWebSocket.instances[0];
+    await client.reconnect({ wsUrl: 'ws://127.0.0.1:6006?token=b' });
+
+    expect(oldWs.onclose).toBeNull();
+    oldWs.onclose?.();
+    expect(reconnectCb).not.toHaveBeenCalled();
+    client.dispose();
+  });
+});
+
 describe('missing_capabilities_skips_list_attach_falls_back_new_spawn (T-038)', () => {
   it('capabilities 缺失 → supportsSessionResume=false(退化 new spawn 判据)', async () => {
     const noCap: HostInfo = { ...V1_INFO };

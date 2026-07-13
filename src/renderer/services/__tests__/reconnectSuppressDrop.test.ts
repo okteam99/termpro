@@ -148,6 +148,29 @@ describe('definite_disconnect_over_budget_triggers_bl004_full_drop (T-031)', () 
     expect(disconnect.mock.calls.length).toBe(calls); // 无残留计时器再触发
   });
 
+  it('用户主动断开 cancel:清退避计时器与 reconnecting 态,退避到点不再拉起(保持断开)', () => {
+    const { controller, connect, disconnect, stopSync } = makeDeps();
+    controller.onDisconnected('cfg-1'); // 进入重连编排(首试)
+    controller.onAttemptFailed('cfg-1'); // 排了退避计时器
+    const connects = connect.mock.calls.length;
+    const disconnects = disconnect.mock.calls.length;
+
+    controller.cancel('cfg-1'); // 用户点「断开」
+
+    expect(useRemoteHostRuntimeStore.getState().isReconnecting('cfg-1')).toBe(false);
+    expect(controller.isActive('cfg-1')).toBe(false);
+    vi.advanceTimersByTime(60_000); // 远超全部退避档位
+    expect(connect.mock.calls.length).toBe(connects); // 无残留重试拉起
+    expect(disconnect.mock.calls.length).toBe(disconnects);
+    expect(stopSync).not.toHaveBeenCalled(); // cancel 不走 drop 出口(折叠由断开 UI 流程自理)
+  });
+
+  it('cancel 后未在编排:再次 cancel 为廉价 no-op(不抛不改态)', () => {
+    const { controller } = makeDeps();
+    controller.cancel('cfg-x');
+    expect(useRemoteHostRuntimeStore.getState().isReconnecting('cfg-x')).toBe(false);
+  });
+
   it('manualRetry 复位退避预算(给足新窗口·横幅「立即重试」)', () => {
     const { controller, disconnect, stopSync } = makeDeps();
     controller.onDisconnected('cfg-1');

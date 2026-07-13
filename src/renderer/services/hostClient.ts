@@ -72,6 +72,11 @@ export class WebSocketTransport implements Transport {
     this.ws.onclose = () => cb();
   }
   close(): void {
+    // 🔴 主动关闭先摘 onclose:浏览器 ws.close() 的 close 事件是**异步**派发的,
+    // dispose/reconnect 的 tearingDown 同步窗口罩不住迟到事件——不摘则用户主动断开后,
+    // 迟到的 onclose 误入 handleTransportClose 的 reconnectable 分叉 → reconnectNeeded
+    // → 自动重连,违背「保持断开」。远端异常断链(非本方法触发)不受影响,onclose 仍在。
+    this.ws.onclose = null;
     this.ws.close();
   }
 }

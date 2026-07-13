@@ -4,6 +4,7 @@ import { t } from '../../shared/i18n';
 import { useAppStore, tildify } from '../state/store';
 import type { WorkspaceState } from '../state/store';
 import { hostRegistry } from '../services/hostRegistry';
+import type { HostClient } from '../services/hostClient';
 import {
   startRemoteWorkspaceSync,
   stopRemoteWorkspaceSync,
@@ -302,8 +303,12 @@ export function Sidebar() {
   // 同生命周期)。与「谁完成了握手」解耦——不论是本组件的 beginHandshake 还是 RemoteHostsPage
   // 完成的握手,只要 runtime 落到 ready 就触发一次,重入由 remoteWorkspaceSync 内部去重。
   const syncedHosts = useRef<Set<string>>(new Set());
-  const reconnectWired = useRef<Set<string>>(new Set());
-  const rttWired = useRef<Set<string>>(new Set());
+  // 🔴 重连/RTT 接线按 **client 实例**键控(WeakSet),不按 configId:用户手动断开会
+  // hostRegistry.drop(dispose + 删除实例),重新连接时 getOrCreateRemote 造**新实例**——
+  // 若按 configId 记「已接线」,新实例永远接不上 onReconnectNeeded/onRtt(掉线不再自动重连)。
+  // 旧实例已从 registry 摘除,随 GC 释放,WeakSet 不延长其生命周期。
+  const reconnectWired = useRef<WeakSet<HostClient>>(new WeakSet());
+  const rttWired = useRef<WeakSet<HostClient>>(new WeakSet());
   useEffect(() => {
     for (const [configId, evt] of Object.entries(runtimeMap)) {
       if (evt.stage === 'ready') {
@@ -315,27 +320,24 @@ export function Sidebar() {
         // 触发 session.attach → reject → 收养静默中止 → 终端冻结。改由 beginHandshake 的
         // `client.reconnect().then`(ws 真 open 后)调 reconnectController.onReconnected。此处仅保留与
         // 「谁完成握手」解耦的 workspace 发现 + onReconnectNeeded 订阅。
-        // 订该 client 的「需要重连」信号(心跳判死 / transport close·仅订一次)→ 启动重连编排
-        if (!reconnectWired.current.has(configId)) {
-          const client = hostRegistry.forHostId(configId);
-          const unsub = client?.onReconnectNeeded?.(() =>
+        // 订该 client 的「需要重连」信号(心跳判死 / transport close·每实例仅订一次)→ 启动重连编排
+        const client = hostRegistry.forHostId(configId);
+        if (client && !reconnectWired.current.has(client)) {
+          client.onReconnectNeeded?.(() =>
             reconnectController.onDisconnected(configId),
           );
-          if (unsub) reconnectWired.current.add(configId);
+          reconnectWired.current.add(client);
         }
-        // 订该 client 的心跳 RTT(仅订一次;client 实例跨重连复用)→ 组头连接延迟展示。
-        // 心跳首拍在 interval(5s)后才有值:接线时立即种一发,连上即见延迟。
-        if (!rttWired.current.has(configId)) {
-          const client = hostRegistry.forHostId(configId);
-          if (client?.onRtt) {
-            rttWired.current.add(configId);
-            client.onRtt((ms) => setRtt(configId, ms));
-            const t0 = Date.now();
-            void client.rpc('host.info', undefined).then(
-              () => setRtt(configId, Date.now() - t0),
-              () => undefined,
-            );
-          }
+        // 订该 client 的心跳 RTT(每实例仅订一次;实例跨瞬时重连复用,手动断开后是新实例)
+        // → 组头连接延迟展示。心跳首拍在 interval(5s)后才有值:接线时立即种一发,连上即见延迟。
+        if (client?.onRtt && !rttWired.current.has(client)) {
+          rttWired.current.add(client);
+          client.onRtt((ms) => setRtt(configId, ms));
+          const t0 = Date.now();
+          void client.rpc('host.info', undefined).then(
+            () => setRtt(configId, Date.now() - t0),
+            () => undefined,
+          );
         }
       } else {
         syncedHosts.current.delete(configId);

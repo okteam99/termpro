@@ -28,6 +28,7 @@ import {
 } from '../../../shared/remoteHost';
 import { ProtocolIncompatibleError } from '../../../shared/versionCompat';
 import { hostRegistry } from '../../services/hostRegistry';
+import { reconnectController } from '../../services/reconnectWiring';
 import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
 import { t } from '../../../shared/i18n';
 
@@ -280,9 +281,12 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
    * E6:若此时 main 侧编排仍在途(部署/启动/握手中断开),标记该 configId 为"已弃"——
    * 沿途残余事件(deploying/starting/verifying/ready…)到达时被过滤,不会把已清空的
    * runtime 复活、也不会对已 drop 的 client 重新触发握手。
+   * 🔴 用户意图 = 保持断开:重连编排若在途(退避计时器/在途尝试)必须一并终止,
+   * 否则 reconnectController 会在退避后把连接重新拉起。
    */
   function handleDisconnect(id: string) {
     abandonedRef.current.add(id);
+    reconnectController.cancel(id);
     window.termpro.remoteHost.disconnect({ id });
     clearRuntime(id);
     hostRegistry.drop(id);

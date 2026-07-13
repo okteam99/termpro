@@ -52,6 +52,12 @@ export interface ReconnectController {
   onReconnected(configId: string): void;
   /** 用户「立即重试」:复位退避 + 立即再试一次。 */
   manualRetry(configId: string): void;
+  /**
+   * 用户主动断开:终止在途重连编排(清退避计数/悬挂计时器/reconnecting 态),之后
+   * 不再有任何重试拉起——保持断开。不走 drop 出口(stopSync 由断开 UI 流程/Sidebar 折叠自理)。
+   * 未在编排时为廉价 no-op。
+   */
+  cancel(configId: string): void;
   /** 当前是否正编排该 configId 的重连(测试/调用方查询)。 */
   isActive(configId: string): boolean;
 }
@@ -147,6 +153,10 @@ export function createReconnectController(
         backoffs.set(configId, deps.makeBackoff());
       }
       fireAttempt(configId);
+    },
+
+    cancel(configId: string): void {
+      cleanup(configId);
     },
 
     isActive(configId: string): boolean {
