@@ -183,6 +183,14 @@ export class SshConnection implements SshConnectionLike {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        // 🔴 关 Nagle(远程输入卡顿主因):交互式终端每次按键是小包,Nagle + delayed-ACK
+        // 互锁会把小包压 40–200ms 才发,广域网上尤甚(此 socket 走 WAN)。OpenSSH 交互
+        // 会话默认即 TCP_NODELAY。best-effort:失败不影响连接可用。
+        try {
+          client.setNoDelay(true);
+        } catch {
+          /* best-effort perf,忽略 */
+        }
         resolve(new SshConnection(client, hostKeyDigest));
       });
       client.on('error', (err) => {
@@ -368,6 +376,9 @@ export class SshConnection implements SshConnectionLike {
 
   forwardOut(localPort: number, remotePort: number): net.Server {
     const server = net.createServer((socket) => {
+      // 关 Nagle:此隧道承载渲染层↔host 的 WebSocket(含每次按键 pty:input),
+      // 小包低延迟优先(与 ssh2 外层 socket、远程 WS socket 三处一致)
+      socket.setNoDelay(true);
       this.client.forwardOut(
         '127.0.0.1',
         socket.remotePort ?? 0,

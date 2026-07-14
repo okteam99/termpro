@@ -240,6 +240,9 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
   }
 
   httpServer.on('upgrade', (req: IncomingMessage, socket: Socket, head) => {
+    // 关 Nagle(远程侧环回):WS 帧承载 pty 输入/输出,小包低延迟优先(与 main 侧
+    // ssh2 外层 + forwardOut socket 三处一致)。被拒连接随即 destroy,提前设无副作用。
+    socket.setNoDelay(true);
     let provided: string | null = null;
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
