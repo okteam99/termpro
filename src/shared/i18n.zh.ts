@@ -267,6 +267,14 @@ export const zh: Record<string, string> = {
   'Later': '稍后',
   'Install and Restart': '安装并重启',
 
+  // --- 设置:终端链接打开方式 ---
+  'Open links in': '链接打开方式',
+  'Built-in browser': '内置浏览器',
+  'System browser': '系统浏览器',
+  'Built-in for remote terminals only': '仅远程终端用内置浏览器',
+  'Where terminal links open. ⌘/Ctrl+click always opens in the system browser.':
+    '终端里点击链接的打开位置。⌘/Ctrl+点击恒用系统浏览器。',
+
   // --- main/rendererRecovery(崩溃自愈 give-up 弹窗) ---
   'OkWork keeps crashing': 'OkWork 持续崩溃',
   'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWork.':

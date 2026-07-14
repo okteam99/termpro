@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { t } from '../../shared/i18n';
 import type { LocalePref } from '../../shared/i18n';
 import { useAppStore } from '../state/store';
+import type { LinkBrowserMode } from '../state/store';
 import { RemoteHostsPage } from './settings/RemoteHostsPage';
 
 // 应用图标(About 弹窗 logo)· Vite 把资源打进 renderer bundle(dev + 打包均生效)
@@ -162,6 +163,34 @@ const LOCALE_OPTIONS: { pref: LocalePref; label(): string }[] = [
   { pref: 'zh-CN', label: () => '简体中文' },
 ];
 
+// 终端链接打开方式(默认内置浏览器;⌘/Ctrl+点击恒走系统浏览器不受此影响)
+const LINK_BROWSER_OPTIONS: { mode: LinkBrowserMode; label(): string }[] = [
+  { mode: 'builtin', label: () => t('Built-in browser') },
+  { mode: 'system', label: () => t('System browser') },
+  { mode: 'builtinForRemote', label: () => t('Built-in for remote terminals only') },
+];
+
+/** 链接打开方式:指针点击链接轮廓 */
+function LinkIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5.8 8.2 8.6 5.4" />
+      <path d="M6.9 3.9 8 2.8a2.3 2.3 0 0 1 3.2 3.2L10.1 7.1" />
+      <path d="M7.5 10.1 6.4 11.2a2.3 2.3 0 0 1-3.2-3.2L4.3 6.9" />
+    </svg>
+  );
+}
+
 interface SettingsEntryProps {
   devChannel?: boolean;
 }
@@ -176,6 +205,8 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const [remoteHostsOpen, setRemoteHostsOpen] = useState(false);
   // 语言项的行内展开态(菜单关闭时复位)
   const [langOpen, setLangOpen] = useState(false);
+  // 链接打开方式的行内展开态(同语言项交互)
+  const [linkModeOpen, setLinkModeOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   // 持有打开弹窗前的聚焦元素,关闭时还原(AC-6 · About/Remote Hosts 弹层共用同一归还机制)
   const prevFocusRef = useRef<HTMLElement | null>(null);
@@ -183,6 +214,8 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const setPinBottomBar = useAppStore((s) => s.setPinBottomBar);
   const localePref = useAppStore((s) => s.localePref);
   const setLocalePref = useAppStore((s) => s.setLocalePref);
+  const linkBrowserMode = useAppStore((s) => s.linkBrowserMode);
+  const setLinkBrowserMode = useAppStore((s) => s.setLinkBrowserMode);
 
   // 安全读 version:bridge 缺失或 version 空都回退 ""
   const version = window.okwork?.version ?? '';
@@ -206,9 +239,12 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
     };
   }, [menuOpen]);
 
-  // 菜单关闭 → 语言展开态复位(下次打开回到收起)
+  // 菜单关闭 → 行内展开态复位(下次打开回到收起)
   useEffect(() => {
-    if (!menuOpen) setLangOpen(false);
+    if (!menuOpen) {
+      setLangOpen(false);
+      setLinkModeOpen(false);
+    }
   }, [menuOpen]);
 
   function openAbout() {
@@ -290,6 +326,41 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
               >
                 <span className="settings-menu-option-check" aria-hidden="true">
                   {o.pref === localePref ? '✓' : ''}
+                </span>
+                <span className="settings-menu-label">{o.label()}</span>
+              </button>
+            ))}
+          <button
+            className="settings-menu-item"
+            role="menuitem"
+            aria-haspopup="true"
+            aria-expanded={linkModeOpen}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            onClick={() => setLinkModeOpen((v) => !v)}
+            title={t(
+              'Where terminal links open. ⌘/Ctrl+click always opens in the system browser.',
+            )}
+          >
+            <span className="settings-menu-icon">
+              <LinkIcon />
+            </span>
+            <span className="settings-menu-label">{t('Open links in')}</span>
+            <span className="settings-menu-value">
+              {LINK_BROWSER_OPTIONS.find((o) => o.mode === linkBrowserMode)?.label()}
+            </span>
+          </button>
+          {linkModeOpen &&
+            LINK_BROWSER_OPTIONS.map((o) => (
+              <button
+                key={o.mode}
+                className="settings-menu-item settings-menu-option"
+                role="menuitemradio"
+                aria-checked={o.mode === linkBrowserMode}
+                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                onClick={() => setLinkBrowserMode(o.mode)}
+              >
+                <span className="settings-menu-option-check" aria-hidden="true">
+                  {o.mode === linkBrowserMode ? '✓' : ''}
                 </span>
                 <span className="settings-menu-label">{o.label()}</span>
               </button>

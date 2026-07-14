@@ -102,10 +102,11 @@ describe('settingsEntry_toggles_menu_with_remote_hosts_and_about_items', () => {
     const menu = screen.getByRole('menu');
     expect(menu).toBeInTheDocument();
     const menuItems = screen.getAllByRole('menuitem');
-    expect(menuItems).toHaveLength(3);
+    expect(menuItems).toHaveLength(4);
     expect(menuItems[0]).toHaveTextContent('Language');
-    expect(menuItems[1]).toHaveTextContent('Remote Hosts');
-    expect(menuItems[2]).toHaveTextContent('About');
+    expect(menuItems[1]).toHaveTextContent('Open links in');
+    expect(menuItems[2]).toHaveTextContent('Remote Hosts');
+    expect(menuItems[3]).toHaveTextContent('About');
 
     // Second click: close (toggle)
     fireEvent.click(entryBtn);

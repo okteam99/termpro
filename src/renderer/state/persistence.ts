@@ -153,6 +153,8 @@ export function serialize(s: AppState): PersistedState {
     ...(s.filePanelCollapsed ? { filePanelCollapsed: true } : {}),
     // 浏览器面板:打开才写开关(标签已 per-tab 存于 PersistedTab.browser,不再写全局)
     ...(s.browserPanelOpen ? { browserPanelOpen: true } : {}),
+    // 'builtin' 不写盘(缺省即内置浏览器)
+    ...(s.linkBrowserMode !== 'builtin' ? { linkBrowserMode: s.linkBrowserMode } : {}),
     // 空集不写盘(存档整洁;缺省即全展开)
     ...(s.collapsedMachines.length > 0 ? { collapsedMachines: s.collapsedMachines } : {}),
     // 'system' 不写盘(缺省即随系统;main 启动读此字段定 locale)

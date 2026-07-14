@@ -70,6 +70,19 @@ export interface BrowserPaneState {
   activeTabId: string | null;
 }
 
+/** 终端链接打开方式(设置项 · 默认 'builtin'):
+ *  'system' = 系统默认浏览器;'builtin' = 内置浏览器窗格(落到来源终端 tab);
+ *  'builtinForRemote' = 仅远程终端 tab 用内置(本机 tab 走系统浏览器——远程场景里
+ *  localhost 类地址只有经内置浏览器+远程网络出口才可达,本机则系统浏览器更顺手)。
+ *  ⌘/Ctrl+点击恒走系统浏览器(逃生口),不受此设置影响。 */
+export type LinkBrowserMode = 'system' | 'builtin' | 'builtinForRemote';
+
+export const LINK_BROWSER_MODES: readonly LinkBrowserMode[] = [
+  'system',
+  'builtin',
+  'builtinForRemote',
+];
+
 export interface WorkspaceState {
   id: string;
   name: string;
@@ -142,6 +155,8 @@ interface PersistedUi {
   browserActiveTabId?: string | null;
   /** 向上滚动时固定底部输入栏(默认关) */
   pinBottomBar?: boolean;
+  /** 终端链接打开方式;缺省 = 'builtin'(内置浏览器,不写盘) */
+  linkBrowserMode?: LinkBrowserMode;
   /** Sidebar 折叠中的机器分组('local' | configId);展开为默认态,不入存档 */
   collapsedMachines?: string[];
   /** 语言偏好;缺省 = 随系统('system' 不写盘) */
@@ -280,6 +295,9 @@ export interface AppState {
   /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
   pinBottomBar: boolean;
   setPinBottomBar(value: boolean): void;
+  /** 终端链接打开方式(linkOpenPolicy 据此路由;⌘/Ctrl+点击恒走系统浏览器),随 ui 存档持久化 */
+  linkBrowserMode: LinkBrowserMode;
+  setLinkBrowserMode(mode: LinkBrowserMode): void;
   /** Sidebar 折叠中的机器分组 id 集('local' | configId),随 ui 存档持久化 */
   collapsedMachines: string[];
   toggleMachineCollapsed(machineId: string): void;
@@ -494,6 +512,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   filePanelCollapsed: false,
   browserPanelOpen: false,
   pinBottomBar: false,
+  linkBrowserMode: 'builtin',
   remoteTabLayouts: {},
 
   hydrate(registry, archive) {
@@ -529,6 +548,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         browserPanelWidth: archive.ui.browserPanelWidth ?? 480,
         browserPanelOpen: archive.ui.browserPanelOpen ?? false,
         pinBottomBar: archive.ui.pinBottomBar ?? false,
+        // 只认合法枚举值(防篡改/降级存档);缺省/非法 → 'builtin'
+        linkBrowserMode: LINK_BROWSER_MODES.includes(
+          archive.ui.linkBrowserMode as LinkBrowserMode,
+        )
+          ? (archive.ui.linkBrowserMode as LinkBrowserMode)
+          : 'builtin',
         collapsedMachines: archive.ui.collapsedMachines ?? [],
         localePref,
       });
@@ -1017,6 +1042,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPinBottomBar(value) {
     set({ pinBottomBar: value });
+  },
+
+  setLinkBrowserMode(mode) {
+    set({ linkBrowserMode: mode });
   },
 
   collapsedMachines: [],

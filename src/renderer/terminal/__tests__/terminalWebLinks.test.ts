@@ -139,7 +139,7 @@ describe('内置浏览器优先(用户指令 2026-07-14)', () => {
 
   it('纯点击:opener(tabId, url),不走系统浏览器(纯文本链接)', async () => {
     const mod = await import('../terminalLinks');
-    const opener = vi.fn();
+    const opener = vi.fn(() => true);
     mod.setBuiltinWebLinkOpener(opener);
     const term = terminalWithLine('see https://example.com/docs now');
     const provider = new mod.SystemWebLinkProvider('tab-9', term);
@@ -161,7 +161,7 @@ describe('内置浏览器优先(用户指令 2026-07-14)', () => {
 
   it('⌘+点击:走系统浏览器,不进内置窗格(OSC 8 同一路由)', async () => {
     const mod = await import('../terminalLinks');
-    const opener = vi.fn();
+    const opener = vi.fn(() => true);
     mod.setBuiltinWebLinkOpener(opener);
     const handler = mod.createOscLinkHandler('tab-9');
     const event = {
@@ -178,7 +178,7 @@ describe('内置浏览器优先(用户指令 2026-07-14)', () => {
 
   it('Ctrl+点击同 ⌘(Linux/Win 惯例);纯点击 OSC 8 → opener', async () => {
     const mod = await import('../terminalLinks');
-    const opener = vi.fn();
+    const opener = vi.fn(() => true);
     mod.setBuiltinWebLinkOpener(opener);
     const handler = mod.createOscLinkHandler('tab-7');
 
@@ -195,5 +195,23 @@ describe('内置浏览器优先(用户指令 2026-07-14)', () => {
       range,
     );
     expect(opener).toHaveBeenCalledWith('tab-7', 'https://a.dev/2');
+  });
+});
+
+describe('opener 返回 false(策略判走系统浏览器)', () => {
+  it('opener 被调用但拒接 → 落系统浏览器(linkBrowserMode=system/本机 tab 场景)', async () => {
+    const mod = await import('../terminalLinks');
+    const opener = vi.fn(() => false);
+    mod.setBuiltinWebLinkOpener(opener);
+    const handler = mod.createOscLinkHandler('tab-3');
+
+    handler.activate(
+      { preventDefault: vi.fn(), metaKey: false, ctrlKey: false } as unknown as MouseEvent,
+      'https://a.dev/sys',
+      { start: { x: 1, y: 1 }, end: { x: 10, y: 1 } },
+    );
+
+    expect(opener).toHaveBeenCalledWith('tab-3', 'https://a.dev/sys');
+    expect(openExternal).toHaveBeenCalledWith('https://a.dev/sys');
   });
 });
