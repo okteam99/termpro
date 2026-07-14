@@ -5,6 +5,7 @@ import { selectActiveWorkspace, useAppStore } from './state/store';
 import { initPersistence } from './state/persistence';
 import { initSessionEvents } from './services/sessionEvents';
 import { initSettingsSync } from './services/settingsSync';
+import { initBrowserNetFollow } from './services/browserNetFollow';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
@@ -90,6 +91,7 @@ export default function App() {
     void initPersistence();
     initSessionEvents();
     initSettingsSync();
+    initBrowserNetFollow();
   }, [hostInfo]);
 
   // 冒烟模式:空状态自动建一个 workspace,跑通 store→终端全链路

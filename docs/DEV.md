@@ -141,7 +141,10 @@ preload 是沙箱环境，无法直接通过 contextBridge 传递 MessagePort，
   → 远端 sshd 解析域名并出网（远程 DNS + 远程出口 IP）
 ```
 
-两条硬语义（2026-07）：
+三条硬语义（2026-07）：
+
+- **默认出口跟随终端 tab**：面板打开/打开状态下切换活跃终端 tab 时，出口自动对齐该 tab
+  所属机器（`browserNetFollow`）；手动选择在停留当前 tab 期间生效，切 tab 即重新对齐。
 
 - **loopback 也走远程**：`<-loopback>` 撤销 Chromium 对 localhost/127.0.0.1 的隐式代理豁免——
   「走远程出口」的核心场景恰是访问远程机上的 dev server（remote localhost），不撤销则
