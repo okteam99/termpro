@@ -275,6 +275,9 @@ export const zh: Record<string, string> = {
   'Where terminal links open. ⌘/Ctrl+click always opens in the system browser.':
     '终端里点击链接的打开位置。⌘/Ctrl+点击恒用系统浏览器。',
 
+  // --- 浏览器面板:加载失败错误条 ---
+  'Page failed to load: {error}': '页面加载失败：{error}',
+
   // --- main/rendererRecovery(崩溃自愈 give-up 弹窗) ---
   'OkWork keeps crashing': 'OkWork 持续崩溃',
   'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWork.':

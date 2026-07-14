@@ -135,11 +135,20 @@ preload 是沙箱环境，无法直接通过 contextBridge 传递 MessagePort，
 
 ```
 浏览器 tab (persist:browser)
-  → session.setProxy(socks5://127.0.0.1:<本地随机端口>)
+  → session.setProxy(socks5://127.0.0.1:<本地随机端口>, proxyBypassRules: '<-loopback>')
   → 本地 SOCKS5 代理 (src/main/remote/socksProxy.ts, 仅监听 127.0.0.1)
   → 每条 TCP 连接 = 一条 ssh direct-tcpip channel (ssh.openOutbound)
   → 远端 sshd 解析域名并出网（远程 DNS + 远程出口 IP）
 ```
+
+两条硬语义（2026-07）：
+
+- **loopback 也走远程**：`<-loopback>` 撤销 Chromium 对 localhost/127.0.0.1 的隐式代理豁免——
+  「走远程出口」的核心场景恰是访问远程机上的 dev server（remote localhost），不撤销则
+  localhost 恒直连本机、白屏无报错。
+- **断线 fail-closed**：出口远程机断线只标记 `down`（选择器红点 + 重连中），代理留在死端口
+  请求快速失败，绝不静默回退本机网络；重连 ready 自动重建 SOCKS 恢复。回 local 仅两条路：
+  用户手动切 / 删除该机。
 
 四条纪律：
 

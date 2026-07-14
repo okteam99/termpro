@@ -195,9 +195,19 @@ registerRemoteHostIpc(
 // persist:browser session 的代理:local=直连;远程=该机本地 SOCKS5 端口(远程 DNS)。
 const browserNetwork = new BrowserNetworkController({
   setProxy: (rules) =>
-    session
-      .fromPartition('persist:browser')
-      .setProxy(rules === null ? { mode: 'direct' } : { proxyRules: rules }),
+    session.fromPartition('persist:browser').setProxy(
+      rules === null
+        ? { mode: 'direct' }
+        : {
+            proxyRules: rules,
+            // 🔴 <-loopback>:撤销 Chromium 对 localhost/127.0.0.1/[::1] 的【隐式代理
+            // 豁免】(用户报告 2026-07-14「访问 localhost 没反应也没报错」根因)。
+            // 不撤销时 localhost 恒直连【本机】,而「走远程出口」的核心场景恰是访问
+            // 远程机上的 dev server(remote localhost)——必须让 loopback 也进 SOCKS,
+            // 由远端 sshd 解析 localhost(远程回环)。代理 server 自身连接不受此规则影响。
+            proxyBypassRules: '<-loopback>',
+          },
+    ),
   browserProxyFor: (configId) => remoteHostOrchestrator.browserProxyFor(configId),
   releaseBrowserProxy: (configId) => remoteHostOrchestrator.releaseBrowserProxy(configId),
   setWebRtcPolicy: (policy) => {

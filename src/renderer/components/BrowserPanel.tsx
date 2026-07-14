@@ -43,6 +43,8 @@ interface NavState {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** 主帧加载失败的 Chromium 错误描述(视图态;新导航开始即清) */
+  errorText?: string;
 }
 
 const DEFAULT_NAV_STATE: NavState = { loading: false, canGoBack: false, canGoForward: false };
@@ -129,10 +131,26 @@ function BrowserWebview({
       if (typeof title === 'string') onTitleChange(ownerTerminalTabId, tabId, title);
     }
     function handleStartLoading() {
-      onNavChange(tabId, { loading: true });
+      // 新一轮导航开始即清上一轮的失败态(错误条只描述当前页)
+      onNavChange(tabId, { loading: true, errorText: undefined });
     }
     function handleStopLoading() {
       onNavChange(tabId, { loading: false });
+    }
+    function handleDidFailLoad(e: Event) {
+      const ev = e as Event & {
+        errorCode?: number;
+        errorDescription?: string;
+        isMainFrame?: boolean;
+      };
+      // 子帧失败不算页面失败;-3 = ERR_ABORTED(用户中断/被新导航顶替)是正常噪声
+      if (!ev.isMainFrame || ev.errorCode === -3) return;
+      // 空白页必须能自解释(用户报告 2026-07-14「没反应也没报错」):webview 主帧
+      // 加载失败默认就是白屏,把 Chromium 错误码亮到面板错误条上。
+      onNavChange(tabId, {
+        loading: false,
+        errorText: `${ev.errorDescription || 'LOAD_FAILED'} (${ev.errorCode ?? '?'})`,
+      });
     }
 
     el.addEventListener('did-navigate', handleDidNavigate);
@@ -140,12 +158,14 @@ function BrowserWebview({
     el.addEventListener('page-title-updated', handleTitleUpdated);
     el.addEventListener('did-start-loading', handleStartLoading);
     el.addEventListener('did-stop-loading', handleStopLoading);
+    el.addEventListener('did-fail-load', handleDidFailLoad);
     return () => {
       el.removeEventListener('did-navigate', handleDidNavigate);
       el.removeEventListener('did-navigate-in-page', handleDidNavigateInPage);
       el.removeEventListener('page-title-updated', handleTitleUpdated);
       el.removeEventListener('did-start-loading', handleStartLoading);
       el.removeEventListener('did-stop-loading', handleStopLoading);
+      el.removeEventListener('did-fail-load', handleDidFailLoad);
     };
   }, [el, tabId, ownerTerminalTabId, onNavChange, onUrlChange, onTitleChange]);
 
@@ -615,6 +635,13 @@ export function BrowserPanel() {
         </button>
         <BrowserNetSelector />
       </div>
+
+      {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎ */}
+      {activeNav.errorText && (
+        <div className="browser-panel__load-error" role="alert">
+          {t('Page failed to load: {error}', { error: activeNav.errorText })}
+        </div>
+      )}
 
       <div className="browser-panel__views">
         {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),

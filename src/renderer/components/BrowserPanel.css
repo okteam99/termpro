@@ -208,6 +208,17 @@
   background: var(--red);
 }
 
+/* 主帧加载失败错误条(webview 失败默认白屏,必须自解释) */
+.browser-panel__load-error {
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+  word-break: break-all;
+}
+
 .browser-panel__net-menu {
   position: absolute;
   top: 100%;

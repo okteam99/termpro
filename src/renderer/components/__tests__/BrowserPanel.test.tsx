@@ -233,3 +233,49 @@ describe('BrowserPanel · window.open 按来源落位', () => {
     expect(term2.browser?.tabs).toHaveLength(1);
   });
 });
+
+describe('主帧加载失败错误条(空白页自解释 · 2026-07-14)', () => {
+  function failEvent(over: Record<string, unknown> = {}): Event {
+    return Object.assign(new Event('did-fail-load'), {
+      errorCode: -102,
+      errorDescription: 'ERR_CONNECTION_REFUSED',
+      isMainFrame: true,
+      ...over,
+    });
+  }
+
+  it('did-fail-load(主帧)→ 错误条亮出 Chromium 错误码;did-start-loading 清除', () => {
+    seedWorkspace({
+      tabs: [{ id: 'a', url: 'http://localhost:44583/offers/new' }],
+      activeTabId: 'a',
+    });
+    render(<BrowserPanel />);
+    const view = document.querySelector('webview')!;
+
+    act(() => {
+      view.dispatchEvent(failEvent());
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('ERR_CONNECTION_REFUSED (-102)');
+
+    // 重新导航即清(错误条只描述当前页)
+    act(() => {
+      view.dispatchEvent(new Event('did-start-loading'));
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('子帧失败 / ERR_ABORTED(-3) 不亮错误条(正常噪声)', () => {
+    seedWorkspace({
+      tabs: [{ id: 'a', url: 'https://example.com' }],
+      activeTabId: 'a',
+    });
+    render(<BrowserPanel />);
+    const view = document.querySelector('webview')!;
+
+    act(() => {
+      view.dispatchEvent(failEvent({ isMainFrame: false }));
+      view.dispatchEvent(failEvent({ errorCode: -3, errorDescription: 'ERR_ABORTED' }));
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
