@@ -267,6 +267,12 @@ export const zh: Record<string, string> = {
   'Later': '稍后',
   'Install and Restart': '安装并重启',
 
+  // --- main/rendererRecovery(崩溃自愈 give-up 弹窗) ---
+  'OkWork keeps crashing': 'OkWork 持续崩溃',
+  'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWork.':
+    '多次崩溃后已停止自动恢复。按 ⌘R 手动重试；若仍反复失败，请退出并重新打开 OkWork。',
+  'OK': '好',
+
   // --- main/main 右键菜单 ---
   'Rename…': '重命名…',
   'Close Tab': '关闭 Tab',

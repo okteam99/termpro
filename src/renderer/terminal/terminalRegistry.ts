@@ -537,6 +537,10 @@ export interface ReadoptHooks {
   reconcileBadge?(hostId: string, sessionId: string, snapshot: SessionSnapshot): void;
   /** path②:session.list 有本地无 inst → 据快照重建 tab,返回 tabId(null=不重建)。默认不重建。 */
   rebuildTab?(hostId: string, snapshot: SessionSnapshot): string | null;
+  /** path② rebuildTab 未收养(null)时的策略钩子(评审 P2-2):本地=kill 回收防「孤儿会话
+   *  续跑不可见」(embedded 时代 reload 即 kill,不回收是行为回归);远程=缺省 no-op,
+   *  维持「收养只做加法」的多端语义(其他设备可能还挂着)。 */
+  onUnadopted?(hostId: string, snapshot: SessionSnapshot, client: HostClient): void;
   // 以下 registry-coupled,默认内部实现,单测可覆盖:
   getClient?(hostId: string): HostClient | null;
   listInstances?(): Array<[string, TermInstance]>;
@@ -568,6 +572,7 @@ export async function readoptHost(
   const wireLive = hooks.wireLiveSession ?? wireLiveSession;
   const reconcileBadge = hooks.reconcileBadge ?? (() => undefined);
   const rebuildTab = hooks.rebuildTab ?? (() => null);
+  const onUnadopted = hooks.onUnadopted ?? (() => undefined);
 
   const client = getClient(hostId);
   if (!client) return;
@@ -622,7 +627,10 @@ export async function readoptHost(
   for (const snap of sessions) {
     if (adoptedSids.has(snap.sessionId) || localSids.has(snap.sessionId)) continue;
     const tabId = rebuildTab(hostId, snap);
-    if (!tabId) continue;
+    if (!tabId) {
+      onUnadopted(hostId, snap, client);
+      continue;
+    }
     const inst = getOrCreateInst(tabId);
     inst.hostId = hostId;
     inst.client = client;

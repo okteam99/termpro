@@ -22,6 +22,7 @@ import {
 import { useAppStore } from '../state/store';
 import type { WorkspaceState } from '../state/store';
 import type { SessionSnapshot } from '../../shared/protocol';
+import type { HostClient } from './hostClient';
 
 /**
  * 据快照对账 tab 徽标(AC-5/AC-12·渲染半侧·A3 review-fix):
@@ -107,6 +108,24 @@ export function restoreRemoteTabLayouts(
   }
 }
 
+/**
+ * 本地孤儿会话回收(评审 P2-2):路径② 映射不到 workspace 的**本地**会话(cwd 曾回退
+ * home / workspace 已删)直接 kill——embedded 时代 reload 即 kill,不回收是「续跑却
+ * 不可见不可达」的行为回归。仅本地:远程维持「收养只做加法」(其他设备可能还挂着)。
+ */
+function reapUnmappedLocalSession(
+  _hostId: string,
+  snap: SessionSnapshot,
+  client: HostClient,
+): void {
+  console.warn(
+    '[sessionReadopt] reaping unmapped local session %s cwd=%s',
+    snap.sessionId,
+    snap.cwd,
+  );
+  void client.rpc('pty.kill', { sessionId: snap.sessionId }).catch(() => undefined);
+}
+
 /** hostId → 在途收养 promise(串行化尾指针) */
 const inflight = new Map<string, Promise<void>>();
 
@@ -124,7 +143,12 @@ export function readoptHostSessions(
   const prev = inflight.get(hostId) ?? Promise.resolve();
   const next = prev
     .then(() =>
-      readopt(hostId, { reconcileBadge, rebuildTab: rebuildTabForSnapshot }),
+      readopt(hostId, {
+        reconcileBadge,
+        rebuildTab: rebuildTabForSnapshot,
+        // 本地孤儿回收策略仅挂 'local'(评审 P2-2);远程不传 → 默认 no-op 只做加法
+        ...(hostId === 'local' ? { onUnadopted: reapUnmappedLocalSession } : {}),
+      }),
     )
     .catch((err) => {
       console.warn('[sessionReadopt] readopt failed hostId=%s', hostId, err);

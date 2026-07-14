@@ -146,6 +146,7 @@ Current release is a daily-usable local workbench (M1–M4 + v0.2/v0.3 increment
 - **File and git workspace** — File Panel tracks Root / WorkTree per tab (not per `cd` in the terminal); file tree auto-refreshes on changes (preserving expanded state) with git status coloring and directory rollup; sidebar shows the main worktree's current branch; WorkTree selector pulls from `git worktree list`.
 - **Preview / edit / diff** — Monaco file viewer with light editing (⌘S save; binary / >2 MB degrades gracefully); diff view (uncommitted vs HEAD, worktree vs merge-base); Markdown preview/edit with marked + DOMPurify sanitization and strict Mermaid rendering; one-click jump to VS Code / Zed.
 - **Windows and updates** — three-window model (main terminal window / file content window / git diff modal); Host shares PTY pool across clients and routes by ownership; GitHub Release polling + sidebar upgrade capsule with Squirrel.Mac one-click update; dirty-tab close confirmation.
+- **Crash resilience** (July 2026) — the local Host runs the same standalone session semantics as remote hosts: when the renderer dies or the window reloads, sessions detach and keep running (ring-buffer replay on re-attach) and get re-adopted with scrollback restored; the main process auto-reloads on abnormal renderer exit (rate-limited), so a renderer crash costs one flicker instead of a black screen with lost sessions.
 
 > Full milestone breakdown and roadmap: [`product-overview/OkWork_业务架构与产品规划.md`](product-overview/OkWork_业务架构与产品规划.md)
 

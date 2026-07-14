@@ -732,14 +732,35 @@ const createWindow = () => {
   // 留给用户 ⌘R(决策与限频逻辑在 rendererRecovery,per-window 计数)。
   const rendererRecovery = createRendererRecovery();
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    // 退出/安装重启进行中的进程消亡不当事故处理(评审 P3-3 纵深):此刻 reload 会与
+    // 关停/Squirrel 安装竞争(还会重新 fork host)。正常退出路径本就是 clean-exit/killed,
+    // 此闸只兜非常路径。
+    if (exitLifecycle.isQuitting()) return;
     const decision = rendererRecovery.decide(details);
     console.error(
       `[main] renderer gone reason=${details.reason} exitCode=${details.exitCode} → ${decision}`,
     );
-    if (decision === 'reload' && !mainWindow.isDestroyed()) {
+    if (mainWindow.isDestroyed()) return;
+    if (decision === 'reload') {
       mainWindow.webContents.reload();
+    } else if (decision === 'give-up') {
+      // 🔴 give-up 不能静默(评审 P2-1):否则回到本里程碑要消灭的「黑屏 + 用户零反馈」
+      // 终局。弹窗告知手动出路(⌘R 走 viewMenu role,不经本 handler,恒可用)。
+      void dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: t('OkWork keeps crashing'),
+        message: t(
+          'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWork.',
+        ),
+        buttons: [t('OK')],
+        defaultId: 0,
+        noLink: true,
+      });
     }
   });
+  // 成功加载即清零限频配额(评审 P3-2):限频只打「起即崩」风暴,
+  // 不罚长会话里间隔发生、各自恢复成功的偶发崩溃。
+  mainWindow.webContents.on('did-finish-load', () => rendererRecovery.reset());
 
   mainWin = mainWindow;
   mainWindow.on('close', (event) => {

@@ -37,5 +37,10 @@ export function createRendererRecovery(opts?: {
       reloadTimes.push(t);
       return 'reload';
     },
+    /** 成功恢复(did-finish-load)即清零配额:限频只打「起即崩」风暴,
+     *  不罚间隔发生、各自恢复成功的偶发崩溃(评审 P3-2)。 */
+    reset(): void {
+      reloadTimes = [];
+    },
   };
 }

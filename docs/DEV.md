@@ -195,6 +195,7 @@ gh secret set APPLE_TEAM_ID                -R okteam99/termpro
 | 约束 | 说明 |
 |---|---|
 | ~~单窗口单客户端~~（v0.2 已解） | Host 现支持多客户端：共享 PTY 池、会话按归属路由、窗口关闭只回收自己的资源（v0.2 2026-06 交付） |
+| 本地会话生命周期（2026-07 standalone 化） | 本地 host 以 `--standalone` 跑远程同款会话语义：客户端断开（renderer 崩溃/⌘R/关窗）转 detach 续跑 + ring（256 KiB/会话，回放非全保真）回放收养；renderer 事故退出由 main 自动 reload（5 分钟 3 次限频，成功加载清零，give-up 弹窗告知 ⌘R）；映射不到 workspace 的本地孤儿会话在收养时 kill 回收（仅本地，远程只做加法）；会话仍随 app 退出整体回收。遗留 P3（opus 评审 2026-07，均可辩护）：① launch-failed 仍走限频 reload 而非直接 give-up；② 本地 host.info 多暴露 fs.temp-png 能力位（本地不消费，cosmetic） |
 | Electron 升级需重编 node-pty | forge 的 `rebuild` 配置自动处理，直接 `npm start` / `make` 即可 |
 | 沙箱 preload 无 process.env | 冒烟开关 `OKWORK_SMOKE` 不能在 preload 读取；main 通过 `additionalArguments: ['--okwork-smoke']` 传入，preload 读 `process.argv` |
 | 协议版本 | `PROTOCOL_VERSION = 1`；M5 远程接入时需做版本握手校验 |

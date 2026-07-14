@@ -312,3 +312,46 @@ describe('readopt capability gate (T-038 renderer 半侧)', () => {
     expect(writes.length).toBe(0);
   });
 });
+
+describe('readopt path② onUnadopted 策略钩子(评审 P2-2 渲染半侧)', () => {
+  it('rebuildTab 返 null(映射不到 workspace)→ 调 onUnadopted(hostId, snap, client);不建 inst', async () => {
+    const orphan = snap('running', 'live', null, 's-orphan');
+    const client = makeFakeClient({ sessions: [orphan] });
+    const onUnadopted = vi.fn();
+    const getOrCreateInst = vi.fn();
+    await readoptHost('local', {
+      getClient: () => asClient(client),
+      listInstances: () => [],
+      rebuildTab: () => null,
+      onUnadopted,
+      getOrCreateInst,
+    } as ReadoptHooks);
+    expect(onUnadopted).toHaveBeenCalledTimes(1);
+    expect(onUnadopted).toHaveBeenCalledWith('local', orphan, asClient(client));
+    expect(getOrCreateInst).not.toHaveBeenCalled();
+  });
+
+  it('rebuildTab 成功收养 → 不调 onUnadopted;缺省钩子(不传)→ 跳过不炸', async () => {
+    const s = snap('running', 'live', null, 's-map');
+    const client = makeFakeClient({ sessions: [s] });
+    const { inst } = makeFakeInst({});
+    const onUnadopted = vi.fn();
+    await readoptHost('local', {
+      getClient: () => asClient(client),
+      listInstances: () => [],
+      rebuildTab: () => 't-new',
+      getOrCreateInst: () => inst,
+      wireLiveSession: () => undefined,
+      onUnadopted,
+    } as ReadoptHooks);
+    expect(onUnadopted).not.toHaveBeenCalled();
+
+    // 缺省钩子:同场景不传 onUnadopted,安静跳过
+    const client2 = makeFakeClient({ sessions: [snap('running', 'live', null, 's-skip')] });
+    await readoptHost('local', {
+      getClient: () => asClient(client2),
+      listInstances: () => [],
+      rebuildTab: () => null,
+    });
+  });
+});

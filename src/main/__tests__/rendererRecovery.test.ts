@@ -39,3 +39,18 @@ describe('createRendererRecovery', () => {
     expect(r.decide({ reason: 'crashed' })).toBe('reload');
   });
 });
+
+describe('reset(评审 P3-2:成功恢复清零配额)', () => {
+  it('配额耗尽 give-up 后 reset → 恢复 reload(限频只打起即崩风暴)', () => {
+    let t = 0;
+    const r = createRendererRecovery({ maxReloads: 2, windowMs: 300_000, now: () => t });
+    expect(r.decide({ reason: 'crashed' })).toBe('reload');
+    t += 1000;
+    expect(r.decide({ reason: 'crashed' })).toBe('reload');
+    t += 1000;
+    expect(r.decide({ reason: 'crashed' })).toBe('give-up');
+    r.reset(); // did-finish-load
+    t += 1000;
+    expect(r.decide({ reason: 'crashed' })).toBe('reload');
+  });
+});

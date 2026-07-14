@@ -237,3 +237,31 @@ describe('readoptHostSessions:同 configId 串行化', () => {
     await Promise.all([p1, p2]);
   });
 });
+
+describe('本地孤儿会话回收策略(评审 P2-2 策略半侧)', () => {
+  it("hostId='local' → hooks 带 onUnadopted,调用即对该会话发 pty.kill", async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let captured: {
+      onUnadopted?: (h: string, s: SessionSnapshot, c: { rpc: unknown }) => void;
+    } = {};
+    const fake = vi.fn(async (_h: string, hooks: typeof captured) => {
+      captured = hooks;
+    });
+    await readoptHostSessions('local', fake as never);
+    expect(captured.onUnadopted).toBeTypeOf('function');
+
+    const rpc = vi.fn(async () => ({}));
+    captured.onUnadopted!('local', snap({ sessionId: 's-orphan' }), { rpc });
+    expect(rpc).toHaveBeenCalledWith('pty.kill', { sessionId: 's-orphan' });
+    warnSpy.mockRestore();
+  });
+
+  it("远程 hostId → hooks 不带 onUnadopted(收养只做加法,多端语义不回收)", async () => {
+    let captured: { onUnadopted?: unknown } = { onUnadopted: 'sentinel' };
+    const fake = vi.fn(async (_h: string, hooks: typeof captured) => {
+      captured = hooks;
+    });
+    await readoptHostSessions('cfg-1', fake as never);
+    expect(captured.onUnadopted).toBeUndefined();
+  });
+});
