@@ -255,6 +255,30 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     return true;
   });
 
+  // 🔴 DECRQM(请求模式 · `CSI ? mode $ p` / `CSI mode $ p`)拦截修复
+  // (用户报告 2026-07-15「进 vim 卡死」根因):xterm 自带 requestMode 在【线上压缩
+  // 包】里抛 `ReferenceError: i is not defined`——esbuild 二次压缩破坏了该方法内
+  // `const i = this._coreService.decPrivateModes` 的作用域(dev 不压缩不复现;
+  // top/seq/裸 vim 不发 DECRQM 不触发;带 termguicolors/syntax 的 vim 进入时发
+  // DECRQM 查询 → requestMode 崩 → 解析写入循环 throw → 该终端从此不再处理任何
+  // 输出 = 冻死,Ctrl-C 也无回显)。自注册 handler 拦在内建 requestMode 之前
+  // (同选择器·后注册者先被调,返回 true 即跳过崩溃的内建),回「未识别(0)」应答
+  // 让 vim/TUI 按默认继续(所查多为可选特性,未识别=不启用该优化,不影响正确性)。
+  const answerDecrqm = (params: (number | number[])[], dec: boolean): boolean => {
+    const p0 = params[0];
+    const mode = typeof p0 === 'number' ? p0 : Array.isArray(p0) ? (p0[0] ?? 0) : 0;
+    if (inst.sessionId && inst.client) {
+      inst.client.input(inst.sessionId, `\x1b[${dec ? '?' : ''}${mode};0$y`);
+    }
+    return true;
+  };
+  term.parser.registerCsiHandler({ prefix: '?', intermediates: '$', final: 'p' }, (p) =>
+    answerDecrqm(p, true),
+  );
+  term.parser.registerCsiHandler({ intermediates: '$', final: 'p' }, (p) =>
+    answerDecrqm(p, false),
+  );
+
   registry.set(tabId, inst);
   return inst;
 }
