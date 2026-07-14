@@ -2,7 +2,7 @@
 // 内置浏览器窗格已 per-tab(绑定终端 tab · TabState.browser)。本测覆盖:per-tab action
 // 语义、旧版全局标签 → 活跃 tab 的一次性迁移、per-tab 序列化。
 import { beforeEach, describe, expect, it } from 'vitest';
-import { type PersistedStateV1, type WorkspaceState, useAppStore } from '../store';
+import { type PersistedStateV1, type WorkspaceState, resolveBrowserTabNet, useAppStore } from '../store';
 import { serialize } from '../persistence';
 
 const TERM = 'term1';
@@ -233,7 +233,66 @@ describe('内置浏览器窗格 store(per-tab)', () => {
     const tab = archive.workspaces[0].tabs[0] as {
       browser?: { tabs: { id: string; url: string; title?: string }[]; activeTabId: string | null };
     };
-    expect(tab.browser).toEqual({ tabs: [{ id, url: 'https://a.com' }], activeTabId: id });
+    expect(tab.browser).toEqual({
+      tabs: [{ id, url: 'https://a.com', netHostId: 'local' }],
+      activeTabId: id,
+    });
     expect(tab.browser!.tabs[0]).not.toHaveProperty('title');
+  });
+});
+
+describe('标签级网络出口(netHostId · 2026-07-14)', () => {
+  it('新建标签物化出口 = 所属终端 tab 的机器;setBrowserTabNet 可改', () => {
+    // 本机 ws 的 tab → 'local'
+    useAppStore.getState().addBrowserTab(TERM, 'https://a.dev');
+    expect(pane()!.tabs[0].netHostId).toBe('local');
+
+    // 远程 ws 的 tab → configId
+    const remoteWs: WorkspaceState = {
+      id: 'ws-r',
+      name: 'r',
+      root: '/r',
+      hostId: 'cfg-9',
+      tabs: [{ id: 'rterm', title: 'rt', cwd: '/r' }],
+      activeTabId: 'rterm',
+    };
+    useAppStore.setState({
+      workspaces: [...useAppStore.getState().workspaces, remoteWs],
+    });
+    useAppStore.getState().addBrowserTab('rterm', 'http://localhost:3000');
+    const rPane = useAppStore
+      .getState()
+      .workspaces.find((w) => w.id === 'ws-r')!.tabs[0].browser!;
+    expect(rPane.tabs[0].netHostId).toBe('cfg-9');
+
+    // 手动改出口
+    useAppStore.getState().setBrowserTabNet('rterm', rPane.tabs[0].id, 'local');
+    expect(
+      useAppStore.getState().workspaces.find((w) => w.id === 'ws-r')!.tabs[0].browser!
+        .tabs[0].netHostId,
+    ).toBe('local');
+  });
+
+  it('netHostId 持久化往返:serialize 写出 → hydrate 带回;缺省不写键', () => {
+    useAppStore.getState().addBrowserTab(TERM, 'https://a.dev');
+    const btId = pane()!.tabs[0].id;
+    useAppStore.getState().setBrowserTabNet(TERM, btId, 'cfg-1');
+    useAppStore.setState({ persistMode: 'v2' });
+
+    const archive = serialize(useAppStore.getState());
+    if (archive.version !== 2) throw new Error('expected v2');
+    const persisted = archive.workspaces[0].tabs[0].browser!;
+    expect(persisted.tabs[0].netHostId).toBe('cfg-1');
+
+    // 'local' 显式值也原样写出(区别于缺省不写):再建一个未改出口的标签
+    useAppStore.getState().addBrowserTab(TERM, 'https://b.dev');
+    const archive2 = serialize(useAppStore.getState());
+    if (archive2.version !== 2) throw new Error('expected v2');
+    expect(archive2.workspaces[0].tabs[0].browser!.tabs[1].netHostId).toBe('local');
+  });
+
+  it('resolveBrowserTabNet:显式值优先,缺省回落所属机器', () => {
+    expect(resolveBrowserTabNet({ netHostId: 'cfg-2' }, 'local')).toBe('cfg-2');
+    expect(resolveBrowserTabNet({}, 'cfg-7')).toBe('cfg-7');
   });
 });

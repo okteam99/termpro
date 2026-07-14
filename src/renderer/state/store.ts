@@ -61,6 +61,10 @@ export interface BrowserTabState {
   /** 空串 = 空标签(未导航,面板显示空态待输入) */
   url: string;
   title?: string;
+  /** 该标签的网络出口('local'|configId)。缺省(旧存档/旧窗格)= 所属终端 tab 的
+   *  ws.hostId(resolveBrowserTabNet)。新建标签在创建时物化;决定 webview 分区
+   *  (partitionOf),换出口 = 换分区 = 该标签 webview 重挂重载。 */
+  netHostId?: string;
 }
 
 /** 某终端 tab 的浏览器窗格(绑定终端 tab · 像 filePanel):独立标签组 + 活跃标签。
@@ -68,6 +72,14 @@ export interface BrowserTabState {
 export interface BrowserPaneState {
   tabs: BrowserTabState[];
   activeTabId: string | null;
+}
+
+/** 浏览器标签出口解析:显式 netHostId 优先,缺省回落所属终端 tab 的机器。 */
+export function resolveBrowserTabNet(
+  tab: Pick<BrowserTabState, 'netHostId'>,
+  ownerWorkspaceHostId: string,
+): string {
+  return tab.netHostId ?? ownerWorkspaceHostId;
 }
 
 /** 终端链接打开方式(设置项 · 默认 'builtin'):
@@ -103,8 +115,11 @@ export interface PersistedTab {
   cwd: string;
   customName?: string;
   filePanel?: TabFilePanelState;
-  /** 该 tab 的浏览器窗格(只存 {id,url};title 视图态);空/未开 → 不写盘 */
-  browser?: { tabs: { id: string; url: string }[]; activeTabId: string | null };
+  /** 该 tab 的浏览器窗格(只存 {id,url,netHostId};title 视图态);空/未开 → 不写盘 */
+  browser?: {
+    tabs: { id: string; url: string; netHostId?: string }[];
+    activeTabId: string | null;
+  };
   /** 会话收养键(本地/远程同构):恢复时预绑定收养——host 存活则 attach 回放内容;
    *  host 已重启/会话不存(attach miss)→ 原位重 spawn,内容可丢但 tab 不丢。
    *  本地在 embedded host 下恒 stale(会话随 app 死),hydrate 容忍;standalone 化后消费。 */
@@ -293,6 +308,8 @@ export interface AppState {
     browserTabId: string,
     patch: { url?: string; title?: string },
   ): void;
+  /** 改某浏览器标签的网络出口('local'|configId);消费方(webview 分区)据此重挂重载该标签 */
+  setBrowserTabNet(terminalTabId: string, browserTabId: string, netHostId: string): void;
   /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
   pinBottomBar: boolean;
   setPinBottomBar(value: boolean): void;
@@ -327,14 +344,31 @@ function hydrateTab(t: PersistedTab): TabState {
 /** 持久化浏览器窗格 → 运行时 BrowserPaneState;空/缺省 → undefined(tab 未开过浏览器)。
  *  activeTabId 失效(指向已不存在的标签)时回落首个标签。 */
 function hydrateBrowserPane(
-  p: { tabs: { id: string; url: string }[]; activeTabId: string | null } | undefined,
+  p:
+    | {
+        tabs: { id: string; url: string; netHostId?: string }[];
+        activeTabId: string | null;
+      }
+    | undefined,
 ): BrowserPaneState | undefined {
   if (!p || p.tabs.length === 0) return undefined;
-  const tabs: BrowserTabState[] = p.tabs.map((b) => ({ id: b.id, url: b.url }));
+  const tabs: BrowserTabState[] = p.tabs.map((b) => ({
+    id: b.id,
+    url: b.url,
+    // netHostId 原样带回(缺省=跟随所属机器,resolveBrowserTabNet 兜底)
+    ...(b.netHostId ? { netHostId: b.netHostId } : {}),
+  }));
   const activeTabId = tabs.some((b) => b.id === p.activeTabId)
     ? p.activeTabId
     : (tabs[0]?.id ?? null);
   return { tabs, activeTabId };
+}
+
+/** 终端 tab 所属 workspace 的 hostId;找不到归属(竞态)按本机。新建浏览器标签的默认出口。 */
+function ownerHostIdOf(workspaces: WorkspaceState[], terminalTabId: string): string {
+  return (
+    workspaces.find((w) => w.tabs.some((t) => t.id === terminalTabId))?.hostId ?? 'local'
+  );
 }
 
 /** 当前活跃终端 tab(活跃 workspace 的活跃 tab);无则 null。浏览器窗格绑定它。 */
@@ -399,12 +433,16 @@ function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemot
       cwd: t.cwd,
       customName: t.customName,
       filePanel: t.filePanel,
-      // 浏览器窗格与落盘同投影(只 {id,url}),否则断线重连恢复的 tab 丢浏览器标签,
-      // 而整机重启(serializeTab 路径)却能恢复——两条恢复路径必须行为一致
+      // 浏览器窗格与落盘同投影(只 {id,url,netHostId}),否则断线重连恢复的 tab 丢浏览器
+      // 标签,而整机重启(serializeTab 路径)却能恢复——两条恢复路径必须行为一致
       ...(t.browser && t.browser.tabs.length > 0
         ? {
             browser: {
-              tabs: t.browser.tabs.map((b) => ({ id: b.id, url: b.url })),
+              tabs: t.browser.tabs.map((b) => ({
+                id: b.id,
+                url: b.url,
+                ...(b.netHostId ? { netHostId: b.netHostId } : {}),
+              })),
               activeTabId: t.browser.activeTabId,
             },
           }
@@ -981,7 +1019,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!activeTab || (activeTab.browser && activeTab.browser.tabs.length > 0)) {
         return { browserPanelOpen: true };
       }
-      const bt: BrowserTabState = { id: crypto.randomUUID(), url: '' };
+      const bt: BrowserTabState = {
+        id: crypto.randomUUID(),
+        url: '',
+        // 新标签出口在创建时物化 = 所属机器(标签级出口的默认值来源)
+        netHostId: ownerHostIdOf(s.workspaces, activeTab.id),
+      };
       return {
         browserPanelOpen: true,
         workspaces: patchTabBrowser(s.workspaces, activeTab.id, () => ({
@@ -994,7 +1037,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addBrowserTab(terminalTabId, url = '') {
     set((s) => {
-      const bt: BrowserTabState = { id: crypto.randomUUID(), url };
+      const bt: BrowserTabState = {
+        id: crypto.randomUUID(),
+        url,
+        netHostId: ownerHostIdOf(s.workspaces, terminalTabId),
+      };
       return {
         browserPanelOpen: true,
         workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
@@ -1003,6 +1050,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
       };
     });
+  },
+
+  setBrowserTabNet(terminalTabId, browserTabId, netHostId) {
+    set((s) => ({
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
+        ...pane,
+        tabs: pane.tabs.map((b) => (b.id === browserTabId ? { ...b, netHostId } : b)),
+      })),
+    }));
   },
 
   closeBrowserTab(terminalTabId, browserTabId) {

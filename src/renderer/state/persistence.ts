@@ -235,11 +235,15 @@ function serializeTab(t: AppState['workspaces'][number]['tabs'][number]) {
     cwd: t.cwd,
     customName: t.customName,
     filePanel: t.filePanel,
-    // 浏览器窗格:只存 {id,url}(title 视图态);空/未开 → 不写盘
+    // 浏览器窗格:只存 {id,url,netHostId}(title 视图态);空/未开 → 不写盘
     ...(t.browser && t.browser.tabs.length > 0
       ? {
           browser: {
-            tabs: t.browser.tabs.map((b) => ({ id: b.id, url: b.url })),
+            tabs: t.browser.tabs.map((b) => ({
+              id: b.id,
+              url: b.url,
+              ...(b.netHostId ? { netHostId: b.netHostId } : {}),
+            })),
             activeTabId: t.browser.activeTabId,
           },
         }
