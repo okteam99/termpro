@@ -399,7 +399,9 @@ function BrowserNetSelector({
   );
 }
 
-export function BrowserPanel() {
+/** shell=true:运行在浏览器窗格壳窗内(BrowserPaneShellWindow)——壳窗自带头部条,
+ *  隐藏本组件头部/弹出入口;壳窗 store 里窗格不带 poppedOut,占位逻辑天然不触发。 */
+export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   // 保活渲染需要「所有」workspace 的所有终端 tab(而不止活跃 workspace 的),
   // 因为切 workspace 也不该 reparent/卸载已开过的浏览器 webview。
   const workspaces = useAppStore((s) => s.workspaces);
@@ -409,6 +411,7 @@ export function BrowserPanel() {
   const closeBrowserTab = useAppStore((s) => s.closeBrowserTab);
   const setBrowserActiveTab = useAppStore((s) => s.setBrowserActiveTab);
   const updateBrowserTab = useAppStore((s) => s.updateBrowserTab);
+  const popOutBrowserPane = useAppStore((s) => s.popOutBrowserPane);
 
   // 浏览器窗格绑定当前活跃终端 tab(像 FilePanel 绑定 activeTab 一样);nav 栏/标签条
   // 都反映它,切终端 tab 面板跟着换一组标签。
@@ -416,6 +419,8 @@ export function BrowserPanel() {
     activeWorkspace?.tabs.find((tb) => tb.id === activeWorkspace.activeTabId) ?? null;
   const activeTermTabId = activeTermTab?.id ?? null;
   const pane = activeTermTab?.browser ?? null;
+  // 活跃窗格已弹出为独立窗口:主窗只渲染占位(聚焦入口),内容归壳窗所有
+  const activePopped = !shell && pane?.poppedOut === true;
   const tabs = pane?.tabs ?? [];
   const activeTabId = pane?.activeTabId ?? null;
   const activeTab = tabs.find((tb) => tb.id === activeTabId) ?? null;
@@ -480,9 +485,10 @@ export function BrowserPanel() {
   // 切到一个从没开过浏览器的终端 tab(那次切换不经过 toggleBrowserPanel,靠本 effect 跟随)。
   useEffect(() => {
     if (!browserPanelOpen || !activeTermTabId) return;
+    if (activePopped) return; // 已弹出:内容归壳窗,主窗绝不往镜像里种标签
     if (tabs.length > 0) return;
     addBrowserTab(activeTermTabId);
-  }, [browserPanelOpen, activeTermTabId, tabs.length, addBrowserTab]);
+  }, [browserPanelOpen, activeTermTabId, tabs.length, addBrowserTab, activePopped]);
 
   // 收敛 navStates:只保留仍存在于任意 workspace/终端 tab 的浏览器标签 id
   // (id 是 uuid 不复用,长会话反复开关防无界增长;评审 P2-4)
@@ -571,29 +577,53 @@ export function BrowserPanel() {
   }
 
   function handlePopout() {
-    if (!activeTermTabId || !activeTab || !activeTab.url) return;
-    // 弹出=移出:独立窗口(OkBrowser-<标题> · main 创建,同 persist:browser 分区)
-    // + 关掉面板里这个标签(最后一个时面板随之收起,两特性自然衔接)
-    window.okwork?.openBrowserWindow?.({ url: activeTab.url, title: activeTab.title });
-    closeBrowserTab(activeTermTabId, activeTab.id);
+    // 弹出 = 整个窗格独立成窗(用户语义:当前 session 对应的 OkBrowser 独立出去):
+    // 壳窗以完整窗格快照起步并接管所有权,主窗收面板 + 标记 poppedOut。
+    if (!activeTermTabId || !pane || pane.tabs.length === 0) return;
+    window.okwork?.browserPane?.popout?.({
+      terminalTabId: activeTermTabId,
+      tabName: activeTermTab?.customName ?? activeTermTab?.title ?? 'Tab',
+      ownerHostId: activeWorkspace?.hostId ?? 'local',
+      pane: { tabs: pane.tabs, activeTabId: pane.activeTabId },
+    });
+    popOutBrowserPane(activeTermTabId);
   }
 
   return (
     <div className="browser-panel">
       {/* 品牌标题行:与终端 tab 视觉区隔(用户指令),兼作窗口拖拽区;
-          右上角=弹出独立窗口入口(用户指令 2026-07-14) */}
-      <div className="browser-panel__header">
-        OkBrowser
-        <button
-          className="browser-panel__header-popout"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          disabled={!activeTab || !activeUrl}
-          onClick={handlePopout}
-          title={t('Move tab to a separate window')}
-        >
-          <PopoutIcon />
-        </button>
-      </div>
+          右上角=弹出整个窗格为独立窗口(壳窗自带头部,shell 模式不再渲染) */}
+      {!shell && (
+        <div className="browser-panel__header">
+          OkBrowser
+          <button
+            className="browser-panel__header-popout"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            disabled={activePopped || !pane || pane.tabs.length === 0}
+            onClick={handlePopout}
+            title={t('Move this browser to a separate window')}
+          >
+            <PopoutIcon />
+          </button>
+        </div>
+      )}
+      {activePopped && (
+        <div className="browser-panel__popped" role="note">
+          <div className="browser-panel__popped-text">
+            {t('This browser is open in a separate window')}
+          </div>
+          <button
+            className="browser-panel__popped-focus"
+            onClick={() =>
+              activeTermTabId && window.okwork?.browserPane?.focus?.(activeTermTabId)
+            }
+          >
+            {t('Focus window')}
+          </button>
+        </div>
+      )}
+      {!activePopped && (
+      <>
       <div className="browser-panel__tabs">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
@@ -709,10 +739,11 @@ export function BrowserPanel() {
         {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),
             为每个浏览器标签渲染一个常驻 webview,可见性用 CSS visibility 切换——绝不能
             只挂载活跃 tab 的 webview,否则切终端 tab/切 workspace 时旧标签会被卸载重挂,
-            <webview> reparent/remount 必重新加载页面。 */}
+            <webview> reparent/remount 必重新加载页面。
+            已弹出窗格(poppedOut)跳过:其 webview 活在壳窗,主窗渲染=同页双载。 */}
         {workspaces.flatMap((w) =>
           w.tabs.flatMap((tb) =>
-            (tb.browser?.tabs ?? []).map((bt) => {
+            (tb.browser?.poppedOut ? [] : (tb.browser?.tabs ?? [])).map((bt) => {
               // 分区 = 该标签出口(标签级网络);掺进 key——换出口即重挂重载该标签
               // (webview partition 创建后不可变,Chromium 语义)
               const partition = partitionOf(resolveBrowserTabNet(bt, w.hostId));
@@ -741,6 +772,8 @@ export function BrowserPanel() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

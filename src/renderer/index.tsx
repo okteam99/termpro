@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ViewerWindow } from './components/viewer/ViewerWindow';
 import type { ViewerPayload } from './components/viewer/ViewerWindow';
+import { BrowserPaneShellWindow } from './components/BrowserPaneShellWindow';
 import { installSelectionGuard } from './terminal/selectionGuard';
 import { setLocale } from '../shared/i18n';
 import './index.css';
@@ -29,8 +30,19 @@ function parseViewerPayload(): ViewerPayload | null {
 const container = document.getElementById('root');
 if (!container) throw new Error('#root not found');
 const viewerPayload = parseViewerPayload();
+// 浏览器窗格壳窗:?browserPane=<terminalTabId>(query 与 argv 双源,argv 为准防篡改)
+const browserPaneTabId =
+  window.okwork?.browserPaneTabId ??
+  new URLSearchParams(window.location.search).get('browserPane') ??
+  null;
 createRoot(container).render(
   <React.StrictMode>
-    {viewerPayload ? <ViewerWindow payload={viewerPayload} /> : <App />}
+    {browserPaneTabId ? (
+      <BrowserPaneShellWindow terminalTabId={browserPaneTabId} />
+    ) : viewerPayload ? (
+      <ViewerWindow payload={viewerPayload} />
+    ) : (
+      <App />
+    )}
   </React.StrictMode>,
 );

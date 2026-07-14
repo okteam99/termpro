@@ -72,6 +72,11 @@ export interface BrowserTabState {
 export interface BrowserPaneState {
   tabs: BrowserTabState[];
   activeTabId: string | null;
+  /** 窗格已弹出为独立窗口(视图态,不持久化——重启后窗口不复存在,hydrate 不带回):
+   *  弹出期间窗格内容由壳窗口的 store 独占所有权,本 store 持只读镜像(经
+   *  browserPane:sync 单向回流,承担持久化与出口对账);主窗不渲染其 webview、
+   *  不直接改其内容(链接等新增经 relay 进壳窗)。 */
+  poppedOut?: boolean;
 }
 
 /** 浏览器标签出口解析:显式 netHostId 优先,缺省回落所属终端 tab 的机器。 */
@@ -310,6 +315,16 @@ export interface AppState {
   ): void;
   /** 改某浏览器标签的网络出口('local'|configId);消费方(webview 分区)据此重挂重载该标签 */
   setBrowserTabNet(terminalTabId: string, browserTabId: string, netHostId: string): void;
+  // ---- 窗格窗口化(弹出=整个窗格独立成窗 · 2026-07)----
+  /** 标记窗格弹出:主窗收面板、停渲染其 webview;内容所有权移交壳窗(壳窗经 sync 回流) */
+  popOutBrowserPane(terminalTabId: string): void;
+  /** 壳窗状态回流:替换镜像内容(保持 poppedOut);持久化/出口对账据此保持准确 */
+  applyPoppedPaneSync(
+    terminalTabId: string,
+    pane: { tabs: BrowserTabState[]; activeTabId: string | null },
+  ): void;
+  /** 回落:清 poppedOut(镜像已是最新);该 tab 正活跃时顺手打开面板让内容可见 */
+  dockBrowserPane(terminalTabId: string): void;
   /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
   pinBottomBar: boolean;
   setPinBottomBar(value: boolean): void;
@@ -1059,6 +1074,40 @@ export const useAppStore = create<AppState>((set, get) => ({
         tabs: pane.tabs.map((b) => (b.id === browserTabId ? { ...b, netHostId } : b)),
       })),
     }));
+  },
+
+  popOutBrowserPane(terminalTabId) {
+    set((s) => ({
+      browserPanelOpen: false, // 弹出后主窗没有 panel(用户语义:图标此后=激活独立窗口)
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
+        ...pane,
+        poppedOut: true,
+      })),
+    }));
+  },
+
+  applyPoppedPaneSync(terminalTabId, pane) {
+    set((s) => ({
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (prev) => ({
+        tabs: pane.tabs,
+        activeTabId: pane.activeTabId,
+        poppedOut: prev.poppedOut, // 镜像更新不动弹出标记
+      })),
+    }));
+  },
+
+  dockBrowserPane(terminalTabId) {
+    set((s) => {
+      const isActive = activeTerminalTab(s)?.id === terminalTabId;
+      return {
+        // 回落到活跃 tab → 面板直接可见;后台 tab 回落只清标记(切过去再看)
+        ...(isActive ? { browserPanelOpen: true } : {}),
+        workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
+          tabs: pane.tabs,
+          activeTabId: pane.activeTabId,
+        })),
+      };
+    });
   },
 
   closeBrowserTab(terminalTabId, browserTabId) {

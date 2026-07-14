@@ -55,8 +55,25 @@ declare global {
       clipboardReadText(): Promise<string>;
       clipboardReadImage(): Promise<{ base64: string; size: number } | null>;
       openExternal(url: string): void;
-      /** 弹出浏览器标签为独立窗口(OkBrowser-<标题>) */
-      openBrowserWindow(payload: { url: string; title?: string }): void;
+      /** 壳窗身份:弹出的浏览器窗格窗口 = 其终端 tabId;主窗 undefined */
+      browserPaneTabId?: string;
+      /** 窗格窗口化(弹出=整个窗格独立成窗;壳窗内容 sync 单向回流主窗) */
+      browserPane: {
+        popout(payload: {
+          terminalTabId: string;
+          tabName: string;
+          ownerHostId: string;
+          pane: unknown;
+        }): void;
+        getState(terminalTabId: string): Promise<unknown>;
+        sync(terminalTabId: string, pane: unknown): void;
+        onSync(callback: (terminalTabId: string, pane: unknown) => void): () => void;
+        addTab(terminalTabId: string, url: string): void;
+        onAddTab(callback: (url: string) => void): () => void;
+        focus(terminalTabId: string): void;
+        dock(terminalTabId: string): void;
+        onDocked(callback: (terminalTabId: string) => void): () => void;
+      };
       /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
        *  sourceWebContentsId=来源 guest 的 webContents id(据此把新标签落回来源终端 tab 的窗格) */
       onBrowserOpenUrl(

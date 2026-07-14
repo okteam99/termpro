@@ -75,15 +75,31 @@ function GlobeIcon() {
   );
 }
 
-/** tabbar 最右的内置浏览器开关(与文件面板开关并列) */
+/** tabbar 最右的内置浏览器开关(与文件面板开关并列)。
+ *  活跃终端 tab 的窗格已弹出为独立窗口时(用户语义:弹出后没有 panel),
+ *  点击 = 激活(聚焦)那个 OkBrowser 窗口,而非开关面板。 */
 function BrowserToggle() {
   const open = useAppStore((s) => s.browserPanelOpen);
   const toggle = useAppStore((s) => s.toggleBrowserPanel);
+  const poppedTabId = useAppStore((s) => {
+    const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+    const tab = ws?.tabs.find((tb) => tb.id === ws.activeTabId);
+    return tab?.browser?.poppedOut ? tab.id : null;
+  });
   return (
     <button
-      className={`tabbar-panel-btn${open ? ' tabbar-panel-btn--active' : ''}`}
-      onClick={toggle}
-      title={open ? t('Hide browser') : t('Show browser')}
+      className={`tabbar-panel-btn${open || poppedTabId ? ' tabbar-panel-btn--active' : ''}`}
+      onClick={() => {
+        if (poppedTabId) window.okwork?.browserPane?.focus?.(poppedTabId);
+        else toggle();
+      }}
+      title={
+        poppedTabId
+          ? t('Focus the OkBrowser window')
+          : open
+            ? t('Hide browser')
+            : t('Show browser')
+      }
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
       <GlobeIcon />

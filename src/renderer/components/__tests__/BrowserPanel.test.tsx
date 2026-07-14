@@ -280,36 +280,83 @@ describe('主帧加载失败错误条(空白页自解释 · 2026-07-14)', () => 
   });
 });
 
-describe('弹出独立窗口(OkBrowser · 2026-07-14)', () => {
-  it('点头部右上入口 → openBrowserWindow(url,title) + 面板里该标签关闭(最后一个→面板收起)', () => {
-    const openBrowserWindow = vi.fn();
-    (window as unknown as { okwork: unknown }).okwork = { openBrowserWindow };
+describe('窗格窗口化(弹出=整个窗格独立成窗 · 2026-07-14)', () => {
+  it('点头部弹出 → browserPane.popout(完整窗格快照) + 主窗收面板标 poppedOut', () => {
+    const popout = vi.fn();
+    (window as unknown as { okwork: unknown }).okwork = { browserPane: { popout } };
     seedWorkspace({
-      tabs: [{ id: 'a', url: 'https://example.com/x', title: 'Example' }],
+      tabs: [
+        { id: 'a', url: 'https://example.com/x', title: 'Example', netHostId: 'cfg-1' },
+        { id: 'b', url: 'https://b.dev', title: 'B' },
+      ],
       activeTabId: 'a',
     });
     render(<BrowserPanel />);
 
-    fireEvent.click(screen.getByTitle('Move tab to a separate window'));
+    fireEvent.click(screen.getByTitle('Move this browser to a separate window'));
 
-    expect(openBrowserWindow).toHaveBeenCalledWith({
-      url: 'https://example.com/x',
-      title: 'Example',
-    });
+    expect(popout).toHaveBeenCalledTimes(1);
+    const payload = popout.mock.calls[0][0];
+    expect(payload.terminalTabId).toBe(TERM);
+    expect(payload.ownerHostId).toBe('local');
+    expect(payload.pane.tabs.map((b: { id: string }) => b.id)).toEqual(['a', 'b']);
+    expect(payload.pane.activeTabId).toBe('a');
+
     const s = useAppStore.getState();
-    expect(s.workspaces[0].tabs[0].browser?.tabs).toEqual([]); // 标签已移出
-    expect(s.browserPanelOpen).toBe(false); // 最后一个 → 面板收起
+    expect(s.workspaces[0].tabs[0].browser?.poppedOut).toBe(true);
+    expect(s.browserPanelOpen).toBe(false); // 弹出后主窗没有 panel
   });
 
-  it('空标签(未导航)→ 入口禁用,不发弹出请求', () => {
-    const openBrowserWindow = vi.fn();
-    (window as unknown as { okwork: unknown }).okwork = { openBrowserWindow };
-    seedWorkspace({ tabs: [{ id: 'empty', url: '' }], activeTabId: 'empty' });
+  it('弹出中的窗格:占位+聚焦入口,不渲染其 webview;回落清标记', () => {
+    const focus = vi.fn();
+    (window as unknown as { okwork: unknown }).okwork = { browserPane: { focus } };
+    seedWorkspace({
+      tabs: [{ id: 'a', url: 'https://example.com/x', title: 'Example' }],
+      activeTabId: 'a',
+      poppedOut: true,
+    });
+    useAppStore.setState({ browserPanelOpen: true });
     render(<BrowserPanel />);
 
-    const btn = screen.getByTitle('Move tab to a separate window');
-    expect(btn).toBeDisabled();
-    fireEvent.click(btn);
-    expect(openBrowserWindow).not.toHaveBeenCalled();
+    // 占位可见,标签条/webview 不渲染(内容归壳窗)
+    expect(screen.getByText('This browser is open in a separate window')).toBeInTheDocument();
+    expect(document.querySelectorAll('webview')).toHaveLength(0);
+    fireEvent.click(screen.getByText('Focus window'));
+    expect(focus).toHaveBeenCalledWith(TERM);
+
+    // 回落:清 poppedOut(镜像内容保留)
+    act(() => useAppStore.getState().dockBrowserPane(TERM));
+    const pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
+    expect(pane.poppedOut).toBeUndefined();
+    expect(pane.tabs).toHaveLength(1);
+  });
+
+  it('壳窗回流镜像:applyPoppedPaneSync 替换内容保持 poppedOut', () => {
+    seedWorkspace({
+      tabs: [{ id: 'a', url: 'https://old.dev' }],
+      activeTabId: 'a',
+      poppedOut: true,
+    });
+    useAppStore.getState().applyPoppedPaneSync(TERM, {
+      tabs: [
+        { id: 'a', url: 'https://new.dev', title: 'New' },
+        { id: 'n2', url: 'https://n2.dev', netHostId: 'cfg-9' },
+      ],
+      activeTabId: 'n2',
+    });
+    const pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
+    expect(pane.poppedOut).toBe(true);
+    expect(pane.tabs.map((b) => b.url)).toEqual(['https://new.dev', 'https://n2.dev']);
+    expect(pane.activeTabId).toBe('n2');
+  });
+
+  it('弹出期间:弹出入口禁用(不可二次弹出);种空标签的 effect 不往镜像里种', () => {
+    (window as unknown as { okwork: unknown }).okwork = { browserPane: {} };
+    seedWorkspace({ tabs: [], activeTabId: null, poppedOut: true });
+    render(<BrowserPanel />);
+
+    expect(screen.getByTitle('Move this browser to a separate window')).toBeDisabled();
+    // 弹出中窗格为空也不种标签(内容归壳窗;effect 的 activePopped 守卫)
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toEqual([]);
   });
 });

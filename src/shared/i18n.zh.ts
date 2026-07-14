@@ -278,8 +278,13 @@ export const zh: Record<string, string> = {
   // --- 浏览器面板:加载失败错误条 ---
   'Page failed to load: {error}': '页面加载失败：{error}',
 
-  // --- 浏览器面板:弹出独立窗口 ---
-  'Move tab to a separate window': '把标签弹出为独立窗口',
+  // --- 浏览器面板:窗格窗口化(弹出/回落) ---
+  'Move this browser to a separate window': '把浏览器弹出为独立窗口',
+  'This browser is open in a separate window': '浏览器已在独立窗口打开',
+  'Focus window': '聚焦窗口',
+  'Dock back': '收回面板',
+  'Dock back to the panel': '收回到主窗口面板',
+  'Focus the OkBrowser window': '聚焦 OkBrowser 独立窗口',
 
   // --- main/rendererRecovery(崩溃自愈 give-up 弹窗) ---
   'OkWork keeps crashing': 'OkWork 持续崩溃',

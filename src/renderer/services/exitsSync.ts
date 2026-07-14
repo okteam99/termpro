@@ -9,19 +9,26 @@ import { resolveBrowserTabNet, useAppStore } from '../state/store';
 
 let initialized = false;
 
-/** 计算当前在用的远程出口集合(排序去重;'local' 直连不上报)。 */
+/** 计算当前在用的远程出口集合(排序去重;'local' 直连不上报)。
+ *  「在用」= webview 实际渲染中:主窗面板打开的非弹出窗格 + 弹出壳窗的窗格
+ *  (壳窗内容经 sync 镜像回本 store,出口对账由主窗单点上报)。 */
 export function collectExits(s: {
   browserPanelOpen: boolean;
   workspaces: Array<{
     hostId: string;
-    tabs: Array<{ browser?: { tabs: Array<{ netHostId?: string }> } }>;
+    tabs: Array<{
+      browser?: { tabs: Array<{ netHostId?: string }>; poppedOut?: boolean };
+    }>;
   }>;
 }): string[] {
-  if (!s.browserPanelOpen) return [];
   const exits = new Set<string>();
   for (const w of s.workspaces) {
     for (const t of w.tabs) {
-      for (const bt of t.browser?.tabs ?? []) {
+      const pane = t.browser;
+      if (!pane) continue;
+      const rendered = pane.poppedOut === true || s.browserPanelOpen;
+      if (!rendered) continue;
+      for (const bt of pane.tabs) {
         const hostId = resolveBrowserTabNet(bt, w.hostId);
         if (hostId !== 'local') exits.add(hostId);
       }

@@ -218,8 +218,11 @@ const browserNetwork = new BrowserNetworkController({
   releaseBrowserProxy: (configId) => remoteHostOrchestrator.releaseBrowserProxy(configId),
   aliasOf: (configId) => remoteHostConfigStore.get(configId)?.alias,
   emitChanged: (snapshot) => {
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send(BROWSER_NET_CHANNELS.changed, snapshot);
+    // 广播到所有窗口:主窗 + 弹出的窗格壳窗(各自的出口选择器都要收 down/恢复)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(BROWSER_NET_CHANNELS.changed, snapshot);
+      }
     }
   },
 });
@@ -246,46 +249,142 @@ ipcMain.handle(BROWSER_NET_CHANNELS.syncExits, (event, payload: { hostIds: strin
 });
 ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.snapshot());
 
-// ---- 浏览器标签弹出独立窗口(OkBrowser-<标题>)------------------------------
-// persist:browser 同分区:代理出口(含 <-loopback>)/登录态与面板 webview 完全一致。
-// 硬化与 webview 同级:纯 web 内容窗口(无 preload/无 node),导航只许 http(s),
-// 原生弹窗恒 deny(window.open 转同窗导航),WebRTC 纳入 browserGuests 台账防泄漏。
-ipcMain.on('browser:open-window', (event, payload: { url?: string; title?: string }) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return; // 仅主窗口可开
-  const url = payload?.url;
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
-  const titleOf = (pageTitle?: string): string => {
-    const base = (pageTitle ?? '').trim() || new URL(url).host;
-    // 标题过长截断(窗口标题栏/Mission Control 可读性)
-    return `OkBrowser-${base.length > 80 ? `${base.slice(0, 80)}…` : base}`;
-  };
+// ---- 浏览器窗格窗口化(弹出=整个窗格独立成窗 · OkBrowser-<终端tab名>)---------
+// 壳窗复用 renderer bundle(?browserPane=<terminalTabId> 路由 BrowserPaneShellWindow):
+// 头部条(标题/回落)+ 完整 BrowserPanel(标签条/地址栏/出口选择器/webview 按标签分区)。
+// 状态所有权:弹出期间壳窗 store 独占,内容经 browserPane:sync 单向回流主窗镜像
+// (主窗承担持久化与出口对账);主窗侧的新增(终端链接等)经 addTab relay 进壳窗。
+// 回落 = 壳窗关闭(按钮/红灯钮同路):closed → 通知主窗 docked → 清 poppedOut。
+
+interface BrowserPaneSeed {
+  terminalTabId: string;
+  tabName: string;
+  ownerHostId: string;
+  pane: unknown;
+}
+const paneWins = new Map<string, BrowserWindow>();
+const paneSeeds = new Map<string, BrowserPaneSeed>();
+
+ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return; // 仅主窗口可弹
+  const tabId = payload?.terminalTabId;
+  if (typeof tabId !== 'string' || !tabId) return;
+  paneSeeds.set(tabId, payload);
+  const existing = paneWins.get(tabId);
+  if (existing && !existing.isDestroyed()) {
+    existing.show();
+    existing.focus();
+    return;
+  }
   const win = new BrowserWindow({
     width: 1100,
     height: 800,
-    title: titleOf(payload?.title),
+    minWidth: 480,
+    minHeight: 400,
+    backgroundColor: '#1e2227',
     webPreferences: {
-      partition: 'persist:browser',
-      sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true, // 壳窗渲染窗格 webview(分区跟标签走)
+      additionalArguments: [
+        ...buildAdditionalArguments({
+          version: app.getVersion(),
+          smoke: false,
+          dev: isDevChannel,
+          locale: getLocale(),
+        }),
+        `--okwork-browser-pane=${tabId}`,
+      ],
     },
   });
-  // 标题钉死 OkBrowser- 前缀:页面 <title> 变更时接管(preventDefault)再按前缀跟随
-  win.webContents.on('page-title-updated', (e, pageTitle) => {
-    e.preventDefault();
-    if (!win.isDestroyed()) win.setTitle(titleOf(pageTitle));
+  paneWins.set(tabId, win);
+  installExternalUrlPolicy(win, { devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL });
+  wireBrowserWebviewPolicies(win); // webview 硬化/WebRTC/弹窗策略与主窗同级
+  win.on('closed', () => {
+    if (paneWins.get(tabId) === win) paneWins.delete(tabId);
+    paneSeeds.delete(tabId);
+    // 关窗即回落(按钮 dock 与红灯钮同路):通知主窗清 poppedOut(镜像已是最新)
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('browserPane:docked', tabId);
+    }
   });
-  // 弹窗策略:恒 deny 原生新窗;http(s) 的 window.open/target=_blank 转本窗口导航
-  win.webContents.setWindowOpenHandler(({ url: u }) => {
-    if (/^https?:\/\//i.test(u)) void win.webContents.loadURL(u);
-    return { action: 'deny' };
-  });
-  // 主框架导航只许 http(s)/about:(与面板 webview 的 will-navigate 守卫一致)
-  win.webContents.on('will-navigate', (e, u) => {
-    if (!/^(https?:|about:)/i.test(u)) e.preventDefault();
-  });
-  // 本分区(persist:browser)恒直连,WebRTC 无需防泄漏策略;远程分区版随窗格窗口化落地
-  void win.loadURL(url);
+  const query = { browserPane: tabId };
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    void win.loadURL(
+      `${MAIN_WINDOW_VITE_DEV_SERVER_URL}?browserPane=${encodeURIComponent(tabId)}`,
+    );
+  } else {
+    void win.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      { query },
+    );
+  }
+});
+
+// 壳窗取种子:只允许「该 tabId 对应的壳窗」自己取(窗口身份即凭据)
+ipcMain.handle('browserPane:state', (event, payload: { terminalTabId?: string }) => {
+  const tabId = payload?.terminalTabId;
+  if (!tabId || BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)) {
+    return null;
+  }
+  return paneSeeds.get(tabId) ?? null;
+});
+
+// 壳窗内容回流 → 主窗镜像;种子同步更新(壳窗意外重载时可用最新内容重种)
+ipcMain.on(
+  'browserPane:sync',
+  (event, payload: { terminalTabId?: string; pane?: unknown }) => {
+    const tabId = payload?.terminalTabId;
+    if (!tabId || BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)) {
+      return;
+    }
+    const seed = paneSeeds.get(tabId);
+    if (seed) paneSeeds.set(tabId, { ...seed, pane: payload.pane });
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('browserPane:sync', {
+        terminalTabId: tabId,
+        pane: payload.pane,
+      });
+    }
+  },
+);
+
+// 主窗转投新标签(终端链接点到已弹出的窗格)→ 壳窗
+ipcMain.on(
+  'browserPane:addTab',
+  (event, payload: { terminalTabId?: string; url?: string }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
+    const tabId = payload?.terminalTabId;
+    const url = payload?.url;
+    if (!tabId || typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
+    const win = paneWins.get(tabId);
+    if (win && !win.isDestroyed()) {
+      win.show();
+      win.webContents.send('browserPane:addTab', url);
+    }
+  },
+);
+
+// 激活(工具栏图标点击:弹出后图标=聚焦独立窗口)
+ipcMain.on('browserPane:focus', (event, payload: { terminalTabId?: string }) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
+  const win = payload?.terminalTabId ? paneWins.get(payload.terminalTabId) : undefined;
+  if (win && !win.isDestroyed()) {
+    win.show();
+    win.focus();
+  }
+});
+
+// 回落:壳窗自己(回落按钮)或主窗都可发起;统一走 close → closed → docked 通知
+ipcMain.on('browserPane:dock', (event, payload: { terminalTabId?: string }) => {
+  const tabId = payload?.terminalTabId;
+  if (!tabId) return;
+  const win = paneWins.get(tabId);
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (sender !== mainWin && sender !== win) return;
+  if (win && !win.isDestroyed()) win.close();
 });
 
 app.on('before-quit', () => {
@@ -699,6 +798,46 @@ function buildMenu(): void {
 
 // ---- 窗口 ---------------------------------------------------------------
 
+/**
+ * 内置浏览器 webview 的硬化与策略接线(主窗与浏览器窗格壳窗共用):
+ * - 🔴 will-attach 硬化(opus 评审 P1):guest webPreferences 创建前锁定——即使 renderer
+ *   被注入任意 HTML,也造不出带 node/自定义 preload 的 webview;初始 src 收口 http(s);
+ *   分区白名单(标签级出口):只许 persist:browser / persist:browser-<已知 configId>,
+ *   被注入的 renderer 不能借任意 partition 逃出浏览器分区体系。
+ * - WebRTC 防泄漏静态化:远程分区恒代理 → attach 即 disable_non_proxied_udp
+ *   (SOCKS5 只代理 TCP,UDP 会绕过代理暴露本机真实 IP);本机分区直连保持默认。
+ * - 弹窗策略:target=_blank/window.open 恒不开原生新窗,http(s) 送回【本窗口】renderer
+ *   在窗格里开新标签(附来源 guest id 定位归属);限频 300ms/guest 防灌爆(评审 P2-5)。
+ * - 主框架导航只许 http(s)/about:(评审 P2-2)。
+ */
+function wireBrowserWebviewPolicies(win: BrowserWindow): void {
+  win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    delete (webPreferences as { preloadURL?: string }).preloadURL;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    if (params.src && !/^https?:\/\//i.test(params.src)) event.preventDefault();
+    if (!isKnownBrowserPartition(params.partition)) event.preventDefault();
+  });
+  win.webContents.on('did-attach-webview', (_event, guest) => {
+    if (guest.session !== session.fromPartition('persist:browser')) {
+      guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
+    }
+    let lastOpenAt = 0;
+    guest.setWindowOpenHandler(({ url }) => {
+      const now = Date.now();
+      if (/^https?:\/\//i.test(url) && !win.isDestroyed() && now - lastOpenAt > 300) {
+        lastOpenAt = now;
+        win.webContents.send('browser:open-url', url, guest.id);
+      }
+      return { action: 'deny' };
+    });
+    guest.on('will-navigate', (e, url) => {
+      if (!/^(https?:|about:)/i.test(url)) e.preventDefault();
+    });
+  });
+}
+
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
     width: 1400,
@@ -727,49 +866,7 @@ const createWindow = () => {
   installExternalUrlPolicy(mainWindow, {
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   });
-  // 🔴 webview 硬化(opus 评审 P1):guest webPreferences 在创建前锁定——即使 renderer
-  // 被注入任意 HTML,也造不出带 node/自定义 preload 的 webview(Electron 安全清单项);
-  // 初始 src 同步收口为 http(s)(与 renderer 地址栏/hydrate 的 scheme 过滤一致)
-  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    delete webPreferences.preload;
-    delete (webPreferences as { preloadURL?: string }).preloadURL;
-    webPreferences.nodeIntegration = false;
-    webPreferences.contextIsolation = true;
-    if (params.src && !/^https?:\/\//i.test(params.src)) event.preventDefault();
-    // 🔴 分区白名单(标签级出口):只许 persist:browser / persist:browser-<已知 configId>。
-    // 被注入的 renderer 不能借任意 partition 逃出浏览器分区体系(隔离登录态/代理语义)。
-    if (!isKnownBrowserPartition(params.partition)) event.preventDefault();
-  });
-  // 内置浏览器 webview 的弹窗策略:target=_blank / window.open 一律不开原生新窗,
-  // http(s) 交回 renderer 在浏览器面板里开新标签(externalUrlPolicy 只管主窗自身导航);
-  // 事件附带来源 guest 的 webContents id,renderer 据此把新标签落回来源 webview
-  // 所属终端 tab 的窗格(后台 tab 的弹窗不落错地方)。
-  // 限频 300ms/guest:恶意页 for(;;)window.open 不能灌爆标签条(评审 P2-5)
-  mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
-    // WebRTC 防泄漏静态化(标签级出口):远程分区恒代理 → 恒 disable_non_proxied_udp
-    // (SOCKS5 只代理 TCP,WebRTC 的 UDP 会绕过代理暴露本机真实 IP);本机分区直连,
-    // 保持默认。分区在 attach 时已定,不再随全局出口切换。
-    if (guest.session !== session.fromPartition('persist:browser')) {
-      guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
-    }
-    let lastOpenAt = 0;
-    guest.setWindowOpenHandler(({ url }) => {
-      const now = Date.now();
-      if (
-        /^https?:\/\//i.test(url) &&
-        !mainWindow.isDestroyed() &&
-        now - lastOpenAt > 300
-      ) {
-        lastOpenAt = now;
-        mainWindow.webContents.send('browser:open-url', url, guest.id);
-      }
-      return { action: 'deny' };
-    });
-    // 主框架导航只许 http(s)/about:file:// javascript: 等进不了内置浏览器(评审 P2-2)
-    guest.on('will-navigate', (e, url) => {
-      if (!/^(https?:|about:)/i.test(url)) e.preventDefault();
-    });
-  });
+  wireBrowserWebviewPolicies(mainWindow);
 
   if (process.env.OKWORK_SMOKE || process.env.OKWORK_DEBUG) {
     // 冒烟/调试模式把渲染层 console 转发到 stdout;

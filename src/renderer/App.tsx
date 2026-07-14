@@ -94,6 +94,25 @@ export default function App() {
     initExitsSync();
   }, [hostInfo]);
 
+  // 窗格窗口化:壳窗内容回流 → 镜像;壳窗关闭(回落按钮/红灯钮同路)→ 清 poppedOut
+  useEffect(() => {
+    const offSync = window.okwork?.browserPane?.onSync?.((terminalTabId, pane) => {
+      const p = pane as { tabs?: unknown; activeTabId?: string | null } | null;
+      if (!p || !Array.isArray(p.tabs)) return;
+      useAppStore.getState().applyPoppedPaneSync(terminalTabId, {
+        tabs: p.tabs as never,
+        activeTabId: p.activeTabId ?? null,
+      });
+    });
+    const offDocked = window.okwork?.browserPane?.onDocked?.((terminalTabId) => {
+      useAppStore.getState().dockBrowserPane(terminalTabId);
+    });
+    return () => {
+      offSync?.();
+      offDocked?.();
+    };
+  }, []);
+
   // 冒烟模式:空状态自动建一个 workspace,跑通 store→终端全链路
   useEffect(() => {
     if (!hostInfo || !hydrated || !window.okwork.smoke) return;

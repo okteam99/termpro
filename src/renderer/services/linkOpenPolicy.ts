@@ -11,10 +11,16 @@ import { useAppStore } from '../state/store';
 export function openTerminalLinkViaPolicy(terminalTabId: string, url: string): boolean {
   const s = useAppStore.getState();
   if (s.linkBrowserMode === 'system') return false;
+  const ws = s.workspaces.find((w) => w.tabs.some((tb) => tb.id === terminalTabId));
   if (s.linkBrowserMode === 'builtinForRemote') {
-    const ws = s.workspaces.find((w) => w.tabs.some((tb) => tb.id === terminalTabId));
     // 找不到归属 ws(极早期/已关 tab 竞态)按本机语义处理 → 系统浏览器,安全降级
     if (!ws || ws.hostId === 'local') return false;
+  }
+  // 该 tab 的窗格已弹出为独立窗口:内容归壳窗所有,新标签经 main 转投壳窗(并聚焦)
+  const tab = ws?.tabs.find((tb) => tb.id === terminalTabId);
+  if (tab?.browser?.poppedOut) {
+    window.okwork?.browserPane?.addTab?.(terminalTabId, url);
+    return true;
   }
   s.addBrowserTab(terminalTabId, url);
   return true;

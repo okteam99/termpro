@@ -96,9 +96,61 @@ contextBridge.exposeInMainWorld('okwork', {
   openExternal(url: string): void {
     ipcRenderer.send('shell:open-external', url);
   },
-  /** 把浏览器标签弹出为独立窗口(OkBrowser-<标题> · persist:browser 同分区,代理/登录态继承) */
-  openBrowserWindow(payload: { url: string; title?: string }): void {
-    ipcRenderer.send('browser:open-window', payload);
+  /** 壳窗身份:本窗口若是弹出的浏览器窗格窗口,值 = 其终端 tabId(argv 注入);主窗 undefined */
+  browserPaneTabId: (() => {
+    const arg = process.argv.find((a) => a.startsWith('--okwork-browser-pane='));
+    return arg ? arg.slice('--okwork-browser-pane='.length) : undefined;
+  })(),
+  // 窗格窗口化(弹出=整个窗格独立成窗;壳窗内容经 sync 单向回流主窗 store)
+  browserPane: {
+    /** 主窗:弹出某终端 tab 的窗格为独立窗口(携带完整窗格快照种壳窗) */
+    popout(payload: {
+      terminalTabId: string;
+      tabName: string;
+      ownerHostId: string;
+      pane: unknown;
+    }): void {
+      ipcRenderer.send('browserPane:popout', payload);
+    },
+    /** 壳窗:取本窗的窗格种子(终端 tab 名/所属机器/窗格快照) */
+    getState(terminalTabId: string): Promise<unknown> {
+      return ipcRenderer.invoke('browserPane:state', { terminalTabId });
+    },
+    /** 壳窗:窗格内容变化回流(主窗镜像 → 持久化/出口对账) */
+    sync(terminalTabId: string, pane: unknown): void {
+      ipcRenderer.send('browserPane:sync', { terminalTabId, pane });
+    },
+    /** 主窗:订阅壳窗回流,返回退订函数 */
+    onSync(callback: (terminalTabId: string, pane: unknown) => void): () => void {
+      const listener = (_e: unknown, p: { terminalTabId: string; pane: unknown }) =>
+        callback(p.terminalTabId, p.pane);
+      ipcRenderer.on('browserPane:sync', listener);
+      return () => ipcRenderer.removeListener('browserPane:sync', listener);
+    },
+    /** 主窗:把 url 转投给已弹出窗格(终端链接点击等) */
+    addTab(terminalTabId: string, url: string): void {
+      ipcRenderer.send('browserPane:addTab', { terminalTabId, url });
+    },
+    /** 壳窗:订阅主窗转投的新标签请求,返回退订函数 */
+    onAddTab(callback: (url: string) => void): () => void {
+      const listener = (_e: unknown, url: string) => callback(url);
+      ipcRenderer.on('browserPane:addTab', listener);
+      return () => ipcRenderer.removeListener('browserPane:addTab', listener);
+    },
+    /** 主窗:激活(聚焦)某终端 tab 的窗格窗口 */
+    focus(terminalTabId: string): void {
+      ipcRenderer.send('browserPane:focus', { terminalTabId });
+    },
+    /** 壳窗/主窗:回落——关闭壳窗(统一走 closed → docked 通知) */
+    dock(terminalTabId: string): void {
+      ipcRenderer.send('browserPane:dock', { terminalTabId });
+    },
+    /** 主窗:订阅「窗格已回落」(壳窗关闭,含红灯钮),返回退订函数 */
+    onDocked(callback: (terminalTabId: string) => void): () => void {
+      const listener = (_e: unknown, terminalTabId: string) => callback(terminalTabId);
+      ipcRenderer.on('browserPane:docked', listener);
+      return () => ipcRenderer.removeListener('browserPane:docked', listener);
+    },
   },
   /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
    *  sourceWebContentsId 为来源 guest 的 webContents id(renderer 据此落位来源终端 tab) */
