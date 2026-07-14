@@ -278,7 +278,11 @@ function BrowserNetSelector() {
   }, []);
 
   const isRemote = currentNet.hostId !== 'local';
-  const label = isRemote ? (currentNet.alias ?? currentNet.hostId) : t('Local network');
+  // down = 远程出口断线中(fail-closed:main 不自动回退 local,请求快速失败;
+  // 重连 ready 后 main 自动恢复并推 changed)。UI 只如实标注,不本地臆测切换。
+  const label = isRemote
+    ? `${currentNet.alias ?? currentNet.hostId}${currentNet.down ? ` · ${t('Reconnecting…')}` : ''}`
+    : t('Local network');
 
   return (
     <div className="browser-panel__net">
@@ -291,7 +295,13 @@ function BrowserNetSelector() {
         onClick={() => (open ? setOpen(false) : openMenu())}
         title={t('Browser network exit: {name}', { name: label })}
       >
-        {isRemote && <span className="browser-panel__net-dot" />}
+        {isRemote && (
+          <span
+            className={`browser-panel__net-dot${
+              currentNet.down ? ' browser-panel__net-dot--down' : ''
+            }`}
+          />
+        )}
         <span className="browser-panel__net-icon">🌐</span>
         <span className="browser-panel__net-label">{label}</span>
       </button>

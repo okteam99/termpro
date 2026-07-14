@@ -1,5 +1,5 @@
-// BrowserNetworkController:出口切换 / 回退 / 断线自动回退 / WebRTC 策略 / 旧出口释放。
-// 全 DI 桩,不触碰 Electron/网络。
+// BrowserNetworkController:出口切换 / 回退 / 断线 fail-closed(down 标记,不回退 local)
+// / ready 自动恢复 / 删除回退 / WebRTC 策略 / 旧出口释放。全 DI 桩,不触碰 Electron/网络。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BrowserNetworkController, type BrowserNetworkDeps } from '../browserNetwork';
 import type { BrowserNetworkState } from '../../shared/remoteHost';
@@ -93,14 +93,25 @@ describe('BrowserNetworkController', () => {
     expect(d.released).toEqual(['ready-host']);
   });
 
-  it('onHostDown(当前出口):自动回退 local + 广播', async () => {
+  it('onHostDown(当前出口):fail-closed——标记 down + 广播,不回退 local、不动代理/WebRTC', async () => {
+    await ctrl.set('ready-host');
+    d.emitted.length = 0;
+    d.proxyCalls.length = 0;
+    d.webrtcCalls.length = 0;
+    ctrl.onHostDown('ready-host');
+    expect(ctrl.get()).toEqual({ hostId: 'ready-host', alias: 'My VPS', down: true });
+    expect(d.emitted).toEqual([{ hostId: 'ready-host', alias: 'My VPS', down: true }]);
+    expect(d.proxyCalls).toEqual([]); // 代理留在死端口(请求快速失败),绝不切 direct
+    expect(d.webrtcCalls).toEqual([]); // 防泄漏策略不放开
+    expect(d.released).toEqual([]); // orchestrator 已关它的 SOCKS,这里不重复释放
+  });
+
+  it('onHostDown 幂等:重复 down 不重复广播', async () => {
     await ctrl.set('ready-host');
     d.emitted.length = 0;
     ctrl.onHostDown('ready-host');
-    await Promise.resolve(); // 让 onHostDown 内部 set('local') 的队列 flush
-    await Promise.resolve();
-    expect(ctrl.get().hostId).toBe('local');
-    expect(d.emitted.at(-1)).toEqual({ hostId: 'local' });
+    ctrl.onHostDown('ready-host');
+    expect(d.emitted).toHaveLength(1);
   });
 
   it('onHostDown(非当前出口):忽略,不动当前出口', async () => {
@@ -110,6 +121,64 @@ describe('BrowserNetworkController', () => {
     await Promise.resolve();
     expect(ctrl.get()).toEqual({ hostId: 'ready-host', alias: 'My VPS' });
     expect(d.emitted).toEqual([]);
+  });
+
+  it('onHostUp(down 中的当前出口):重建 SOCKS + 恢复代理 + WebRTC 防泄漏 + 清 down', async () => {
+    await ctrl.set('ready-host');
+    ctrl.onHostDown('ready-host');
+    d.proxyCalls.length = 0;
+    d.webrtcCalls.length = 0;
+    d.emitted.length = 0;
+    ctrl.onHostUp('ready-host');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctrl.get()).toEqual({ hostId: 'ready-host', alias: 'My VPS' });
+    expect(d.proxyCalls).toEqual(['socks5://127.0.0.1:51234']);
+    expect(d.webrtcCalls).toEqual(['disable_non_proxied_udp']);
+    expect(d.emitted.at(-1)).toEqual({ hostId: 'ready-host', alias: 'My VPS' });
+  });
+
+  it('onHostUp 重建失败(又断竞态 browserProxyFor→null):保持 down,绝不落 local', async () => {
+    const deps = makeDeps();
+    const c = new BrowserNetworkController(deps.deps);
+    await c.set('ready-host');
+    c.onHostDown('ready-host');
+    // ready→又断:browserProxyFor 开始返回 null
+    (deps.deps.browserProxyFor as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    deps.emitted.length = 0;
+    c.onHostUp('ready-host');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(c.get()).toEqual({ hostId: 'ready-host', alias: 'My VPS', down: true });
+    expect(deps.emitted).toEqual([]); // 无状态变化不广播
+  });
+
+  it('onHostUp(非当前出口/未 down):no-op', async () => {
+    await ctrl.set('ready-host');
+    d.emitted.length = 0;
+    d.proxyCalls.length = 0;
+    ctrl.onHostUp('ready-host'); // 未 down
+    ctrl.onHostUp('some-other-host');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.emitted).toEqual([]);
+    expect(d.proxyCalls).toEqual([]);
+  });
+
+  it('onHostRemoved(当前出口,用户删除=显式意图):回 local + 直连 + WebRTC default', async () => {
+    await ctrl.set('ready-host');
+    ctrl.onHostDown('ready-host');
+    d.emitted.length = 0;
+    ctrl.onHostRemoved('ready-host');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctrl.get()).toEqual({ hostId: 'local' });
+    expect(d.emitted.at(-1)).toEqual({ hostId: 'local' });
+    expect(d.webrtcCalls.at(-1)).toBe('default');
+  });
+
+  it('down 期间用户手动 set(local):照常切换(手动路径不受 fail-closed 限制)', async () => {
+    await ctrl.set('ready-host');
+    ctrl.onHostDown('ready-host');
+    const state = await ctrl.set('local');
+    expect(state).toEqual({ hostId: 'local' });
+    expect(d.released).toContain('ready-host'); // 切走时释放(幂等)
   });
 
   it('setProxy 失败(P2-3):回收刚建的远程端口 + 回退 local + WebRTC default', async () => {

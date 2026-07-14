@@ -203,6 +203,11 @@
   flex-shrink: 0;
 }
 
+/* 远程出口断线中(fail-closed 保持出口不回退,等待重连恢复) */
+.browser-panel__net-dot--down {
+  background: var(--red);
+}
+
 .browser-panel__net-menu {
   position: absolute;
   top: 100%;

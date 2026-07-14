@@ -5,9 +5,12 @@
 //  1. WebRTC 防泄漏：选远程出口时对所有 browser guest 设 disable_non_proxied_udp——
 //     SOCKS5 只代理 TCP，WebRTC 的 UDP 会绕过代理直接暴露本机真实 IP，与「走远程机
 //     网络」的语义相悖；回本机则恢复 default。
-//  2. 断线自动回退:当前出口的远程机断开 → 回退 local + 广播。远程 SOCKS server 已由
-//     orchestrator.closeSessionTransport 关闭,若不回退 session 会卡在已失效的代理端口上,
-//     浏览器全部请求失败(表现为「整个浏览器打不开任何网页」)。
+//  2. 断线 fail-closed(用户指令 2026-07-14「远程 tab 的浏览器不要自动切 local」):
+//     当前出口的远程机断开 → 只标记 down + 广播,**不回退 local**——静默切换出口会让
+//     本应走远程网络的流量从本机 IP 出去(泄漏),且 localhost 类地址瞬间换语义。
+//     代理保持指向已失效端口(请求快速失败,可见可解释),WebRTC 防泄漏策略不放开;
+//     该机重连 ready 后自动重建 SOCKS 并恢复(onHostUp)。回 local 只有两条路:
+//     用户手动选 local / 用户删除该机(onHostRemoved,显式意图)。
 //  3. 切换即释放旧出口:换台机/回本机时 releaseBrowserProxy 旧远程,不泄漏本地端口。
 //
 // 纯逻辑 + DI 接缝(setProxy/setWebRtcPolicy 等由 main.ts 注入真实 Electron 实现),
@@ -58,12 +61,49 @@ export class BrowserNetworkController {
   }
 
   /**
-   * 某远程机断线:若它正是当前出口 → 回退 local + 广播。非当前出口一律忽略
-   * (它的 SOCKS server 断开不影响浏览器,且不应误动其它出口)。
+   * 某远程机断线:若它正是当前出口 → 标记 down + 广播(fail-closed,见纪律 2)。
+   * 不动代理(死端口=请求快速失败)、不放开 WebRTC 防泄漏、不释放代理(orchestrator
+   * closeSessionTransport 已关它的 SOCKS,release 幂等留给后续切换路径)。
+   * 非当前出口一律忽略(不应误动其它出口)。
    */
   onHostDown(configId: string): void {
+    if (this.current.hostId !== configId || this.current.down) return;
+    this.commit({ ...this.current, down: true });
+  }
+
+  /**
+   * 某远程机重连就绪:若它正是当前出口且处于 down → 重建 SOCKS + 恢复代理 + 清标志。
+   * 经同一队列串行(不与用户 set 交错);重建失败保持 down(fail-closed,等下一次 ready)。
+   */
+  onHostUp(configId: string): void {
+    const run = this.queue.then(
+      () => this.applyHostUp(configId),
+      () => this.applyHostUp(configId),
+    );
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+
+  /** 用户删除某远程机(显式意图):若它是当前出口 → 回 local(唯一的自动回退入口)。 */
+  onHostRemoved(configId: string): void {
     if (this.current.hostId !== configId) return;
     void this.set('local');
+  }
+
+  private async applyHostUp(configId: string): Promise<void> {
+    if (this.current.hostId !== configId || !this.current.down) return;
+    const proxy = await this.deps.browserProxyFor(configId);
+    if (!proxy) return; // ready→又断的竞态:保持 down,等下一次 ready
+    try {
+      await this.deps.setProxy(`socks5://127.0.0.1:${proxy.socksPort}`);
+    } catch {
+      this.deps.releaseBrowserProxy(configId);
+      return; // 保持 down(fail-closed),绝不静默落 local
+    }
+    this.deps.setWebRtcPolicy('disable_non_proxied_udp');
+    this.commit({ hostId: configId, alias: this.deps.aliasOf(configId) });
   }
 
   private async applySet(hostId: string): Promise<BrowserNetworkState> {

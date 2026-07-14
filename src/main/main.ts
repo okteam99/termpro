@@ -188,6 +188,8 @@ registerRemoteHostIpc(
     if (win === fileWins.get(configId)) return true;
     return win === diffWin && configId === diffWinHostId;
   },
+  // 删除远程机(显式意图):若它是当前浏览器出口 → 回 local(断线本身不再自动回退)
+  (configId) => browserNetwork.onHostRemoved(configId),
 );
 // ---- 内置浏览器网络出口(browserNet · 面板级)-----------------------------
 // persist:browser session 的代理:local=直连;远程=该机本地 SOCKS5 端口(远程 DNS)。
@@ -211,12 +213,15 @@ const browserNetwork = new BrowserNetworkController({
   },
 });
 
-// 当前出口的远程机断开 → 自动回退 local(SOCKS 端口已随 closeSessionTransport 失效,
-// 不回退浏览器会卡在死端口上,全部请求失败)。orchestrator.onEvent 多播,与
+// 当前出口的远程机断开 → 标记 down(fail-closed,不回退 local——用户指令 2026-07-14
+// 「远程 tab 的浏览器不要自动切 local」:静默换出口=流量从本机 IP 泄漏 + localhost
+// 语义突变);重连 ready → 自动重建 SOCKS 恢复。orchestrator.onEvent 多播,与
 // registerRemoteHostIpc 的事件推送各自独立订阅,职责不同不合并。
 remoteHostOrchestrator.onEvent((e) => {
   if (e.stage === 'disconnected' || e.stage === 'failed') {
     browserNetwork.onHostDown(e.configId);
+  } else if (e.stage === 'ready') {
+    browserNetwork.onHostUp(e.configId);
   }
 });
 

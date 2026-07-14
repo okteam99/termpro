@@ -38,6 +38,8 @@ export function registerRemoteHostIpc(
     sender: Electron.WebContents,
     configId: string,
   ) => boolean,
+  /** 配置删除后的收尾钩子(main 用于浏览器出口回退等联动;缺省 no-op)。 */
+  onConfigDeleted?: (configId: string) => void,
 ): () => void {
   const unsubscribeEvents = orchestrator.onEvent((event) => {
     const win = getMainWindow();
@@ -87,6 +89,7 @@ export function registerRemoteHostIpc(
     await orchestrator.disconnect(payload.id).catch(() => undefined);
     configStore.delete(payload.id);
     credentials.deleteAllForConfig(payload.id);
+    onConfigDeleted?.(payload.id);
   });
 
   ipcMain.handle(REMOTE_HOST_CHANNELS.test, (_event, payload: { id: string }) => {

@@ -135,6 +135,10 @@ export interface BrowserNetworkState {
   hostId: string;
   /** 远程出口的别名（UI 展示用；hostId==='local' 时省略）。 */
   alias?: string;
+  /** 远程出口断线中（fail-closed：代理仍指向已失效端口、请求快速失败，**绝不静默
+   *  回退本机网络**——否则本应走远程的流量会从本机 IP 出去，且 localhost 类地址
+   *  瞬间换语义。该机重连 ready 后 main 自动重建代理并清除此标志）。 */
+  down?: boolean;
 }
 
 /** 浏览器网络出口 IPC 通道（renderer ↔ main）。 */
