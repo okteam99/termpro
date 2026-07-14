@@ -170,7 +170,11 @@ export class SshConnection implements SshConnectionLike {
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        client.removeAllListeners();
+        // 🔴 不能 removeAllListeners(主进程弹窗事故 2026-07-14):本兜底定时器与 ssh2
+        // 内部 readyTimeout 同时限竞速,本定时器先触发时若摘光监听器,ssh2 随后
+        // emit 的 'Timed out while waiting for handshake'(client.js readyTimeout)
+        // 就没有 'error' 接收方 → Node 抛成 main 进程 Uncaught Exception 弹窗。
+        // 保留下方带 settled 闸的 'error' 监听器吞掉 teardown 期间的迟到错误。
         client.destroy();
         reject(new Error(`ssh connect timeout after ${o.readyTimeoutMs}ms`));
       }, o.readyTimeoutMs);

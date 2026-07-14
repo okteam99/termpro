@@ -229,3 +229,41 @@ describe('buildKeepaliveConfig ssh keepalive 纵深防御', () => {
     expect(buildKeepaliveConfig()).toEqual({ keepaliveInterval: 15_000, keepaliveCountMax: 3 });
   });
 });
+
+// 🔴 主进程弹窗事故回归(2026-07-14):connect 的兜底超时与 ssh2 内部 readyTimeout
+// 同时限竞速。修复前兜底路径 removeAllListeners 摘光监听器,ssh2 随后 emit 的
+// 'Timed out while waiting for handshake' 无人接 → uncaughtException 弹窗。
+// 用「接受连接但永不说 SSH」的静默 TCP 服务器复现双定时器竞速。
+describe('connect 超时不产生 uncaughtException(弹窗事故回归)', () => {
+  it('兜底超时 reject 后,ssh2 迟到的 handshake-timeout error 被吞掉', async () => {
+    const net = await import('node:net');
+    // 记住接受的 socket:收尾显式 destroy(server.close 等连接自然收尾在部分环境下悬挂)
+    const accepted: import('node:net').Socket[] = [];
+    const server = net.createServer((socket) => {
+      accepted.push(socket); // 不发 SSH banner,让双方超时
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as import('node:net').AddressInfo).port;
+
+    const uncaught: Error[] = [];
+    const onUncaught = (e: Error) => uncaught.push(e);
+    process.on('uncaughtException', onUncaught);
+    try {
+      await expect(
+        SshConnection.connect({
+          host: '127.0.0.1',
+          port,
+          auth: { username: 'x', password: 'y' },
+          readyTimeoutMs: 150,
+        }),
+      ).rejects.toThrow(/timeout|Timed out/i);
+      // 给 ssh2 内部 readyTimeout 定时器触发窗口:修复前它在这里 emit 无监听 error
+      await new Promise((r) => setTimeout(r, 350));
+      expect(uncaught).toEqual([]);
+    } finally {
+      process.removeListener('uncaughtException', onUncaught);
+      for (const s of accepted) s.destroy();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+});
