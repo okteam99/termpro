@@ -6,15 +6,19 @@ import { type PersistedStateV1, type WorkspaceState, useAppStore } from '../stor
 import { serialize } from '../persistence';
 
 const TERM = 'term1';
+const TERM_BG = 'term2'; // 非活跃终端 tab(后台窗格用)
 
-/** 播一个含单个终端 tab(id=term1)的本机 workspace,浏览器窗格从空起步。 */
+/** 播一个含两个终端 tab(活跃 term1 + 后台 term2)的本机 workspace,浏览器窗格从空起步。 */
 function seedWorkspace(): void {
   const ws: WorkspaceState = {
     id: 'ws1',
     name: 'w',
     root: '/w',
     hostId: 'local',
-    tabs: [{ id: TERM, title: 't', cwd: '/w' }],
+    tabs: [
+      { id: TERM, title: 't', cwd: '/w' },
+      { id: TERM_BG, title: 't2', cwd: '/w' },
+    ],
     activeTabId: TERM,
   };
   useAppStore.setState({
@@ -67,7 +71,7 @@ describe('内置浏览器窗格 store(per-tab)', () => {
     expect(pane()?.activeTabId).toBe(pane()?.tabs[0].id);
   });
 
-  it('closeBrowserTab:关活跃标签 → 激活右邻(无右邻取左);关最后一个 → 窗格清空(面板不动)', () => {
+  it('closeBrowserTab:关活跃标签 → 激活右邻(无右邻取左);全关掉 → 窗格清空 + 面板收起', () => {
     const st = useAppStore.getState();
     st.addBrowserTab(TERM, 'https://a.com');
     st.addBrowserTab(TERM, 'https://b.com');
@@ -77,6 +81,7 @@ describe('内置浏览器窗格 store(per-tab)', () => {
     useAppStore.getState().setBrowserActiveTab(TERM, b.id);
     useAppStore.getState().closeBrowserTab(TERM, b.id);
     expect(pane()?.activeTabId).toBe(c.id); // 右邻
+    expect(useAppStore.getState().browserPanelOpen).toBe(true); // 还有标签,面板不动
 
     useAppStore.getState().closeBrowserTab(TERM, c.id);
     expect(pane()?.activeTabId).toBe(a.id); // 无右邻取左
@@ -84,7 +89,23 @@ describe('内置浏览器窗格 store(per-tab)', () => {
     useAppStore.getState().closeBrowserTab(TERM, a.id);
     expect(pane()?.tabs).toEqual([]);
     expect(pane()?.activeTabId).toBeNull();
-    expect(useAppStore.getState().browserPanelOpen).toBe(true); // per-tab:面板不随空窗格收起
+    // 标签全关掉 → 面板一并收起(用户指令 2026-07-14;下次打开重新种空标签)
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+  });
+
+  it('后台终端 tab 的窗格被清空 → 面板不收(全局面板态只随活跃窗格)', () => {
+    const st = useAppStore.getState();
+    // 给活跃 tab(TERM)与后台 tab(TERM_BG)各一个标签
+    st.addBrowserTab(TERM, 'https://front.com');
+    st.addBrowserTab(TERM_BG, 'https://back.com');
+    const bg = useAppStore
+      .getState()
+      .workspaces.flatMap((w) => w.tabs)
+      .find((tab) => tab.id === TERM_BG)!.browser!.tabs[0];
+
+    useAppStore.getState().closeBrowserTab(TERM_BG, bg.id);
+    expect(useAppStore.getState().browserPanelOpen).toBe(true); // 活跃窗格还有标签
+    expect(pane()?.tabs).toHaveLength(1);
   });
 
   it('关闭非活跃标签不改激活', () => {

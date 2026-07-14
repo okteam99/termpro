@@ -284,7 +284,8 @@ export interface AppState {
   // 因 webview 跨终端 tab 常驻保活,后台 tab 的 window.open 也须落回它自己的窗格。
   /** 在指定终端 tab 新建浏览器标签并激活(url 缺省空 → 面板空态待输入);面板保持打开 */
   addBrowserTab(terminalTabId: string, url?: string): void;
-  /** 关闭指定终端 tab 的某浏览器标签;关掉最后一个 → 该 tab 的 browser 清空(面板不再显示标签) */
+  /** 关闭指定终端 tab 的某浏览器标签;关掉最后一个 → 窗格清空,且若该窗格属于当前
+   *  活跃终端 tab → 面板一并收起(用户指令 2026-07-14;后台窗格清空不动全局面板态) */
   closeBrowserTab(terminalTabId: string, browserTabId: string): void;
   setBrowserActiveTab(terminalTabId: string, browserTabId: string): void;
   updateBrowserTab(
@@ -1005,20 +1006,35 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closeBrowserTab(terminalTabId, browserTabId) {
-    set((s) => ({
-      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => {
+    set((s) => {
+      // patch 前判定「这一关会清空窗格」(patchTabBrowser 只做映射,不回传结果)
+      const owner = s.workspaces
+        .flatMap((w) => w.tabs)
+        .find((tab) => tab.id === terminalTabId);
+      const emptiesPane =
+        (owner?.browser?.tabs.some((b) => b.id === browserTabId) ?? false) &&
+        owner!.browser!.tabs.length === 1;
+      const workspaces = patchTabBrowser(s.workspaces, terminalTabId, (pane) => {
         const idx = pane.tabs.findIndex((b) => b.id === browserTabId);
         if (idx < 0) return pane;
         const tabs = pane.tabs.filter((b) => b.id !== browserTabId);
-        // 关最后一个 → 该终端 tab 的窗格清空(面板保持打开,显示空态);不影响其它 tab
+        // 关最后一个 → 该终端 tab 的窗格清空;不影响其它 tab 的窗格
         if (tabs.length === 0) return { tabs: [], activeTabId: null };
         const activeTabId =
           pane.activeTabId === browserTabId
             ? (tabs[Math.min(idx, tabs.length - 1)]?.id ?? null)
             : pane.activeTabId;
         return { tabs, activeTabId };
-      }),
-    }));
+      });
+      // 标签全关掉 → 面板收起(用户指令 2026-07-14)。仅限当前活跃终端 tab 的窗格——
+      // 面板此刻展示的就是它;后台窗格清空不动全局面板态(下次切过去按空窗格逻辑种标签)。
+      const closesPanel =
+        emptiesPane && s.browserPanelOpen && activeTerminalTab(s)?.id === terminalTabId;
+      return {
+        workspaces,
+        ...(closesPanel ? { browserPanelOpen: false } : {}),
+      };
+    });
   },
 
   setBrowserActiveTab(terminalTabId, browserTabId) {
