@@ -1,151 +1,143 @@
-// 内置浏览器网络出口控制器（main 进程）。persist:browser session 的代理指向:
-//   'local' = 直连（系统默认网络）；远程 = 该机本地 SOCKS5 端口（流量走远程网络 + 远程 DNS）。
+// 内置浏览器网络出口控制器(main 进程 · 标签级出口/多分区版 2026-07)。
 //
-// 三条纪律：
-//  1. WebRTC 防泄漏：选远程出口时对所有 browser guest 设 disable_non_proxied_udp——
-//     SOCKS5 只代理 TCP，WebRTC 的 UDP 会绕过代理直接暴露本机真实 IP，与「走远程机
-//     网络」的语义相悖；回本机则恢复 default。
-//  2. 断线 fail-closed(用户指令 2026-07-14「远程 tab 的浏览器不要自动切 local」):
-//     当前出口的远程机断开 → 只标记 down + 广播,**不回退 local**——静默切换出口会让
-//     本应走远程网络的流量从本机 IP 出去(泄漏),且 localhost 类地址瞬间换语义。
-//     代理保持指向已失效端口(请求快速失败,可见可解释),WebRTC 防泄漏策略不放开;
-//     该机重连 ready 后自动重建 SOCKS 并恢复(onHostUp)。回 local 只有两条路:
-//     用户手动选 local / 用户删除该机(onHostRemoved,显式意图)。
-//  3. 切换即释放旧出口:换台机/回本机时 releaseBrowserProxy 旧远程,不泄漏本地端口。
+// 模型:出口 → session 分区(shared/remoteHost.partitionOf)。local = persist:browser
+// 直连(不归本控制器管);每台在用远程机 = persist:browser-<configId> 独立分区,
+// 恒 setProxy(socks5://127.0.0.1:<该机本地 SOCKS 端口>) + <-loopback>(撤销 Chromium
+// 对 localhost 的隐式代理豁免——走远程出口的核心场景就是访问 remote localhost)。
 //
-// 纯逻辑 + DI 接缝(setProxy/setWebRtcPolicy 等由 main.ts 注入真实 Electron 实现),
-// 便于单测不触碰 Electron/网络。
+// 四条纪律:
+//  1. 声明式对账:renderer(各窗口)上报「在用出口集合」(syncExits),本控制器
+//     acquire 新增 / release 不再使用——没有引用计数漂移(集合就是事实)。
+//  2. 断线 fail-closed(per-分区):出口远程机断线只标 down + 广播;该分区代理留在
+//     死端口(请求快速失败),绝不静默改直连;重连 ready 自动重建 SOCKS(新端口)
+//     重 setProxy 并清 down。
+//  3. 删除该机(显式意图)= release + 从快照移除(标签的 netHostId 失效,由 UI 引导改选)。
+//  4. WebRTC 防泄漏静态化:远程分区 guest 恒 disable_non_proxied_udp(main.ts 在
+//     attach 时按分区判定,不再全局切换)。
+//
+// 纯逻辑 + DI 接缝(setProxy 等由 main.ts 注入真实 Electron 实现),便于单测。
 
-import type { BrowserNetworkState } from '../shared/remoteHost';
-
-export type WebRtcPolicy = 'default' | 'disable_non_proxied_udp';
+import {
+  partitionOf,
+  type BrowserExitState,
+  type BrowserNetworkSnapshot,
+} from '../shared/remoteHost';
 
 export interface BrowserNetworkDeps {
-  /** persist:browser session 的代理设置接缝：rules=null 表示直连（mode:direct）。 */
-  setProxy: (rules: string | null) => Promise<void>;
-  /** 拉起/复用某远程机本地 SOCKS 端口;非 ready → null(回退 local)。 */
+  /** 某分区的代理设置接缝;rules=null 表示直连(mode:direct)。远程分区恒带 <-loopback>。 */
+  setProxy: (partition: string, rules: string | null) => Promise<void>;
+  /** 拉起/复用某远程机本地 SOCKS 端口;非 ready → null。 */
   browserProxyFor: (configId: string) => Promise<{ socksPort: number } | null>;
-  /** 取消选中远程出口时回收其 SOCKS 代理(幂等)。 */
+  /** 出口不再使用时回收其 SOCKS 代理(幂等)。 */
   releaseBrowserProxy: (configId: string) => void;
-  /** 对所有 browser guest webContents 设 WebRTC IP 处理策略。 */
-  setWebRtcPolicy: (policy: WebRtcPolicy) => void;
   /** configId → alias(UI 展示;取不到 → undefined)。 */
   aliasOf: (configId: string) => string | undefined;
-  /** 出口变更广播(main→renderer)。 */
-  emitChanged: (state: BrowserNetworkState) => void;
+  /** 快照变更广播(main→renderer 各窗口)。 */
+  emitChanged: (snapshot: BrowserNetworkSnapshot) => void;
 }
 
-const LOCAL: BrowserNetworkState = { hostId: 'local' };
+interface ExitEntry {
+  /** 断线中(fail-closed);代理指向的端口已死,等 onHostUp 重建 */
+  down: boolean;
+}
 
 export class BrowserNetworkController {
-  private current: BrowserNetworkState = { ...LOCAL };
-  /** set 串行化:快速连点切换出口时不让 setProxy/release 交错(后到者以最终态为准)。 */
+  /** 在用远程出口(configId → 状态);local 不入表 */
+  private exits = new Map<string, ExitEntry>();
+  /** 对账/恢复串行化:syncExits 与 onHostUp 交错会重复建/漏建 SOCKS */
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: BrowserNetworkDeps) {}
 
-  get(): BrowserNetworkState {
-    return this.current;
+  snapshot(): BrowserNetworkSnapshot {
+    const exits: BrowserExitState[] = [...this.exits.entries()].map(([hostId, e]) => ({
+      hostId,
+      alias: this.deps.aliasOf(hostId),
+      ...(e.down ? { down: true } : {}),
+    }));
+    return { exits };
   }
 
-  set(hostId: string): Promise<BrowserNetworkState> {
-    const run = this.queue.then(
-      () => this.applySet(hostId),
-      () => this.applySet(hostId),
-    );
+  /** 声明式对账:hostIds = 当前所有窗口全部浏览器标签的出口全集('local' 忽略)。 */
+  syncExits(hostIds: string[]): Promise<BrowserNetworkSnapshot> {
+    return this.enqueue(async () => {
+      const want = new Set(hostIds.filter((h) => h && h !== 'local'));
+      let changed = false;
+      // release 不再使用的出口(分区代理不清,无人使用无副作用;SOCKS 端口回收)
+      for (const hostId of [...this.exits.keys()]) {
+        if (!want.has(hostId)) {
+          this.exits.delete(hostId);
+          this.deps.releaseBrowserProxy(hostId);
+          changed = true;
+        }
+      }
+      // acquire 新增的出口
+      for (const hostId of want) {
+        if (!this.exits.has(hostId)) {
+          await this.acquire(hostId);
+          changed = true;
+        }
+      }
+      const snap = this.snapshot();
+      if (changed) this.deps.emitChanged(snap);
+      return snap;
+    });
+  }
+
+  /** 某远程机断线:在用出口 → 标 down + 广播(fail-closed,见纪律 2);其余忽略。 */
+  onHostDown(configId: string): void {
+    const e = this.exits.get(configId);
+    if (!e || e.down) return;
+    e.down = true;
+    this.deps.emitChanged(this.snapshot());
+  }
+
+  /** 某远程机重连就绪:在用且 down → 重建 SOCKS(新端口)重 setProxy + 清 down。 */
+  onHostUp(configId: string): void {
+    void this.enqueue(async () => {
+      const e = this.exits.get(configId);
+      if (!e || !e.down) return;
+      await this.acquire(configId); // acquire 失败会保持 down(又断竞态,等下一次 ready)
+      this.deps.emitChanged(this.snapshot());
+    });
+  }
+
+  /** 用户删除某远程机(显式意图):release + 移出快照。 */
+  onHostRemoved(configId: string): void {
+    void this.enqueue(async () => {
+      if (!this.exits.delete(configId)) return;
+      this.deps.releaseBrowserProxy(configId);
+      this.deps.emitChanged(this.snapshot());
+    });
+  }
+
+  /** 建立(或重建)某出口:SOCKS + 分区代理。失败 → 挂 down(fail-closed,绝不落直连)。 */
+  private async acquire(configId: string): Promise<void> {
+    const proxy = await this.deps.browserProxyFor(configId);
+    if (!proxy) {
+      this.exits.set(configId, { down: true });
+      return;
+    }
+    try {
+      await this.deps.setProxy(
+        partitionOf(configId),
+        `socks5://127.0.0.1:${proxy.socksPort}`,
+      );
+    } catch {
+      // setProxy 失败:回收刚建的端口防泄漏,挂 down(该分区绝不落直连)
+      this.deps.releaseBrowserProxy(configId);
+      this.exits.set(configId, { down: true });
+      return;
+    }
+    this.exits.set(configId, { down: false });
+  }
+
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn, fn);
     this.queue = run.then(
       () => undefined,
       () => undefined,
     );
     return run;
-  }
-
-  /**
-   * 某远程机断线:若它正是当前出口 → 标记 down + 广播(fail-closed,见纪律 2)。
-   * 不动代理(死端口=请求快速失败)、不放开 WebRTC 防泄漏、不释放代理(orchestrator
-   * closeSessionTransport 已关它的 SOCKS,release 幂等留给后续切换路径)。
-   * 非当前出口一律忽略(不应误动其它出口)。
-   */
-  onHostDown(configId: string): void {
-    if (this.current.hostId !== configId || this.current.down) return;
-    this.commit({ ...this.current, down: true });
-  }
-
-  /**
-   * 某远程机重连就绪:若它正是当前出口且处于 down → 重建 SOCKS + 恢复代理 + 清标志。
-   * 经同一队列串行(不与用户 set 交错);重建失败保持 down(fail-closed,等下一次 ready)。
-   */
-  onHostUp(configId: string): void {
-    const run = this.queue.then(
-      () => this.applyHostUp(configId),
-      () => this.applyHostUp(configId),
-    );
-    this.queue = run.then(
-      () => undefined,
-      () => undefined,
-    );
-  }
-
-  /** 用户删除某远程机(显式意图):若它是当前出口 → 回 local(唯一的自动回退入口)。 */
-  onHostRemoved(configId: string): void {
-    if (this.current.hostId !== configId) return;
-    void this.set('local');
-  }
-
-  private async applyHostUp(configId: string): Promise<void> {
-    if (this.current.hostId !== configId || !this.current.down) return;
-    const proxy = await this.deps.browserProxyFor(configId);
-    if (!proxy) return; // ready→又断的竞态:保持 down,等下一次 ready
-    try {
-      await this.deps.setProxy(`socks5://127.0.0.1:${proxy.socksPort}`);
-    } catch {
-      this.deps.releaseBrowserProxy(configId);
-      return; // 保持 down(fail-closed),绝不静默落 local
-    }
-    this.deps.setWebRtcPolicy('disable_non_proxied_udp');
-    this.commit({ hostId: configId, alias: this.deps.aliasOf(configId) });
-  }
-
-  private async applySet(hostId: string): Promise<BrowserNetworkState> {
-    const prev = this.current;
-
-    if (hostId !== 'local') {
-      const proxy = await this.deps.browserProxyFor(hostId);
-      if (proxy) {
-        try {
-          // 先切到新代理,再释放旧远程——避免出现「旧 server 已关但 session 还指向它」的空窗
-          await this.deps.setProxy(`socks5://127.0.0.1:${proxy.socksPort}`);
-        } catch {
-          // 🔴 setProxy 失败(评审 P2-3):回收刚建起的新 SOCKS 端口(否则泄漏监听口),
-          // 回退 local。commit local 而非停在 prev,current 与 session 代理态才一致。
-          this.deps.releaseBrowserProxy(hostId);
-          await this.deps.setProxy(null).catch(() => undefined);
-          this.deps.setWebRtcPolicy('default');
-          this.releasePrevRemote(prev, 'local');
-          return this.commit({ ...LOCAL });
-        }
-        this.deps.setWebRtcPolicy('disable_non_proxied_udp');
-        this.releasePrevRemote(prev, hostId);
-        return this.commit({ hostId, alias: this.deps.aliasOf(hostId) });
-      }
-      // 请求的远程机不可用(非 ready / 断线竞态):落到下面回退 local,保证浏览器仍可用
-    }
-
-    await this.deps.setProxy(null);
-    this.deps.setWebRtcPolicy('default');
-    this.releasePrevRemote(prev, 'local');
-    return this.commit({ ...LOCAL });
-  }
-
-  private releasePrevRemote(prev: BrowserNetworkState, nextHostId: string): void {
-    if (prev.hostId !== 'local' && prev.hostId !== nextHostId) {
-      this.deps.releaseBrowserProxy(prev.hostId);
-    }
-  }
-
-  private commit(state: BrowserNetworkState): BrowserNetworkState {
-    this.current = state;
-    this.deps.emitChanged(state);
-    return state;
   }
 }

@@ -1,5 +1,5 @@
 import type {
-  BrowserNetworkState,
+  BrowserNetworkSnapshot,
   RemoteEvent,
   RemoteHostCapabilities,
   RemoteHostConfig,
@@ -92,14 +92,14 @@ declare global {
         stages(): Promise<Record<string, RemoteStage>>;
         onEvent(callback: (e: RemoteEvent) => void): () => void;
       };
-      /** 内置浏览器网络出口(面板级:'local' 直连 / 远程机 configId 走其 SOCKS5 代理) */
+      /** 内置浏览器网络出口(标签级:每标签 netHostId → 独立分区;main 按在用集合对账) */
       browserNet: {
-        /** 设置出口;返回最终生效态(请求远程但该机不可用 → 回退 local) */
-        set(hostId: string): Promise<BrowserNetworkState>;
-        /** 查询当前出口(面板挂载时对齐权威态) */
-        get(): Promise<BrowserNetworkState>;
-        /** 订阅出口变更(含断线自动回退 local),返回退订函数 */
-        onChanged(callback: (s: BrowserNetworkState) => void): () => void;
+        /** 声明式上报在用出口集合;main 对账 acquire/release,返回快照 */
+        syncExits(hostIds: string[]): Promise<BrowserNetworkSnapshot>;
+        /** 查询当前快照(选择器挂载时对齐权威态) */
+        get(): Promise<BrowserNetworkSnapshot>;
+        /** 订阅快照变更(断线标 down/重连恢复),返回退订函数 */
+        onChanged(callback: (s: BrowserNetworkSnapshot) => void): () => void;
       };
     };
   }

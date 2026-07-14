@@ -125,29 +125,39 @@ export const REMOTE_HOST_CHANNELS = {
 } as const;
 
 /**
- * 内置浏览器的网络出口选择（面板级，非 per-tab —— persist:browser 是全局唯一 session
- * partition，代理设在 session 级，所有标签共享同一出口）。
- * hostId='local' = 本机直连（默认）；否则 = 某台 ready 远程机的 configId，其流量经该机
- * 上的本地 SOCKS5 代理走远程网络（远程 DNS）。
+ * 内置浏览器网络出口(标签级 · 2026-07):代理绑定在 session(分区)级是 Chromium
+ * 硬约束,故「每个标签各走各的网络」按【出口拆分区】实现(浏览器容器模式):
+ *   partitionOf('local')   = 'persist:browser'            (原分区,直连,登录态零迁移)
+ *   partitionOf(configId)  = 'persist:browser-<configId>' (各远程机独立分区,恒代理+恒
+ *                            <-loopback>+恒 WebRTC 防泄漏;登录态按出口天然分家)
+ * 标签的 netHostId 决定其 webview 落哪个分区;换出口 = 换分区 = 该标签重挂重载。
  */
-export interface BrowserNetworkState {
-  /** 当前生效出口：'local' 或远程机 configId。 */
+export function partitionOf(hostId: string): string {
+  return hostId === 'local' ? 'persist:browser' : `persist:browser-${hostId}`;
+}
+
+/** 某个在用远程出口的状态(local 恒可用,不入列)。 */
+export interface BrowserExitState {
+  /** 远程机 configId。 */
   hostId: string;
-  /** 远程出口的别名（UI 展示用；hostId==='local' 时省略）。 */
   alias?: string;
-  /** 远程出口断线中（fail-closed：代理仍指向已失效端口、请求快速失败，**绝不静默
-   *  回退本机网络**——否则本应走远程的流量会从本机 IP 出去，且 localhost 类地址
-   *  瞬间换语义。该机重连 ready 后 main 自动重建代理并清除此标志）。 */
+  /** 断线中(fail-closed:该分区代理仍指向已失效端口、请求快速失败,**绝不静默
+   *  回退本机网络**;该机重连 ready 后 main 自动重建代理并清除此标志)。 */
   down?: boolean;
+}
+
+/** main 权威快照:当前在用(有标签指向)的全部远程出口。 */
+export interface BrowserNetworkSnapshot {
+  exits: BrowserExitState[];
 }
 
 /** 浏览器网络出口 IPC 通道（renderer ↔ main）。 */
 export const BROWSER_NET_CHANNELS = {
-  /** 设置出口（renderer→main，invoke）：返回最终生效态；请求远程但该机不可用 → 回退 local。 */
-  set: 'browserNet:set',
-  /** 查询当前出口（renderer→main，invoke）：面板挂载时对齐权威态。 */
+  /** 声明式上报在用出口集合(renderer→main,invoke):main 对账 acquire/release,返回快照。 */
+  syncExits: 'browserNet:syncExits',
+  /** 查询当前快照（renderer→main，invoke）：选择器挂载时对齐权威态。 */
   get: 'browserNet:get',
-  /** 出口变更推送（main→renderer）：含断线自动回退 local——UI 据此同步高亮/提示。 */
+  /** 快照变更推送(main→renderer):断线标 down/重连恢复——选择器据此标注状态。 */
   changed: 'browserNet:changed',
 } as const;
 

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseLocaleArg, parseVersionArg } from './parseVersionArg';
 import { REMOTE_HOST_CHANNELS, BROWSER_NET_CHANNELS } from '../shared/remoteHost';
 import type {
-  BrowserNetworkState,
+  BrowserNetworkSnapshot,
   RemoteEvent,
   RemoteHostCapabilities,
   RemoteHostConfig,
@@ -195,17 +195,17 @@ contextBridge.exposeInMainWorld('okwork', {
   },
   // 内置浏览器网络出口(面板级:'local' 直连 / 远程机 configId 走其 SOCKS5 代理)。
   browserNet: {
-    /** 设置出口;返回最终生效态(请求远程但该机不可用 → 回退 local) */
-    set(hostId: string): Promise<BrowserNetworkState> {
-      return ipcRenderer.invoke(BROWSER_NET_CHANNELS.set, { hostId });
+    /** 声明式上报在用出口集合(标签级出口);main 对账 acquire/release,返回快照 */
+    syncExits(hostIds: string[]): Promise<BrowserNetworkSnapshot> {
+      return ipcRenderer.invoke(BROWSER_NET_CHANNELS.syncExits, { hostIds });
     },
-    /** 查询当前出口(面板挂载时对齐权威态) */
-    get(): Promise<BrowserNetworkState> {
+    /** 查询当前快照(选择器挂载时对齐权威态) */
+    get(): Promise<BrowserNetworkSnapshot> {
       return ipcRenderer.invoke(BROWSER_NET_CHANNELS.get);
     },
-    /** 订阅出口变更(含断线自动回退 local),返回退订函数 */
-    onChanged(callback: (s: BrowserNetworkState) => void): () => void {
-      const listener = (_e: unknown, s: BrowserNetworkState) => callback(s);
+    /** 订阅快照变更(断线标 down/重连恢复),返回退订函数 */
+    onChanged(callback: (s: BrowserNetworkSnapshot) => void): () => void {
+      const listener = (_e: unknown, s: BrowserNetworkSnapshot) => callback(s);
       ipcRenderer.on(BROWSER_NET_CHANNELS.changed, listener);
       return () => {
         ipcRenderer.removeListener(BROWSER_NET_CHANNELS.changed, listener);

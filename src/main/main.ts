@@ -97,9 +97,14 @@ let mainWin: BrowserWindow | null = null;
 const fileWins = new Map<string, BrowserWindow>();
 let diffWin: BrowserWindow | null = null;
 
-// 内置浏览器 guest webContents 台账(browserNet 用):选远程网络出口时对每个 guest
-// 设 WebRTC disable_non_proxied_udp 防 UDP 泄漏本机真实 IP;guest 销毁时移除。
-const browserGuests = new Set<Electron.WebContents>();
+// 浏览器分区判定(标签级出口):persist:browser=本机直连;persist:browser-<configId>=
+// 远程分区(恒代理,attach 时静态设 WebRTC 防泄漏,不再全局切换)。
+const isRemoteBrowserPartition = (partition: string | undefined): boolean =>
+  typeof partition === 'string' && partition.startsWith('persist:browser-');
+const isKnownBrowserPartition = (partition: string | undefined): boolean =>
+  partition === 'persist:browser' ||
+  (isRemoteBrowserPartition(partition) &&
+    remoteHostConfigStore.get(partition!.slice('persist:browser-'.length)) !== undefined);
 
 // .md 文件关联:双击 md / 「打开方式」选 OkWork → 查看器窗口打开。
 // macOS 冷启动时 open-file 可能早于 ready,先入队,ready 后统一打开(openFileWindow
@@ -191,11 +196,12 @@ registerRemoteHostIpc(
   // 删除远程机(显式意图):若它是当前浏览器出口 → 回 local(断线本身不再自动回退)
   (configId) => browserNetwork.onHostRemoved(configId),
 );
-// ---- 内置浏览器网络出口(browserNet · 面板级)-----------------------------
-// persist:browser session 的代理:local=直连;远程=该机本地 SOCKS5 端口(远程 DNS)。
+// ---- 内置浏览器网络出口(browserNet · 标签级/多分区)-------------------------
+// 出口→分区:local=persist:browser 直连;每台在用远程机=persist:browser-<configId>
+// 独立分区,恒 socks5 + <-loopback>。renderer 声明式上报在用出口集合,控制器对账。
 const browserNetwork = new BrowserNetworkController({
-  setProxy: (rules) =>
-    session.fromPartition('persist:browser').setProxy(
+  setProxy: (partition, rules) =>
+    session.fromPartition(partition).setProxy(
       rules === null
         ? { mode: 'direct' }
         : {
@@ -210,20 +216,15 @@ const browserNetwork = new BrowserNetworkController({
     ),
   browserProxyFor: (configId) => remoteHostOrchestrator.browserProxyFor(configId),
   releaseBrowserProxy: (configId) => remoteHostOrchestrator.releaseBrowserProxy(configId),
-  setWebRtcPolicy: (policy) => {
-    for (const wc of browserGuests) {
-      if (!wc.isDestroyed()) wc.setWebRTCIPHandlingPolicy(policy);
-    }
-  },
   aliasOf: (configId) => remoteHostConfigStore.get(configId)?.alias,
-  emitChanged: (state) => {
+  emitChanged: (snapshot) => {
     if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send(BROWSER_NET_CHANNELS.changed, state);
+      mainWin.webContents.send(BROWSER_NET_CHANNELS.changed, snapshot);
     }
   },
 });
 
-// 当前出口的远程机断开 → 标记 down(fail-closed,不回退 local——用户指令 2026-07-14
+// 在用出口的远程机断开 → 该分区标 down(fail-closed,不回退直连——用户指令 2026-07-14
 // 「远程 tab 的浏览器不要自动切 local」:静默换出口=流量从本机 IP 泄漏 + localhost
 // 语义突变);重连 ready → 自动重建 SOCKS 恢复。orchestrator.onEvent 多播,与
 // registerRemoteHostIpc 的事件推送各自独立订阅,职责不同不合并。
@@ -235,13 +236,15 @@ remoteHostOrchestrator.onEvent((e) => {
   }
 });
 
-// browserNet:set 仅主窗口可改(浏览器面板只在主窗口;拒绝其它渲染进程改全局代理);
+// syncExits 仅主窗口可报(浏览器面板在主窗口;拒绝其它渲染进程改代理拓扑);
 // get 无副作用任意窗口可读。
-ipcMain.handle(BROWSER_NET_CHANNELS.set, (event, payload: { hostId: string }) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return browserNetwork.get();
-  return browserNetwork.set(payload?.hostId ?? 'local');
+ipcMain.handle(BROWSER_NET_CHANNELS.syncExits, (event, payload: { hostIds: string[] }) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+    return browserNetwork.snapshot();
+  }
+  return browserNetwork.syncExits(Array.isArray(payload?.hostIds) ? payload.hostIds : []);
 });
-ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.get());
+ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.snapshot());
 
 // ---- 浏览器标签弹出独立窗口(OkBrowser-<标题>)------------------------------
 // persist:browser 同分区:代理出口(含 <-loopback>)/登录态与面板 webview 完全一致。
@@ -281,12 +284,7 @@ ipcMain.on('browser:open-window', (event, payload: { url?: string; title?: strin
   win.webContents.on('will-navigate', (e, u) => {
     if (!/^(https?:|about:)/i.test(u)) e.preventDefault();
   });
-  // WebRTC 防泄漏台账:与面板 guest 同等对待(切远程出口时统一设策略)
-  browserGuests.add(win.webContents);
-  win.webContents.on('destroyed', () => browserGuests.delete(win.webContents));
-  if (browserNetwork.get().hostId !== 'local') {
-    win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
-  }
+  // 本分区(persist:browser)恒直连,WebRTC 无需防泄漏策略;远程分区版随窗格窗口化落地
   void win.loadURL(url);
 });
 
@@ -738,6 +736,9 @@ const createWindow = () => {
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
     if (params.src && !/^https?:\/\//i.test(params.src)) event.preventDefault();
+    // 🔴 分区白名单(标签级出口):只许 persist:browser / persist:browser-<已知 configId>。
+    // 被注入的 renderer 不能借任意 partition 逃出浏览器分区体系(隔离登录态/代理语义)。
+    if (!isKnownBrowserPartition(params.partition)) event.preventDefault();
   });
   // 内置浏览器 webview 的弹窗策略:target=_blank / window.open 一律不开原生新窗,
   // http(s) 交回 renderer 在浏览器面板里开新标签(externalUrlPolicy 只管主窗自身导航);
@@ -745,12 +746,10 @@ const createWindow = () => {
   // 所属终端 tab 的窗格(后台 tab 的弹窗不落错地方)。
   // 限频 300ms/guest:恶意页 for(;;)window.open 不能灌爆标签条(评审 P2-5)
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
-    // browserNet 台账:新 guest 纳入(切远程出口时遍历设 WebRTC 策略);guest 销毁移除。
-    // 当前出口已是远程 → 立即对这个「切换之后才 attach」的新标签设防泄漏策略,
-    // 否则它会漏在 setWebRtcPolicy 的既有遍历之外,以本机 UDP 暴露真实 IP。
-    browserGuests.add(guest);
-    guest.on('destroyed', () => browserGuests.delete(guest));
-    if (browserNetwork.get().hostId !== 'local') {
+    // WebRTC 防泄漏静态化(标签级出口):远程分区恒代理 → 恒 disable_non_proxied_udp
+    // (SOCKS5 只代理 TCP,WebRTC 的 UDP 会绕过代理暴露本机真实 IP);本机分区直连,
+    // 保持默认。分区在 attach 时已定,不再随全局出口切换。
+    if (guest.session !== session.fromPartition('persist:browser')) {
       guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
     }
     let lastOpenAt = 0;

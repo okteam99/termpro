@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAppStore, selectActiveWorkspace } from '../state/store';
+import { resolveBrowserTabNet, useAppStore, selectActiveWorkspace } from '../state/store';
+import type { BrowserTabState } from '../state/store';
 import { t } from '../../shared/i18n';
-import type { BrowserNetworkState, RemoteHostConfig, RemoteStage } from '../../shared/remoteHost';
+import { partitionOf } from '../../shared/remoteHost';
+import type {
+  BrowserNetworkSnapshot,
+  RemoteHostConfig,
+  RemoteStage,
+} from '../../shared/remoteHost';
 import './BrowserPanel.css';
 
 // webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
@@ -76,6 +82,9 @@ interface BrowserWebviewProps {
   /** 该浏览器标签所属的终端 tab id;事件回写(did-navigate 等)据此定位 store 里的窗格,
    *  因为保活渲染时事件可能来自非活跃终端 tab 的后台 webview。 */
   ownerTerminalTabId: string;
+  /** 该标签的 session 分区(partitionOf(netHostId));创建后不可变——调用方换出口时
+   *  必须换 React key 重挂本组件(该标签重载,分区即网络出口+登录态边界)。 */
+  partition: string;
   url: string;
   active: boolean;
   onWebviewRef: (id: string, el: WebviewElement | null) => void;
@@ -91,6 +100,7 @@ interface BrowserWebviewProps {
 function BrowserWebview({
   tabId,
   ownerTerminalTabId,
+  partition,
   url,
   active,
   onWebviewRef,
@@ -175,7 +185,7 @@ function BrowserWebview({
     <webview
       ref={setRef}
       src={srcRef.current}
-      partition="persist:browser"
+      partition={partition}
       // 🔴 无 allowpopups 时 target=_blank/window.open 在 guest 层被直接吞掉,
       // 主进程 setWindowOpenHandler 收不到请求;开了它,请求才会到达拦截器——
       // 拦截器恒 deny 原生新窗,把 http(s) URL 转成面板新标签(main.ts did-attach-webview)。
@@ -255,26 +265,35 @@ interface NetOption {
 }
 
 /**
- * 内置浏览器「网络出口」选择器:session 级(persist:browser 全局唯一,所有标签共享),
- * 权威态单源在 main —— 本组件只镜像 browserNet.get()/onChanged,绝不本地臆测出口
- * (远程不可用时的回退 local 全靠 main 推事件/set() 返回值反映,不做乐观更新)。
+ * 内置浏览器「网络出口」选择器(标签级 · 2026-07):显示并修改【当前活跃浏览器标签】
+ * 的 netHostId(决定其 webview 分区;换出口=该标签重挂重载,登录态随分区)。
+ * 出口健康态(down/alias)单源在 main 快照(browserNet.get/onChanged),不本地臆测。
  */
-function BrowserNetSelector() {
-  const [currentNet, setCurrentNet] = useState<BrowserNetworkState>({ hostId: 'local' });
+function BrowserNetSelector({
+  terminalTabId,
+  tab,
+  ownerHostId,
+}: {
+  terminalTabId: string | null;
+  tab: BrowserTabState | null;
+  ownerHostId: string;
+}) {
+  const [snapshot, setSnapshot] = useState<BrowserNetworkSnapshot>({ exits: [] });
   const [open, setOpen] = useState(false);
   const [candidates, setCandidates] = useState<NetOption[]>([]);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const setBrowserTabNet = useAppStore((s) => s.setBrowserTabNet);
 
-  // 拉权威态对齐 + 订阅变更(含断线自动回退 local);window.okwork 可能不存在(测试态),可选链防御
+  // 拉权威快照对齐 + 订阅变更(断线标 down/重连恢复);window.okwork 可能不存在(测试态)
   useEffect(() => {
     let cancelled = false;
     window.okwork?.browserNet
       ?.get?.()
       .then((s) => {
-        if (!cancelled) setCurrentNet(s);
+        if (!cancelled) setSnapshot(s);
       });
-    const unsubscribe = window.okwork?.browserNet?.onChanged?.((s) => setCurrentNet(s));
+    const unsubscribe = window.okwork?.browserNet?.onChanged?.((s) => setSnapshot(s));
     return () => {
       cancelled = true;
       unsubscribe?.();
@@ -305,23 +324,23 @@ function BrowserNetSelector() {
     });
   }, []);
 
-  // 用 set() 的返回值收尾(不乐观更新):请求远程但该机已不可用时 main 会回退 local,
-  // UI 必须反映真实生效态,而非用户点的那一项
-  const handleSelect = useCallback(async (hostId: string) => {
-    if (!window.okwork?.browserNet?.set) {
+  // 改的是【当前标签】的出口:store 即时生效 → webview 按新分区重挂,
+  // exitsSync 上报 main 建/收代理。换出口=重载该标签(分区即登录态边界)。
+  const handleSelect = useCallback(
+    (hostId: string) => {
+      if (terminalTabId && tab) setBrowserTabNet(terminalTabId, tab.id, hostId);
       setOpen(false);
-      return;
-    }
-    const next = await window.okwork.browserNet.set(hostId);
-    setCurrentNet(next);
-    setOpen(false);
-  }, []);
+    },
+    [terminalTabId, tab, setBrowserTabNet],
+  );
 
-  const isRemote = currentNet.hostId !== 'local';
-  // down = 远程出口断线中(fail-closed:main 不自动回退 local,请求快速失败;
-  // 重连 ready 后 main 自动恢复并推 changed)。UI 只如实标注,不本地臆测切换。
+  const current = tab ? resolveBrowserTabNet(tab, ownerHostId) : 'local';
+  const isRemote = current !== 'local';
+  const exit = snapshot.exits.find((e) => e.hostId === current);
+  // down = 该出口断线中(fail-closed:main 不落直连,请求快速失败;重连自动恢复)
+  const down = exit?.down === true;
   const label = isRemote
-    ? `${currentNet.alias ?? currentNet.hostId}${currentNet.down ? ` · ${t('Reconnecting…')}` : ''}`
+    ? `${exit?.alias ?? current}${down ? ` · ${t('Reconnecting…')}` : ''}`
     : t('Local network');
 
   return (
@@ -332,14 +351,13 @@ function BrowserNetSelector() {
         className={`browser-panel__nav-btn browser-panel__net-btn${
           isRemote ? ' browser-panel__net-btn--active' : ''
         }`}
+        disabled={!tab}
         onClick={() => (open ? setOpen(false) : openMenu())}
         title={t('Browser network exit: {name}', { name: label })}
       >
         {isRemote && (
           <span
-            className={`browser-panel__net-dot${
-              currentNet.down ? ' browser-panel__net-dot--down' : ''
-            }`}
+            className={`browser-panel__net-dot${down ? ' browser-panel__net-dot--down' : ''}`}
           />
         )}
         <span className="browser-panel__net-icon">🌐</span>
@@ -358,7 +376,7 @@ function BrowserNetSelector() {
             <span className="browser-panel__net-item-label">{t('Local network')}</span>
           </div>
           {candidates.map((c) => {
-            const selected = currentNet.hostId === c.hostId;
+            const selected = current === c.hostId;
             return (
               <div
                 key={c.hostId}
@@ -673,7 +691,11 @@ export function BrowserPanel() {
         >
           ↗
         </button>
-        <BrowserNetSelector />
+        <BrowserNetSelector
+          terminalTabId={activeTermTabId}
+          tab={activeTab}
+          ownerHostId={activeWorkspace?.hostId ?? 'local'}
+        />
       </div>
 
       {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎ */}
@@ -690,19 +712,27 @@ export function BrowserPanel() {
             <webview> reparent/remount 必重新加载页面。 */}
         {workspaces.flatMap((w) =>
           w.tabs.flatMap((tb) =>
-            (tb.browser?.tabs ?? []).map((bt) => (
-              <BrowserWebview
-                key={bt.id}
-                tabId={bt.id}
-                ownerTerminalTabId={tb.id}
-                url={bt.url}
-                active={tb.id === activeTermTabId && bt.id === (tb.browser?.activeTabId ?? null)}
-                onWebviewRef={handleWebviewRef}
-                onNavChange={handleNavChange}
-                onUrlChange={handleUrlChange}
-                onTitleChange={handleTitleChange}
-              />
-            )),
+            (tb.browser?.tabs ?? []).map((bt) => {
+              // 分区 = 该标签出口(标签级网络);掺进 key——换出口即重挂重载该标签
+              // (webview partition 创建后不可变,Chromium 语义)
+              const partition = partitionOf(resolveBrowserTabNet(bt, w.hostId));
+              return (
+                <BrowserWebview
+                  key={`${bt.id}:${partition}`}
+                  tabId={bt.id}
+                  ownerTerminalTabId={tb.id}
+                  partition={partition}
+                  url={bt.url}
+                  active={
+                    tb.id === activeTermTabId && bt.id === (tb.browser?.activeTabId ?? null)
+                  }
+                  onWebviewRef={handleWebviewRef}
+                  onNavChange={handleNavChange}
+                  onUrlChange={handleUrlChange}
+                  onTitleChange={handleTitleChange}
+                />
+              );
+            }),
           ),
         )}
         {isEmptyTab && (
