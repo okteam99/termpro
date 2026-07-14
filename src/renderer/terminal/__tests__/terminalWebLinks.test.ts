@@ -63,11 +63,11 @@ afterEach(() => {
 });
 
 describe('SystemWebLinkProvider', () => {
-  it('opens terminal http links through the system browser without confirmation', () => {
+  it('opener 未注册(兜底):http 链接走系统浏览器,无确认框', () => {
     const term = terminalWithLine(
       'Release: https://github.com/okteam99/termpro/releases/tag/v0.3.11',
     );
-    const provider = new SystemWebLinkProvider(term);
+    const provider = new SystemWebLinkProvider('tab-1', term);
     const event = {
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
@@ -106,7 +106,7 @@ describe('createOscLinkHandler (OSC 8 hyperlinks)', () => {
 
   it('routes OSC 8 link activation to the system browser, no confirm dialog', async () => {
     const { createOscLinkHandler } = await import('../terminalLinks');
-    const handler = createOscLinkHandler();
+    const handler = createOscLinkHandler('tab-1');
     const uri = 'http://localhost:56868/shell/close-install-confirmation';
     const event = { preventDefault: vi.fn() } as unknown as MouseEvent;
 
@@ -121,7 +121,7 @@ describe('createOscLinkHandler (OSC 8 hyperlinks)', () => {
 
   it('opens https OSC 8 links too', async () => {
     const { createOscLinkHandler } = await import('../terminalLinks');
-    const handler = createOscLinkHandler();
+    const handler = createOscLinkHandler('tab-1');
     const uri = 'https://example.com/path?q=1';
     const event = { preventDefault: vi.fn() } as unknown as MouseEvent;
 
@@ -129,5 +129,71 @@ describe('createOscLinkHandler (OSC 8 hyperlinks)', () => {
 
     expect(openExternal).toHaveBeenCalledWith(uri);
     expect(windowConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('内置浏览器优先(用户指令 2026-07-14)', () => {
+  // 注册 opener 后:纯点击 → 落到来源终端 tab 的内置浏览器窗格;
+  // ⌘/Ctrl+点击 → 系统浏览器(逃生口)。vi.resetModules 保证各测试 opener 态隔离。
+  const range = { start: { x: 1, y: 1 }, end: { x: 10, y: 1 } };
+
+  it('纯点击:opener(tabId, url),不走系统浏览器(纯文本链接)', async () => {
+    const mod = await import('../terminalLinks');
+    const opener = vi.fn();
+    mod.setBuiltinWebLinkOpener(opener);
+    const term = terminalWithLine('see https://example.com/docs now');
+    const provider = new mod.SystemWebLinkProvider('tab-9', term);
+    const event = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      metaKey: false,
+      ctrlKey: false,
+    } as unknown as MouseEvent;
+
+    provider.provideLinks(1, (links) => {
+      const link = (links ?? [])[0];
+      link.activate(event, link.text);
+    });
+
+    expect(opener).toHaveBeenCalledWith('tab-9', 'https://example.com/docs');
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it('⌘+点击:走系统浏览器,不进内置窗格(OSC 8 同一路由)', async () => {
+    const mod = await import('../terminalLinks');
+    const opener = vi.fn();
+    mod.setBuiltinWebLinkOpener(opener);
+    const handler = mod.createOscLinkHandler('tab-9');
+    const event = {
+      preventDefault: vi.fn(),
+      metaKey: true,
+      ctrlKey: false,
+    } as unknown as MouseEvent;
+
+    handler.activate(event, 'https://example.com/x', range);
+
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/x');
+    expect(opener).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+点击同 ⌘(Linux/Win 惯例);纯点击 OSC 8 → opener', async () => {
+    const mod = await import('../terminalLinks');
+    const opener = vi.fn();
+    mod.setBuiltinWebLinkOpener(opener);
+    const handler = mod.createOscLinkHandler('tab-7');
+
+    handler.activate(
+      { preventDefault: vi.fn(), metaKey: false, ctrlKey: true } as unknown as MouseEvent,
+      'https://a.dev/1',
+      range,
+    );
+    expect(openExternal).toHaveBeenCalledWith('https://a.dev/1');
+
+    handler.activate(
+      { preventDefault: vi.fn(), metaKey: false, ctrlKey: false } as unknown as MouseEvent,
+      'https://a.dev/2',
+      range,
+    );
+    expect(opener).toHaveBeenCalledWith('tab-7', 'https://a.dev/2');
   });
 });

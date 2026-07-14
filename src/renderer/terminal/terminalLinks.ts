@@ -295,25 +295,49 @@ export interface ResolvedFsLink {
   text: string;
 }
 
+// ---- 终端 web 链接激活路由(用户指令 2026-07-14:优先内置浏览器) -------------
+// 缺省落内置浏览器窗格(落到来源终端 tab · opener 由 App 启动时注册,本模块保持
+// 零 store 依赖——registry↔store 不成环的纪律不破);⌘/Ctrl+点击 → 系统默认浏览器
+// (逃生口);opener 未注册(测试态/极早期)→ 兜底系统浏览器,行为安全降级。
+let builtinWebLinkOpener: ((terminalTabId: string, url: string) => void) | null = null;
+
+/** App 启动时注册「在内置浏览器打开」的实现(指向 store.addBrowserTab)。 */
+export function setBuiltinWebLinkOpener(
+  fn: (terminalTabId: string, url: string) => void,
+): void {
+  builtinWebLinkOpener = fn;
+}
+
+function activateWebLink(terminalTabId: string, event: MouseEvent, uri: string): void {
+  if (event.metaKey || event.ctrlKey || !builtinWebLinkOpener) {
+    window.okwork.openExternal(uri);
+    return;
+  }
+  builtinWebLinkOpener(terminalTabId, uri);
+}
+
 // OSC 8 超链接(程序用转义序列 ESC]8;;URI ST … 内嵌的可点链接)由 xterm 核心
 // 自带的 OscLinkProvider 处理 —— 它注册早于本文件的 SystemWebLinkProvider,
 // 优先级更高,会抢走同格链接。未给 Terminal 设 linkHandler 时,OscLinkProvider
 // 的激活落到内置 defaultActivate → confirm('…could potentially be dangerous')
 // + window.open()(就是用户看到的确认框)。设此 handler 把 OSC 8 链接激活也
-// 路由到系统默认浏览器,与纯文本链接同一条路径,弹框被釜底抽薪。
+// 路由到与纯文本链接同一条路径(内置浏览器优先),弹框被釜底抽薪。
 // 不开 allowNonHttpProtocols:OscLinkProvider 仅把 http/https 交到这里(与 main
 // 进程 shell:open-external 的 ^https?:// 守卫一致,双重防护)。
-export function createOscLinkHandler(): ILinkHandler {
+export function createOscLinkHandler(terminalTabId: string): ILinkHandler {
   return {
     activate: (event, uri) => {
       event.preventDefault();
-      window.okwork.openExternal(uri);
+      activateWebLink(terminalTabId, event, uri);
     },
   };
 }
 
 export class SystemWebLinkProvider implements ILinkProvider {
-  constructor(private term: Terminal) {}
+  constructor(
+    private tabId: string,
+    private term: Terminal,
+  ) {}
 
   provideLinks(
     y: number,
@@ -346,7 +370,7 @@ export class SystemWebLinkProvider implements ILinkProvider {
           // 文件链接(FsLinkProvider)从不 stopPropagation,故只有 url 会犯——根因即此。
           activate: (event, text) => {
             event.preventDefault();
-            window.okwork.openExternal(text);
+            activateWebLink(this.tabId, event, text);
           },
         };
       })

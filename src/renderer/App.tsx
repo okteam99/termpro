@@ -13,7 +13,15 @@ import { PaneHandle } from './components/PaneHandle';
 import { TransientToast } from './components/TransientToast';
 import TerminalView from './terminal/TerminalView';
 import type { TermCallbacks } from './terminal/terminalRegistry';
+import { setBuiltinWebLinkOpener } from './terminal/terminalLinks';
 import type { HostInfo } from '../shared/protocol';
+
+// 终端 web 链接 → 来源终端 tab 的内置浏览器窗格(用户指令 2026-07-14「点击 link 中的
+// url 优先使用内置浏览器打开」;⌘/Ctrl+点击仍走系统浏览器)。在 App 模块层注册:
+// terminalLinks 保持零 store 依赖,registry↔store 不成环的纪律不破。
+setBuiltinWebLinkOpener((terminalTabId, url) => {
+  useAppStore.getState().addBrowserTab(terminalTabId, url);
+});
 
 let smokeSent = false;
 

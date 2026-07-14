@@ -105,9 +105,10 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     // 用户向上滚动读历史时可停在原处继续输入,固定面板实时显示输入内容。
     // 设置关闭固定面板时恢复默认 true(打字即回底)。
     scrollOnUserInput: !pinBottomBarEnabled,
-    // OSC 8 超链接 → 系统默认浏览器,否则 xterm 核心 OscLinkProvider 会弹
-    // 「could be dangerous」确认框(纯文本链接走 SystemWebLinkProvider,见下)
-    linkHandler: createOscLinkHandler(),
+    // OSC 8 超链接 → 内置浏览器优先(⌘/Ctrl+点击走系统浏览器),否则 xterm 核心
+    // OscLinkProvider 会弹「could be dangerous」确认框(纯文本链接走
+    // SystemWebLinkProvider,见下,同一条激活路由)
+    linkHandler: createOscLinkHandler(tabId),
     theme: {
       background: '#1e2227',
       foreground: '#d7dae0',
@@ -230,9 +231,10 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   // (未 spawn 的终端里点链接按本机路径找,合理默认);spawn 后随该终端绑定的 host。
   const getClient = (): HostClient => inst.client ?? hostRegistry.local();
 
-  // 网页链接 → 系统默认浏览器。不要使用 xterm WebLinksAddon 的默认
-  // window.open 路径,否则 Electron/宿主可能弹确认框或开内置窗口。
-  term.registerLinkProvider(new SystemWebLinkProvider(term));
+  // 网页链接 → 内置浏览器优先(落到本终端 tab 的浏览器窗格;⌘/Ctrl+点击走系统
+  // 浏览器)。不要使用 xterm WebLinksAddon 的默认 window.open 路径,否则
+  // Electron/宿主可能弹确认框或开内置窗口。
+  term.registerLinkProvider(new SystemWebLinkProvider(tabId, term));
   // 文件/路径链接(file://、绝对、~、相对)→ 校验存在后可点击
   const linkProvider = new FsLinkProvider(
     tabId,
