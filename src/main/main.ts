@@ -243,6 +243,53 @@ ipcMain.handle(BROWSER_NET_CHANNELS.set, (event, payload: { hostId: string }) =>
 });
 ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.get());
 
+// ---- 浏览器标签弹出独立窗口(OkBrowser-<标题>)------------------------------
+// persist:browser 同分区:代理出口(含 <-loopback>)/登录态与面板 webview 完全一致。
+// 硬化与 webview 同级:纯 web 内容窗口(无 preload/无 node),导航只许 http(s),
+// 原生弹窗恒 deny(window.open 转同窗导航),WebRTC 纳入 browserGuests 台账防泄漏。
+ipcMain.on('browser:open-window', (event, payload: { url?: string; title?: string }) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return; // 仅主窗口可开
+  const url = payload?.url;
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
+  const titleOf = (pageTitle?: string): string => {
+    const base = (pageTitle ?? '').trim() || new URL(url).host;
+    // 标题过长截断(窗口标题栏/Mission Control 可读性)
+    return `OkBrowser-${base.length > 80 ? `${base.slice(0, 80)}…` : base}`;
+  };
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 800,
+    title: titleOf(payload?.title),
+    webPreferences: {
+      partition: 'persist:browser',
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  // 标题钉死 OkBrowser- 前缀:页面 <title> 变更时接管(preventDefault)再按前缀跟随
+  win.webContents.on('page-title-updated', (e, pageTitle) => {
+    e.preventDefault();
+    if (!win.isDestroyed()) win.setTitle(titleOf(pageTitle));
+  });
+  // 弹窗策略:恒 deny 原生新窗;http(s) 的 window.open/target=_blank 转本窗口导航
+  win.webContents.setWindowOpenHandler(({ url: u }) => {
+    if (/^https?:\/\//i.test(u)) void win.webContents.loadURL(u);
+    return { action: 'deny' };
+  });
+  // 主框架导航只许 http(s)/about:(与面板 webview 的 will-navigate 守卫一致)
+  win.webContents.on('will-navigate', (e, u) => {
+    if (!/^(https?:|about:)/i.test(u)) e.preventDefault();
+  });
+  // WebRTC 防泄漏台账:与面板 guest 同等对待(切远程出口时统一设策略)
+  browserGuests.add(win.webContents);
+  win.webContents.on('destroyed', () => browserGuests.delete(win.webContents));
+  if (browserNetwork.get().hostId !== 'local') {
+    win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
+  }
+  void win.loadURL(url);
+});
+
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();
 });

@@ -55,6 +55,8 @@ declare global {
       clipboardReadText(): Promise<string>;
       clipboardReadImage(): Promise<{ base64: string; size: number } | null>;
       openExternal(url: string): void;
+      /** 弹出浏览器标签为独立窗口(OkBrowser-<标题>) */
+      openBrowserWindow(payload: { url: string; title?: string }): void;
       /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
        *  sourceWebContentsId=来源 guest 的 webContents id(据此把新标签落回来源终端 tab 的窗格) */
       onBrowserOpenUrl(

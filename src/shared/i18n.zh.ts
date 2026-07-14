@@ -278,6 +278,9 @@ export const zh: Record<string, string> = {
   // --- 浏览器面板:加载失败错误条 ---
   'Page failed to load: {error}': '页面加载失败：{error}',
 
+  // --- 浏览器面板:弹出独立窗口 ---
+  'Move tab to a separate window': '把标签弹出为独立窗口',
+
   // --- main/rendererRecovery(崩溃自愈 give-up 弹窗) ---
   'OkWork keeps crashing': 'OkWork 持续崩溃',
   'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWork.':

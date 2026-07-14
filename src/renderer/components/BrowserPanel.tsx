@@ -228,6 +228,26 @@ function ForwardIcon() {
   );
 }
 
+/** 弹出独立窗口:方框 + 右上出箭头 */
+function PopoutIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 2.5 H2.5 V9.5 H9.5 V7" />
+      <path d="M7 2.5 H9.5 V5" />
+      <path d="M9.5 2.5 L5.8 6.2" />
+    </svg>
+  );
+}
+
 /** 网络出口候选项:'local' 恒在首位,其后是 ready 状态的远程机(configId + alias)。 */
 interface NetOption {
   hostId: string;
@@ -532,10 +552,30 @@ export function BrowserPanel() {
     }
   }
 
+  function handlePopout() {
+    if (!activeTermTabId || !activeTab || !activeTab.url) return;
+    // 弹出=移出:独立窗口(OkBrowser-<标题> · main 创建,同 persist:browser 分区)
+    // + 关掉面板里这个标签(最后一个时面板随之收起,两特性自然衔接)
+    window.okwork?.openBrowserWindow?.({ url: activeTab.url, title: activeTab.title });
+    closeBrowserTab(activeTermTabId, activeTab.id);
+  }
+
   return (
     <div className="browser-panel">
-      {/* 品牌标题行:与终端 tab 视觉区隔(用户指令),兼作窗口拖拽区 */}
-      <div className="browser-panel__header">OkTerm Browser</div>
+      {/* 品牌标题行:与终端 tab 视觉区隔(用户指令),兼作窗口拖拽区;
+          右上角=弹出独立窗口入口(用户指令 2026-07-14) */}
+      <div className="browser-panel__header">
+        OkBrowser
+        <button
+          className="browser-panel__header-popout"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          disabled={!activeTab || !activeUrl}
+          onClick={handlePopout}
+          title={t('Move tab to a separate window')}
+        >
+          <PopoutIcon />
+        </button>
+      </div>
       <div className="browser-panel__tabs">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;

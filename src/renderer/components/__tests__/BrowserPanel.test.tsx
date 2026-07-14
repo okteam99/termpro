@@ -279,3 +279,37 @@ describe('主帧加载失败错误条(空白页自解释 · 2026-07-14)', () => 
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });
+
+describe('弹出独立窗口(OkBrowser · 2026-07-14)', () => {
+  it('点头部右上入口 → openBrowserWindow(url,title) + 面板里该标签关闭(最后一个→面板收起)', () => {
+    const openBrowserWindow = vi.fn();
+    (window as unknown as { okwork: unknown }).okwork = { openBrowserWindow };
+    seedWorkspace({
+      tabs: [{ id: 'a', url: 'https://example.com/x', title: 'Example' }],
+      activeTabId: 'a',
+    });
+    render(<BrowserPanel />);
+
+    fireEvent.click(screen.getByTitle('Move tab to a separate window'));
+
+    expect(openBrowserWindow).toHaveBeenCalledWith({
+      url: 'https://example.com/x',
+      title: 'Example',
+    });
+    const s = useAppStore.getState();
+    expect(s.workspaces[0].tabs[0].browser?.tabs).toEqual([]); // 标签已移出
+    expect(s.browserPanelOpen).toBe(false); // 最后一个 → 面板收起
+  });
+
+  it('空标签(未导航)→ 入口禁用,不发弹出请求', () => {
+    const openBrowserWindow = vi.fn();
+    (window as unknown as { okwork: unknown }).okwork = { openBrowserWindow };
+    seedWorkspace({ tabs: [{ id: 'empty', url: '' }], activeTabId: 'empty' });
+    render(<BrowserPanel />);
+
+    const btn = screen.getByTitle('Move tab to a separate window');
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(openBrowserWindow).not.toHaveBeenCalled();
+  });
+});
