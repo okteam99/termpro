@@ -325,6 +325,9 @@ export interface AppState {
   ): void;
   /** 回落:清 poppedOut(镜像已是最新);该 tab 正活跃时顺手打开面板让内容可见 */
   dockBrowserPane(terminalTabId: string): void;
+  /** 开机对账(主窗重载/崩溃自愈期间壳窗还开着):只补 poppedOut 标记,不动面板开关
+   *  ——poppedOut 是视图态不入档,重载即丢;不对账会对同窗格双渲染 webview(双载) */
+  markPanePoppedOut(terminalTabId: string): void;
   /** 向上滚动时固定底部输入栏(终端层据此开关 BottomBarPin + scrollOnUserInput) */
   pinBottomBar: boolean;
   setPinBottomBar(value: boolean): void;
@@ -1092,6 +1095,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         tabs: pane.tabs,
         activeTabId: pane.activeTabId,
         poppedOut: prev.poppedOut, // 镜像更新不动弹出标记
+      })),
+    }));
+  },
+
+  markPanePoppedOut(terminalTabId) {
+    set((s) => ({
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
+        ...pane,
+        poppedOut: true,
       })),
     }));
   },

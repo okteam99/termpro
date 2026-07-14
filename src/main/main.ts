@@ -195,6 +195,8 @@ registerRemoteHostIpc(
   },
   // 删除远程机(显式意图):若它是当前浏览器出口 → 回 local(断线本身不再自动回退)
   (configId) => browserNetwork.onHostRemoved(configId),
+  // 新增远程机:黑洞预封其浏览器分区(评审 P1-1,消灭首个 guest fail-open 窗口)
+  (configId) => browserNetwork.preseal([configId]),
 );
 // ---- 内置浏览器网络出口(browserNet · 标签级/多分区)-------------------------
 // 出口→分区:local=persist:browser 直连;每台在用远程机=persist:browser-<configId>
@@ -226,6 +228,10 @@ const browserNetwork = new BrowserNetworkController({
     }
   },
 });
+
+// 启动黑洞预封(评审 P1-1):所有已存远程机的浏览器分区先落黑洞代理,消灭
+// 「hydrate 回来的远程标签在 acquire 前 attach → 走本机直连」的 fail-open 窗口。
+void browserNetwork.preseal(remoteHostConfigStore.list().map((c) => c.id));
 
 // 在用出口的远程机断开 → 该分区标 down(fail-closed,不回退直连——用户指令 2026-07-14
 // 「远程 tab 的浏览器不要自动切 local」:静默换出口=流量从本机 IP 泄漏 + localhost
@@ -366,6 +372,12 @@ ipcMain.on(
     }
   },
 );
+
+// 开机对账(主窗重载/崩溃自愈后 poppedOut 视图态已丢):在开壳窗清单,主窗补标记
+ipcMain.handle('browserPane:list', (event) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return [];
+  return [...paneWins.keys()];
+});
 
 // 激活(工具栏图标点击:弹出后图标=聚焦独立窗口)
 ipcMain.on('browserPane:focus', (event, payload: { terminalTabId?: string }) => {

@@ -94,6 +94,15 @@ export default function App() {
     initExitsSync();
   }, [hostInfo]);
 
+  // 开机对账(主窗重载/崩溃自愈期间壳窗还开着):poppedOut 视图态不入档,重载即丢,
+  // 不补标记会对同窗格双渲染 webview(双载)。hydrate 落地后按 main 的在开清单补。
+  useEffect(() => {
+    if (!hydrated) return;
+    void window.okwork?.browserPane?.list?.().then((ids) => {
+      for (const id of ids ?? []) useAppStore.getState().markPanePoppedOut(id);
+    });
+  }, [hydrated]);
+
   // 窗格窗口化:壳窗内容回流 → 镜像;壳窗关闭(回落按钮/红灯钮同路)→ 清 poppedOut
   useEffect(() => {
     const offSync = window.okwork?.browserPane?.onSync?.((terminalTabId, pane) => {

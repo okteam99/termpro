@@ -137,6 +137,10 @@ contextBridge.exposeInMainWorld('okwork', {
       ipcRenderer.on('browserPane:addTab', listener);
       return () => ipcRenderer.removeListener('browserPane:addTab', listener);
     },
+    /** 主窗:在开壳窗清单(开机对账——主窗重载后补 poppedOut 标记,防同窗格双载) */
+    list(): Promise<string[]> {
+      return ipcRenderer.invoke('browserPane:list');
+    },
     /** 主窗:激活(聚焦)某终端 tab 的窗格窗口 */
     focus(terminalTabId: string): void {
       ipcRenderer.send('browserPane:focus', { terminalTabId });

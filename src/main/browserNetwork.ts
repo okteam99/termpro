@@ -41,6 +41,12 @@ interface ExitEntry {
   down: boolean;
 }
 
+// 黑洞代理:指向必然连不上的端口(fail-closed 默认)。远程分区在 acquire 到活端口
+// 【之前】必须先落黑洞,否则该 session 从未 setProxy → Electron 按 direct 解析 →
+// 首个 attach 的 guest 从本机 IP/DNS 出去(评审 P1-1:fail-OPEN 窗口)。加载时机
+// 泄漏与断线泄漏同类,同一「绝不静默落直连」铁律(2026-07-14 用户指令)覆盖。
+const BLACKHOLE_PROXY = 'socks5://127.0.0.1:1';
+
 export class BrowserNetworkController {
   /** 在用远程出口(configId → 状态);local 不入表 */
   private exits = new Map<string, ExitEntry>();
@@ -48,6 +54,23 @@ export class BrowserNetworkController {
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: BrowserNetworkDeps) {}
+
+  /**
+   * 黑洞预封(评审 P1-1):对尚未 acquire 的远程分区先落黑洞代理,消灭「首个 guest
+   * 在 acquire 前 attach → 走本机直连」的 fail-open 窗口。启动时对全部已存 config、
+   * 新增 config 保存后对该 config 调用。已在用(exits 有 entry)的分区不动(其代理
+   * 已是活端口或 down 死端口,都 fail-closed)。
+   */
+  preseal(hostIds: string[]): Promise<void> {
+    return this.enqueue(async () => {
+      for (const hostId of hostIds) {
+        if (!hostId || hostId === 'local' || this.exits.has(hostId)) continue;
+        await this.deps
+          .setProxy(partitionOf(hostId), BLACKHOLE_PROXY)
+          .catch(() => undefined);
+      }
+    });
+  }
 
   snapshot(): BrowserNetworkSnapshot {
     const exits: BrowserExitState[] = [...this.exits.entries()].map(([hostId, e]) => ({

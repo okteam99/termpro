@@ -40,6 +40,8 @@ export function registerRemoteHostIpc(
   ) => boolean,
   /** 配置删除后的收尾钩子(main 用于浏览器出口回退等联动;缺省 no-op)。 */
   onConfigDeleted?: (configId: string) => void,
+  /** 配置保存后的收尾钩子(main 用于浏览器远程分区黑洞预封;缺省 no-op)。 */
+  onConfigSaved?: (configId: string) => void,
 ): () => void {
   const unsubscribeEvents = orchestrator.onEvent((event) => {
     const win = getMainWindow();
@@ -81,6 +83,7 @@ export function registerRemoteHostIpc(
     if (hasPassword) credentials.setSecret(`cred:${saved.id}:password`, password!);
     if (hasPassphrase) credentials.setSecret(`cred:${saved.id}:passphrase`, passphrase!);
 
+    onConfigSaved?.(saved.id);
     return saved;
   });
 

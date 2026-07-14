@@ -70,6 +70,7 @@ declare global {
         onSync(callback: (terminalTabId: string, pane: unknown) => void): () => void;
         addTab(terminalTabId: string, url: string): void;
         onAddTab(callback: (url: string) => void): () => void;
+        list(): Promise<string[]>;
         focus(terminalTabId: string): void;
         dock(terminalTabId: string): void;
         onDocked(callback: (terminalTabId: string) => void): () => void;
