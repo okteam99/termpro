@@ -49,6 +49,7 @@ One window, many projects, many parallel sessions. The app tells you who is runn
 - **Built-in Markdown preview and editing with native Mermaid** — read docs and review plans without switching apps. Toggle between preview and edit mode (default: preview). Rendered with marked + DOMPurify; Mermaid diagrams load lazily in strict mode with click-to-enlarge.
 - **Monaco file viewer, light editor, and diff** — click any file to view it; ⌘S to save (binary / >2 MB files degrade gracefully). Diff view for uncommitted changes vs HEAD, and worktree vs merge-base with the base branch. Jump to VS Code or Zed for heavy editing.
 - **Remote-ready architecture** — UI and Host process are fully separated; the UI depends on exactly one `HostService` interface. Locally this runs over MessagePort. In the future it runs over SSH tunnel + WebSocket with no UI changes.
+- **AI drives the built-in browser (built-in MCP)** — a session's agent can operate OkWork's built-in browser through a per-terminal MCP endpoint: navigate, screenshot, read HTML/text, run JS, click / type / scroll / wait, and manage tabs (13 tools). It acts on your **real logged-in** browser session (cookies included). The endpoint URL is injected into the terminal env (`$OKWORK_BROWSER_MCP_URL`); wire it with one line: `claude mcp add --transport http okbrowser "$OKWORK_BROWSER_MCP_URL"`. Works for remote sessions too — an SSH reverse-forward transparently connects agents inside `okwork-node` containers back to the host. See `docs/DEV.md §4.8`.
 
 ## Screenshots
 
