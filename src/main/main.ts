@@ -451,6 +451,11 @@ void startBrowserMcpServer((method, args) => invokeBrowserControl(method, args))
   })
   .catch((err) => console.error('[main] browser MCP failed to start:', err));
 
+// 渲染层取 MCP base URL(本地 session spawn 时注入终端 env,让 agent 发现);未就绪 → null
+ipcMain.handle('browserControl:mcp-base', () =>
+  browserMcp ? `http://127.0.0.1:${browserMcp.port}` : null,
+);
+
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();
 });

@@ -66,6 +66,7 @@ declare global {
           value?: unknown;
           error?: string;
         }): void;
+        mcpBase(): Promise<string | null>;
       };
       /** 壳窗身份:弹出的浏览器窗格窗口 = 其终端 tabId;主窗 undefined */
       browserPaneTabId?: string;

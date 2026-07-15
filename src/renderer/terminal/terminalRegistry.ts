@@ -24,6 +24,7 @@ import { disposeWebglAddon } from './webglContextRelease';
 import { t } from '../../shared/i18n';
 import { installRemoteClipboardPasteHandler } from './remoteClipboardPaste';
 import { RemotePasteInputBarrier } from './remotePasteInputBarrier';
+import { browserMcpEnvFor } from './browserMcpEnv';
 
 export interface TermCallbacks {
   onTitle?(processName: string): void;
@@ -300,10 +301,14 @@ export async function ensureSession(
   const client = hostRegistry.forWorkspace({ hostId });
   inst.client = client;
   try {
+    // AI 浏览器 MCP:本地 session 注入该 tab 绑定的端点 URL 进 pty env(SpawnOptions.env,
+    // host 合并进 pty),agent 据此连上驱动浏览器。远程留给阶段3反向转发。
+    const mcpEnv = browserMcpEnvFor(tabId, hostId);
     const { sessionId } = await client.rpc('pty.spawn', {
       cwd,
       cols: inst.term.cols,
       rows: inst.term.rows,
+      ...(mcpEnv ? { env: mcpEnv } : {}),
     });
     // spawn 期间 tab 可能已被关闭:立即回收会话,避免 PTY 进程泄漏
     if (inst.disposed) {

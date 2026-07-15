@@ -119,6 +119,10 @@ contextBridge.exposeInMainWorld('okwork', {
     }): void {
       ipcRenderer.send('browserControl:result', payload);
     },
+    /** MCP server base URL(本地 session spawn 注入终端 env 用);未就绪 → null */
+    mcpBase(): Promise<string | null> {
+      return ipcRenderer.invoke('browserControl:mcp-base');
+    },
   },
   /** 壳窗身份:本窗口若是弹出的浏览器窗格窗口,值 = 其终端 tabId(argv 注入);主窗 undefined */
   browserPaneTabId: (() => {
