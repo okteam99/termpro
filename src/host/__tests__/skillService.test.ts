@@ -27,6 +27,22 @@ describe('parseSkillVersion', () => {
   it('无 frontmatter → null', () => {
     expect(parseSkillVersion('# 无 frontmatter\nversion: v9')).toBeNull();
   });
+  it('容忍 BOM / 引号 / 行尾注释(评审 P3)', () => {
+    expect(parseSkillVersion('﻿---\nversion: v1.0.0\n---\n')).toBe('v1.0.0');
+    expect(parseSkillVersion('---\nversion: "v1.0.0"\n---\n')).toBe('v1.0.0');
+    expect(parseSkillVersion('---\nversion: v1.0.0 # note\n---\n')).toBe('v1.0.0');
+  });
+});
+
+describe('name 白名单(评审 P2:防越界写)', () => {
+  it('含 / 或 .. 的 name → 抛错,不落盘', () => {
+    for (const bad of ['../../evil', 'a/b', '..', '/abs', '']) {
+      expect(() => skillStatus(bad, home)).toThrow(/invalid skill name/);
+      expect(() => skillInstall(bad, md('v1'), home)).toThrow(/invalid skill name/);
+    }
+    // 确认没有越界目录被创建
+    expect(fs.existsSync(path.join(home, '..', 'evil'))).toBe(false);
+  });
 });
 
 describe('skillStatus', () => {

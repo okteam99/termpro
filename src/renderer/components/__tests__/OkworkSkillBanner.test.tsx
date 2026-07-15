@@ -8,8 +8,9 @@ import * as matchers from '@testing-library/jest-dom/matchers';
 expect.extend(matchers);
 
 const rpc = vi.fn();
+let clientForHost: { rpc: typeof rpc } | null = { rpc };
 vi.mock('../../services/hostRegistry', () => ({
-  hostRegistry: { forWorkspace: () => ({ rpc }) },
+  hostRegistry: { forHostId: () => clientForHost },
 }));
 
 import { OkworkSkillBanner } from '../OkworkSkillBanner';
@@ -41,6 +42,7 @@ const status = (o: Partial<SkillStatusResult>): SkillStatusResult => ({
 beforeEach(() => {
   _ls.clear();
   rpc.mockReset();
+  clientForHost = { rpc };
 });
 afterEach(cleanup);
 
@@ -93,6 +95,15 @@ describe('OkworkSkillBanner', () => {
     rpc.mockRejectedValue(new Error('unknown rpc method: skill.status'));
     render(<OkworkSkillBanner />);
     await waitFor(() => expect(rpc).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
+  });
+
+  it('机器未连(forHostId→null)→ 不探测、不显示(评审 P2:写路由绝不兜底 local)', async () => {
+    seed('cfg-remote-down');
+    clientForHost = null;
+    render(<OkworkSkillBanner />);
+    await Promise.resolve();
+    expect(rpc).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
   });
 });

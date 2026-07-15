@@ -17,11 +17,23 @@ function existsSafe(p: string): boolean {
   }
 }
 
-/** 仅解析开头 YAML frontmatter 里的 version(--- 块内),不误读正文。 */
+/**
+ * 技能名白名单(评审 P2):name 经 RPC 传入,直接进 path.join + mkdir + 写文件。校验其
+ * 不含路径分隔符/`..`/绝对路径,杜绝越界写(host fs 面刻意不暴露任意路径新建文件的原语)。
+ */
+function assertValidSkillName(name: string): void {
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
+    throw new Error(`invalid skill name: ${name}`);
+  }
+}
+
+/** 仅解析开头 YAML frontmatter 里的 version(--- 块内),不误读正文;容忍 BOM/引号/行尾注释。 */
 export function parseSkillVersion(md: string): string | null {
-  const fm = md.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const body = md.replace(/^﻿/, ''); // 去 BOM,否则 ^--- 失配
+  const fm = body.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) return null;
-  const v = fm[1].match(/^version:\s*(\S+)\s*$/m);
+  // 值可带引号、行尾可有 # 注释;取第一段非空白/非引号/非 # 的 token
+  const v = fm[1].match(/^version:\s*["']?([^"'\s#]+)/m);
   return v ? v[1] : null;
 }
 
@@ -48,6 +60,7 @@ function agentLocations(homedir: string): { claude: AgentLoc; codex: AgentLoc; s
 
 /** 探测某技能在各 agent 位置的安装版本 + agent 存在性。 */
 export function skillStatus(name: string, homedir: string = os.homedir()): SkillStatusResult {
+  assertValidSkillName(name);
   const loc = agentLocations(homedir);
   return {
     claude: { present: existsSafe(loc.claude.homeMarker), version: versionAt(loc.claude.skillsDir, name) },
@@ -62,14 +75,23 @@ export function skillInstall(
   content: string,
   homedir: string = os.homedir(),
 ): SkillStatusResult {
+  assertValidSkillName(name);
   const loc = agentLocations(homedir);
-  const targets = [loc.sharedSkills]; // canonical 恒写
-  if (existsSafe(loc.claude.homeMarker)) targets.push(loc.claude.skillsDir);
-  if (existsSafe(loc.codex.homeMarker)) targets.push(loc.codex.skillsDir);
-  for (const skillsDir of targets) {
+  const writeInto = (skillsDir: string) => {
     const dir = path.join(skillsDir, name);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'SKILL.md'), content, 'utf8');
+  };
+  // canonical 必写(失败即抛,横条显示 retry);各 agent 目录 best-effort——某个不可写
+  // (EACCES)不该整单失败(评审 P3),其余目标照写,返回真实状态让横条按实反映。
+  writeInto(loc.sharedSkills);
+  for (const skillsDir of [loc.claude, loc.codex]) {
+    if (!existsSafe(skillsDir.homeMarker)) continue;
+    try {
+      writeInto(skillsDir.skillsDir);
+    } catch (err) {
+      console.warn(`[host] skill install into ${skillsDir.skillsDir} failed:`, err);
+    }
   }
   return skillStatus(name, homedir);
 }

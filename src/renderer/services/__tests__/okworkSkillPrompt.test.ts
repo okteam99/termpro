@@ -42,6 +42,10 @@ describe('computeSkillPromptAction', () => {
     expect(computeSkillPromptAction(st(loc(true, V), loc(true, V), loc(true, V)), V)).toBeNull();
   });
 
+  it('装的比打包版本【更新】→ null(不降级覆盖 · 评审 P3)', () => {
+    expect(computeSkillPromptAction(st(loc(true, 'v2.0.0'), loc(false, null), loc(false, null)), V)).toBeNull();
+  });
+
   it('一个 agent 最新、另一个缺 → install(存在的目标里有缺的即 install)', () => {
     expect(computeSkillPromptAction(st(loc(true, V), loc(true, null), loc(true, V)), V)).toBe('install');
   });

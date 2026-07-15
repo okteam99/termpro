@@ -1,5 +1,5 @@
 import './OkworkSkillBanner.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { selectActiveWorkspace, useAppStore } from '../state/store';
 import { hostRegistry } from '../services/hostRegistry';
 import { t } from '../../shared/i18n';
@@ -26,18 +26,22 @@ export function OkworkSkillBanner() {
   const [snoozed, setSnoozed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 当前生效 hostId(异步回调落地前比对,防跨机 setState 串味 · 评审 P3)
+  const currentHost = useRef<string | null>(hostId);
+  currentHost.current = hostId;
 
   useEffect(() => {
     setError(null);
     setBusy(false);
-    if (!hostId) {
-      setAction(null);
-      return;
-    }
+    setAction(null);
+    if (!hostId) return;
     setSnoozed(isSkillPromptSnoozed(hostId));
+    // 🔴 forHostId(定向路由,未命中→null 绝不兜底 local):探测/安装都必须打到【本机器】,
+    // 不能像读展示那样 miss 回落 local(否则把本地状态当远程报、甚至把技能装错机器 · 评审 P2)
+    const client = hostRegistry.forHostId(hostId);
+    if (!client) return; // 该机器未连/断线 → 不显示(不臆测)
     let cancelled = false;
-    void hostRegistry
-      .forWorkspace({ hostId })
+    void client
       .rpc('skill.status', { name: OKWORK_SKILL_NAME })
       .then((s) => {
         if (!cancelled) setAction(computeSkillPromptAction(s, OKWORK_SKILL_VERSION));
@@ -53,21 +57,29 @@ export function OkworkSkillBanner() {
   if (!hostId || !action || snoozed) return null;
 
   const install = async () => {
+    const myHost = hostId;
+    const client = hostRegistry.forHostId(myHost);
+    if (!client) {
+      setError(t('Target machine is not connected'));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const s = await hostRegistry
-        .forWorkspace({ hostId })
-        .rpc('skill.install', { name: OKWORK_SKILL_NAME, content: OKWORK_SKILL_MD });
+      const s = await client.rpc('skill.install', {
+        name: OKWORK_SKILL_NAME,
+        content: OKWORK_SKILL_MD,
+      });
+      if (currentHost.current !== myHost) return; // 期间切走了机器,别把结果写到别人横条
       setAction(computeSkillPromptAction(s, OKWORK_SKILL_VERSION));
       // 已跑的 agent 不会中途重扫 skills 目录——提示重启才生效(下次 agent 启动即见)
       useAppStore
         .getState()
         .setTransientNotice(t('okwork skill installed · restart the agent (or start a new one) to use it'));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (currentHost.current === myHost) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (currentHost.current === myHost) setBusy(false);
     }
   };
 
