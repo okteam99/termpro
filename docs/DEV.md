@@ -189,13 +189,18 @@ session 内的 agent（Claude Code / Codex 等）可经内置 MCP server 驱动 
 
 接线:`main` 的 `browserControl:mcp-base` IPC 暴露 base URL → renderer `browserMcpEnv`（惰性缓存,ensureSession spawn 前 await,规避 hydrate 首终端漏注入竞态）→ `pty.spawn` 带 env。
 
-把该端点接上 agent（终端里跑一次）:
+把该端点接上 agent（终端里跑一次,本地/远程同一条）:
 
 ```bash
 claude mcp add --transport http okbrowser "$OKWORK_BROWSER_MCP_URL"
 ```
 
-**远程 session 暂不注入**（阶段3）:URL 指向本机 127.0.0.1 端口,远程容器不可达,需 SSH 反向转发（`ssh2` forwardIn）把本地端口透到远端 + 把 MCP 配置内置进 `okwork-node` 镜像后才可用。
+**远程 session（阶段3）**:URL 指容器回环固定端口 `http://127.0.0.1:39217/mcp/<tabId>`（`BROWSER_MCP_REMOTE_PORT`,`src/shared/browserMcp.ts`）。因 OkWork 直连 `okwork-node` 容器（sshd 在容器内,`EXPOSE 22`),转发端口与远端 pty 同 netns,pty 直接 127.0.0.1 可达,**无需 `host.docker.internal`**;每台远程机各自独立容器/netns,同端口互不冲突。
+
+- **反向转发**:`ssh.ts` 的 `forwardInToLocal(localPort, 39217)`——远端绑 `127.0.0.1:39217`,每条打进来的连接回接本机 `127.0.0.1:<MCP port>`;按 destPort 路由防误接;`close` = `unforwardIn` + 摘 `tcp connection` 监听。
+- **生命周期**:`orchestrator` 在 host `ready` 时自动建（`establishBrowserMcpForward`,不同于 SOCKS 懒建——agent 随时可能用,ready 即备好);`main` 起好 MCP server 后 `setBrowserMcpForward(port)` 声明本机端口并对已 ready 会话补建;断线/disconnect 随 `closeSessionTransport` 撤销。建转发期间断线有 stage/ssh 竞态守卫。
+- **env 注入**:renderer `browserMcpEnvFor` 对远程 hostId 注入容器回环 URL（本机 MCP 未起则本地/远程都不注入,`getBase()` 即特性开关）。
+- **镜像**:`okwork-node` 的 `sshd.conf` 显式 `AllowTcpForwarding yes`（仅 loopback 绑定,无需 GatewayPorts;OpenSSH 默认即 yes,显式声明防加固误关)。
 
 ---
 

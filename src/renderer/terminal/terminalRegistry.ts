@@ -301,8 +301,8 @@ export async function ensureSession(
   const client = hostRegistry.forWorkspace({ hostId });
   inst.client = client;
   try {
-    // AI 浏览器 MCP:本地 session 注入该 tab 绑定的端点 URL 进 pty env(SpawnOptions.env,
-    // host 合并进 pty),agent 据此连上驱动浏览器。远程留给阶段3反向转发。
+    // AI 浏览器 MCP:注入该 tab 绑定的端点 URL 进 pty env(SpawnOptions.env,host 合并进
+    // pty),agent 据此连上驱动浏览器。本地=本机 MCP base;远程=容器回环反向转发口。
     // await:确保 base 拉取完成再 spawn(规避 hydrate 首个终端漏注入的竞态)。
     const mcpEnv = await browserMcpEnvFor(tabId, hostId);
     const { sessionId } = await client.rpc('pty.spawn', {
