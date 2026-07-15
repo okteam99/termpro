@@ -375,4 +375,5 @@ export const zh: Record<string, string> = {
   'okwork skill installed · restart the agent (or start a new one) to use it':
     'okwork 技能已安装 · 重启 agent(或新开一个)即可使用',
   'Target machine is not connected': '目标机器未连接',
+  'Disconnected from host · your open files are kept': '已与 host 断开 · 打开的文件已保留',
 };
