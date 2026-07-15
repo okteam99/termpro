@@ -36,6 +36,7 @@ const status = (o: Partial<SkillStatusResult>): SkillStatusResult => ({
   claude: { present: false, version: null },
   codex: { present: false, version: null },
   shared: { present: false, version: null },
+  duplicate: false,
   ...o,
 });
 

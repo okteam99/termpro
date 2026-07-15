@@ -268,6 +268,8 @@ export interface SkillStatusResult {
   claude: SkillLocationStatus;
   codex: SkillLocationStatus;
   shared: SkillLocationStatus;
+  /** codex 同时读 ~/.codex/skills 与 ~/.agents/skills:两处都装了同名技能 → 选择器重复,需去重。 */
+  duplicate: boolean;
 }
 
 export type RpcMethodName = keyof RpcMethods;

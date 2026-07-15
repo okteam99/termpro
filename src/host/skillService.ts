@@ -58,18 +58,34 @@ function agentLocations(homedir: string): { claude: AgentLoc; codex: AgentLoc; s
   };
 }
 
-/** 探测某技能在各 agent 位置的安装版本 + agent 存在性。 */
+/**
+ * 探测某技能的安装版本 + agent 存在性。
+ * 🔴 模型(teamwork 约定):真身在共享 canonical ~/.agents/skills/<name>;claude 只读
+ * ~/.claude/skills,故在那放【软链】指向 canonical;codex 直接扫 ~/.agents/skills(teamwork
+ * 只在那儿也能被 codex 看到为证),【不】在 ~/.codex/skills 放东西——放了就与 canonical 双扫
+ * 重复(2026-07-15 事故)。所以 codex 的「已装版本」= canonical 版本;claude 经软链读到同一份。
+ */
 export function skillStatus(name: string, homedir: string = os.homedir()): SkillStatusResult {
   assertValidSkillName(name);
   const loc = agentLocations(homedir);
+  const canonicalVersion = versionAt(loc.sharedSkills, name);
+  const codexPresent = existsSafe(loc.codex.homeMarker);
   return {
+    // claude 经 ~/.claude/skills/<name> 软链解引用读到 canonical 版本
     claude: { present: existsSafe(loc.claude.homeMarker), version: versionAt(loc.claude.skillsDir, name) },
-    codex: { present: existsSafe(loc.codex.homeMarker), version: versionAt(loc.codex.skillsDir, name) },
-    shared: { present: existsSafe(path.dirname(loc.sharedSkills)), version: versionAt(loc.sharedSkills, name) },
+    // codex 直接读共享 canonical,故其已装版本 = canonical 版本
+    codex: { present: codexPresent, version: canonicalVersion },
+    shared: { present: existsSafe(path.dirname(loc.sharedSkills)), version: canonicalVersion },
+    // 旧 bug 残留:~/.codex/skills 也有一份 → 与 canonical 双扫重复,需清
+    duplicate: codexPresent && versionAt(loc.codex.skillsDir, name) !== null,
   };
 }
 
-/** 安装/更新:写 canonical + 各已装 agent 的 skills 目录;返回安装后状态。 */
+/**
+ * 安装/更新:真身写共享 canonical ~/.agents/skills/<name>/SKILL.md;claude 在场则在
+ * ~/.claude/skills/<name> 放软链指向 canonical(匹配 teamwork;软链失败退拷贝)。
+ * 不往 ~/.codex/skills 放(codex 直接读 canonical),并清理旧版遗留在那里的同名残留(去重)。
+ */
 export function skillInstall(
   name: string,
   content: string,
@@ -77,21 +93,47 @@ export function skillInstall(
 ): SkillStatusResult {
   assertValidSkillName(name);
   const loc = agentLocations(homedir);
-  const writeInto = (skillsDir: string) => {
-    const dir = path.join(skillsDir, name);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'SKILL.md'), content, 'utf8');
-  };
-  // canonical 必写(失败即抛,横条显示 retry);各 agent 目录 best-effort——某个不可写
-  // (EACCES)不该整单失败(评审 P3),其余目标照写,返回真实状态让横条按实反映。
-  writeInto(loc.sharedSkills);
-  for (const skillsDir of [loc.claude, loc.codex]) {
-    if (!existsSafe(skillsDir.homeMarker)) continue;
+  // 1. canonical 真身(codex 与共享读这里)
+  const canonicalDir = path.join(loc.sharedSkills, name);
+  fs.mkdirSync(canonicalDir, { recursive: true });
+  fs.writeFileSync(path.join(canonicalDir, 'SKILL.md'), content, 'utf8');
+  // 2. claude 只读 ~/.claude/skills:软链到 canonical(失败退拷贝)
+  if (existsSafe(loc.claude.homeMarker)) {
     try {
-      writeInto(skillsDir.skillsDir);
+      linkToCanonical(canonicalDir, path.join(loc.claude.skillsDir, name), content);
     } catch (err) {
-      console.warn(`[host] skill install into ${skillsDir.skillsDir} failed:`, err);
+      console.warn(`[host] skill link into ${loc.claude.skillsDir} failed:`, err);
     }
   }
+  // 3. 去重:codex 也读 canonical,~/.codex/skills 里再有一份就重复 → 移除(清旧 bug 残留)
+  try {
+    fs.rmSync(path.join(loc.codex.skillsDir, name), { recursive: true, force: true });
+  } catch {
+    /* best-effort 清理 */
+  }
   return skillStatus(name, homedir);
+}
+
+/** 在 linkPath 建指向 canonicalDir 的相对软链;已是正确软链则跳过,旧真实拷贝/错软链先删。 */
+function linkToCanonical(canonicalDir: string, linkPath: string, content: string): void {
+  const rel = path.relative(path.dirname(linkPath), canonicalDir);
+  try {
+    const st = fs.lstatSync(linkPath);
+    if (st.isSymbolicLink()) {
+      if (fs.readlinkSync(linkPath) === rel) return; // 已正确
+      fs.unlinkSync(linkPath);
+    } else {
+      fs.rmSync(linkPath, { recursive: true, force: true }); // 旧真实拷贝 → 换软链
+    }
+  } catch {
+    /* linkPath 不存在 */
+  }
+  fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+  try {
+    fs.symlinkSync(rel, linkPath);
+  } catch {
+    // 软链失败(如 Windows 无权限)→ 退拷贝
+    fs.mkdirSync(linkPath, { recursive: true });
+    fs.writeFileSync(path.join(linkPath, 'SKILL.md'), content, 'utf8');
+  }
 }

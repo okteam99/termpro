@@ -27,11 +27,15 @@ export function computeSkillPromptAction(
   status: SkillStatusResult,
   bundledVersion: string,
 ): 'install' | 'update' | null {
+  const relevant = status.claude.present || status.codex.present || status.shared.present;
+  if (!relevant) return null; // 无 agent 环境 → 与本 session 无关,不提示
+  // 重复安装(codex 在自身目录 + 共享目录都有)→ 引导「更新」触发重装去重(2026-07-15)
+  if (status.duplicate) return 'update';
   const targets: (string | null)[] = [];
   if (status.claude.present) targets.push(status.claude.version);
   if (status.codex.present) targets.push(status.codex.version);
   if (targets.length === 0 && status.shared.present) targets.push(status.shared.version);
-  if (targets.length === 0) return null; // 无 agent 环境 → 与本 session 无关,不提示
+  if (targets.length === 0) return null;
   if (targets.some((v) => v === null)) return 'install';
   // 仅当某目标【严格旧于】打包版本才提示更新(装的更新则不降级覆盖 · 评审 P3)
   if (targets.some((v) => v !== null && compareVersions(v, bundledVersion) < 0)) return 'update';

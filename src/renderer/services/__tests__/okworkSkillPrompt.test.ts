@@ -23,7 +23,8 @@ const st = (
   claude: { present: boolean; version: string | null },
   codex: { present: boolean; version: string | null },
   shared: { present: boolean; version: string | null },
-): SkillStatusResult => ({ claude, codex, shared });
+  duplicate = false,
+): SkillStatusResult => ({ claude, codex, shared, duplicate });
 
 describe('computeSkillPromptAction', () => {
   it('无 agent 环境 → null(不相关)', () => {
@@ -44,6 +45,12 @@ describe('computeSkillPromptAction', () => {
 
   it('装的比打包版本【更新】→ null(不降级覆盖 · 评审 P3)', () => {
     expect(computeSkillPromptAction(st(loc(true, 'v2.0.0'), loc(false, null), loc(false, null)), V)).toBeNull();
+  });
+
+  it('duplicate=true(codex 重复安装)→ update(触发重装去重),即便版本已是最新', () => {
+    expect(
+      computeSkillPromptAction(st(loc(false, null), loc(true, V), loc(true, V), true), V),
+    ).toBe('update');
   });
 
   it('一个 agent 最新、另一个缺 → install(存在的目标里有缺的即 install)', () => {

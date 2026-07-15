@@ -63,39 +63,64 @@ describe('skillStatus', () => {
   });
 });
 
-describe('skillInstall', () => {
-  it('写 canonical + 各已装 agent 的 skills 目录,version 全部就位', () => {
+describe('skillInstall(canonical 真身 + claude 软链,codex 不放东西)', () => {
+  it('真身写共享 canonical;claude 在场 → 放软链指向 canonical', () => {
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
 
     const after = skillInstall(NAME, md('v1.0.0'), home);
+    // canonical 真身就位
+    const canonical = path.join(home, '.agents/skills', NAME, 'SKILL.md');
+    expect(fs.existsSync(canonical)).toBe(true);
+    expect(parseSkillVersion(fs.readFileSync(canonical, 'utf8'))).toBe('v1.0.0');
+    // claude 是软链(非真实拷贝)且解引用到同一份
+    const link = path.join(home, '.claude/skills', NAME);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     expect(after.claude.version).toBe('v1.0.0');
-    expect(after.codex.version).toBe('v1.0.0');
     expect(after.shared.version).toBe('v1.0.0');
-
-    // 实际文件落地
-    for (const rel of ['.agents/skills', '.claude/skills', '.codex/skills']) {
-      const f = path.join(home, rel, NAME, 'SKILL.md');
-      expect(fs.existsSync(f)).toBe(true);
-      expect(parseSkillVersion(fs.readFileSync(f, 'utf8'))).toBe('v1.0.0');
-    }
   });
 
-  it('agent 未装则不给它写(只写 canonical)', () => {
-    // 无 ~/.claude、无 ~/.codex
+  it('codex 在场 → canonical 就位,【不】往 ~/.codex/skills 放东西;codex 已装版本=canonical', () => {
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
     const after = skillInstall(NAME, md('v1.0.0'), home);
-    expect(after.shared.version).toBe('v1.0.0');
-    expect(fs.existsSync(path.join(home, '.claude', 'skills', NAME))).toBe(false);
-    expect(fs.existsSync(path.join(home, '.codex', 'skills', NAME))).toBe(false);
+    expect(fs.existsSync(path.join(home, '.agents/skills', NAME, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(home, '.codex/skills', NAME))).toBe(false); // 不落 codex 目录
+    expect(after.codex.version).toBe('v1.0.0'); // 经 canonical
+    expect(after.duplicate).toBe(false);
   });
 
-  it('更新:旧版本被新版本覆盖', () => {
-    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-    skillInstall(NAME, md('v1.0.0'), home);
-    expect(skillStatus(NAME, home).claude.version).toBe('v1.0.0');
+  it('去重:旧 bug 在 ~/.codex/skills 遗留的一份 → install 时被移除,duplicate 清零', () => {
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    // 模拟旧状态:canonical + ~/.codex/skills 都有 → codex 双扫重复
+    for (const rel of ['.agents/skills', '.codex/skills']) {
+      const dir = path.join(home, rel, NAME);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), md('v1.0.0'), 'utf8');
+    }
+    expect(skillStatus(NAME, home).duplicate).toBe(true);
 
+    const after = skillInstall(NAME, md('v1.0.0'), home);
+    expect(fs.existsSync(path.join(home, '.codex/skills', NAME))).toBe(false); // 残留已清
+    expect(fs.existsSync(path.join(home, '.agents/skills', NAME, 'SKILL.md'))).toBe(true); // canonical 保留
+    expect(after.duplicate).toBe(false);
+  });
+
+  it('claude 旧真实拷贝 → 重装换成软链', () => {
+    const realCopy = path.join(home, '.claude/skills', NAME);
+    fs.mkdirSync(realCopy, { recursive: true });
+    fs.writeFileSync(path.join(realCopy, 'SKILL.md'), md('v0.9.0'), 'utf8');
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+
+    skillInstall(NAME, md('v1.0.0'), home);
+    expect(fs.lstatSync(realCopy).isSymbolicLink()).toBe(true); // 已换软链
+    expect(skillStatus(NAME, home).claude.version).toBe('v1.0.0');
+  });
+
+  it('更新:canonical 旧版本被新版本覆盖', () => {
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    skillInstall(NAME, md('v1.0.0'), home);
+    expect(skillStatus(NAME, home).shared.version).toBe('v1.0.0');
     skillInstall(NAME, md('v2.0.0'), home);
-    expect(skillStatus(NAME, home).claude.version).toBe('v2.0.0');
     expect(skillStatus(NAME, home).shared.version).toBe('v2.0.0');
+    expect(skillStatus(NAME, home).codex.version).toBe('v2.0.0');
   });
 });

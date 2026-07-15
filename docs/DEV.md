@@ -209,7 +209,7 @@ claude mcp add --transport http okbrowser "$OKWORK_BROWSER_MCP_URL"
 - **技能内容**:`src/shared/okworkSkill.ts` —— `OKWORK_SKILL_VERSION` 单一真源 + SKILL.md 全文(frontmatter version 由常量插值防漂移)。正文=连接引导(`claude mcp add … "$OKWORK_BROWSER_MCP_URL"`)+ 真登录会话安全提醒 + 13 工具速查 + 可靠性套路 + 4 个流程配方。以 shared TS 模块打包,跨 main/renderer/RPC 可用。
 - **探测/安装(host · 纯 Node fs,本地远程统一)**:`src/host/skillService.ts` + 协议 `skill.status` / `skill.install`。
   - `skillStatus(name)`:报告 `claude` / `codex` / `shared` 各位置的 `present`(agent home 是否在)+ 已装 `version`(解析 SKILL.md frontmatter,只认开头 `---` 块内的 `version:`)。
-  - `skillInstall(name, content)`:写 canonical `~/.agents/skills/<name>/SKILL.md` + 各**已装** agent 的 skills 目录(`~/.claude/skills`、`~/.codex/skills`)。**直接写文件**(非软链):跨平台稳、幂等、更新即重写。agent 未装则不给它写。
+  - `skillInstall(name, content)`(teamwork 约定):**真身**写共享 canonical `~/.agents/skills/<name>/SKILL.md`;`~/.claude/skills/<name>` 放**软链**指向 canonical(claude 只读自己的 skills 目录;软链失败退拷贝)。🔴 **codex 不放东西**:codex 直接扫 `~/.agents/skills`(teamwork 只在那儿也被 codex 看到为证),若再往 `~/.codex/skills` 放一份就与 canonical **双扫重复**(2026-07-15 事故)——故安装时反而**清掉** `~/.codex/skills` 里的同名残留;`skillStatus.duplicate` 探测该残留,横条以「更新」引导一次重装完成去重。
 - **横条(renderer)**:`OkworkSkillBanner`(终端区顶部,`main-column` 内 TabBar 下)。`computeSkillPromptAction(status, 打包版本)`→ `install`(有 agent 但缺)/ `update`(装了但旧)/ `null`(最新或无 agent)。点一下调 `skill.install` 重探即隐,并弹 toast 提示「重启 agent 才生效」(已跑的 agent 不中途重扫 skills);`×` 关闭按机器 `localStorage` snooze **24h**;旧 host(无 `skill.*` RPC)探测失败 → 静默不打扰(该远程更新 host bundle 后自然出现)。
 
 远程等价:`skill.*` 是 host RPC,远程容器同样探测/安装(装到容器的 `/root/.agents/skills`、`/root/.codex/skills` 等已装 agent 目录);容器无 Claude Code 则只装 codex + canonical。
