@@ -1,6 +1,7 @@
 import * as pty from 'node-pty';
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import {
   FLOW,
   HostMessage,
@@ -82,6 +83,28 @@ function envMaxSessions(): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_MAX_SESSIONS;
 }
 
+/**
+ * spawn cwd 解析(2026-07-15):请求目录不存在时(如清理掉的 worktree),回退到它的
+ * 【最近存在祖先】而非家目录——workspace tab 的 cwd 恒在项目内,最近存在祖先仍落在
+ * 项目/工作区内(如 /ws/proj/.worktree/gone → /ws/proj),避免落到家目录被容器 profile.d
+ * 的 `cd /workspace` 又带去挂载根(与工作区不一致)。祖先一路走到文件系统根(说明是
+ * 彻底无关的野路径)才退家目录。
+ */
+export function resolveSpawnCwd(requested: string, homedir: string): string {
+  if (fs.existsSync(requested)) return requested;
+  let dir = requested;
+  for (;;) {
+    const parent = path.dirname(dir);
+    if (parent === dir) break; // 抵达文件系统根仍无存在祖先
+    if (fs.existsSync(parent)) {
+      // 落到根('/' 或 Windows 盘根)说明请求是野路径,退家目录更合理
+      return parent === path.parse(parent).root ? homedir : parent;
+    }
+    dir = parent;
+  }
+  return homedir;
+}
+
 export class PtyPool {
   private sessions = new Map<string, Session>();
   private seq = 0;
@@ -120,11 +143,14 @@ export class PtyPool {
       process.env.SHELL ??
       (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh');
     const id = `s${++this.seq}-${Date.now().toString(36)}`;
-    // 持久化恢复的 cwd 可能已被删除(如清理掉的 worktree),回退家目录
+    // 持久化恢复的 cwd 可能已被删除(如清理掉的 worktree):回退最近存在祖先(仍在
+    // 工作区内),而非家目录——否则容器 profile.d 的 `cd /workspace` 会再把它带去挂载根,
+    // 与工作区项目目录不一致(2026-07-15)。
     let cwd = opts.cwd;
     if (!fs.existsSync(cwd)) {
-      console.warn('[host] spawn cwd missing, fallback to home:', cwd);
-      cwd = os.homedir();
+      const resolved = resolveSpawnCwd(cwd, os.homedir());
+      console.warn(`[host] spawn cwd missing (${cwd}) → nearest existing ancestor ${resolved}`);
+      cwd = resolved;
     }
     const baseEnv = { ...process.env, ...opts.env } as Record<string, string>;
     // zsh 自动注入 shell integration(OSC 133/7);失败或非 zsh 静默跳过
