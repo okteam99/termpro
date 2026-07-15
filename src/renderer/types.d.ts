@@ -55,6 +55,18 @@ declare global {
       clipboardReadText(): Promise<string>;
       clipboardReadImage(): Promise<{ base64: string; size: number } | null>;
       openExternal(url: string): void;
+      /** AI 浏览器控制桥(main↔renderer):main MCP server ↔ 渲染层 browserControl */
+      browserControl: {
+        onInvoke(
+          callback: (req: { requestId: string; method: string; args: unknown[] }) => void,
+        ): () => void;
+        sendResult(payload: {
+          requestId: string;
+          ok: boolean;
+          value?: unknown;
+          error?: string;
+        }): void;
+      };
       /** 壳窗身份:弹出的浏览器窗格窗口 = 其终端 tabId;主窗 undefined */
       browserPaneTabId?: string;
       /** 窗格窗口化(弹出=整个窗格独立成窗;壳窗内容 sync 单向回流主窗) */

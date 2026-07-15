@@ -6,6 +6,7 @@ import { initPersistence } from './state/persistence';
 import { initSessionEvents } from './services/sessionEvents';
 import { initSettingsSync } from './services/settingsSync';
 import { initExitsSync } from './services/exitsSync';
+import { initBrowserControlBridge } from './services/browserControlBridge';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
@@ -92,6 +93,7 @@ export default function App() {
     initSessionEvents();
     initSettingsSync();
     initExitsSync();
+    initBrowserControlBridge();
   }, [hostInfo]);
 
   // 开机对账(主窗重载/崩溃自愈期间壳窗还开着):poppedOut 视图态不入档,重载即丢,

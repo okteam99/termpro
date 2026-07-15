@@ -15,6 +15,7 @@ import {
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { readPersistedLocalePref, registerAppStore } from './appStore';
@@ -398,6 +399,46 @@ ipcMain.on('browserPane:dock', (event, payload: { terminalTabId?: string }) => {
   if (sender !== mainWin && sender !== win) return;
   if (win && !win.isDestroyed()) win.close();
 });
+
+// ---- AI 浏览器控制桥(main 侧)----------------------------------------------
+// main 的 MCP server(阶段2b)调 invokeBrowserControl(method,args)→ 发请求给主窗
+// renderer(browserControl 在渲染层执行,它有 webview 元素 + store)→ 结果按 requestId
+// 回收。渲染层白名单派发(browserControlBridge),此处只做请求路由 + 超时兜底。
+const browserControlPending = new Map<
+  string,
+  { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+>();
+const BROWSER_CONTROL_TIMEOUT_MS = 20_000;
+
+ipcMain.on(
+  'browserControl:result',
+  (event, payload: { requestId?: string; ok?: boolean; value?: unknown; error?: string }) => {
+    // 只认主窗回传(渲染层控制桥挂在主窗)
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
+    const id = payload?.requestId;
+    const p = id ? browserControlPending.get(id) : undefined;
+    if (!p || !id) return;
+    browserControlPending.delete(id);
+    clearTimeout(p.timer);
+    if (payload.ok) p.resolve(payload.value);
+    else p.reject(new Error(payload.error ?? 'browser control failed'));
+  },
+);
+
+export function invokeBrowserControl(method: string, args: unknown[]): Promise<unknown> {
+  if (!mainWin || mainWin.isDestroyed()) {
+    return Promise.reject(new Error('main window not available'));
+  }
+  const requestId = randomUUID();
+  return new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      browserControlPending.delete(requestId);
+      reject(new Error(`browser control timeout: ${method}`));
+    }, BROWSER_CONTROL_TIMEOUT_MS);
+    browserControlPending.set(requestId, { resolve, reject, timer });
+    mainWin!.webContents.send('browserControl:invoke', { requestId, method, args });
+  });
+}
 
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();

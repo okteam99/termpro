@@ -96,6 +96,30 @@ contextBridge.exposeInMainWorld('okwork', {
   openExternal(url: string): void {
     ipcRenderer.send('shell:open-external', url);
   },
+  // AI 浏览器控制桥(main↔renderer):main 的 MCP server 收到工具调用 → 经此桥
+  // 请求渲染层 browserControl 执行 → 结果回传。控制在渲染层(有 webview 元素 + store)。
+  browserControl: {
+    /** 渲染层订阅 main 的控制请求(initBrowserControlBridge 用),返回退订函数 */
+    onInvoke(
+      callback: (req: { requestId: string; method: string; args: unknown[] }) => void,
+    ): () => void {
+      const listener = (
+        _e: unknown,
+        req: { requestId: string; method: string; args: unknown[] },
+      ) => callback(req);
+      ipcRenderer.on('browserControl:invoke', listener);
+      return () => ipcRenderer.removeListener('browserControl:invoke', listener);
+    },
+    /** 渲染层回传执行结果 */
+    sendResult(payload: {
+      requestId: string;
+      ok: boolean;
+      value?: unknown;
+      error?: string;
+    }): void {
+      ipcRenderer.send('browserControl:result', payload);
+    },
+  },
   /** 壳窗身份:本窗口若是弹出的浏览器窗格窗口,值 = 其终端 tabId(argv 注入);主窗 undefined */
   browserPaneTabId: (() => {
     const arg = process.argv.find((a) => a.startsWith('--okwork-browser-pane='));
