@@ -120,6 +120,85 @@ export async function getText(terminalTabId: string, browserTabId?: string): Pro
   );
 }
 
+// ---- 交互原语(经 executeJavaScript 在页面上下文操作,免 CDP;够覆盖多数站点)----
+
+/** 点击匹配选择器的元素(先滚入视图 + 原生 click,React onClick 等冒泡处理器可响应)。 */
+export async function click(
+  terminalTabId: string,
+  selector: string,
+  browserTabId?: string,
+): Promise<boolean> {
+  const sel = JSON.stringify(selector);
+  const code = `(function(){
+    const el = document.querySelector(${sel});
+    if (!el) throw new Error('element not found: ' + ${sel});
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    el.click();
+    return true;
+  })()`;
+  return Boolean(await requireView(terminalTabId, browserTabId).executeJavaScript(code, true));
+}
+
+/** 向 input/textarea 填入文本(原生 value setter + 派发 input/change,React 受控组件可感知)。 */
+export async function typeText(
+  terminalTabId: string,
+  selector: string,
+  text: string,
+  browserTabId?: string,
+): Promise<boolean> {
+  const sel = JSON.stringify(selector);
+  const val = JSON.stringify(text);
+  const code = `(function(){
+    const el = document.querySelector(${sel});
+    if (!el) throw new Error('element not found: ' + ${sel});
+    el.focus();
+    const proto = el instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (setter && setter.set) setter.set.call(el, ${val});
+    else el.value = ${val};
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`;
+  return Boolean(await requireView(terminalTabId, browserTabId).executeJavaScript(code, true));
+}
+
+/** 竖向滚动 dy 像素(缺省约一屏),返回滚动后的 scrollY。 */
+export async function scroll(
+  terminalTabId: string,
+  dy?: number,
+  browserTabId?: string,
+): Promise<number> {
+  const amount = typeof dy === 'number' ? dy : 0;
+  const code = `(function(){
+    const d = ${amount} || Math.round(window.innerHeight * 0.9);
+    window.scrollBy(0, d);
+    return window.scrollY;
+  })()`;
+  return Number(await requireView(terminalTabId, browserTabId).executeJavaScript(code, false));
+}
+
+/** 轮询等待选择器出现,最长 timeoutMs(缺省 5000);超时抛错。 */
+export async function waitForSelector(
+  terminalTabId: string,
+  selector: string,
+  timeoutMs = 5000,
+  browserTabId?: string,
+): Promise<boolean> {
+  const sel = JSON.stringify(selector);
+  const to = Math.max(0, Math.floor(timeoutMs));
+  const code = `new Promise((resolve, reject) => {
+    if (document.querySelector(${sel})) { resolve(true); return; }
+    const deadline = Date.now() + ${to};
+    const iv = setInterval(() => {
+      if (document.querySelector(${sel})) { clearInterval(iv); resolve(true); }
+      else if (Date.now() > deadline) { clearInterval(iv); reject(new Error('timeout waiting for ' + ${sel})); }
+    }, 100);
+  })`;
+  return Boolean(await requireView(terminalTabId, browserTabId).executeJavaScript(code, false));
+}
+
 // ---- 标签管理 ----
 
 /** 列出该终端 tab 的浏览器标签(含活跃标记与出口)。 */

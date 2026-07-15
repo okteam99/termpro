@@ -15,6 +15,10 @@ function fakeView(html = '<html><body>hi</body></html>') {
     executeJavaScript: vi.fn(async (code: string) => {
       if (code.includes('outerHTML')) return html;
       if (code.includes('innerText')) return 'visible text';
+      if (code.includes('scrollBy')) return 128; // scroll → scrollY
+      if (code.includes('el.click()')) return true; // click
+      if (code.includes('setter.set')) return true; // typeText
+      if (code.includes('new Promise')) return true; // waitForSelector
       return 'evalresult';
     }),
     capturePage: vi.fn(async () => ({
@@ -93,6 +97,32 @@ describe('控制原语', () => {
     expect(pane.tabs).toHaveLength(1);
     expect(pane.tabs[0].url).toBe('https://first.dev');
     expect(r.browserTabId).toBe(pane.tabs[0].id);
+  });
+});
+
+describe('交互原语', () => {
+  it('click / typeText / scroll / waitForSelector 经 executeJavaScript 操作活跃窗格', async () => {
+    seed({ tabs: [{ id: 'a', url: 'https://a.dev' }], activeTabId: 'a' });
+    const v = fakeView();
+    registerBrowserView('a', v);
+    const ej = v.executeJavaScript as ReturnType<typeof vi.fn>;
+
+    expect(await bc.click(TERM, '#go')).toBe(true);
+    expect(ej.mock.calls.at(-1)![0]).toContain('"#go"'); // 选择器经 JSON.stringify 注入
+
+    expect(await bc.typeText(TERM, 'input[name=q]', 'hello')).toBe(true);
+    const typeCode = ej.mock.calls.at(-1)![0] as string;
+    expect(typeCode).toContain('"input[name=q]"');
+    expect(typeCode).toContain('"hello"');
+
+    expect(await bc.scroll(TERM)).toBe(128);
+    expect(await bc.waitForSelector(TERM, '.ready', 1000)).toBe(true);
+    expect(ej.mock.calls.at(-1)![0]).toContain('1000'); // 超时注入
+  });
+
+  it('交互原语在 webview 未挂载时抛 not ready', async () => {
+    seed({ tabs: [{ id: 'a', url: 'https://a.dev' }], activeTabId: 'a' });
+    await expect(bc.click(TERM, '#x')).rejects.toThrow(/not ready/);
   });
 });
 

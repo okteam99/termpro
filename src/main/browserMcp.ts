@@ -32,8 +32,9 @@ const obj = (props: Record<string, unknown>, required: string[] = []) => ({
   required,
 });
 const S = { type: 'string' } as const;
+const N = { type: 'number' } as const;
 
-// 工具全集(9 个)。browserTabId 缺省 → 该终端 tab 的活跃浏览器标签。
+// 工具全集(13 个)。browserTabId 缺省 → 该终端 tab 的活跃浏览器标签。
 const TOOLS: ToolDef[] = [
   {
     name: 'browser_navigate',
@@ -69,6 +70,34 @@ const TOOLS: ToolDef[] = [
     inputSchema: obj({ browserTabId: S }),
     method: 'getText',
     buildArgs: (t, a) => [t, a.browserTabId],
+  },
+  {
+    name: 'browser_click',
+    description: 'Click the first element matching a CSS selector (scrolls it into view first).',
+    inputSchema: obj({ selector: S, browserTabId: S }, ['selector']),
+    method: 'click',
+    buildArgs: (t, a) => [t, a.selector, a.browserTabId],
+  },
+  {
+    name: 'browser_type',
+    description: 'Fill an input/textarea (by CSS selector) with text, firing input/change events.',
+    inputSchema: obj({ selector: S, text: S, browserTabId: S }, ['selector', 'text']),
+    method: 'typeText',
+    buildArgs: (t, a) => [t, a.selector, a.text, a.browserTabId],
+  },
+  {
+    name: 'browser_scroll',
+    description: 'Scroll the page vertically by dy pixels (default ~one viewport); returns new scrollY.',
+    inputSchema: obj({ dy: N, browserTabId: S }),
+    method: 'scroll',
+    buildArgs: (t, a) => [t, a.dy, a.browserTabId],
+  },
+  {
+    name: 'browser_wait_for',
+    description: 'Wait until a CSS selector appears in the page, up to timeoutMs (default 5000).',
+    inputSchema: obj({ selector: S, timeoutMs: N, browserTabId: S }, ['selector']),
+    method: 'waitForSelector',
+    buildArgs: (t, a) => [t, a.selector, a.timeoutMs ?? 5000, a.browserTabId],
   },
   {
     name: 'browser_list_tabs',

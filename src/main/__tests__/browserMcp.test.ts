@@ -24,10 +24,10 @@ async function connect(invoke: (m: string, a: unknown[]) => Promise<unknown>, ta
 }
 
 describe('browserMcp server', () => {
-  it('tools/list 暴露 9 个浏览器工具', async () => {
+  it('tools/list 暴露 13 个浏览器工具(读取 + 交互 + 标签)', async () => {
     const c = await connect(async () => 'ok');
     const { tools } = await c.listTools();
-    expect(tools).toHaveLength(9);
+    expect(tools).toHaveLength(13);
     expect(tools.map((t) => t.name)).toEqual(
       expect.arrayContaining([
         'browser_navigate',
@@ -35,12 +35,30 @@ describe('browserMcp server', () => {
         'browser_screenshot',
         'browser_get_html',
         'browser_get_text',
+        'browser_click',
+        'browser_type',
+        'browser_scroll',
+        'browser_wait_for',
         'browser_list_tabs',
         'browser_open_tab',
         'browser_close_tab',
         'browser_activate_tab',
       ]),
     );
+  });
+
+  it('交互工具 → invoke 位置参数(首=绑定 tab,browserTabId 缺省 undefined)', async () => {
+    const invoke = vi.fn(async () => true);
+    const c = await connect(invoke as never, 'term-INT');
+
+    await c.callTool({ name: 'browser_click', arguments: { selector: '#go' } });
+    expect(invoke).toHaveBeenCalledWith('click', ['term-INT', '#go', undefined]);
+
+    await c.callTool({ name: 'browser_type', arguments: { selector: 'input', text: 'hi' } });
+    expect(invoke).toHaveBeenCalledWith('typeText', ['term-INT', 'input', 'hi', undefined]);
+
+    await c.callTool({ name: 'browser_wait_for', arguments: { selector: '.done' } });
+    expect(invoke).toHaveBeenCalledWith('waitForSelector', ['term-INT', '.done', 5000, undefined]);
   });
 
   it('tools/call 路由到 invoke,首参=URL 绑的 terminalTabId', async () => {
