@@ -3,6 +3,7 @@ import { resolveBrowserTabNet, useAppStore, selectActiveWorkspace } from '../sta
 import type { BrowserTabState } from '../state/store';
 import { t } from '../../shared/i18n';
 import { partitionOf } from '../../shared/remoteHost';
+import { registerBrowserView } from '../services/browserViewRegistry';
 import type {
   BrowserNetworkSnapshot,
   RemoteHostConfig,
@@ -25,6 +26,12 @@ declare global {
     goForward(): void;
     /** 🔴 attach + dom-ready 之前调用会 throw(Electron 语义),调用方必须 try/catch */
     getWebContentsId(): number;
+    // ---- AI 浏览器控制(browserControl 用;dom-ready 前调用会 reject,调用方兜底)----
+    /** 在页面上下文执行 JS,返回结果(需可结构化克隆) */
+    executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
+    /** 截图当前可见区,返回 NativeImage(.toDataURL()/.toPNG()) */
+    capturePage(): Promise<{ toDataURL(): string; toPNG(): Uint8Array }>;
+    insertCSS(css: string): Promise<string>;
   }
 }
 
@@ -527,6 +534,8 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const handleWebviewRef = useCallback((id: string, node: WebviewElement | null) => {
     if (node) webviewRefs.current.set(id, node);
     else webviewRefs.current.delete(id);
+    // AI 浏览器控制:同步进模块级注册表,让 browserControl 在组件外拿到 webview
+    registerBrowserView(id, node);
   }, []);
 
   const handleUrlChange = useCallback(
