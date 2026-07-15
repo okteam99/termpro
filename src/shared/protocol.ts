@@ -251,6 +251,23 @@ export interface RpcMethods {
     };
     result: SessionAttachResult;
   };
+  // ---- OkWork 会话内技能探测/安装(okwork skill · 向后兼容追加)----
+  /** 探测某技能在各 agent 位置的安装版本 + agent 存在性(横条据此判未装/可更新)。 */
+  'skill.status': { params: { name: string }; result: SkillStatusResult };
+  /** 安装/更新:把 SKILL.md 写入 canonical + 各已装 agent 的 skills 目录;返回安装后状态。 */
+  'skill.install': { params: { name: string; content: string }; result: SkillStatusResult };
+}
+
+/** 某技能在一个 agent 位置的状态(present=该 agent 存在;version=已装版本或 null)。 */
+export interface SkillLocationStatus {
+  present: boolean;
+  version: string | null;
+}
+/** 技能在各 agent 位置的探测结果(shared=共享 ~/.agents/skills canonical)。 */
+export interface SkillStatusResult {
+  claude: SkillLocationStatus;
+  codex: SkillLocationStatus;
+  shared: SkillLocationStatus;
 }
 
 export type RpcMethodName = keyof RpcMethods;

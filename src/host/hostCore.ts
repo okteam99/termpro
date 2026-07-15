@@ -27,6 +27,7 @@ import {
   writeTextFile,
   writeTempPng,
 } from './fsService';
+import { skillStatus, skillInstall } from './skillService';
 import {
   gitChangedFiles,
   gitInfo,
@@ -307,6 +308,14 @@ async function handleRpc(
         // 服务内部:mutate 注册表 → 落盘 → 向全部客户端广播 workspace:changed
         result = await workspaces.handle(msg.method, msg.params);
         break;
+      case 'skill.status':
+        result = skillStatus((msg.params as { name: string }).name);
+        break;
+      case 'skill.install': {
+        const p = msg.params as { name: string; content: string };
+        result = skillInstall(p.name, p.content);
+        break;
+      }
       // ---- 断线重连回放收养(BL-005)----
       case 'session.list': {
         // token 闸后单租户全可见:遍历 pool 全部会话(live + exited)产快照(AC-8)
