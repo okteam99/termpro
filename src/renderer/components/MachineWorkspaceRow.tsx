@@ -117,6 +117,8 @@ export interface MachineWorkspaceRowData extends TabBadgeInput {
   /** 分支 + tildify 路径(已按该 host homedir 格式化) */
   meta: string;
   active: boolean;
+  /** 需要注意的 tab 数(waiting / unseenDone)——远程 workspace 行的注意力气泡(2026-07-15) */
+  attention?: number;
   /** true = 该机刚断线且这正是活跃 workspace(D-8 panel 阶段行内态标签) */
   disconnectedPanel?: boolean;
 }
@@ -181,6 +183,9 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: Machine
           &times;
         </button>
       )}
+      {ws.attention ? (
+        <span className="sidebar-attention-pill">{ws.attention}</span>
+      ) : null}
     </div>
   );
 }

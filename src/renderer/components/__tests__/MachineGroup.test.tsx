@@ -297,6 +297,22 @@ describe('MachineGroup · 展开/折叠(用户需求 2026-07-13)', () => {
     expect(screen.getByLabelText('5 session · 1 running')).toBeInTheDocument();
   });
 
+  it('组头聚合注意力气泡(远程 workspace attention 求和,折叠也显 · 2026-07-15)', () => {
+    const machine = {
+      ...connected(),
+      workspaces: [
+        { id: 'w1', name: 'aon-main', meta: 'm1', active: false, tabCount: 2, tabRunning: 1, attention: 2 },
+        { id: 'w2', name: 'okok', meta: 'm2', active: true, tabCount: 3, attention: 1 },
+      ],
+    };
+    const { container } = render(
+      <MachineGroup machine={machine} collapsed onToggleCollapse={() => {}} />,
+    );
+    const pill = container.querySelector('.sidebar-machine-header .sidebar-attention-pill');
+    expect(pill).toBeInTheDocument();
+    expect(pill).toHaveTextContent('3'); // 2 + 1
+  });
+
   it('collapsed 未连接组:隐藏「未连接」提示,组头 Connect 按钮仍在且点击不触发折叠切换', () => {
     const onToggle = vi.fn();
     const onConnect = vi.fn();

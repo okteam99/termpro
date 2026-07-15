@@ -89,6 +89,16 @@ describe('<MachineWorkspaceRow>', () => {
     expect(container.querySelector('.sidebar-item--disconnected')).toBeInTheDocument();
   });
 
+  it('attention>0 → 渲染注意力气泡(远程 workspace 也有,2026-07-15);0/缺省 → 无气泡', () => {
+    const { container, rerender } = render(<MachineWorkspaceRow ws={row({ attention: 2 })} />);
+    const pill = container.querySelector('.sidebar-attention-pill');
+    expect(pill).toBeInTheDocument();
+    expect(pill).toHaveTextContent('2');
+
+    rerender(<MachineWorkspaceRow ws={row({ attention: 0 })} />);
+    expect(container.querySelector('.sidebar-attention-pill')).toBeNull();
+  });
+
   it('onClick 触发 + role=button;不传 onClick 时无 role', () => {
     const onClick = vi.fn();
     const { rerender } = render(<MachineWorkspaceRow ws={row()} onClick={onClick} />);

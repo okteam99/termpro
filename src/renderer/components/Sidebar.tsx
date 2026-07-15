@@ -151,6 +151,7 @@ function toRowData(
     active: ws.id === activeWorkspaceId,
     tabCount: ws.tabs.length,
     tabRunning,
+    attention: ws.tabs.filter((t) => t.waiting || t.unseenDone).length,
     disconnectedPanel,
   };
 }

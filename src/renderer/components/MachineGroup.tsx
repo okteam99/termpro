@@ -54,14 +54,17 @@ export function MachineChevron({ collapsed }: { collapsed: boolean }) {
 export function aggregateBadge(rows: MachineWorkspaceRowData[]): {
   tabCount: number;
   tabRunning: number;
+  attention: number;
 } {
   let tabCount = 0;
   let tabRunning = 0;
+  let attention = 0;
   for (const r of rows) {
     tabCount += r.tabCount;
     tabRunning += r.tabRunning ?? 0;
+    attention += r.attention ?? 0;
   }
-  return { tabCount, tabRunning };
+  return { tabCount, tabRunning, attention };
 }
 
 /** 本机组头图标:显示器(与远程的云图标区分机器类别) */
@@ -255,6 +258,11 @@ export function MachineGroup({
           {displayName}
         </span>
         {agg && <SessionBadge ws={agg} />}
+        {agg && agg.attention > 0 && (
+          <span className="sidebar-attention-pill sidebar-attention-pill--inline">
+            {agg.attention}
+          </span>
+        )}
         {/* connected 且有 RTT:单一小圆点并入延迟单元(圆点=毫秒数同色,按分级上色);
             其余状态维持原语义状态圆点 */}
         {isRemote && machine.status === 'connected' && machine.rttMs !== undefined ? (
