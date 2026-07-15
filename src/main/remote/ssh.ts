@@ -379,25 +379,34 @@ export class SshConnection implements SshConnectionLike {
       // 关 Nagle:此隧道承载渲染层↔host 的 WebSocket(含每次按键 pty:input),
       // 小包低延迟优先(与 ssh2 外层 socket、远程 WS socket 三处一致)
       socket.setNoDelay(true);
-      this.client.forwardOut(
-        '127.0.0.1',
-        socket.remotePort ?? 0,
-        '127.0.0.1',
-        remotePort,
-        (err, stream) => {
-          if (err) {
-            socket.destroy();
-            return;
-          }
-          // .pipe() 两端自动尊重 backpressure(ARCH-7);main 不解析字节。
-          socket.pipe(stream);
-          stream.pipe(socket);
-          stream.on('close', () => socket.destroy());
-          socket.on('close', () => stream.destroy());
-          stream.on('error', () => socket.destroy());
-          socket.on('error', () => stream.destroy());
-        },
-      );
+      // 🔴 try/catch(主进程弹窗事故 2026-07-15):隧道掉线但本地 net.Server 仍在
+      // 监听时,新连接进来会调 this.client.forwardOut——ssh2 客户端已断开则【同步
+      // throw 'Not connected'】(client.js,在回调之前),此处非 Promise 上下文,
+      // 不接就冒泡成主进程 Uncaught Exception 弹窗。吞掉:销毁本地连接即可失败干净,
+      // 断线/重连由 orchestrator 的 onClose/重连编排处理(server 保持监听待重连)。
+      try {
+        this.client.forwardOut(
+          '127.0.0.1',
+          socket.remotePort ?? 0,
+          '127.0.0.1',
+          remotePort,
+          (err, stream) => {
+            if (err) {
+              socket.destroy();
+              return;
+            }
+            // .pipe() 两端自动尊重 backpressure(ARCH-7);main 不解析字节。
+            socket.pipe(stream);
+            stream.pipe(socket);
+            stream.on('close', () => socket.destroy());
+            socket.on('close', () => stream.destroy());
+            stream.on('error', () => socket.destroy());
+            socket.on('error', () => stream.destroy());
+          },
+        );
+      } catch {
+        socket.destroy(); // 隧道已断(forwardOut 同步抛)→ 本地连接失败干净,不崩主进程
+      }
     });
     server.listen(localPort, '127.0.0.1');
     return server;

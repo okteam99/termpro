@@ -267,3 +267,40 @@ describe('connect 超时不产生 uncaughtException(弹窗事故回归)', () => 
     }
   });
 });
+
+// 🔴 主进程弹窗事故(2026-07-15):SSH 隧道掉线但本地 forwardOut net.Server 仍监听,
+// 新连接进来调 client.forwardOut → ssh2 客户端已断开则【同步抛 'Not connected'】
+// (回调之前),非 Promise 上下文不接就冒泡成主进程 Uncaught Exception 弹窗。
+describe('forwardOut 隧道断开不崩主进程', () => {
+  const construct = (client: unknown): SshConnection =>
+    new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
+
+  it('client.forwardOut 同步抛 Not connected → 连接处理器吞掉,不产生 uncaughtException', async () => {
+    const net = await import('node:net');
+    const fakeClient = {
+      forwardOut() {
+        throw new Error('Not connected'); // 模拟 ssh2 断开态同步抛
+      },
+    };
+    const server = construct(fakeClient).forwardOut(0, 9999);
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const port = (server.address() as import('node:net').AddressInfo).port;
+
+    const uncaught: Error[] = [];
+    const onUncaught = (e: Error) => uncaught.push(e);
+    process.on('uncaughtException', onUncaught);
+    try {
+      const client = net.connect(port, '127.0.0.1');
+      // 连接被处理器 destroy → close/error 任一即收尾
+      await new Promise<void>((resolve) => {
+        client.on('close', () => resolve());
+        client.on('error', () => resolve());
+      });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(uncaught).toEqual([]); // 修复前:'Not connected' 会冒泡到这里
+    } finally {
+      process.removeListener('uncaughtException', onUncaught);
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+});
