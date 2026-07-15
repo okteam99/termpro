@@ -27,6 +27,7 @@ import {
 } from './exitConfirmation';
 import { installExternalUrlPolicy } from './externalUrlPolicy';
 import { createRendererRecovery } from './rendererRecovery';
+import { startBrowserMcpServer, type BrowserMcpHandle } from './browserMcp';
 import { initUpdater } from './updater';
 import { registerRemoteHostIpc } from './remote/remoteHostIpc';
 import { RemoteHostOrchestrator } from './remote/orchestrator';
@@ -439,6 +440,16 @@ export function invokeBrowserControl(method: string, args: unknown[]): Promise<u
     mainWin!.webContents.send('browserControl:invoke', { requestId, method, args });
   });
 }
+
+// AI 浏览器控制 MCP server:起在本机随机端口,session 内 agent 经 /mcp/<terminalTabId>
+// 连上驱动浏览器。base URL 经 env 注入终端(接线见 host spawn);冒烟/无网也不影响启动。
+let browserMcp: BrowserMcpHandle | null = null;
+void startBrowserMcpServer((method, args) => invokeBrowserControl(method, args))
+  .then((h) => {
+    browserMcp = h;
+    console.log(`[main] browser MCP server listening on 127.0.0.1:${h.port}`);
+  })
+  .catch((err) => console.error('[main] browser MCP failed to start:', err));
 
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();
