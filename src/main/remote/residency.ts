@@ -20,11 +20,13 @@ export type ResidencyAction =
   | 'claim'
   | 'reapThenDeploy'
   | 'cleanStaleThenDeploy'
-  | 'freshDeploy';
+  | 'freshDeploy'
+  // 活着且属本 tag 的 host 探测不可达(瞬时隧道抖动)→ 不杀不部署,放弃本次等下次 claim。
+  | 'abortLiveUnreachable';
 
 export interface ResidencyDecision {
   action: ResidencyAction;
-  /** true 仅当 reapThenDeploy——kill 从不出现在其余三个分支(T-034 守门断言)。 */
+  /** true 仅当 reapThenDeploy——kill 从不出现在其余四个分支(T-034 守门断言)。 */
   kill: boolean;
   /** 是否需要 `rm -f host.port` 清理陈旧端口文件。 */
   cleanStale: boolean;
@@ -100,6 +102,14 @@ export function decideResidency(input: ResidencyDecisionInput): ResidencyDecisio
 
   const alive = portRaw?.pid != null && killAliveResult === true;
   const tagMatches = alive && cmdlineMatchesHostTag(cmdlineResult, configId);
+  // 🔴 保护在跑会话(2026-07-15 事故):活着且 cmdline 属【本 tag】的 host 就是我们自己的
+  // host。若探测【不可达】(probeResult 非 ok——瞬时隧道抖动/重连未稳),这是【传输问题】
+  // 而非坏 host,绝不 reap——reap 会 kill host.js,连同其 PTY 里在跑的 codex/agent 一起毙掉
+  // (会话存活扛得住隧道抖动的前提正是 host 不死)。放弃本次连接、不杀不清,host 存活待下次
+  // 隧道稳后 claim 挂回。仅【探测可达但版本过旧/不兼容】(下方分支)才有意 reap 升级。
+  if (candidateEligible && tagMatches && probeResult?.ok !== true) {
+    return { action: 'abortLiveUnreachable', kill: false, cleanStale: false };
+  }
   if (alive && tagMatches) {
     return { action: 'reapThenDeploy', kill: true, cleanStale: true };
   }

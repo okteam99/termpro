@@ -235,6 +235,44 @@ describe('AC-13 认领驻留进程(不重启)', () => {
     expect(claimingEvent?.fastPath).toBe(true);
   });
 
+  it('事故修复:重连时活 host 属本 tag 但探测不可达 → failed(unreachable),绝不 kill/不部署第二个 host', async () => {
+    // 🔴 2026-07-15:跨境隧道抖动导致重连探测假阴性,此前会 reap 正在跑 codex 的活 host。
+    // 现在应:不 kill(execCalls 无 `kill "321"`)、不部署(无 deploying/starting、execDetached
+    // 未调)、直接 failed(unreachable)——host 存活,用户重试即 claim 挂回,会话得以存活。
+    const configId = 'vps-hk';
+    const routed = createRoutedSsh({
+      execHandlers: [
+        ...healthyDefaults(),
+        (cmd) => (cmd.startsWith('kill -0 "321"') ? { code: 0, stdout: 'Y\n', stderr: '' } : null),
+        (cmd) =>
+          cmd.includes('/proc/321/cmdline') || cmd.includes('-p "321"')
+            ? { code: 0, stdout: `node host.js --host-tag ${configId}`, stderr: '' }
+            : null,
+      ],
+      sftpReadFile: (p) => {
+        if (p.endsWith('.ready')) return bufferOf('ok');
+        if (p.endsWith('host.port')) return bufferOf({ port: 6000, pid: 321, hostTag: configId });
+        return null;
+      },
+    });
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      probeImpl: async () => ({ ok: false, detail: 'transient tunnel hiccup' }),
+    });
+    saveConfig(h.configStore, configId);
+    h.credentials.setSecret(`hosttoken:${configId}`, 'preexisting-token');
+
+    await h.orchestrator.connect(configId);
+
+    const stages = h.events.map((e) => e.stage);
+    expect(stages).toContain('failed');
+    expect(h.events.find((e) => e.stage === 'failed')?.reason).toBe('unreachable');
+    expect(stages).not.toContain('deploying'); // 没起第二个 host
+    expect(stages).not.toContain('starting');
+    expect(routed.execDetached).not.toHaveBeenCalled();
+    expect(routed.execCalls.some((c) => c.startsWith('kill "321"'))).toBe(false); // 绝不杀活 host
+  });
+
   it('T-038o 客户端升级后首连 + 活 host 版本过旧 → 先升级服务端:kill 旧 host + 部署 + 重启(2026-07-13)', async () => {
     // 🔴 用户规则 2026-07-13(反转旧 2026-07 规则):服务端版本低于客户端依赖的最低版本
     // HOST_MIN_APP_VERSION(旧 host 不上报 appVersion 同判过旧)→ 连接时先升级服务端,

@@ -36,7 +36,10 @@ describe('AC-13/AC-4/AC-8 residency 决策表(纯函数)', () => {
     expect(decision).toEqual({ action: 'claim', kill: false, cleanStale: false });
   });
 
-  it('T-033 token 陈旧(probe 失败)→ 同栈 reap+deploy,不 livelock', () => {
+  it('T-033 候选 host 活着但 probe 不可达(瞬时抖动)→ abortLiveUnreachable,绝不 kill(护在跑会话)', () => {
+    // 🔴 2026-07-15 事故修复:候选(portRaw+token)+ 活体 + cmdline 属本 tag,但 probe
+    // 非 ok(不可达)——这是传输问题不是坏 host,绝不 reap(reap 会连同 PTY 里在跑的
+    // codex/agent 一起毙掉)。放弃本次、不杀不清,host 存活待下次隧道稳后 claim。
     const decision = decideResidency({
       configId: CONFIG_ID,
       portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
@@ -46,8 +49,7 @@ describe('AC-13/AC-4/AC-8 residency 决策表(纯函数)', () => {
       killAliveResult: true,
       cmdlineResult: `node host.js --listen 127.0.0.1:0 --token-stdin --host-tag ${CONFIG_ID}`,
     });
-    expect(decision.action).toBe('reapThenDeploy');
-    expect(decision.kill).toBe(true);
+    expect(decision).toEqual({ action: 'abortLiveUnreachable', kill: false, cleanStale: false });
   });
 
   it('T-034 兄弟存活但 tag 不符 → cleanStaleThenDeploy,kill 从未出现', () => {
@@ -278,10 +280,10 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
   });
 
-  it('T-038f 升级场景 + 陈旧 token(probe 失败)→ 仍落 reapThenDeploy 且候选隧道被关', async () => {
-    // 锁定:bundleReady=false 的新候选路径上,probe 失败(如 token 陈旧)后的回收
-    // 行为与 bundleReady=true 口径完全一致——关候选隧道、kill 本 tag 活体、清 port 文件。
-    let killSent = false;
+  it('T-038f 升级场景 + probe 失败但 host 活体属本 tag → abortLiveUnreachable:关候选隧道但不 kill/不清', async () => {
+    // 🔴 2026-07-15 事故修复:bundleReady=false 的候选路径上 probe 失败(不可达)——只要
+    // 活体 cmdline 属本 tag,就绝不 reap(护在跑会话);仅关掉本次为探测建的候选隧道,
+    // 不 kill、不 rm host.port。host 存活待下次隧道稳后 claim 挂回。
     const ssh = createRoutedSsh({
       sftpReadFile: (path) => {
         if (path.endsWith('.ready')) return null; // 新版 bundle 未部署
@@ -291,17 +293,8 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
         return null;
       },
       execHandlers: [
-        (cmd) => {
-          if (cmd.startsWith('kill "888"')) {
-            killSent = true;
-            return { code: 0, stdout: '', stderr: '' };
-          }
-          return null;
-        },
         (cmd) =>
-          cmd.startsWith('kill -0 "888"')
-            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
-            : null,
+          cmd.startsWith('kill -0 "888"') ? { code: 0, stdout: 'Y\n', stderr: '' } : null,
         (cmd) =>
           cmd.includes('/proc/888/cmdline') || cmd.includes('-p "888"')
             ? { code: 0, stdout: `node host.js --host-tag ${CONFIG_ID}`, stderr: '' }
@@ -319,16 +312,14 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       buildTunnel: async () => ({ server: asNetServer(candidateServer), localPort: 46002 }),
       sleep: async () => undefined,
     });
-    expect(resolution.decision.action).toBe('reapThenDeploy');
-    expect(candidateServer.closed).toBe(true);
-    expect(ssh.execCalls.some((c) => c.startsWith('kill ') && c.includes('888'))).toBe(true);
-    expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
+    expect(resolution.decision.action).toBe('abortLiveUnreachable');
+    expect(candidateServer.closed).toBe(true); // 候选隧道仍关(不 livelock)
+    expect(ssh.execCalls.some((c) => c.startsWith('kill "888"'))).toBe(false); // 绝不 kill 活 host
+    expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(false);
   });
 
-  it('probe 失败 → 关闭候选隧道 + 落回收分支(不 livelock)', async () => {
-    // kill 222 发出后再查 kill -0 应返回「已死」,模拟进程正常响应 SIGTERM 退出,
-    // 避免 killAndWait 真实轮询满 3s 超时(否则测试会真实等待到超时 wall-clock)。
-    let killSent = false;
+  it('probe 失败但 host 活体属本 tag → 关候选隧道 + abortLiveUnreachable(不 kill,护会话)', async () => {
+    // 🔴 2026-07-15 事故修复:活体属本 tag + probe 不可达 → 不 reap;仅关候选隧道(不 livelock)。
     const ssh = createRoutedSsh({
       sftpReadFile: (path) => {
         if (path.endsWith('.ready')) return bufferOf('ok');
@@ -338,18 +329,8 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
         return null;
       },
       execHandlers: [
-        (cmd) => {
-          // 精确匹配「纯 kill」(非 kill -0):`kill "222" 2>/dev/null`
-          if (cmd.startsWith('kill "222"')) {
-            killSent = true;
-            return { code: 0, stdout: '', stderr: '' };
-          }
-          return null;
-        },
         (cmd) =>
-          cmd.startsWith('kill -0 "222"')
-            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
-            : null,
+          cmd.startsWith('kill -0 "222"') ? { code: 0, stdout: 'Y\n', stderr: '' } : null,
         (cmd) =>
           cmd.includes('/proc/222/cmdline') || cmd.includes('-p "222"')
             ? { code: 0, stdout: `node host.js --host-tag ${CONFIG_ID}`, stderr: '' }
@@ -367,10 +348,10 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       buildTunnel: async () => ({ server: asNetServer(candidateServer), localPort: 42111 }),
       sleep: async () => undefined,
     });
-    expect(resolution.decision.action).toBe('reapThenDeploy');
+    expect(resolution.decision.action).toBe('abortLiveUnreachable');
     expect(candidateServer.closed).toBe(true);
-    expect(ssh.execCalls.some((c) => c.startsWith('kill ') && c.includes('222'))).toBe(true);
-    expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
+    expect(ssh.execCalls.some((c) => c.startsWith('kill "222"'))).toBe(false);
+    expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(false);
   });
 
   it('无 bundle → freshDeploy,从不建候选隧道/探测', async () => {
@@ -429,8 +410,10 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(ssh.execCalls.some((c) => c.includes('rm -f'))).toBe(false);
   });
 
-  it('🔴 EXT-B-2:claim 探测持续失败超过重试预算 → 落回收(reapThenDeploy),而非无限重试', async () => {
-    let killSent = false;
+  it('🔴 EXT-B-2 + 事故修复:探测耗尽重试预算仍失败,但 host 活体属本 tag → abortLiveUnreachable(不 kill)', async () => {
+    // 🔴 2026-07-15 事故修复:此前「持续失败 → reapThenDeploy」会在跨境隧道抖动时把正在
+    // 跑 codex 的活 host 杀掉。改为:仍跑满重试预算(不无限重试),但最终判定【不可达】而非
+    // 【坏 host】——绝不 reap 活体,放弃本次让上层稍后重试(隧道稳则 claim 挂回,会话存活)。
     const ssh = createRoutedSsh({
       sftpReadFile: (path) => {
         if (path.endsWith('.ready')) return bufferOf('ok');
@@ -440,17 +423,8 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
         return null;
       },
       execHandlers: [
-        (cmd) => {
-          if (cmd.startsWith('kill "444"')) {
-            killSent = true;
-            return { code: 0, stdout: '', stderr: '' };
-          }
-          return null;
-        },
         (cmd) =>
-          cmd.startsWith('kill -0 "444"')
-            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
-            : null,
+          cmd.startsWith('kill -0 "444"') ? { code: 0, stdout: 'Y\n', stderr: '' } : null,
         (cmd) =>
           cmd.includes('/proc/444/cmdline') || cmd.includes('-p "444"')
             ? { code: 0, stdout: `node host.js --host-tag ${CONFIG_ID}`, stderr: '' }
@@ -472,10 +446,11 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
       buildTunnel: async () => ({ server: asNetServer(server), localPort: 45002 }),
       sleep: async () => undefined,
     });
-    // 默认 OKWORK_CLAIM_PROBE_RETRIES=3(不含首次)→ 共 4 次尝试后才判定失败
+    // 默认 OKWORK_CLAIM_PROBE_RETRIES=3(不含首次)→ 共 4 次尝试后才判定失败(重试预算不变)
     expect(probeCalls).toBe(4);
-    expect(resolution.decision.action).toBe('reapThenDeploy');
-    expect(server.closed).toBe(true);
+    expect(resolution.decision.action).toBe('abortLiveUnreachable');
+    expect(server.closed).toBe(true); // 候选隧道关闭
+    expect(ssh.execCalls.some((c) => c.startsWith('kill "444"'))).toBe(false); // 绝不杀活 host
   });
 
   it('Phase 2:服务端身份 token 覆盖本地陈旧缓存 → 用 server token 探测并 claim', async () => {

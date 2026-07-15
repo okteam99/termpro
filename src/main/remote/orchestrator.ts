@@ -882,6 +882,19 @@ export class RemoteHostOrchestrator {
         return;
       }
 
+      // 🔴 保护在跑会话(2026-07-15 事故):host 活着且属本 tag,但探测不可达(瞬时隧道
+      // 抖动 / 重连未稳)。绝不部署第二个 host(会撞端口文件),也不杀老 host——直接失败,
+      // 让用户/自动重连稍后重试;届时隧道稳则 claim 挂回,in-flight 的 codex/agent 存活。
+      if (residency.decision.action === 'abortLiveUnreachable') {
+        ssh.close();
+        this.failSession(
+          configId,
+          'unreachable',
+          'host still running but unreachable (transient network); kept alive to protect running sessions — retry to re-attach',
+        );
+        return;
+      }
+
       // 未认领(reapThenDeploy / cleanStaleThenDeploy / freshDeploy):resolveResidency
       // 内部已完成 kill/清陈旧;此处统一走部署+启动分支。
       // 🔴 R2V-2:曾尝试过认领(候选条件成立、发起过 main 探测但失败)则先经 claiming
