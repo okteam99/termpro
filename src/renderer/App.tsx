@@ -13,6 +13,7 @@ import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
 import { BrowserPanel } from './components/BrowserPanel';
 import { PaneHandle } from './components/PaneHandle';
+import { OkworkSkillBanner } from './components/OkworkSkillBanner';
 import { TransientToast } from './components/TransientToast';
 import TerminalView from './terminal/TerminalView';
 import type { TermCallbacks } from './terminal/terminalRegistry';
@@ -219,6 +220,7 @@ export default function App() {
       <PaneHandle pane="sidebar" />
       <div className="main-column">
         <TabBar />
+        <OkworkSkillBanner />
         <div className="terminal-area">
           {activeWs?.tabs.map((tab) => (
             <TerminalView

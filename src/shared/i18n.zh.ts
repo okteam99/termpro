@@ -363,4 +363,13 @@ export const zh: Record<string, string> = {
   'Local network': '本机网络',
   'No connected remote machines': '无已连接的远程机',
   'Browser network exit: {name}': '浏览器网络出口:{name}',
+  // OkWork 技能横条(okwork skill)
+  'Install the okwork skill to let the AI operate the built-in browser':
+    '安装 okwork 技能,让 AI 能操作内置浏览器',
+  'An update to the okwork skill is available': 'okwork 技能有可用更新',
+  'Install': '安装',
+  'Update': '更新',
+  'Installing…': '安装中…',
+  'Dismiss': '关闭',
+  'Hide for 24 hours': '隐藏 24 小时',
 };
