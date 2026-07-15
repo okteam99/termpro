@@ -113,6 +113,17 @@
   white-space: nowrap;
   color: var(--fg-dim);
 }
+/* 刷新按钮:琥珀底上要够显眼(实底 + 高对比文字/描边),别被淡按钮淹没 */
+.viewer-disconnected .viewer-btn {
+  flex: 0 0 auto;
+  color: var(--fg);
+  background: var(--bg);
+  border-color: var(--fg-dim);
+  font-weight: 600;
+}
+.viewer-disconnected .viewer-btn:hover:not(:disabled) {
+  background: var(--bg-active);
+}
 
 /* ---- Diff 面板(U3)---- */
 
