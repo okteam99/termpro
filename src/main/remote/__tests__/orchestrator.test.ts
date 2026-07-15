@@ -1220,6 +1220,29 @@ describe('setBrowserMcpForward(浏览器 MCP 反向转发生命周期 · 阶段3
     expect(routed.forwardInToLocal).toHaveBeenCalledWith(48080, 39217);
   });
 
+  it('并发不双建:ready-emit 与 setBrowserMcpForward 补建并发 → 只建一条转发', async () => {
+    const closeSpy = vi.fn();
+    // forwardInToLocal 故意慢(异步窗口内让两条路径都进 establish),校验 inflight 守卫
+    const routed = createFreshDeploySsh('vps-hk');
+    routed.forwardInToLocal = vi.fn(
+      (_l: number, remotePort: number) =>
+        new Promise<{ remotePort: number; close: () => void }>((resolve) =>
+          setTimeout(() => resolve({ remotePort: remotePort || 39217, close: closeSpy }), 20),
+        ),
+    );
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    // 端口先声明 → connect 的 ready-emit 会建;紧接着再 setBrowserMcpForward 触发补建循环
+    h.orchestrator.setBrowserMcpForward(48080);
+    const connecting = h.orchestrator.connect('vps-hk');
+    h.orchestrator.setBrowserMcpForward(48080); // 并发第二次(补建循环)
+    await connecting;
+    await flushMicrotasks(10);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(routed.forwardInToLocal).toHaveBeenCalledTimes(1); // 守卫杜绝双建
+  });
+
   it('断线 → 反向转发随传输一并撤销(close 被调)', async () => {
     const closeSpy = vi.fn();
     const routed = reverseForwardSsh('vps-hk', closeSpy);

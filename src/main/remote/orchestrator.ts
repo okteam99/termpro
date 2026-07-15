@@ -104,6 +104,13 @@ interface RemoteHostSession {
    */
   browserMcpForward: ReverseForwardHandle | null;
   /**
+   * 反向转发建立中标志(同步置位,防并发双建):ready-emit 与 setBrowserMcpForward 的
+   * 补建循环可能并发进入 establishBrowserMcpForward,二者在 forwardInToLocal 的 await
+   * 窗口内都见 browserMcpForward 尚为 null → 各建一条,泄漏一个 'tcp connection' 监听。
+   * establish 入口同步比对/置位此标志杜绝之。
+   */
+  browserMcpForwardInflight: boolean;
+  /**
    * 本次拉起的一次性标识(评审 P3 加固):startSocksProxy 的 listen 是异步的,其回调
    * 赋值 socksServer 前比对 socksToken 是否仍是「发起本次拉起时」那枚——release/断线
    * 会把它置 null/换新,回调据此发现「已被取消」→ 自关 server 不赋值,杜绝在途拉起
@@ -325,7 +332,10 @@ export class RemoteHostOrchestrator {
     const localPort = this.browserMcpLocalPort;
     if (localPort == null) return;
     const session = this.sessions.get(configId);
-    if (!session || session.stage !== 'ready' || !session.ssh || session.browserMcpForward) return;
+    if (!session || session.stage !== 'ready' || !session.ssh) return;
+    // 同步防并发双建(见 browserMcpForwardInflight 注释):已建/建中即让路
+    if (session.browserMcpForward || session.browserMcpForwardInflight) return;
+    session.browserMcpForwardInflight = true;
     const ssh = session.ssh;
     try {
       const handle = await ssh.forwardInToLocal(localPort, BROWSER_MCP_REMOTE_PORT);
@@ -337,6 +347,8 @@ export class RemoteHostOrchestrator {
       session.browserMcpForward = handle;
     } catch (err) {
       console.warn(`[remote] browser MCP reverse-forward failed for ${configId}:`, err);
+    } finally {
+      session.browserMcpForwardInflight = false;
     }
   }
 
@@ -556,6 +568,7 @@ export class RemoteHostOrchestrator {
         socksInflight: null,
         socksToken: null,
         browserMcpForward: null,
+        browserMcpForwardInflight: false,
       };
       this.sessions.set(configId, session);
     }
@@ -586,6 +599,8 @@ export class RemoteHostOrchestrator {
       }
       session.browserMcpForward = null;
     }
+    // 在途 establish 的 forwardInToLocal 若挂住(finally 迟迟不到),置 false 让重连后可补建
+    session.browserMcpForwardInflight = false;
     if (session.forwardServer) {
       try {
         session.forwardServer.close();
