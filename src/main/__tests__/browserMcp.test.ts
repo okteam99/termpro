@@ -86,6 +86,29 @@ describe('browserMcp server', () => {
     expect(content.mimeType).toBe('image/png');
   });
 
+  it('同 tab 重连逐旧会话(P2:会话表封顶≈标签数,不无界增长)', async () => {
+    handle = await startBrowserMcpServer(async () => 'ok');
+    const url = handle.urlFor('term1');
+
+    const c1 = new Client({ name: 't1', version: '1.0.0' });
+    await c1.connect(new StreamableHTTPClientTransport(new URL(url)));
+    expect(handle.sessionCount()).toBe(1);
+
+    // 同 tab 再连(agent 重启/重连但旧会话未发 DELETE)→ 逐旧,仍为 1
+    const c2 = new Client({ name: 't2', version: '1.0.0' });
+    await c2.connect(new StreamableHTTPClientTransport(new URL(url)));
+    await new Promise((r) => setTimeout(r, 60)); // 等旧 transport.close 传播到 onclose 删表
+    expect(handle.sessionCount()).toBe(1);
+
+    // 换个 tab(term2)→ 独立会话,计数升到 2(不同 tab 不互逐)
+    const c3 = new Client({ name: 't3', version: '1.0.0' });
+    await c3.connect(new StreamableHTTPClientTransport(new URL(handle.urlFor('term2'))));
+    expect(handle.sessionCount()).toBe(2);
+
+    await c2.close();
+    await c3.close();
+  });
+
   it('invoke 抛错 → isError + 错误文本(不崩连接)', async () => {
     const c = await connect(async () => {
       throw new Error('browser view not ready');

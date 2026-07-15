@@ -169,14 +169,40 @@ export interface BrowserMcpHandle {
   port: number;
   /** 给定终端 tab 的 MCP 端点 URL(env 注入用) */
   urlFor(terminalTabId: string): string;
+  /** 当前活跃会话数(可观测性/测试:验证同 tab 重连逐旧、空闲回收生效)。 */
+  sessionCount(): number;
   close(): Promise<void>;
 }
 
 /** 起 MCP HTTP server(127.0.0.1:随机端口),按 URL /mcp/<terminalTabId> 绑 tab,
  *  stateful 会话按 mcp-session-id 路由(初始化时按 URL 的 tabId 建绑定 server)。 */
+// 会话空闲回收阈值:超过此时长没请求即判定 agent 已退出/断流,主动关。SDK 的
+// transport.onclose 仅在显式 HTTP DELETE 或 transport.close() 触发——agent 被 Ctrl-C /
+// tab 关 / 远程重连断 SSE 流时都不发 DELETE,不回收则 { transport, server } 永驻,
+// 长时运行(尤其远程)无界增长。双保险:① 同 tab 重连时先逐旧会话(封顶≈标签数);
+// ② 空闲扫描兜底(tab 关了不会再来新 init 的情形)。
+const SESSION_IDLE_MS = 15 * 60 * 1000;
+const SESSION_SWEEP_MS = 60 * 1000;
+
+interface McpSession {
+  transport: StreamableHTTPServerTransport;
+  server: Server;
+  terminalTabId: string;
+  lastSeen: number;
+}
+
 export function startBrowserMcpServer(invoke: InvokeBrowserControl): Promise<BrowserMcpHandle> {
-  // sessionId → { transport, server };初始化请求建立,后续按 header 路由
-  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: Server }>();
+  // sessionId → 会话;初始化请求建立,后续按 mcp-session-id header 路由
+  const sessions = new Map<string, McpSession>();
+
+  // 空闲扫描:超阈值即 close(触发 onclose 从表删除)。unref 不拖住进程退出。
+  const sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const s of sessions.values()) {
+      if (now - s.lastSeen > SESSION_IDLE_MS) void s.transport.close();
+    }
+  }, SESSION_SWEEP_MS);
+  sweeper.unref?.();
 
   const httpServer: HttpServer = createServer((req, res) => {
     void handle(req, res).catch(() => {
@@ -212,15 +238,20 @@ export function startBrowserMcpServer(invoke: InvokeBrowserControl): Promise<Bro
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sid) => {
-          sessions.set(sid, { transport, server });
+          // 同一 tab 的旧会话(agent 重启/重连但旧会话没发 DELETE)先逐掉,封顶≈标签数
+          for (const s of sessions.values()) {
+            if (s.terminalTabId === terminalTabId) void s.transport.close();
+          }
+          sessions.set(sid, { transport, server, terminalTabId, lastSeen: Date.now() });
         },
       });
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
       await server.connect(transport);
-      entry = { transport, server };
+      entry = { transport, server, terminalTabId, lastSeen: Date.now() };
     }
+    entry.lastSeen = Date.now();
     await entry.transport.handleRequest(req, res, body);
   }
 
@@ -231,9 +262,13 @@ export function startBrowserMcpServer(invoke: InvokeBrowserControl): Promise<Bro
       resolve({
         port,
         urlFor: (t) => `http://127.0.0.1:${port}/mcp/${encodeURIComponent(t)}`,
+        sessionCount: () => sessions.size,
         close: () =>
           new Promise<void>((r) => {
+            clearInterval(sweeper);
             for (const { transport } of sessions.values()) void transport.close();
+            // keep-alive socket 会拖住 httpServer.close 不回调,显式销毁在途连接
+            (httpServer as HttpServer & { closeAllConnections?: () => void }).closeAllConnections?.();
             httpServer.close(() => r());
           }),
       });

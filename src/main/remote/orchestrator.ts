@@ -104,12 +104,14 @@ interface RemoteHostSession {
    */
   browserMcpForward: ReverseForwardHandle | null;
   /**
-   * 反向转发建立中标志(同步置位,防并发双建):ready-emit 与 setBrowserMcpForward 的
+   * 反向转发建立中令牌(同步置位,防并发双建):ready-emit 与 setBrowserMcpForward 的
    * 补建循环可能并发进入 establishBrowserMcpForward,二者在 forwardInToLocal 的 await
    * 窗口内都见 browserMcpForward 尚为 null → 各建一条,泄漏一个 'tcp connection' 监听。
-   * establish 入口同步比对/置位此标志杜绝之。
+   * establish 入口同步比对/置令牌杜绝之。用令牌(而非布尔)是因:断线+快速重连会起一次
+   * 新 establish(新令牌),旧 establish 的 finally 只在「令牌仍是自己」时才清,不会误清
+   * 新一轮的守卫(评审 P3)。
    */
-  browserMcpForwardInflight: boolean;
+  browserMcpForwardToken: object | null;
   /**
    * 本次拉起的一次性标识(评审 P3 加固):startSocksProxy 的 listen 是异步的,其回调
    * 赋值 socksServer 前比对 socksToken 是否仍是「发起本次拉起时」那枚——release/断线
@@ -333,14 +335,15 @@ export class RemoteHostOrchestrator {
     if (localPort == null) return;
     const session = this.sessions.get(configId);
     if (!session || session.stage !== 'ready' || !session.ssh) return;
-    // 同步防并发双建(见 browserMcpForwardInflight 注释):已建/建中即让路
-    if (session.browserMcpForward || session.browserMcpForwardInflight) return;
-    session.browserMcpForwardInflight = true;
+    // 同步防并发双建(见 browserMcpForwardToken 注释):已建/建中即让路
+    if (session.browserMcpForward || session.browserMcpForwardToken) return;
+    const token = {};
+    session.browserMcpForwardToken = token;
     const ssh = session.ssh;
     try {
       const handle = await ssh.forwardInToLocal(localPort, BROWSER_MCP_REMOTE_PORT);
-      // 竞态守卫:建转发期间断线/换连接 → 立即撤销在途句柄,不挂到已亡会话上
-      if (session.stage !== 'ready' || session.ssh !== ssh) {
+      // 竞态守卫:建转发期间断线/换连接/被新一轮抢占 → 立即撤销在途句柄,不挂到已亡会话上
+      if (session.stage !== 'ready' || session.ssh !== ssh || session.browserMcpForwardToken !== token) {
         handle.close();
         return;
       }
@@ -348,7 +351,7 @@ export class RemoteHostOrchestrator {
     } catch (err) {
       console.warn(`[remote] browser MCP reverse-forward failed for ${configId}:`, err);
     } finally {
-      session.browserMcpForwardInflight = false;
+      if (session.browserMcpForwardToken === token) session.browserMcpForwardToken = null;
     }
   }
 
@@ -568,7 +571,7 @@ export class RemoteHostOrchestrator {
         socksInflight: null,
         socksToken: null,
         browserMcpForward: null,
-        browserMcpForwardInflight: false,
+        browserMcpForwardToken: null,
       };
       this.sessions.set(configId, session);
     }
@@ -599,8 +602,8 @@ export class RemoteHostOrchestrator {
       }
       session.browserMcpForward = null;
     }
-    // 在途 establish 的 forwardInToLocal 若挂住(finally 迟迟不到),置 false 让重连后可补建
-    session.browserMcpForwardInflight = false;
+    // 清建立中令牌:在途 establish 的守卫将失配 → 自弃句柄,重连后新一轮可补建
+    session.browserMcpForwardToken = null;
     if (session.forwardServer) {
       try {
         session.forwardServer.close();

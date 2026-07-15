@@ -28,7 +28,11 @@ function fakeView(html = '<html><body>hi</body></html>') {
   } as unknown as HTMLWebViewElement;
 }
 
-function seed(browser?: { tabs: { id: string; url: string; title?: string }[]; activeTabId: string | null }) {
+function seed(browser?: {
+  tabs: { id: string; url: string; title?: string }[];
+  activeTabId: string | null;
+  poppedOut?: boolean;
+}) {
   const ws: WorkspaceState = {
     id: 'ws1',
     name: 'w',
@@ -123,6 +127,27 @@ describe('交互原语', () => {
   it('交互原语在 webview 未挂载时抛 not ready', async () => {
     seed({ tabs: [{ id: 'a', url: 'https://a.dev' }], activeTabId: 'a' });
     await expect(bc.click(TERM, '#x')).rejects.toThrow(/not ready/);
+  });
+});
+
+describe('弹出窗格守卫(P2:webview 活在壳窗,主窗只有镜像)', () => {
+  it('poppedOut → 需 webview / 写镜像的操作抛清晰错误(非「稍后重试」);listTabs 只读仍可用', async () => {
+    seed({
+      tabs: [{ id: 'a', url: 'https://a.dev', title: 'A' }],
+      activeTabId: 'a',
+      poppedOut: true,
+    });
+    registerBrowserView('a', fakeView()); // 即便主窗残留注册也不许操作(镜像会被壳窗 sync 冲掉)
+
+    await expect(bc.evalJs(TERM, '1')).rejects.toThrow(/popped out/);
+    await expect(bc.navigate(TERM, 'https://x.dev')).rejects.toThrow(/popped out/);
+    await expect(bc.click(TERM, '#x')).rejects.toThrow(/popped out/);
+    expect(() => bc.openTab(TERM, 'https://y.dev')).toThrow(/popped out/);
+    expect(() => bc.closeTab(TERM, 'a')).toThrow(/popped out/);
+    expect(() => bc.activateTab(TERM, 'a')).toThrow(/popped out/);
+
+    // listTabs 读镜像(壳窗持续 sync 回来),仍返回正确数据
+    expect(bc.listTabs(TERM).map((t) => t.id)).toEqual(['a']);
   });
 });
 

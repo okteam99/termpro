@@ -19,28 +19,40 @@ export interface BrowserTabInfo {
   net: string;
 }
 
+/** 窗格已弹出到独立窗口时的清晰错误(非「稍后重试」的暂态语义)。 */
+const POPPED_OUT_MSG =
+  'browser pane is popped out to a separate window; dock it (click the tab browser icon) so the AI can drive it';
+
 /** 定位某终端 tab 的浏览器窗格(含所属 workspace,供出口解析)。 */
 function findPane(terminalTabId: string): {
   tabs: BrowserTabState[];
   activeTabId: string | null;
   ownerHostId: string;
+  poppedOut: boolean;
 } | null {
   const s = useAppStore.getState();
   for (const w of s.workspaces) {
     const tab = w.tabs.find((t) => t.id === terminalTabId);
     if (tab) {
       return tab.browser
-        ? { tabs: tab.browser.tabs, activeTabId: tab.browser.activeTabId, ownerHostId: w.hostId }
-        : { tabs: [], activeTabId: null, ownerHostId: w.hostId };
+        ? {
+            tabs: tab.browser.tabs,
+            activeTabId: tab.browser.activeTabId,
+            ownerHostId: w.hostId,
+            poppedOut: tab.browser.poppedOut === true,
+          }
+        : { tabs: [], activeTabId: null, ownerHostId: w.hostId, poppedOut: false };
     }
   }
   return null;
 }
 
-/** 解析目标浏览器标签 id:显式 → 校验存在;缺省 → 窗格活跃标签。找不到 → 抛。 */
+/** 解析目标浏览器标签 id:显式 → 校验存在;缺省 → 窗格活跃标签。找不到/已弹出 → 抛。 */
 function resolveTargetTabId(terminalTabId: string, browserTabId?: string): string {
   const pane = findPane(terminalTabId);
   if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
+  // 弹出窗格的 webview 活在壳窗、其 store 才是权威;主窗只有镜像,view 取不到、写会被 sync 冲掉
+  if (pane.poppedOut) throw new Error(POPPED_OUT_MSG);
   if (browserTabId) {
     if (!pane.tabs.some((b) => b.id === browserTabId)) {
       throw new Error(`browser tab not found: ${browserTabId}`);
@@ -70,6 +82,7 @@ export async function navigate(
   const s = useAppStore.getState();
   const pane = findPane(terminalTabId);
   if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
+  if (pane.poppedOut) throw new Error(POPPED_OUT_MSG);
   // 无标签或指定空标签 → 开新标签(url 经 store src 加载);否则 loadURL 现有 webview
   if (!browserTabId && !pane.activeTabId) {
     s.addBrowserTab(terminalTabId, url);
@@ -217,7 +230,9 @@ export function listTabs(terminalTabId: string): BrowserTabInfo[] {
 /** 开新浏览器标签(url 缺省空);返回新标签 id(addBrowserTab 会把它设为活跃)。 */
 export function openTab(terminalTabId: string, url = ''): { browserTabId: string } {
   const s = useAppStore.getState();
-  if (!findPane(terminalTabId)) throw new Error(`terminal tab not found: ${terminalTabId}`);
+  const pane = findPane(terminalTabId);
+  if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
+  if (pane.poppedOut) throw new Error(POPPED_OUT_MSG);
   s.addBrowserTab(terminalTabId, url);
   return { browserTabId: findPane(terminalTabId)!.activeTabId! };
 }
