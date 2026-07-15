@@ -162,6 +162,41 @@ preload 是沙箱环境，无法直接通过 contextBridge 传递 MessagePort，
 
 权威态单源在 `main`（`BrowserNetworkController`）：renderer 的选择器只镜像 `browserNet.get()/onChanged`，选择用 `set()` 的返回值回写（远程不可用时 `main` 回退 `local`，UI 反映真实生效态，不乐观更新）。
 
+### 4.8 AI 操作内置浏览器（browser MCP）
+
+session 内的 agent（Claude Code / Codex 等）可经内置 MCP server 驱动 OkWork 的内置浏览器：抓数据、截图、分析 DOM、执行 JS、点击/输入/滚动、管理标签。**AI 操作的就是用户真实登录会话（`persist:browser`，带 cookie）**——刻意为之（用户指令 2026-07-15，安全隔离暂不做;控制层只做能力,不做 consent/隔离）。
+
+绑定模型 **A**：每个 MCP 连接绑一个**终端 tab**——URL 路径 `/mcp/<terminalTabId>` 携带,工具默认操作该 tab 的浏览器窗格（缺省活跃标签,或显式 `browserTabId`）。
+
+```
+终端内 agent → HTTP(streamable) → main: browserMcp server (127.0.0.1:<随机端口>)
+  → invokeBrowserControl(method,args)  [ipcMain 'browserControl:invoke' → mainWin]
+  → renderer: browserControlBridge(方法白名单)→ browserControl.*
+  → browserViewRegistry.getBrowserView(browserTabId) → <webview>.executeJavaScript/capturePage/loadURL
+```
+
+- **server**：`src/main/browserMcp.ts`（MCP SDK `Server` + `StreamableHTTPServerTransport`,stateful,按 `mcp-session-id` 路由;每 URL 的 tabId 建一个绑定 server）。
+- **桥**：`src/main/main.ts` 的 `invokeBrowserControl`（20s 超时,只认 mainWin 回传）↔ `src/renderer/services/browserControlBridge.ts`(白名单防越权调用)。
+- **控制原语**：`src/renderer/services/browserControl.ts`（读取 navigate/eval/screenshot/getHtml/getText;交互 click/typeText/scroll/waitForSelector,均经 `executeJavaScript`,选择器/文本 `JSON.stringify` 注入防转义;标签 list/open/close/activate 走 store action）。
+- **webview 触达**：`src/renderer/services/browserViewRegistry.ts`——模块级 `Map<browserTabId, webview>`,让控制层在组件外拿到 webview（`registerBrowserView` 在 `BrowserPanel` 挂载时登记）。
+
+**13 个工具**：`browser_navigate` `browser_eval` `browser_screenshot` `browser_get_html` `browser_get_text` `browser_click` `browser_type` `browser_scroll` `browser_wait_for` `browser_list_tabs` `browser_open_tab` `browser_close_tab` `browser_activate_tab`。
+
+**端点发现（env 注入）**：OkWork spawn **本地**终端时,经 `SpawnOptions.env`（host 合并进 pty）注入两个环境变量:
+
+- `OKWORK_TERMINAL_TAB` = 该终端 tabId
+- `OKWORK_BROWSER_MCP_URL` = `http://127.0.0.1:<port>/mcp/<tabId>`
+
+接线:`main` 的 `browserControl:mcp-base` IPC 暴露 base URL → renderer `browserMcpEnv`（惰性缓存,ensureSession spawn 前 await,规避 hydrate 首终端漏注入竞态）→ `pty.spawn` 带 env。
+
+把该端点接上 agent（终端里跑一次）:
+
+```bash
+claude mcp add --transport http okbrowser "$OKWORK_BROWSER_MCP_URL"
+```
+
+**远程 session 暂不注入**（阶段3）:URL 指向本机 127.0.0.1 端口,远程容器不可达,需 SSH 反向转发（`ssh2` forwardIn）把本地端口透到远端 + 把 MCP 配置内置进 `okwork-node` 镜像后才可用。
+
 ---
 
 ## 4.5 CI 与发版
