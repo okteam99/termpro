@@ -38,15 +38,38 @@ RUN npm install -g npm@12 \
     && node /usr/local/lib/node_modules/@anthropic-ai/claude-code/install.cjs \
     && npm cache clean --force
 
+# Git host CLIs: GitHub (gh) via its official apt repo, GitLab (glab) via its latest
+# release .deb (glab is not in apt). Unpinned on purpose — each image rebuild picks up
+# the current versions (same policy as the agent CLIs above).
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && GLAB_ARCH="$(dpkg --print-architecture)" \
+    && GLAB_VER="$(curl -fsSL 'https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases?per_page=1' | grep -o '"tag_name":"[^"]*"' | head -1 | cut -d'"' -f4)" \
+    && curl -fsSL -o /tmp/glab.deb "https://gitlab.com/gitlab-org/cli/-/releases/${GLAB_VER}/downloads/glab_${GLAB_VER#v}_linux_${GLAB_ARCH}.deb" \
+    && apt-get install -y --no-install-recommends /tmp/glab.deb \
+    && rm -f /tmp/glab.deb \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY sshd.conf /etc/ssh/sshd_config.d/10-okwork-node.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 # Default working directory: /workspace (mount a host folder here with -v).
-# WORKDIR covers docker exec; the profile.d hook makes SSH login shells land there too.
+# WORKDIR covers docker exec; the profile.d hook lands *fresh* SSH login shells there too.
+# 🔴 Guard on $PWD == $HOME: only redirect shells that started at the default landing dir
+# (a bare SSH login lands in $HOME). An explicit cwd — e.g. OkWork spawning a terminal for a
+# project workspace at /workspace/aon-main — must be respected, not clobbered back to
+# /workspace (bug 2026-07-15: remote new-tab cwd was the parent dir, not the project dir).
 RUN mkdir -p /workspace \
-    && printf '%s\n' '# okwork-node: login shells start in /workspace' \
-        '[ -d /workspace ] && cd /workspace' \
+    && printf '%s\n' '# okwork-node: fresh login shells (landing in $HOME) start in /workspace;' \
+        '# an explicit cwd (OkWork per-tab spawn, docker exec -w, etc.) is preserved.' \
+        '[ "$PWD" = "$HOME" ] && [ -d /workspace ] && cd /workspace' \
         > /etc/profile.d/10-okwork-workspace.sh
 WORKDIR /workspace
 
