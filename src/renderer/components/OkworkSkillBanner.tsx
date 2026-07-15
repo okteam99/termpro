@@ -60,6 +60,10 @@ export function OkworkSkillBanner() {
         .forWorkspace({ hostId })
         .rpc('skill.install', { name: OKWORK_SKILL_NAME, content: OKWORK_SKILL_MD });
       setAction(computeSkillPromptAction(s, OKWORK_SKILL_VERSION));
+      // 已跑的 agent 不会中途重扫 skills 目录——提示重启才生效(下次 agent 启动即见)
+      useAppStore
+        .getState()
+        .setTransientNotice(t('okwork skill installed · restart the agent (or start a new one) to use it'));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

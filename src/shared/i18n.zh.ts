@@ -372,4 +372,6 @@ export const zh: Record<string, string> = {
   'Installing…': '安装中…',
   'Dismiss': '关闭',
   'Hide for 24 hours': '隐藏 24 小时',
+  'okwork skill installed · restart the agent (or start a new one) to use it':
+    'okwork 技能已安装 · 重启 agent(或新开一个)即可使用',
 };
