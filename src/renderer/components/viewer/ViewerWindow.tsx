@@ -1,11 +1,12 @@
 // 查看窗口入口:files(文件内容窗口,多 tab)/ diff(git diff,模态)。
 import './viewer.css';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { hostClient } from '../../services/hostClient';
 import { tildify } from '../../state/store';
 import { DiffPanel } from './DiffPanel';
 import { FilesWindow } from './FilesWindow';
-import { connectViewerHost, isRemoteHost } from './viewerHost';
+import { isRemoteHost } from './viewerHost';
+import { useViewerConnection } from './useViewerConnection';
 import { t } from '../../../shared/i18n';
 
 export type ViewerPayload =
@@ -44,18 +45,7 @@ function DiffWindow({
 }: {
   payload: Extract<ViewerPayload, { mode: 'diff' }>;
 }) {
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    connectViewerHost(payload.hostId).then(
-      () => setReady(true),
-      (e) => setError(e instanceof Error ? e.message : String(e)),
-    );
-    return hostClient.onDown(() =>
-      setError(t('Host process exited — press ⌘R to reload the window')),
-    );
-  }, [payload.hostId]);
+  const { ready, error, disconnected, refreshing, refresh } = useViewerConnection(payload.hostId);
 
   useEffect(() => {
     if (!ready) return;
@@ -128,6 +118,16 @@ function DiffWindow({
           </button>
         </div>
       </div>
+      {disconnected && (
+        <div className="viewer-disconnected" role="status">
+          <span className="viewer-disconnected__text">
+            {t('Disconnected from host · your open files are kept')}
+          </span>
+          <button className="viewer-btn" onClick={refresh} disabled={refreshing}>
+            {refreshing ? t('Reconnecting…') : t('Refresh')}
+          </button>
+        </div>
+      )}
       <DiffPanel
         toplevel={payload.toplevel}
         baseRef={payload.baseRef}

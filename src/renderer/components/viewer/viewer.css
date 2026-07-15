@@ -93,6 +93,27 @@
   text-align: center;
 }
 
+/* 掉线横幅:不清空文档,只在头部下方挂一条可手动刷新的提示(2026-07-15) */
+.viewer-disconnected {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--amber, #d9a441) 16%, var(--bg-active, #2a2f37));
+  border-bottom: 1px solid var(--border);
+}
+.viewer-disconnected__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+}
+
 /* ---- Diff 面板(U3)---- */
 
 .diff-layout {

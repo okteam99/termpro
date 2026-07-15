@@ -9,7 +9,8 @@ import { basename, tildify } from '../../state/store';
 import { FileView } from './FileView';
 import { MarkdownPreview } from './MarkdownPreview';
 import { DirListing } from './DirListing';
-import { connectViewerHost, isRemoteHost } from './viewerHost';
+import { isRemoteHost } from './viewerHost';
+import { useViewerConnection } from './useViewerConnection';
 import { t } from '../../../shared/i18n';
 
 interface FileTab {
@@ -35,8 +36,7 @@ export function FilesWindow({
   hostId?: string;
 }) {
   const remote = isRemoteHost(hostId);
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { ready, error, disconnected, refreshing, refresh } = useViewerConnection(hostId);
   const [tabs, setTabs] = useState<FileTab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const saveFns = useRef(new Map<string, () => void>());
@@ -67,16 +67,6 @@ export function FilesWindow({
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
-
-  useEffect(() => {
-    connectViewerHost(hostId).then(
-      () => setReady(true),
-      (e) => setError(e instanceof Error ? e.message : String(e)),
-    );
-    return hostClient.onDown(() =>
-      setError(t('Host process exited — press ⌘R to reload the window')),
-    );
-  }, [hostId]);
 
   const addOrFocus = useCallback((path: string, kind: 'file' | 'dir') => {
     setTabs((prev) => {
@@ -251,6 +241,17 @@ export function FilesWindow({
           </button>
         </div>
       </div>
+
+      {disconnected && (
+        <div className="viewer-disconnected" role="status">
+          <span className="viewer-disconnected__text">
+            {t('Disconnected from host · your open files are kept')}
+          </span>
+          <button className="viewer-btn" onClick={refresh} disabled={refreshing}>
+            {refreshing ? t('Reconnecting…') : t('Refresh')}
+          </button>
+        </div>
+      )}
 
       {tabs.map((tab) => {
         const isActive = tab.id === activeId;

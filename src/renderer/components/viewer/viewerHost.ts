@@ -27,3 +27,19 @@ export function connectViewerHost(hostId: string | undefined): Promise<HostInfo>
     return hostClient.connect({ wsUrl });
   });
 }
+
+/**
+ * 手动刷新用的重连(掉线后按钮触发)。必须走 hostClient.reconnect 而非 connect——
+ * connect() 在 down 态会早返陈旧 connectPromise 不真重连(hostClient.ts 硬门④);reconnect
+ * 复位 down/connectPromise、关旧 transport 重开。远程重新取隧道(host 重启端口轮换也连回)。
+ */
+export function reconnectViewerHost(hostId: string | undefined): Promise<HostInfo> {
+  if (!isRemoteHost(hostId)) return hostClient.reconnect();
+  return window.okwork.remoteHost.getTunnel({ id: hostId! }).then((tunnel) => {
+    if (!tunnel) {
+      throw new Error(t('Remote machine is not connected'));
+    }
+    const wsUrl = `ws://127.0.0.1:${tunnel.localPort}?token=${encodeURIComponent(tunnel.token)}`;
+    return hostClient.reconnect({ wsUrl });
+  });
+}
