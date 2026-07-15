@@ -176,7 +176,8 @@ session 内的 agent（Claude Code / Codex 等）可经内置 MCP server 驱动 
 ```
 
 - **server**：`src/main/browserMcp.ts`（MCP SDK `Server` + `StreamableHTTPServerTransport`,stateful,按 `mcp-session-id` 路由;每 URL 的 tabId 建一个绑定 server）。
-- **桥**：`src/main/main.ts` 的 `invokeBrowserControl`（20s 超时,只认 mainWin 回传）↔ `src/renderer/services/browserControlBridge.ts`(白名单防越权调用)。
+- **桥**：`src/main/main.ts` 的 `invokeBrowserControl`（20s 超时;按 tab 是否弹出**路由到主窗或壳窗**,只认该窗回传防冒充）↔ `src/renderer/services/browserControlBridge.ts`(白名单防越权调用)。
+- **弹出窗口也可驱动**：窗格弹出成独立窗口(`BrowserPaneShellWindow`)后 webview 活在壳窗,`invokeBrowserControl` 据 `paneWins` 把该 `terminalTabId` 的 invoke 改路由到壳窗(壳窗也挂 `browserControlBridge` + 注册自己的 webview);未弹出则走主窗。壳窗 store 的窗格不带 `poppedOut` 故不触发拒绝守卫。
 - **控制原语**：`src/renderer/services/browserControl.ts`（读取 navigate/eval/screenshot/getHtml/getText;交互 click/typeText/scroll/waitForSelector,均经 `executeJavaScript`,选择器/文本 `JSON.stringify` 注入防转义;标签 list/open/close/activate 走 store action）。
 - **webview 触达**：`src/renderer/services/browserViewRegistry.ts`——模块级 `Map<browserTabId, webview>`,让控制层在组件外拿到 webview（`registerBrowserView` 在 `BrowserPanel` 挂载时登记）。
 

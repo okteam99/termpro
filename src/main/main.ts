@@ -407,18 +407,24 @@ ipcMain.on('browserPane:dock', (event, payload: { terminalTabId?: string }) => {
 // 回收。渲染层白名单派发(browserControlBridge),此处只做请求路由 + 超时兜底。
 const browserControlPending = new Map<
   string,
-  { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+  {
+    resolve: (v: unknown) => void;
+    reject: (e: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+    /** 该请求路由到的窗口(主窗 or 弹出壳窗)——只认它回传,防他窗/webview 冒充 */
+    win: BrowserWindow;
+  }
 >();
 const BROWSER_CONTROL_TIMEOUT_MS = 20_000;
 
 ipcMain.on(
   'browserControl:result',
   (event, payload: { requestId?: string; ok?: boolean; value?: unknown; error?: string }) => {
-    // 只认主窗回传(渲染层控制桥挂在主窗)
-    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
     const id = payload?.requestId;
     const p = id ? browserControlPending.get(id) : undefined;
     if (!p || !id) return;
+    // 只认当初路由到的那个窗口回传(主窗 or 该 tab 的壳窗),防他窗/guest 冒充
+    if (BrowserWindow.fromWebContents(event.sender) !== p.win) return;
     browserControlPending.delete(id);
     clearTimeout(p.timer);
     if (payload.ok) p.resolve(payload.value);
@@ -427,8 +433,13 @@ ipcMain.on(
 );
 
 export function invokeBrowserControl(method: string, args: unknown[]): Promise<unknown> {
-  if (!mainWin || mainWin.isDestroyed()) {
-    return Promise.reject(new Error('main window not available'));
+  // 目标窗口:该终端 tab 的窗格若已弹出到独立壳窗(webview 活在壳窗)→ 打到壳窗;
+  // 否则主窗。args[0] 恒为 terminalTabId(MCP buildArgs 首参)。
+  const tabId = typeof args[0] === 'string' ? args[0] : undefined;
+  const paneWin = tabId ? paneWins.get(tabId) : undefined;
+  const target = paneWin && !paneWin.isDestroyed() ? paneWin : mainWin;
+  if (!target || target.isDestroyed()) {
+    return Promise.reject(new Error('browser control window not available'));
   }
   const requestId = randomUUID();
   return new Promise<unknown>((resolve, reject) => {
@@ -436,8 +447,8 @@ export function invokeBrowserControl(method: string, args: unknown[]): Promise<u
       browserControlPending.delete(requestId);
       reject(new Error(`browser control timeout: ${method}`));
     }, BROWSER_CONTROL_TIMEOUT_MS);
-    browserControlPending.set(requestId, { resolve, reject, timer });
-    mainWin!.webContents.send('browserControl:invoke', { requestId, method, args });
+    browserControlPending.set(requestId, { resolve, reject, timer, win: target });
+    target.webContents.send('browserControl:invoke', { requestId, method, args });
   });
 }
 

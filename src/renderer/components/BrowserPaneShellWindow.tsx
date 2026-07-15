@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { BrowserPanel } from './BrowserPanel';
 import { useAppStore } from '../state/store';
 import type { BrowserTabState } from '../state/store';
+import { initBrowserControlBridge } from '../services/browserControlBridge';
 import { t } from '../../shared/i18n';
 
 interface PaneSeed {
@@ -47,6 +48,12 @@ function sanitizeSeed(raw: unknown, terminalTabId: string): PaneSeed | null {
 export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: string }) {
   const [seed, setSeed] = useState<PaneSeed | null>(null);
   const browserPanelOpen = useAppStore((s) => s.browserPanelOpen);
+
+  // AI 浏览器控制:窗格弹出后 webview 活在本壳窗,main 把该 tab 的 browserControl:invoke
+  // 改路由到本窗(见 main.invokeBrowserControl)。故壳窗也要挂控制桥,让 MCP 能驱动弹出窗口。
+  useEffect(() => {
+    initBrowserControlBridge();
+  }, []);
 
   // 取种子 → 种本窗 store(单 workspace 单终端 tab,BrowserPanel 全量复用)
   useEffect(() => {
