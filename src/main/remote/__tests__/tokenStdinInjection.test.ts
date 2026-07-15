@@ -25,6 +25,10 @@ describe('AC-8 buildStartCommand', () => {
     expect(cmd).toContain('"/home/tester/.termpro-host/bundle/1.2.3/host.js"');
     expect(cmd).toContain('"/home/tester/.termpro-host/hosts/vps-hk/host.port"');
     expect(cmd).toContain('"/home/tester/.termpro-host/hosts/vps-hk/host.log"');
+    // 🔴 2026-07-15 事故修复:重启前把上一实例日志轮转到 .prev,防 `>` 截断丢失崩溃现场
+    expect(cmd).toContain(
+      'mv -f "/home/tester/.termpro-host/hosts/vps-hk/host.log" "/home/tester/.termpro-host/hosts/vps-hk/host.log.prev"',
+    );
     // node 用探测解析出的绝对路径(非交互 PATH 不可依赖),双引号包裹
     expect(cmd).toContain('"/opt/homebrew/bin/node"');
     // darwin 无 setsid:恒前缀改为按需降级($s 惯用式),整体 sh -c 单引号包裹

@@ -249,8 +249,12 @@ export function buildStartCommand(opts: {
   const identityEnv = opts.identityFile
     ? `OKWORK_HOST_IDENTITY_FILE="${opts.identityFile}" `
     : '';
+  // 🔴 重启前把上一实例日志轮转到 .prev(2026-07-15 事故:host.log 用 `>` 截断,host 重启/
+  // 被 reap 时新实例覆盖旧实例输出,崩溃现场丢失——查死因无据)。轮转保留恰好一份前序日志
+  // (含 node 未捕获异常栈,stderr 经 2>&1 已并入),不无界增长。
   return (
     `sh -c 't=$(cat); s=; command -v setsid >/dev/null 2>&1 && s=setsid; ` +
+    `mv -f "${logFile}" "${logFile}.prev" 2>/dev/null; ` +
     `printf %s "$t" | $s nohup env OKWORK_HOST_DATA_DIR="${opts.dataDir}" ` +
     `OKWORK_HOST_PORT_FILE="${portFile}" OKWORK_HOST_APP_VERSION="${opts.appVersion}" ` +
     `${identityEnv}OKWORK_ALLOWED_ORIGINS="${allowedOrigins}" ` +
