@@ -35,6 +35,12 @@ export interface ExecResult {
 }
 
 /** orchestrator/residency/deploy 只依赖此接口(可注入桩 · T-005/008)。 */
+/** 反向转发句柄:remotePort=远端(容器内)实际绑定的回环端口;close 撤销转发。 */
+export interface ReverseForwardHandle {
+  remotePort: number;
+  close(): void;
+}
+
 export interface SshConnectionLike {
   exec(cmd: string): Promise<ExecResult>;
   /** 驻留启动:写 stdin 后 half-close(令远端 readFileSync(0) 得 EOF)。 */
@@ -57,6 +63,14 @@ export interface SshConnectionLike {
    *  同样并发开 direct-tcpip 通道且长期稳定;serialize 只为 exec/sftp 的 session 型通道
    *  抖动而设,不适用 direct-tcpip。 */
   openOutbound(dstHost: string, dstPort: number): Promise<Duplex>;
+  /**
+   * 反向端口转发(remote → local):在远端(容器内)绑定 127.0.0.1:remotePort,
+   * 每条打进来的连接都回接到本机 127.0.0.1:localPort。用于 session 内 agent 经容器
+   * 回环访问本机的浏览器 MCP server。remotePort=0 → 远端自选(返回实际端口)。
+   * 因 OkWork 直连容器(sshd 在容器内),转发端口与远端 pty 同网络命名空间,pty
+   * 直接 127.0.0.1:remotePort 可达,无需 host.docker.internal。
+   */
+  forwardInToLocal(localPort: number, remotePort: number): Promise<ReverseForwardHandle>;
   /**
    * 注册连接层 close/error 监听(AC-12 断链检测 · A2):底层 ssh2 Client 的
    * 'close'/'error' 都会触发。本地转发 net.Server 并不会在 SSH 连接掉线时
@@ -427,6 +441,50 @@ export class SshConnection implements SshConnectionLike {
       this.client.forwardOut('127.0.0.1', 0, dstHost, dstPort, (err, stream) => {
         if (err) return reject(err);
         resolve(stream);
+      });
+    });
+  }
+
+  forwardInToLocal(localPort: number, remotePort: number): Promise<ReverseForwardHandle> {
+    return new Promise<ReverseForwardHandle>((resolve, reject) => {
+      this.client.forwardIn('127.0.0.1', remotePort, (err, boundPort) => {
+        if (err) return reject(err);
+        const port = remotePort || boundPort;
+        // 每条反向连接:accept ssh channel,回接本机 MCP server,双向 pipe。
+        // 只有本转发在用此 client 的 forwardIn,故 destPort 恒等 port;仍按端口过滤,
+        // 万一将来同连接多转发也不误接他人连接。
+        const onTcp = (
+          info: { destPort: number },
+          accept: () => Duplex,
+          deny: () => void,
+        ) => {
+          if (info.destPort !== port) {
+            deny();
+            return;
+          }
+          const stream = accept();
+          const local = net.connect(localPort, '127.0.0.1');
+          local.setNoDelay(true);
+          stream.pipe(local);
+          local.pipe(stream);
+          stream.on('close', () => local.destroy());
+          local.on('close', () => stream.destroy());
+          stream.on('error', () => local.destroy());
+          local.on('error', () => stream.destroy());
+        };
+        this.client.on('tcp connection', onTcp);
+        resolve({
+          remotePort: port,
+          close: () => {
+            this.client.removeListener('tcp connection', onTcp);
+            // unforwardIn 在连接已断时可能同步抛('Not connected'),吞掉(转发随连接已亡)
+            try {
+              this.client.unforwardIn('127.0.0.1', port, () => undefined);
+            } catch {
+              /* 连接已断,转发自然消失 */
+            }
+          },
+        });
       });
     });
   }

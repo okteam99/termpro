@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import { vi } from 'vitest';
 import type { Server as NetServer } from 'node:net';
 import type { Duplex } from 'node:stream';
-import type { ExecResult, SshConnectionLike } from '../ssh';
+import type { ExecResult, ReverseForwardHandle, SshConnectionLike } from '../ssh';
 
 let fakePortSeq = 41000;
 
@@ -47,6 +47,8 @@ export interface RoutedSshOptions {
   /** SOCKS 代理动态出站桩(未配置时 reject——本 testKit 的既有调用方均不需要它,
    *  需要覆盖行为的测试自行传入,如注入 PassThrough 当 Duplex)。 */
   openOutbound?: (dstHost: string, dstPort: number) => Promise<Duplex>;
+  /** 反向转发桩(浏览器 MCP 回环);缺省返回 { remotePort: remotePort||39217, close: noop }。 */
+  forwardInToLocal?: (localPort: number, remotePort: number) => Promise<ReverseForwardHandle>;
   /** host key SHA-256 摘要桩(hostTag 派生源);缺省 null=未捕获(退隔离,现状行为)。 */
   hostKeyFingerprint?: Buffer | null;
 }
@@ -121,6 +123,12 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
       if (opts.openOutbound) return opts.openOutbound(dstHost, dstPort);
       return Promise.reject(new Error('RoutedSsh: openOutbound not configured for this test'));
     }),
+    forwardInToLocal: vi.fn(
+      (localPort: number, remotePort: number): Promise<ReverseForwardHandle> => {
+        if (opts.forwardInToLocal) return opts.forwardInToLocal(localPort, remotePort);
+        return Promise.resolve({ remotePort: remotePort || 39217, close: vi.fn() });
+      },
+    ),
     close: vi.fn(() => {
       closed = true;
     }),

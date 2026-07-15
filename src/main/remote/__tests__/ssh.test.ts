@@ -1,7 +1,9 @@
 // 🔴 A8/E5:isEexist 只对确凿的「已存在」信号放行,不再把任意非 undefined code
 // (含 ENOENT 等真实失败)都当 EEXIST 吞掉——否则会掩盖如 A1 那类「父目录缺失」的
 // bug(sftpWriteDir 的 mkdir 链静默跳过而非报错)。
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import * as net from 'node:net';
+import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -302,5 +304,80 @@ describe('forwardOut 隧道断开不崩主进程', () => {
       process.removeListener('uncaughtException', onUncaught);
       await new Promise<void>((r) => server.close(() => r()));
     }
+  });
+});
+
+// 反向转发(remote→local · 阶段3):session 内 agent 经容器回环 127.0.0.1:remotePort
+// 打回本机浏览器 MCP server。校验绑定/端口/按 destPort 路由/回接本地/close 撤销。
+describe('forwardInToLocal 反向转发', () => {
+  const construct = (client: unknown): SshConnection =>
+    new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
+
+  function fakeClient(boundPort: number) {
+    let onTcp: ((info: { destPort: number }, accept: () => unknown, deny: () => void) => void) | null =
+      null;
+    return {
+      forwardIn: vi.fn((addr: string, port: number, cb: (e: Error | null, p: number) => void) => {
+        cb(null, port || boundPort);
+      }),
+      on: vi.fn((event: string, fn: never) => {
+        if (event === 'tcp connection') onTcp = fn;
+      }),
+      removeListener: vi.fn(),
+      unforwardIn: vi.fn((_a: string, _p: number, cb: () => void) => cb()),
+      fire: (info: { destPort: number }, accept: () => unknown, deny: () => void) =>
+        onTcp?.(info, accept, deny),
+    };
+  }
+
+  it('绑定 127.0.0.1、remotePort=0 用远端自选口、匹配连接回接本地 MCP', async () => {
+    // 本地「MCP server」桩:收字节即记录,不回写(避免 pipe 回环)
+    const received: Buffer[] = [];
+    const mcp = net.createServer((s) => {
+      s.on('data', (d) => received.push(d as Buffer));
+    });
+    await new Promise<void>((r) => mcp.listen(0, '127.0.0.1', () => r()));
+    const localPort = (mcp.address() as net.AddressInfo).port;
+
+    try {
+      const client = fakeClient(45678);
+      const handle = await construct(client).forwardInToLocal(localPort, 0);
+      expect(client.forwardIn).toHaveBeenCalledWith('127.0.0.1', 0, expect.any(Function));
+      expect(handle.remotePort).toBe(45678); // 远端自选口回传
+
+      // 模拟一条打到该端口的反向连接:accept 返回一个 PassThrough 当 ssh channel
+      const stream = new PassThrough();
+      const accept = vi.fn(() => stream);
+      const deny = vi.fn();
+      client.fire({ destPort: 45678 }, accept, deny);
+      expect(accept).toHaveBeenCalled();
+      expect(deny).not.toHaveBeenCalled();
+
+      // agent 侧写入 → stream.pipe(local) → 本地 MCP 收到
+      stream.write('GET /mcp HTTP/1.1\r\n');
+      await new Promise((r) => setTimeout(r, 30));
+      expect(Buffer.concat(received).toString()).toContain('GET /mcp');
+      stream.destroy(); // → 触发实现里 local.destroy(),放行 mcp.close()
+    } finally {
+      await new Promise<void>((r) => mcp.close(() => r()));
+    }
+  });
+
+  it('destPort 不匹配 → deny(不误接他人转发的连接)', async () => {
+    const client = fakeClient(45678);
+    await construct(client).forwardInToLocal(1, 45678);
+    const accept = vi.fn(() => new PassThrough());
+    const deny = vi.fn();
+    client.fire({ destPort: 9999 }, accept, deny);
+    expect(deny).toHaveBeenCalled();
+    expect(accept).not.toHaveBeenCalled();
+  });
+
+  it('close() 摘 tcp 监听 + unforwardIn 撤销远端绑定', async () => {
+    const client = fakeClient(45678);
+    const handle = await construct(client).forwardInToLocal(1, 45678);
+    handle.close();
+    expect(client.removeListener).toHaveBeenCalledWith('tcp connection', expect.any(Function));
+    expect(client.unforwardIn).toHaveBeenCalledWith('127.0.0.1', 45678, expect.any(Function));
   });
 });
