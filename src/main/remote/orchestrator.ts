@@ -26,7 +26,8 @@ import type {
   RemoteTunnelInfo,
   TestResult,
 } from '../../shared/remoteHost';
-import type { ConnectSsh, SshAuth, SshConnectionLike } from './ssh';
+import type { ConnectSsh, ReverseForwardHandle, SshAuth, SshConnectionLike } from './ssh';
+import { BROWSER_MCP_REMOTE_PORT } from '../../shared/browserMcp';
 import type { CredentialStore, HostConfigStore } from './credentialStore';
 import { detectArch } from './hostBundle';
 import { NODE_PROBE_COMMAND, pickBestNode } from './nodeProbe';
@@ -96,6 +97,12 @@ interface RemoteHostSession {
   socksPort: number | null;
   /** browserProxyFor 并发去重(同一 configId 多面板同时选中):共享同一次拉起。 */
   socksInflight: Promise<number | null> | null;
+  /**
+   * 浏览器 MCP 反向转发句柄(remote→local · 阶段3):host ready 时自动建(不同于 SOCKS
+   * 的懒建——session 内 agent 随时可能用,故 ready 即备好),把本机浏览器 MCP server 透到
+   * 容器回环固定端口。断线/disconnect 随 closeSessionTransport 一并撤销(底层 channel 已亡)。
+   */
+  browserMcpForward: ReverseForwardHandle | null;
   /**
    * 本次拉起的一次性标识(评审 P3 加固):startSocksProxy 的 listen 是异步的,其回调
    * 赋值 socksServer 前比对 socksToken 是否仍是「发起本次拉起时」那枚——release/断线
@@ -293,8 +300,45 @@ export class RemoteHostOrchestrator {
   private readonly connectInflight = new Map<string, Promise<void>>();
   private readonly mutex = new Map<string, Promise<unknown>>();
   private readonly listeners = new Set<(e: RemoteEvent) => void>();
+  /** 本机浏览器 MCP server 端口(main 起好 MCP 后 setBrowserMcpForward 注入);null=特性未就绪。 */
+  private browserMcpLocalPort: number | null = null;
 
   constructor(private readonly deps: OrchestratorDeps) {}
+
+  /**
+   * 声明本机浏览器 MCP server 端口(阶段3):此后每台 host ready 都自动建反向转发,
+   * 令容器内 agent 经 127.0.0.1:BROWSER_MCP_REMOTE_PORT 打回本机 MCP。已 ready 的会话
+   * 立即补建(main 的 MCP server 异步起,可能晚于某些 host 连上)。传 null 关特性。
+   */
+  setBrowserMcpForward(localPort: number | null): void {
+    this.browserMcpLocalPort = localPort;
+    if (localPort == null) return;
+    for (const [configId, session] of this.sessions) {
+      if (session.stage === 'ready' && session.ssh && !session.browserMcpForward) {
+        void this.establishBrowserMcpForward(configId);
+      }
+    }
+  }
+
+  /** 为某 ready 会话建浏览器 MCP 反向转发(best-effort,失败不影响会话可用)。 */
+  private async establishBrowserMcpForward(configId: string): Promise<void> {
+    const localPort = this.browserMcpLocalPort;
+    if (localPort == null) return;
+    const session = this.sessions.get(configId);
+    if (!session || session.stage !== 'ready' || !session.ssh || session.browserMcpForward) return;
+    const ssh = session.ssh;
+    try {
+      const handle = await ssh.forwardInToLocal(localPort, BROWSER_MCP_REMOTE_PORT);
+      // 竞态守卫:建转发期间断线/换连接 → 立即撤销在途句柄,不挂到已亡会话上
+      if (session.stage !== 'ready' || session.ssh !== ssh) {
+        handle.close();
+        return;
+      }
+      session.browserMcpForward = handle;
+    } catch (err) {
+      console.warn(`[remote] browser MCP reverse-forward failed for ${configId}:`, err);
+    }
+  }
 
   connect(configId: string): Promise<void> {
     const existingConnect = this.connectInflight.get(configId);
@@ -511,6 +555,7 @@ export class RemoteHostOrchestrator {
         socksPort: null,
         socksInflight: null,
         socksToken: null,
+        browserMcpForward: null,
       };
       this.sessions.set(configId, session);
     }
@@ -533,6 +578,14 @@ export class RemoteHostOrchestrator {
     session.socksPort = null;
     session.socksInflight = null;
     session.socksToken = null;
+    if (session.browserMcpForward) {
+      try {
+        session.browserMcpForward.close(); // unforwardIn + 摘 tcp 监听(底层 channel 随 ssh.close 亡)
+      } catch {
+        /* 忽略:连接可能已断 */
+      }
+      session.browserMcpForward = null;
+    }
     if (session.forwardServer) {
       try {
         session.forwardServer.close();
@@ -806,6 +859,7 @@ export class RemoteHostOrchestrator {
           tunnel: { localPort: tunnel.localPort, token: claimToken },
         });
         this.emit(configId, { stage: 'ready' });
+        void this.establishBrowserMcpForward(configId);
         this.deps.configStore.touchLastUsed(configId);
         return;
       }
@@ -993,6 +1047,7 @@ export class RemoteHostOrchestrator {
         tunnel: { localPort: tunnel.localPort, token: sessionToken },
       });
       this.emit(configId, { stage: 'ready' });
+      void this.establishBrowserMcpForward(configId);
       this.deps.configStore.touchLastUsed(configId);
     } catch (err) {
       this.failSession(configId, 'internal', sanitizeDetail(err));

@@ -448,6 +448,8 @@ void startBrowserMcpServer((method, args) => invokeBrowserControl(method, args))
   .then((h) => {
     browserMcp = h;
     console.log(`[main] browser MCP server listening on 127.0.0.1:${h.port}`);
+    // 远程 host ready 时自动把本机 MCP 反向转发进容器(阶段3),含已 ready 的会话补建
+    remoteHostOrchestrator.setBrowserMcpForward(h.port);
   })
   .catch((err) => console.error('[main] browser MCP failed to start:', err));
 

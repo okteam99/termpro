@@ -1173,3 +1173,66 @@ describe('browserProxyFor(浏览器走远程机网络 · 本地 SOCKS5 代理生
     expect(h.orchestrator.stages()['vps-hk']).toBe('disconnected');
   });
 });
+
+describe('setBrowserMcpForward(浏览器 MCP 反向转发生命周期 · 阶段3)', () => {
+  function reverseForwardSsh(configId: string, closeSpy: () => void): RoutedSsh {
+    const routed = createFreshDeploySsh(configId);
+    routed.forwardInToLocal = vi.fn(async (_l: number, remotePort: number) => ({
+      remotePort: remotePort || 39217,
+      close: closeSpy,
+    }));
+    return routed;
+  }
+
+  it('已声明本机端口 → host ready 时自动建反向转发(本机口, BROWSER_MCP_REMOTE_PORT)', async () => {
+    const closeSpy = vi.fn();
+    const routed = reverseForwardSsh('vps-hk', closeSpy);
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    h.orchestrator.setBrowserMcpForward(48080);
+    await h.orchestrator.connect('vps-hk');
+    await flushMicrotasks();
+    expect(routed.forwardInToLocal).toHaveBeenCalledWith(48080, 39217);
+  });
+
+  it('未声明端口 → 不建转发(特性未就绪零开销)', async () => {
+    const closeSpy = vi.fn();
+    const routed = reverseForwardSsh('vps-hk', closeSpy);
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+    await flushMicrotasks();
+    expect(routed.forwardInToLocal).not.toHaveBeenCalled();
+  });
+
+  it('已 ready 的会话:后声明端口 → 补建转发', async () => {
+    const closeSpy = vi.fn();
+    const routed = reverseForwardSsh('vps-hk', closeSpy);
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+    await h.orchestrator.connect('vps-hk');
+    expect(routed.forwardInToLocal).not.toHaveBeenCalled();
+
+    h.orchestrator.setBrowserMcpForward(48080); // MCP server 晚起 → 对已 ready 补建
+    await flushMicrotasks();
+    expect(routed.forwardInToLocal).toHaveBeenCalledWith(48080, 39217);
+  });
+
+  it('断线 → 反向转发随传输一并撤销(close 被调)', async () => {
+    const closeSpy = vi.fn();
+    const routed = reverseForwardSsh('vps-hk', closeSpy);
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    h.orchestrator.setBrowserMcpForward(48080);
+    await h.orchestrator.connect('vps-hk');
+    await flushMicrotasks(); // 等 forwardInToLocal 解析、句柄挂上 session
+    expect(routed.forwardInToLocal).toHaveBeenCalled();
+
+    routed.simulateSshClose();
+    await flushMicrotasks();
+    expect(closeSpy).toHaveBeenCalled();
+  });
+});
