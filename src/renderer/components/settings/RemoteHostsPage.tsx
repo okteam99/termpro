@@ -489,6 +489,18 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           {t('Reconnect')}
         </button>,
       );
+    } else if (isActiveStage(stage)) {
+      // 连接在途(connecting/deploying/…):给 Cancel 终止本次尝试(handleDisconnect 会
+      // cancel 重连编排 + disconnect + drop 客户端,不会退避后又自己拉起)
+      buttons.push(
+        <button
+          key="cancel"
+          className="remote-hosts__action"
+          onClick={() => handleDisconnect(config.id)}
+        >
+          {t('Cancel')}
+        </button>,
+      );
     } else {
       buttons.push(
         <button
@@ -500,7 +512,8 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         </button>,
       );
     }
-    if (!compact) {
+    // 连接在途只给 Cancel;编辑/删除/测试等会干扰编排的动作不在 active 阶段显示
+    if (!compact && !isActiveStage(stage)) {
       if (stage === 'idle' || stage === 'ready') {
         buttons.push(
           <button
@@ -541,9 +554,8 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     compact: boolean,
   ) {
     if (runtime && runtime.stage !== 'idle') {
-      if (isActiveStage(runtime.stage)) {
-        return renderStageBadge(runtime);
-      }
+      // 连接在途(active)也渲染动作区:此前只显 badge → 连接卡住时无从取消。现随
+      // badge 一并给 Cancel(renderActionButtons 的 active 分支)。
       return (
         <span className="remote-hosts__row-actions">
           {renderStageBadge(runtime)}

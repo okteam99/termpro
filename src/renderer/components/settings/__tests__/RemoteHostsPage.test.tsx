@@ -504,13 +504,21 @@ describe('failure_classification_and_retry', () => {
     expect(bridge.connect).toHaveBeenCalledWith({ id: 'mini-pc' });
   });
 
-  it('busy stages render no action buttons (no edit/delete/retry mid-orchestration)', async () => {
+  it('busy stages 只显 Cancel(无 edit/delete/retry 干扰编排);点它中止连接', async () => {
     const config = makeConfig({ id: 'gpu-box' });
-    const { emit, container } = await renderPage([config]);
+    const { bridge, emit, container } = await renderPage([config]);
     emit({ configId: 'gpu-box', stage: 'connecting' });
     await waitFor(() => expect(screen.getByText('Connecting…')).toBeInTheDocument());
     const row = container.querySelector('.remote-hosts__row') as HTMLElement;
-    expect(within(row).queryAllByRole('button')).toHaveLength(0);
+    const btns = within(row).queryAllByRole('button');
+    expect(btns).toHaveLength(1);
+    expect(btns[0]).toHaveTextContent('Cancel');
+    // 无 edit/delete/retry
+    expect(within(row).queryByText('Edit')).toBeNull();
+    expect(within(row).queryByText('Delete')).toBeNull();
+
+    fireEvent.click(btns[0]);
+    expect(bridge.disconnect).toHaveBeenCalledWith({ id: 'gpu-box' });
   });
 });
 
