@@ -267,6 +267,10 @@ export const zh: Record<string, string> = {
   'Later': '稍后',
   'Install and Restart': '安装并重启',
 
+  // --- 设置:语言弹层 ---
+  'Interface language': '界面语言',
+  'Follow the system language.': '跟随系统语言。',
+
   // --- 设置:浏览器设置弹层(链接打开方式 + 内置浏览器默认打开方式) ---
   'Browser Settings': '浏览器设置',
   'Where terminal links open, and how the built-in browser opens.':

@@ -464,25 +464,13 @@
   transform: translateX(13px);
 }
 
-/* 语言项:右侧当前值 + 行内展开的单选子项(勾选列对齐图标位) */
+/* 设置项右侧的当前值(选项本体在各自的弹层里 · SettingsModal.tsx) */
 .settings-menu-value {
   flex: none;
   margin-left: auto;
   font-size: 11px;
   color: var(--fg-dim);
   white-space: nowrap;
-}
-
-.settings-menu-option {
-  padding-left: 14px;
-}
-
-.settings-menu-option-check {
-  flex: none;
-  width: 14px;
-  font-size: 11px;
-  color: var(--accent);
-  text-align: center;
 }
 
 /* About 弹窗 */

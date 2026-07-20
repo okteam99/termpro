@@ -1,7 +1,8 @@
-/* 浏览器设置弹层(用户指令 2026-07-20)· 沿用 RemoteHostsPage 的 backdrop/card/header
-   骨架与设计令牌(UI.md §复用清单),仅新增单选卡片列表的 .browser-settings__opt* 一组。 */
+/* 设置弹层的共用骨架(用户指令 2026-07-20)· backdrop/card/header 沿用
+   RemoteHostsPage 的尺寸与设计令牌(UI.md §复用清单),单选卡片列表为本文件新增。
+   所有「一个设置项 = 一组单选」的弹层(浏览器设置 / 语言)都复用这套类名。 */
 
-.browser-settings__backdrop {
+.settings-modal__backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -12,7 +13,7 @@
   -webkit-app-region: no-drag;
 }
 
-.browser-settings__card {
+.settings-modal__card {
   position: relative;
   width: 520px;
   max-width: calc(100vw - 40px);
@@ -26,7 +27,7 @@
   overflow: hidden;
 }
 
-.browser-settings__header {
+.settings-modal__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -35,19 +36,19 @@
   flex-shrink: 0;
 }
 
-.browser-settings__title {
+.settings-modal__title {
   font-size: 15px;
   font-weight: 600;
   color: var(--fg);
 }
 
-.browser-settings__subtitle {
+.settings-modal__subtitle {
   margin-top: 4px;
   font-size: 11.5px;
   color: var(--fg-dim);
 }
 
-.browser-settings__close {
+.settings-modal__close {
   background: transparent;
   border: none;
   color: var(--fg-dim);
@@ -56,21 +57,21 @@
   line-height: 1;
 }
 
-.browser-settings__close:hover {
+.settings-modal__close:hover {
   color: var(--fg);
 }
 
-.browser-settings__body {
+.settings-modal__body {
   padding: 16px 20px 20px;
   overflow-y: auto;
   min-height: 0;
 }
 
-.browser-settings__section + .browser-settings__section {
+.settings-modal__group + .settings-modal__group {
   margin-top: 18px;
 }
 
-.browser-settings__section-title {
+.settings-modal__group-title {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -78,13 +79,13 @@
   margin-bottom: 6px;
 }
 
-.browser-settings__opts {
+.settings-modal__opts {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
 
-.browser-settings__opt {
+.settings-modal__opt {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -100,16 +101,16 @@
   cursor: pointer;
 }
 
-.browser-settings__opt:last-child {
+.settings-modal__opt:last-child {
   border-bottom: none;
 }
 
-.browser-settings__opt:hover {
+.settings-modal__opt:hover {
   background: var(--bg-active);
 }
 
 /* 勾选列固定宽度,让未选中项的文案与选中项左对齐 */
-.browser-settings__opt-check {
+.settings-modal__opt-check {
   flex: none;
   width: 12px;
   padding-top: 1px;
@@ -118,18 +119,18 @@
   text-align: center;
 }
 
-.browser-settings__opt-text {
+.settings-modal__opt-text {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
 }
 
-.browser-settings__opt--selected .browser-settings__opt-label {
+.settings-modal__opt--selected .settings-modal__opt-label {
   font-weight: 600;
 }
 
-.browser-settings__opt-desc {
+.settings-modal__opt-desc {
   font-size: 11px;
   color: var(--fg-dim);
   line-height: 1.45;

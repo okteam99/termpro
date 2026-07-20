@@ -139,43 +139,95 @@ describe('settingsEntry_pin_bottom_bar_toggle', () => {
   });
 });
 
-// --- 语言切换:Language 项展开三选,选中即时换语言(菜单保持打开)---
+// --- 语言切换:Language 项弹独立 modal 三选,选中即时换语言(弹层保持打开)---
 describe('settingsEntry_language_switcher', () => {
-  it('expands locale options and switches UI language + notifies main on pick', async () => {
+  it('opens the Language modal and switches UI language + notifies main on pick', async () => {
     const { setLocale } = await import('../../../shared/i18n');
     mockOkwork();
     useAppStore.setState({ localePref: 'system' });
     render(<SettingsEntry />);
 
     fireEvent.click(screen.getByTitle('Settings'));
-    // 展开前无单选项;当前值显示在 Language 行右侧
-    expect(screen.queryAllByRole('menuitemradio')).toHaveLength(0);
+    // 弹层未开时无单选项;当前值显示在 Language 行右侧
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
     const langItem = screen.getByRole('menuitem', { name: /Language/ });
     expect(langItem).toHaveTextContent('System');
 
     fireEvent.click(langItem);
-    const options = screen.getAllByRole('menuitemradio');
+    // 菜单关闭,弹层打开(两态不共存)
+    expect(screen.queryByRole('menu')).toBeNull();
+    const options = screen.getAllByRole('radio');
     expect(options.map((o) => o.textContent)).toEqual([
-      '✓System',
+      '✓SystemFollow the system language.',
       'English',
       '简体中文',
     ]);
     expect(options[0]).toHaveAttribute('aria-checked', 'true');
 
-    fireEvent.click(screen.getByRole('menuitemradio', { name: '简体中文' }));
+    fireEvent.click(screen.getByRole('radio', { name: /简体中文/ }));
 
-    // store + main 通知 + 本组件文案即时换中文(菜单保持打开)
+    // store + main 通知 + 弹层文案即时换中文(弹层保持打开,让用户当场看到变化)
     expect(useAppStore.getState().localePref).toBe('zh-CN');
     expect(window.okwork.setAppLocale).toHaveBeenCalledWith('zh-CN');
-    expect(screen.getByRole('menu')).toBeInTheDocument();
-    expect(screen.getByText('语言')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('界面语言')).toBeInTheDocument();
     expect(
-      within(screen.getByRole('menuitemradio', { name: /简体中文/ })).getByText('✓'),
+      within(screen.getByRole('radio', { name: /简体中文/ })).getByText('✓'),
     ).toBeInTheDocument();
 
     // 复位共享单例:i18n 回 en,store 回 system
     setLocale('en');
     useAppStore.setState({ localePref: 'system' });
+  });
+
+  it('closes via close button / Esc / backdrop and restores focus (AC-6 parity)', () => {
+    mockOkwork();
+    useAppStore.setState({ localePref: 'system' });
+    render(<SettingsEntry />);
+    const entryBtn = screen.getByTitle('Settings');
+
+    for (const close of [
+      () => fireEvent.click(screen.getByTitle('Close')),
+      () => fireEvent.keyDown(document, { key: 'Escape' }),
+      () => fireEvent.mouseDown(document.querySelector('.settings-modal__backdrop')!),
+    ]) {
+      entryBtn.focus();
+      fireEvent.click(entryBtn);
+      fireEvent.click(screen.getByRole('menuitem', { name: /Language/ }));
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      close();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.activeElement).toBe(entryBtn);
+    }
+  });
+});
+
+// --- 浏览器设置:Language 同款独立 modal,两组单选即时写 store ---
+describe('settingsEntry_browser_settings_modal', () => {
+  it('opens the Browser Settings modal and writes both settings to the store', () => {
+    mockOkwork();
+    useAppStore.setState({ linkBrowserMode: 'builtin', builtinBrowserSurface: 'window' });
+    render(<SettingsEntry />);
+
+    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Browser Settings' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    // 两组 radiogroup:链接打开方式(3 项)+ 内置浏览器默认打开方式(2 项)
+    const groups = screen.getAllByRole('radiogroup');
+    expect(groups).toHaveLength(2);
+    expect(within(groups[0]).getAllByRole('radio')).toHaveLength(3);
+    expect(within(groups[1]).getAllByRole('radio')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('radio', { name: /System browser/ }));
+    expect(useAppStore.getState().linkBrowserMode).toBe('system');
+
+    fireEvent.click(screen.getByRole('radio', { name: /In the app panel/ }));
+    expect(useAppStore.getState().builtinBrowserSurface).toBe('pane');
+
+    // 复位共享单例
+    useAppStore.setState({ linkBrowserMode: 'builtin', builtinBrowserSurface: 'window' });
   });
 });
 
