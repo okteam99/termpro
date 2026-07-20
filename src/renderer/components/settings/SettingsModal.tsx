@@ -48,6 +48,13 @@ export function SettingsModal({ title, subtitle, onClose, children }: SettingsMo
           </button>
         </div>
         <div className="settings-modal__body">{children}</div>
+        {/* 选项即时生效,本按钮只负责「选完了」这个动作——用户指令 2026-07-20:
+            选完只能点 × 关很别扭,要有明确的确认出口(Enter 亦可,按钮自动聚焦) */}
+        <div className="settings-modal__footer">
+          <button className="settings-modal__done" onClick={onClose} autoFocus>
+            {t('Done')}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -62,9 +62,37 @@
 }
 
 .settings-modal__body {
-  padding: 16px 20px 20px;
+  padding: 16px 20px;
   overflow-y: auto;
   min-height: 0;
+}
+
+.settings-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px 16px;
+  flex-shrink: 0;
+}
+
+.settings-modal__done {
+  padding: 6px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-modal__done:hover {
+  filter: brightness(1.1);
+}
+
+.settings-modal__done:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .settings-modal__group + .settings-modal__group {

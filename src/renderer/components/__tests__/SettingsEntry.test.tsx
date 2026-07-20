@@ -187,6 +187,7 @@ describe('settingsEntry_language_switcher', () => {
     const entryBtn = screen.getByTitle('Settings');
 
     for (const close of [
+      () => fireEvent.click(screen.getByRole('button', { name: 'Done' })),
       () => fireEvent.click(screen.getByTitle('Close')),
       () => fireEvent.keyDown(document, { key: 'Escape' }),
       () => fireEvent.mouseDown(document.querySelector('.settings-modal__backdrop')!),

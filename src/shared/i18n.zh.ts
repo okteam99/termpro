@@ -267,6 +267,9 @@ export const zh: Record<string, string> = {
   'Later': '稍后',
   'Install and Restart': '安装并重启',
 
+  // --- 设置弹层共用 ---
+  'Done': '完成',
+
   // --- 设置:语言弹层 ---
   'Interface language': '界面语言',
   'Follow the system language.': '跟随系统语言。',
