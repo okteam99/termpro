@@ -106,6 +106,8 @@ Everything is set at `docker run` time via env vars:
 
 Without `--privileged` (or sysbox) the inner dockerd can't start and the node falls back to SSH-only — `docker logs` shows the status either way. To reuse the host's Docker daemon instead (shared with everything else on the host), mount `-v /var/run/docker.sock:/var/run/docker.sock`. SFTP is enabled. Build source: [`docker/okwork-node/`](docker/okwork-node/).
 
+Login shells export `IS_SANDBOX=1`, so agent CLIs treat the container as the disposable sandbox it is — e.g. Claude Code allows `--dangerously-skip-permissions` under the default root login (it refuses that combination elsewhere). Prefer not to run agents as root at all? Use `-e SSH_USER=<name>`.
+
 ## Concepts
 
 | Concept | Meaning | UI location |

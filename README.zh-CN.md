@@ -96,6 +96,8 @@ docker run -d --name okwork-node \
 
 SFTP 可用。默认工作目录为 `/workspace`,SSH 登录后直接落在这里,用 `-v` 把宿主机目录挂载到它即可共享文件。构建源码见 [`docker/okwork-node/`](docker/okwork-node/)。
 
+登录 shell 内置 `export IS_SANDBOX=1`——容器本身就是一次性沙箱,agent CLI 按沙箱对待:比如 Claude Code 在默认的 root 登录下也允许 `--dangerously-skip-permissions`(其他环境下 root 会被拒绝)。不想用 root 跑 agent?用 `-e SSH_USER=<用户名>` 换非 root 用户。
+
 ## 概念模型
 
 | 概念 | 含义 | 对应 UI |

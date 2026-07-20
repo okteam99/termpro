@@ -73,6 +73,14 @@ RUN mkdir -p /workspace \
         > /etc/profile.d/10-okwork-workspace.sh
 WORKDIR /workspace
 
+# This container *is* a disposable agent sandbox, and the default login is root.
+# Claude Code refuses --dangerously-skip-permissions as root unless IS_SANDBOX=1,
+# so declare it for all login shells. Prefer no root at all? -e SSH_USER=<name>.
+RUN printf '%s\n' '# okwork-node: mark the container as an agent sandbox so Claude Code' \
+        '# allows --dangerously-skip-permissions under the (default) root login.' \
+        'export IS_SANDBOX=1' \
+        > /etc/profile.d/20-okwork-agent.sh
+
 # Inner dockerd storage must not sit on the container's own overlayfs
 # (overlay-on-overlay is unsupported and falls back to vfs). Declare a volume
 # so an anonymous one is used even when -v doesn't name one explicitly.
