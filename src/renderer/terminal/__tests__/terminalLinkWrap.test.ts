@@ -278,6 +278,43 @@ describe('wrapped path links', () => {
     expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } });
   });
 
+  // 2026-07-20 事故:codex 的 markdown 渲染按自身固定阅读宽度折行,与实际 pty
+  // 列数无关(远窄于 200 列的宽终端)——断点落在连字符处,既不铺满行尾也不以 '/'
+  // 收尾,前两种硬折行探测(reachesRightEdge / trailingSlashGap)都测不到,relative
+  // 路径链接因此不可点。第三种探测(悬挂缩进续接)补上这个洞。
+  it('codex-style narrow content-wrap (well short of wide pty, breaks mid-hyphen): still joined', async () => {
+    const prefix = '- 方案: ';
+    const relPath =
+      '.worktree/INFRA-F260720081517-Static-Offerwall-Staging-Env-Release-Config/TECH.md';
+    const wrapAt = 60; // codex 自己的阅读宽度,远窄于下方 200 列的 pty
+    const avail = wrapAt - prefix.length;
+    const line1 = prefix + relPath.slice(0, avail); // 远不到 200 列行尾,断在连字符
+    const line2 = ' '.repeat(prefix.length) + relPath.slice(avail); // 悬挂缩进对齐
+    const full = '/home/u' + '/' + relPath;
+    statExisting({ [full]: 'file' });
+    const term = new Terminal({ cols: 200, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    expect(line1.length).toBeLessThan(200); // 前提:远未铺满
+    expect(line1.endsWith('/')).toBe(false); // 前提:不是斜杠折行
+    for (const y of [1, 2]) {
+      const links = await provide(term, y);
+      expect(links).toHaveLength(1);
+      expect(links[0].text).toBe(relPath);
+    }
+  });
+
+  it('codex-style narrow wrap: unrelated indented next line does not get merged (stat still gates)', async () => {
+    const line1 = '- plan: .worktree/real-project/TECH.md'; // 真实存在,远不到 200 列
+    const line2 = '        totally unrelated prose continues here'; // 悬挂缩进但非路径续接
+    statExisting({ '/home/u/.worktree/real-project/TECH.md': 'file' });
+    const term = new Terminal({ cols: 200, rows: 8, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(line1 + '\r\n' + line2, r));
+    const links = await provide(term, 1);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe('.worktree/real-project/TECH.md'); // 未被无关续行拼坏
+    expect(links[0].range).toMatchObject({ start: { y: 1 }, end: { y: 1 } });
+  });
+
   it('no regression (upward): a real path is not swallowed by a coincidentally full line above it', async () => {
     const above = 'Some long status line that fills up to'; // 38 chars -> pad to 38? make exactly 38
     const filler = 'x'.repeat(38 - above.length);

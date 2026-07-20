@@ -143,19 +143,48 @@ function leadingPathSegmentLength(line: IBufferLine | undefined): number {
 }
 
 /**
+ * 悬挂缩进续接(第三种硬折行):TUI 按自身内容宽度换行(常窄于实际 pty 列数,如
+ * codex 的 markdown 渲染按固定阅读宽度折行,与终端真实列数无关)——断点可能落在
+ * 任意路径字符处(非 '/' 边界),既不铺满行尾也不以 '/' 收尾,前两种探测都测不到
+ * (2026-07-20:codex 输出的相对路径链接因此不可点)。签名信号:prevY 行尾(去尾部
+ * 空白)是路径字符 run(≥2 字符,排除孤立杂字符误判),且续行有【悬挂缩进】(不贴
+ * 列 0——贴列 0 是独立新行/新 bullet 的起手式)、缩进后紧跟路径字符且中间无空格
+ * (真是同一个 token 被切断,而非两段独立内容碰巧相邻)。判过了也不是终裁——
+ * stat 仍是最终 oracle,误判拼接对不上真实路径就是不成链,不会因此产出错误链接。
+ */
+function hangingIndentContinues(
+  prev: IBufferLine | undefined,
+  next: IBufferLine | undefined,
+): boolean {
+  if (!prev || !next) return false;
+  const { text: prevText } = lineToString(prev);
+  if (!/[\w.@%+-]{2,}$/.test(prevText.replace(/ +$/, ''))) return false;
+  const { text: nextText } = lineToString(next);
+  const indent = /^ +/.exec(nextText);
+  if (!indent) return false; // 贴列 0 → 独立新行,不是续接
+  const rest = nextText.slice(indent[0].length).replace(/^[│⎿] /, '');
+  return /^[\w.@%+-]/.test(rest);
+}
+
+/**
  * 硬折行「上一行 prevY 与下一行同属一条逻辑行」判定:
  * ① 铺满到最后一列(reachesRightEdge · 字符级折行);或
  * ② 斜杠折行:prevY 以 '/' 收尾留有空隙,且续行首段【放不下】该空隙
  *   (seg > gap,贪婪打包不变式——正因放不下才换行)。反之(seg ≤ gap)
  *   说明那不是折行,而是两行各自独立的内容(如目录列表短行),不得合并,
- *   否则 `src/`+`renderer/` 这类同级条目会被 stat 命中误拼成一条链接。
+ *   否则 `src/`+`renderer/` 这类同级条目会被 stat 命中误拼成一条链接
+ *   ——① ② 均不成立时不再往下试(gap 非空即两行独立与否已有定论);或
+ * ③ 悬挂缩进续接(见 hangingIndentContinues):仅当 prevY 既不铺满也不以 '/'
+ *   收尾(gap === null,① ② 都测不到)才试探,覆盖窄于实际列数的自定义折行。
  */
 function hardFoldContinues(buf: BufferLike, prevY: number): boolean {
   const prev = buf.getLine(prevY);
   if (reachesRightEdge(prev)) return true;
   const gap = trailingSlashGap(prev);
-  if (gap === null) return false;
-  return leadingPathSegmentLength(buf.getLine(prevY + 1)) > gap;
+  if (gap !== null) {
+    return leadingPathSegmentLength(buf.getLine(prevY + 1)) > gap;
+  }
+  return hangingIndentContinues(prev, buf.getLine(prevY + 1));
 }
 
 interface CellPos {
