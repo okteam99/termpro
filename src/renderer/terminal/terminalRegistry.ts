@@ -295,6 +295,14 @@ export async function ensureSession(
 ): Promise<void> {
   const inst = getOrCreateTerminal(tabId);
   if (inst.sessionId || inst.spawning) return;
+  // 🔴 到这里必是「全新会话」(首次 spawn,或旧会话已判定收养失败/找不到后原位重 spawn
+  // 到同一个跨挂载存活的 xterm 实例——如 remirrorIfTakenOver 的 !found 分支)。旧会话若
+  // 曾开鼠标跟踪(vim/claude TUI 等发的 `?1000h`/`?1002h`/`?1006h`)又被异常终止(host 被
+  // kill、连接掉线)而未来得及发关闭序列,xterm 的模式状态是纯前端存量,不会随死会话
+  // 一起消失——不 reset 就会带进新会话:新 shell 从没开过鼠标跟踪,却把触控板移动的
+  // SGR 报文当成键入,刷屏 `command not found`(2026-07-20 事故)。reset() 与 adoptInst
+  // 的 full-resync 分支同款语义,清屏无副作用(全新/已死会话的旧内容本就不该续显)。
+  inst.term.reset();
   inst.spawning = true;
   inst.spawnCwd = cwd;
   inst.hostId = hostId;
