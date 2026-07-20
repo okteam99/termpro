@@ -36,6 +36,7 @@ beforeEach(() => {
     activeWorkspaceId: null,
     persistMode: 'v2',
     linkBrowserMode: 'builtin',
+    builtinBrowserSurface: 'window',
     remoteTabLayouts: {},
   });
 });
@@ -60,5 +61,29 @@ describe('linkBrowserMode 持久化', () => {
     useAppStore.setState({ linkBrowserMode: 'system' });
     useAppStore.getState().hydrate([], v2Ui({}));
     expect(useAppStore.getState().linkBrowserMode).toBe('builtin');
+  });
+});
+
+// 同一套规则(默认不写盘 + hydrate 枚举收窄),默认值是 'window'(独立窗口)
+describe('builtinBrowserSurface 持久化', () => {
+  it("缺省 'window' 不写盘;非默认写盘", () => {
+    const a1 = serialize(useAppStore.getState());
+    expect('builtinBrowserSurface' in (a1.ui ?? {})).toBe(false);
+
+    useAppStore.setState({ builtinBrowserSurface: 'pane' });
+    const a2 = serialize(useAppStore.getState());
+    expect(a2.ui?.builtinBrowserSurface).toBe('pane');
+  });
+
+  it('hydrate:合法值恢复;非法值/缺省回落 window', () => {
+    useAppStore.getState().hydrate([], v2Ui({ builtinBrowserSurface: 'pane' }));
+    expect(useAppStore.getState().builtinBrowserSurface).toBe('pane');
+
+    useAppStore.getState().hydrate([], v2Ui({ builtinBrowserSurface: 'garbage' }));
+    expect(useAppStore.getState().builtinBrowserSurface).toBe('window');
+
+    useAppStore.setState({ builtinBrowserSurface: 'pane' });
+    useAppStore.getState().hydrate([], v2Ui({}));
+    expect(useAppStore.getState().builtinBrowserSurface).toBe('window');
   });
 });

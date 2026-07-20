@@ -267,13 +267,27 @@ export const zh: Record<string, string> = {
   'Later': '稍后',
   'Install and Restart': '安装并重启',
 
-  // --- 设置:终端链接打开方式 ---
+  // --- 设置:浏览器设置弹层(链接打开方式 + 内置浏览器默认打开方式) ---
+  'Browser Settings': '浏览器设置',
+  'Where terminal links open, and how the built-in browser opens.':
+    '终端里点击链接的打开位置,以及内置浏览器的默认打开方式。',
+  '⌘/Ctrl+click a terminal link always opens the system browser.':
+    '⌘/Ctrl+点击终端链接恒用系统浏览器。',
   'Open links in': '链接打开方式',
   'Built-in browser': '内置浏览器',
+  'Terminal links open in OkWork’s own browser.': '终端链接落 OkWork 自带的浏览器。',
   'System browser': '系统浏览器',
+  'Terminal links open in your default browser.': '终端链接交给系统默认浏览器。',
   'Built-in for remote terminals only': '仅远程终端用内置浏览器',
-  'Where terminal links open. ⌘/Ctrl+click always opens in the system browser.':
-    '终端里点击链接的打开位置。⌘/Ctrl+点击恒用系统浏览器。',
+  'Remote terminals use the built-in browser (localhost URLs are only reachable through it); local terminals use the system browser.':
+    '远程终端用内置浏览器(localhost 类地址只有经它才可达);本机终端走系统浏览器。',
+  'Open the built-in browser in': '内置浏览器默认打开方式',
+  'Separate window': '独立窗口',
+  'The built-in browser opens as its own OkBrowser window.':
+    '内置浏览器弹成独立的 OkBrowser 窗口。',
+  'In the app panel': '页面内',
+  'The built-in browser opens in the panel on the right of the main window.':
+    '内置浏览器开在主窗右侧的面板里。',
 
   // --- 浏览器面板:加载失败错误条 ---
   'Page failed to load: {error}': '页面加载失败：{error}',

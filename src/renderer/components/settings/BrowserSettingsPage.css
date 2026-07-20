@@ -1,0 +1,136 @@
+/* 浏览器设置弹层(用户指令 2026-07-20)· 沿用 RemoteHostsPage 的 backdrop/card/header
+   骨架与设计令牌(UI.md §复用清单),仅新增单选卡片列表的 .browser-settings__opt* 一组。 */
+
+.browser-settings__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  -webkit-app-region: no-drag;
+}
+
+.browser-settings__card {
+  position: relative;
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 64px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.browser-settings__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.browser-settings__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.browser-settings__subtitle {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--fg-dim);
+}
+
+.browser-settings__close {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.browser-settings__close:hover {
+  color: var(--fg);
+}
+
+.browser-settings__body {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.browser-settings__section + .browser-settings__section {
+  margin-top: 18px;
+}
+
+.browser-settings__section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--fg-dim);
+  margin-bottom: 6px;
+}
+
+.browser-settings__opts {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.browser-settings__opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-settings__opt:last-child {
+  border-bottom: none;
+}
+
+.browser-settings__opt:hover {
+  background: var(--bg-active);
+}
+
+/* 勾选列固定宽度,让未选中项的文案与选中项左对齐 */
+.browser-settings__opt-check {
+  flex: none;
+  width: 12px;
+  padding-top: 1px;
+  color: var(--accent);
+  font-size: 11px;
+  text-align: center;
+}
+
+.browser-settings__opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.browser-settings__opt--selected .browser-settings__opt-label {
+  font-weight: 600;
+}
+
+.browser-settings__opt-desc {
+  font-size: 11px;
+  color: var(--fg-dim);
+  line-height: 1.45;
+}

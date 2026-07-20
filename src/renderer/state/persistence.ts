@@ -155,6 +155,10 @@ export function serialize(s: AppState): PersistedState {
     ...(s.browserPanelOpen ? { browserPanelOpen: true } : {}),
     // 'builtin' 不写盘(缺省即内置浏览器)
     ...(s.linkBrowserMode !== 'builtin' ? { linkBrowserMode: s.linkBrowserMode } : {}),
+    // 'window' 不写盘(缺省即独立窗口)
+    ...(s.builtinBrowserSurface !== 'window'
+      ? { builtinBrowserSurface: s.builtinBrowserSurface }
+      : {}),
     // 空集不写盘(存档整洁;缺省即全展开)
     ...(s.collapsedMachines.length > 0 ? { collapsedMachines: s.collapsedMachines } : {}),
     // 'system' 不写盘(缺省即随系统;main 启动读此字段定 locale)

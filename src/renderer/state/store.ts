@@ -100,6 +100,14 @@ export const LINK_BROWSER_MODES: readonly LinkBrowserMode[] = [
   'builtinForRemote',
 ];
 
+/** 内置浏览器默认打开方式(设置项 · 默认 'window' · 用户指令 2026-07-20):
+ *  'window' = 独立的 OkBrowser 窗口(窗格直接窗口化);'pane' = 主窗右侧面板内。
+ *  只决定「新开」时落哪:窗格已在面板里显示/已弹出为独立窗口时,就地追加标签
+ *  (用户手动的摆放优先于默认值,不会被每次点链接强行搬家)。 */
+export type BuiltinBrowserSurface = 'window' | 'pane';
+
+export const BUILTIN_BROWSER_SURFACES: readonly BuiltinBrowserSurface[] = ['window', 'pane'];
+
 export interface WorkspaceState {
   id: string;
   name: string;
@@ -177,6 +185,8 @@ interface PersistedUi {
   pinBottomBar?: boolean;
   /** 终端链接打开方式;缺省 = 'builtin'(内置浏览器,不写盘) */
   linkBrowserMode?: LinkBrowserMode;
+  /** 内置浏览器默认打开方式;缺省 = 'window'(独立窗口,不写盘) */
+  builtinBrowserSurface?: BuiltinBrowserSurface;
   /** Sidebar 折叠中的机器分组('local' | configId);展开为默认态,不入存档 */
   collapsedMachines?: string[];
   /** 语言偏好;缺省 = 随系统('system' 不写盘) */
@@ -334,6 +344,9 @@ export interface AppState {
   /** 终端链接打开方式(linkOpenPolicy 据此路由;⌘/Ctrl+点击恒走系统浏览器),随 ui 存档持久化 */
   linkBrowserMode: LinkBrowserMode;
   setLinkBrowserMode(mode: LinkBrowserMode): void;
+  /** 内置浏览器默认打开方式(openBuiltinBrowser 据此选面板/独立窗口),随 ui 存档持久化 */
+  builtinBrowserSurface: BuiltinBrowserSurface;
+  setBuiltinBrowserSurface(surface: BuiltinBrowserSurface): void;
   /** Sidebar 折叠中的机器分组 id 集('local' | configId),随 ui 存档持久化 */
   collapsedMachines: string[];
   toggleMachineCollapsed(machineId: string): void;
@@ -570,6 +583,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   browserPanelOpen: false,
   pinBottomBar: false,
   linkBrowserMode: 'builtin',
+  builtinBrowserSurface: 'window',
   remoteTabLayouts: {},
 
   hydrate(registry, archive) {
@@ -611,6 +625,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         )
           ? (archive.ui.linkBrowserMode as LinkBrowserMode)
           : 'builtin',
+        // 同上;缺省/非法 → 'window'(独立窗口)
+        builtinBrowserSurface: BUILTIN_BROWSER_SURFACES.includes(
+          archive.ui.builtinBrowserSurface as BuiltinBrowserSurface,
+        )
+          ? (archive.ui.builtinBrowserSurface as BuiltinBrowserSurface)
+          : 'window',
         collapsedMachines: archive.ui.collapsedMachines ?? [],
         localePref,
       });
@@ -1179,6 +1199,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setLinkBrowserMode(mode) {
     set({ linkBrowserMode: mode });
+  },
+
+  setBuiltinBrowserSurface(surface) {
+    set({ builtinBrowserSurface: surface });
   },
 
   collapsedMachines: [],

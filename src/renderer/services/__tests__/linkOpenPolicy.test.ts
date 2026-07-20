@@ -33,6 +33,9 @@ beforeEach(() => {
     activeWorkspaceId: 'w-local',
     browserPanelOpen: false,
     linkBrowserMode: 'builtin',
+    // 路由(内置/系统)与落位(面板/独立窗口)是两件事:本文件只测路由,
+    // 故钉死落位为面板;独立窗口分支在 openBuiltinBrowser.test.ts 覆盖。
+    builtinBrowserSurface: 'pane',
   });
 });
 
