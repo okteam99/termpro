@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import { PROTOCOL_VERSION } from '../shared/protocol';
 import { createHostCore, PortLike } from './hostCore';
 import { gitInfo } from './gitService';
+import { healWorkspaceProfile, OKWORK_PROFILE_PATH } from './profileHeal';
 import { resolveToken, writeIdentityTokenFile } from './token';
 import { startWsServer } from './wsServer';
 
@@ -50,6 +51,11 @@ function argValue(argv: string[], flag: string): string | undefined {
 
 if (process.argv.includes('--listen')) {
   // ---- standalone WebSocket 模式 ----
+  // 存量 okwork-node 容器自愈:旧镜像 profile.d 无条件 `cd /workspace` 会清掉
+  // 显式 spawn cwd(远程新终端根目录≠项目目录)。须在任何 pty.spawn 之前完成。
+  if (healWorkspaceProfile() === 'healed') {
+    console.log('[host] healed stale %s (unconditional cd /workspace)', OKWORK_PROFILE_PATH);
+  }
   const { host, port } = parseListen(process.argv);
   // configId 自证标签(远程编排注入):仅写入端口文件/日志供 main 侧 reap 双验识别
   // 同机兄弟 host(SSH-4·ARCH-B2),绝不参与下方 token 端口闸——闸仍只认 token。
