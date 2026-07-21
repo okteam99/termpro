@@ -129,38 +129,55 @@ renderer → window 监听 'message' → HostClient.attach(port)
 
 preload 是沙箱环境，无法直接通过 contextBridge 传递 MessagePort，必须经 `window.postMessage` 转移（Electron 官方模式）。
 
-### 4.7 内置浏览器「走远程机网络」
+### 4.7 内置浏览器:分区模型(profile × 出口)与「走远程机网络」
 
-内置浏览器面板可把整个面板的流量指向某台已连接（`ready`）的远程机，经其 SSH 连接出网——用远程机的网络出口 + 远程 DNS，而非本机。出口是**面板级**（`persist:browser` 是全局唯一 session partition，代理设在 session 级，所有标签共享），不是 per-tab。
+session 分区是**二维**的(2026-07-21 起):`browserPartition(profileId, netHostId)`,单源
+`src/shared/browserProfile.ts`。
+
+- 第一维 **profile**(工作区级,`WorkspaceState.browserProfileId`):独立 cookie/存储/缓存 +
+  可选自定义 UA。默认 profile(id=`default`,虚拟实体不落盘、不可删改)映射旧分区名
+  `persist:browser` / `persist:browser-<configId>`——老登录态零迁移。自定义 profile
+  (32 位 hex id,`userData/browser-profiles.json`,权威在 main,存储走 `SettingsStore`
+  抽象以备未来账号绑定)→ `persist:browser-prof-<pid>[-<configId>]`。
+- 第二维 **网络出口**(标签级,`BrowserTabState.netHostId`,缺省跟随所属机器):流量
+  指向某台已连接远程机,经其 SSH 出网(远程 DNS + 远程出口 IP)。
 
 ```
-浏览器 tab (persist:browser)
+浏览器标签 (browserPartition(ws.browserProfileId, tab.netHostId))
   → session.setProxy(socks5://127.0.0.1:<本地随机端口>, proxyBypassRules: '<-loopback>')
   → 本地 SOCKS5 代理 (src/main/remote/socksProxy.ts, 仅监听 127.0.0.1)
   → 每条 TCP 连接 = 一条 ssh direct-tcpip channel (ssh.openOutbound)
-  → 远端 sshd 解析域名并出网（远程 DNS + 远程出口 IP）
+  → 远端 sshd 解析域名并出网(远程 DNS + 远程出口 IP)
 ```
 
-三条硬语义（2026-07）：
+SOCKS 端口按 configId 一份(同一出口各 profile 共享隧道;隔离的是存储不是链路);
+`setProxy`/黑洞对【configId × 全部 profile】的每个组合分区各设一遍
+(`BrowserNetworkController`,组合集合经 `browserPartitionPolicy.partitionsOfExit` 注入)。
 
-- **默认出口跟随终端 tab**：面板打开/打开状态下切换活跃终端 tab 时，出口自动对齐该 tab
-  所属机器（`browserNetFollow`）；手动选择在停留当前 tab 期间生效，切 tab 即重新对齐。
+硬语义(历史评审钉死,勿破):
 
-- **loopback 也走远程**：`<-loopback>` 撤销 Chromium 对 localhost/127.0.0.1 的隐式代理豁免——
-  「走远程出口」的核心场景恰是访问远程机上的 dev server（remote localhost），不撤销则
-  localhost 恒直连本机、白屏无报错。
-- **断线 fail-closed**：出口远程机断线只标记 `down`（选择器红点 + 重连中），代理留在死端口
-  请求快速失败，绝不静默回退本机网络；重连 ready 自动重建 SOCKS 恢复。回 local 仅两条路：
-  用户手动切 / 删除该机。
+- **fail-closed 黑洞预封(P1-1)**:任何远程组合分区在获得活代理【之前】必须已落黑洞代理
+  (`socks5://127.0.0.1:1`)——启动时(`preseal`)、新增远程机、新增 profile
+  (`onProfilesChanged`)三处都要封;断线只标 `down` 留死端口快速失败,**绝不静默回退
+  本机直连**;重连 ready 自动重建恢复。回 local 仅两条路:用户手动切 / 删除该机。
+- **loopback 也走远程**:`<-loopback>` 撤销 Chromium 对 localhost 的隐式代理豁免——
+  「走远程出口」的核心场景恰是访问远程机上的 dev server(remote localhost)。
+- **远程 DNS**:`socks5://` scheme 把域名原样交给代理(ATYP=domain),解析发生在远端 sshd。
+- **will-attach 白名单**:只放行【已知 profile × 已知出口】的组合分区
+  (`src/main/browserPartitionPolicy.ts`,profile/config 存在性双确认)。
+- **WebRTC 防泄漏**:guest session 不在「已知本机直连分区全集」→ 恒
+  `disable_non_proxied_udp`(未知即禁,fail-closed 方向;SOCKS5 只代理 TCP)。
+- **每分区 UA**:profile 自定义 UA 双保险——renderer `<webview useragent>`(guest 首帧)
+  + main 在 will-attach 前 `session.setUserAgent`(service worker 等 session 级请求)。
+- **换出口/换 profile/改 UA = 重挂重载**:分区与 UA 掺进 webview 的 React key,变更即
+  该标签 remount(webview partition 创建后不可变,Chromium 语义)。
+- **删除 profile = 清盘**:其全部组合分区 `clearStorageData()+clearCache()`;引用它的
+  工作区经 `setBrowserProfiles` 对账回落默认 profile。
 
-四条纪律：
-
-- **懒建**：只有用户在选择器里选中某远程机为出口时才 `orchestrator.browserProxyFor()` 拉起该机的本地 SOCKS server；不选则恒不建，零开销。切走/回本机即 `releaseBrowserProxy` 回收端口。
-- **远程 DNS**：Chromium 的 `socks5://` scheme 把域名原样交给代理（SOCKS5 `ATYP=domain`），`socksProxy.ts` 不在本地解析，域名解析发生在远端 sshd——这正是「走远程机网络」的语义（而非仅转发已在本地解析好的 IP）。
-- **WebRTC 防泄漏**：选远程出口时对所有浏览器 guest webContents 设 `disable_non_proxied_udp`（SOCKS5 只代理 TCP，WebRTC 的 UDP 会绕过代理暴露本机真实 IP）；回本机恢复 `default`。新标签在切换之后 attach 时，`did-attach-webview` 补设策略，不漏网。
-- **断线自动回退**：当前出口的远程机断线时，其 SOCKS server 随 `closeSessionTransport` 关闭，`main` 订阅 `orchestrator.onEvent` 感知后自动把出口回退 `local` 并广播——否则浏览器会卡在已失效的代理端口上，全部请求失败。
-
-权威态单源在 `main`（`BrowserNetworkController`）：renderer 的选择器只镜像 `browserNet.get()/onChanged`，选择用 `set()` 的返回值回写（远程不可用时 `main` 回退 `local`，UI 反映真实生效态，不乐观更新）。
+权威态单源在 `main`(`BrowserNetworkController` / `browserProfileStore`):renderer 只镜像
+快照(`browserNet.get/onChanged`、`browserProfile.list/onChanged`),不乐观臆测。profile
+管理 UI 在 Browser Settings(`BrowserProfilesSection`),工作区绑定在 Sidebar 的工作区
+编辑弹层(`WorkspaceEditModal`)。
 
 ### 4.8 AI 操作内置浏览器（browser MCP）
 

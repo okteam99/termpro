@@ -287,16 +287,18 @@ function broadcastBrowserProfiles(): void {
   }
 }
 ipcMain.handle(BROWSER_PROFILE_CHANNELS.list, () => browserProfileStore.list());
-ipcMain.handle(BROWSER_PROFILE_CHANNELS.save, (event, payload: BrowserProfileInput) => {
+ipcMain.handle(BROWSER_PROFILE_CHANNELS.save, async (event, payload: BrowserProfileInput) => {
   if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
     throw new Error('browserProfile.save: main window only');
   }
   const saved = browserProfileStore.save(payload);
+  // 🔴 顺序即安全(评审 P1,与 P1-1 同源):新增 profile ⇒ 各远程出口的组合分区集合
+  // 变大,必须【先 await 预封完成】(在用且 up 的重放活代理覆盖新分区,其余全量黑洞),
+  // 再广播/返回——否则 renderer 拿到新 profile 即可把远程标签重挂到尚无代理的新组合
+  // 分区,首个 attach 从本机直连泄漏(fail-open 窗口)。更新(改名/改 UA)不影响代理
+  // 拓扑,重放幂等无害,不做区分。
+  await browserNetwork.onProfilesChanged(remoteHostConfigStore.list().map((c) => c.id));
   broadcastBrowserProfiles();
-  // 新增 profile ⇒ 各远程出口的组合分区集合变大:在用且 up 的重放活代理覆盖新分区,
-  // 其余全量黑洞(P1-1 铁律:新组合分区在首个 guest attach 前绝不裸奔)。更新(改名/
-  // 改 UA)不影响代理拓扑,重放幂等无害,不做区分。
-  void browserNetwork.onProfilesChanged(remoteHostConfigStore.list().map((c) => c.id));
   return saved;
 });
 ipcMain.handle(BROWSER_PROFILE_CHANNELS.delete, (event, payload: { id: string }) => {
