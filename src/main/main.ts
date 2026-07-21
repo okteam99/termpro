@@ -35,7 +35,13 @@ import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
 import { BrowserNetworkController } from './browserNetwork';
+import { BrowserProfileStore } from './browserProfileStore';
+import { JsonFileSettingsStore } from './settingsStore';
 import { BROWSER_NET_CHANNELS } from '../shared/remoteHost';
+import {
+  BROWSER_PROFILE_CHANNELS,
+  type BrowserProfileInput,
+} from '../shared/browserProfile';
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 import { encodeClipboardImage } from './clipboardImage';
 import { migrateLegacyUserData } from './userDataMigration';
@@ -167,6 +173,13 @@ const remoteHostCredentials = new CredentialStore({
 const remoteHostConfigStore = new HostConfigStore({
   userDataDir: () => app.getPath('userData'),
 });
+// 浏览器 Profile 台账(权威在 main;存储走 SettingsStore 抽象——未来账号绑定换实现)
+const browserProfileStore = new BrowserProfileStore(
+  new JsonFileSettingsStore({
+    userDataDir: () => app.getPath('userData'),
+    file: 'browser-profiles.json',
+  }),
+);
 const remoteHostOrchestrator = new RemoteHostOrchestrator({
   connectSsh: SshConnection.connect,
   credentials: remoteHostCredentials,
@@ -256,6 +269,35 @@ ipcMain.handle(BROWSER_NET_CHANNELS.syncExits, (event, payload: { hostIds: strin
   return browserNetwork.syncExits(Array.isArray(payload?.hostIds) ? payload.hostIds : []);
 });
 ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.snapshot());
+
+// ---- 浏览器 Profile IPC(权威在 main;增删改后广播全量列表)-------------------
+// 变更只许主窗口发起(设置 UI 在主窗;拒绝其它渲染进程改 profile 台账);list 只读随意。
+function broadcastBrowserProfiles(): void {
+  const profiles = browserProfileStore.list();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(BROWSER_PROFILE_CHANNELS.changed, profiles);
+    }
+  }
+}
+ipcMain.handle(BROWSER_PROFILE_CHANNELS.list, () => browserProfileStore.list());
+ipcMain.handle(BROWSER_PROFILE_CHANNELS.save, (event, payload: BrowserProfileInput) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+    throw new Error('browserProfile.save: main window only');
+  }
+  const saved = browserProfileStore.save(payload);
+  broadcastBrowserProfiles();
+  return saved;
+});
+ipcMain.handle(BROWSER_PROFILE_CHANNELS.delete, (event, payload: { id: string }) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+    throw new Error('browserProfile.delete: main window only');
+  }
+  const removed = browserProfileStore.delete(
+    typeof payload?.id === 'string' ? payload.id : '',
+  );
+  if (removed) broadcastBrowserProfiles();
+});
 
 // ---- 浏览器窗格窗口化(弹出=整个窗格独立成窗 · OkBrowser-<终端tab名>)---------
 // 壳窗复用 renderer bundle(?browserPane=<terminalTabId> 路由 BrowserPaneShellWindow):

@@ -296,6 +296,11 @@ export const zh: Record<string, string> = {
   'The built-in browser opens in the panel on the right of the main window.':
     '内置浏览器开在主窗右侧的面板里。',
 
+  // --- 浏览器 Profile(main/browserProfileStore 校验文案) ---
+  'The built-in profile cannot be modified': '内置 profile 不可修改',
+  'Profile name is required': 'Profile 名称不能为空',
+  'Browser profile not found': '该浏览器 profile 不存在',
+
   // --- 浏览器面板:加载失败错误条 ---
   'Page failed to load: {error}': '页面加载失败：{error}',
 

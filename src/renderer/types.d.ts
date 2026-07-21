@@ -8,6 +8,7 @@ import type {
   RemoteTunnelInfo,
   TestResult,
 } from '../shared/remoteHost';
+import type { BrowserProfile, BrowserProfileInput } from '../shared/browserProfile';
 
 export {};
 
@@ -131,6 +132,16 @@ declare global {
         get(): Promise<BrowserNetworkSnapshot>;
         /** 订阅快照变更(断线标 down/重连恢复),返回退订函数 */
         onChanged(callback: (s: BrowserNetworkSnapshot) => void): () => void;
+      };
+      /** 浏览器 Profile(每工作区独立存储 + UA;权威在 main) */
+      browserProfile: {
+        /** 全部自定义 profile(默认 profile 是虚拟实体,UI 自行置顶展示) */
+        list(): Promise<BrowserProfile[]>;
+        /** 新建(省略 id)或更新(id 命中既有);默认 profile 恒拒绝 */
+        save(input: BrowserProfileInput): Promise<BrowserProfile>;
+        delete(payload: { id: string }): Promise<void>;
+        /** 订阅列表变更(增/删/改),返回退订函数 */
+        onChanged(callback: (profiles: BrowserProfile[]) => void): () => void;
       };
     };
   }

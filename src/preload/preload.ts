@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseLocaleArg, parseVersionArg } from './parseVersionArg';
 import { REMOTE_HOST_CHANNELS, BROWSER_NET_CHANNELS } from '../shared/remoteHost';
+import { BROWSER_PROFILE_CHANNELS } from '../shared/browserProfile';
+import type { BrowserProfile, BrowserProfileInput } from '../shared/browserProfile';
 import type {
   BrowserNetworkSnapshot,
   RemoteEvent,
@@ -293,6 +295,28 @@ contextBridge.exposeInMainWorld('okwork', {
       ipcRenderer.on(BROWSER_NET_CHANNELS.changed, listener);
       return () => {
         ipcRenderer.removeListener(BROWSER_NET_CHANNELS.changed, listener);
+      };
+    },
+  },
+  /** 浏览器 Profile(每工作区独立存储 + UA;权威在 main,增删改后推全量列表) */
+  browserProfile: {
+    /** 全部自定义 profile(默认 profile 是虚拟实体,UI 自行置顶展示) */
+    list(): Promise<BrowserProfile[]> {
+      return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.list);
+    },
+    /** 新建(省略 id)或更新(id 命中既有);默认 profile 恒拒绝 */
+    save(input: BrowserProfileInput): Promise<BrowserProfile> {
+      return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.save, input);
+    },
+    delete(payload: { id: string }): Promise<void> {
+      return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.delete, payload);
+    },
+    /** 订阅列表变更(增/删/改),返回退订函数 */
+    onChanged(callback: (profiles: BrowserProfile[]) => void): () => void {
+      const listener = (_e: unknown, profiles: BrowserProfile[]) => callback(profiles);
+      ipcRenderer.on(BROWSER_PROFILE_CHANNELS.changed, listener);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_PROFILE_CHANNELS.changed, listener);
       };
     },
   },
