@@ -18,6 +18,8 @@ function makeDeps(overrides: Partial<BrowserNetworkDeps> = {}): {
     setProxy: vi.fn(async (partition, rules) => {
       proxyCalls.push([partition, rules]);
     }),
+    // 默认单分区(= 旧行为);多 profile 组合分区的用例用 overrides 注入
+    partitionsOf: (configId: string) => [partitionOf(configId)],
     browserProxyFor: vi.fn(async (id: string) =>
       id.startsWith('ready') ? { socksPort: 51234 } : null,
     ),
@@ -165,5 +167,88 @@ describe('BrowserNetworkController(多分区)', () => {
     ctrl.onHostRemoved('other');
     await new Promise((r) => setTimeout(r, 0));
     expect(d.emitted).toHaveLength(1); // 无变化不广播
+  });
+});
+
+// ---- profile × 出口 组合分区(阶段2)------------------------------------------
+
+const PID = 'a'.repeat(32);
+/** 两分区组合:默认 profile + 一个自定义 profile。 */
+const comboPartitionsOf = (configId: string) => [
+  partitionOf(configId),
+  `persist:browser-prof-${PID}-${configId}`,
+];
+
+describe('BrowserNetworkController(profile 组合分区)', () => {
+  it('preseal:出口的全部组合分区都落黑洞(未在用的绝不裸奔)', async () => {
+    const d = makeDeps({ partitionsOf: comboPartitionsOf });
+    const c = new BrowserNetworkController(d.deps);
+    await c.preseal(['cfg-1', 'local', '']);
+    expect(d.proxyCalls).toEqual([
+      ['persist:browser-cfg-1', 'socks5://127.0.0.1:1'],
+      [`persist:browser-prof-${PID}-cfg-1`, 'socks5://127.0.0.1:1'],
+    ]);
+  });
+
+  it('acquire:活代理覆盖全部组合分区;任一分区 setProxy 失败 → release+down', async () => {
+    const d = makeDeps({ partitionsOf: comboPartitionsOf });
+    const c = new BrowserNetworkController(d.deps);
+    await c.syncExits(['ready-a']);
+    expect(d.proxyCalls).toEqual([
+      ['persist:browser-ready-a', 'socks5://127.0.0.1:51234'],
+      [`persist:browser-prof-${PID}-ready-a`, 'socks5://127.0.0.1:51234'],
+    ]);
+
+    // 第二分区失败:回收端口(已设活代理的分区随之指向死端口,fail-closed 不破)
+    const d2 = makeDeps({
+      partitionsOf: comboPartitionsOf,
+      setProxy: vi.fn(async (partition: string) => {
+        if (partition.includes('prof-')) throw new Error('boom');
+      }),
+    });
+    const c2 = new BrowserNetworkController(d2.deps);
+    await c2.syncExits(['ready-a']);
+    expect(d2.released).toEqual(['ready-a']);
+    expect(c2.snapshot().exits[0].down).toBe(true);
+  });
+
+  it('onProfilesChanged:在用且 up 的出口重放活代理;down/未在用的全量黑洞(P1-1)', async () => {
+    // 动态组合:模拟「先只有默认分区,新增 profile 后集合变大」
+    let partitions = (configId: string) => [partitionOf(configId)];
+    const d = makeDeps({ partitionsOf: (id: string) => partitions(id) });
+    const c = new BrowserNetworkController(d.deps);
+    await c.syncExits(['ready-a']); // 在用且 up
+    await c.preseal(['cfg-idle']); // 已知但未在用(黑洞)
+    d.proxyCalls.length = 0;
+
+    partitions = comboPartitionsOf; // 新增 profile:集合变大
+    await c.onProfilesChanged(['ready-a', 'cfg-idle', 'local']);
+
+    // 在用出口:全部组合分区重放活代理(新分区被覆盖到)
+    expect(d.proxyCalls.slice(0, 2)).toEqual([
+      ['persist:browser-ready-a', 'socks5://127.0.0.1:51234'],
+      [`persist:browser-prof-${PID}-ready-a`, 'socks5://127.0.0.1:51234'],
+    ]);
+    // 未在用出口:全部组合分区黑洞;任何分区都没有 direct
+    expect(d.proxyCalls.slice(2)).toEqual([
+      ['persist:browser-cfg-idle', 'socks5://127.0.0.1:1'],
+      [`persist:browser-prof-${PID}-cfg-idle`, 'socks5://127.0.0.1:1'],
+    ]);
+    expect(d.proxyCalls.every(([, rules]) => rules !== null)).toBe(true);
+  });
+
+  it('onProfilesChanged:down 出口不碰活代理,组合分区全量黑洞(保持 fail-closed)', async () => {
+    const d = makeDeps({ partitionsOf: comboPartitionsOf });
+    const c = new BrowserNetworkController(d.deps);
+    await c.syncExits(['ready-a']);
+    c.onHostDown('ready-a');
+    d.proxyCalls.length = 0;
+
+    await c.onProfilesChanged(['ready-a']);
+    expect(d.proxyCalls).toEqual([
+      ['persist:browser-ready-a', 'socks5://127.0.0.1:1'],
+      [`persist:browser-prof-${PID}-ready-a`, 'socks5://127.0.0.1:1'],
+    ]);
+    expect(c.snapshot().exits[0].down).toBe(true);
   });
 });

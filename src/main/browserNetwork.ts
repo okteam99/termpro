@@ -1,9 +1,12 @@
 // 内置浏览器网络出口控制器(main 进程 · 标签级出口/多分区版 2026-07)。
 //
-// 模型:出口 → session 分区(shared/remoteHost.partitionOf)。local = persist:browser
-// 直连(不归本控制器管);每台在用远程机 = persist:browser-<configId> 独立分区,
+// 模型:出口 → session 分区【集合】(profile × 出口 二维,2026-07-21)。local 直连
+// 不归本控制器管;每台在用远程机对应一组组合分区(默认 profile 的
+// persist:browser-<configId> + 每个自定义 profile 的 persist:browser-prof-<pid>-<configId>,
+// 集合由 main 经 deps.partitionsOf 注入,单源 = browserPartitionPolicy),每个组合分区
 // 恒 setProxy(socks5://127.0.0.1:<该机本地 SOCKS 端口>) + <-loopback>(撤销 Chromium
 // 对 localhost 的隐式代理豁免——走远程出口的核心场景就是访问 remote localhost)。
+// SOCKS 端口仍按 configId 一份(同一出口各 profile 共享隧道;隔离的是存储不是链路)。
 //
 // 四条纪律:
 //  1. 声明式对账:renderer(各窗口)上报「在用出口集合」(syncExits),本控制器
@@ -17,15 +20,14 @@
 //
 // 纯逻辑 + DI 接缝(setProxy 等由 main.ts 注入真实 Electron 实现),便于单测。
 
-import {
-  partitionOf,
-  type BrowserExitState,
-  type BrowserNetworkSnapshot,
-} from '../shared/remoteHost';
+import type { BrowserExitState, BrowserNetworkSnapshot } from '../shared/remoteHost';
 
 export interface BrowserNetworkDeps {
   /** 某分区的代理设置接缝;rules=null 表示直连(mode:direct)。远程分区恒带 <-loopback>。 */
   setProxy: (partition: string, rules: string | null) => Promise<void>;
+  /** 某出口(configId)的全部组合分区(默认 profile + 每个自定义 profile;调用期取值,
+   *  profile 增删后集合自动变新)。单源 = main 的 browserPartitionPolicy.partitionsOfExit。 */
+  partitionsOf: (configId: string) => string[];
   /** 拉起/复用某远程机本地 SOCKS 端口;非 ready → null。 */
   browserProxyFor: (configId: string) => Promise<{ socksPort: number } | null>;
   /** 出口不再使用时回收其 SOCKS 代理(幂等)。 */
@@ -65,11 +67,32 @@ export class BrowserNetworkController {
     return this.enqueue(async () => {
       for (const hostId of hostIds) {
         if (!hostId || hostId === 'local' || this.exits.has(hostId)) continue;
-        await this.deps
-          .setProxy(partitionOf(hostId), BLACKHOLE_PROXY)
-          .catch(() => undefined);
+        await this.sealAll(hostId);
       }
     });
+  }
+
+  /**
+   * profile 集合变化(新增 profile 保存后调用):各出口的组合分区集合已变。
+   * 在用且 up 的出口 → 重放 acquire(活代理覆盖到新组合分区);其余(未在用/down)
+   * → 全量黑洞(新组合分区在首个 guest attach 前绝不裸奔,与 preseal 同一 P1-1 铁律)。
+   */
+  onProfilesChanged(hostIds: string[]): Promise<void> {
+    return this.enqueue(async () => {
+      for (const hostId of hostIds) {
+        if (!hostId || hostId === 'local') continue;
+        const e = this.exits.get(hostId);
+        if (e && !e.down) await this.acquire(hostId);
+        else await this.sealAll(hostId);
+      }
+    });
+  }
+
+  /** 某出口全部组合分区落黑洞(fail-closed 兜底;单分区失败不阻断其余)。 */
+  private async sealAll(hostId: string): Promise<void> {
+    for (const partition of this.deps.partitionsOf(hostId)) {
+      await this.deps.setProxy(partition, BLACKHOLE_PROXY).catch(() => undefined);
+    }
   }
 
   snapshot(): BrowserNetworkSnapshot {
@@ -134,7 +157,8 @@ export class BrowserNetworkController {
     });
   }
 
-  /** 建立(或重建)某出口:SOCKS + 分区代理。失败 → 挂 down(fail-closed,绝不落直连)。 */
+  /** 建立(或重建)某出口:SOCKS + 全部组合分区代理。失败 → 挂 down(fail-closed,
+   *  绝不落直连;部分分区已设的活代理随 release 变死端口,同样快速失败)。 */
   private async acquire(configId: string): Promise<void> {
     const proxy = await this.deps.browserProxyFor(configId);
     if (!proxy) {
@@ -142,12 +166,12 @@ export class BrowserNetworkController {
       return;
     }
     try {
-      await this.deps.setProxy(
-        partitionOf(configId),
-        `socks5://127.0.0.1:${proxy.socksPort}`,
-      );
+      for (const partition of this.deps.partitionsOf(configId)) {
+        await this.deps.setProxy(partition, `socks5://127.0.0.1:${proxy.socksPort}`);
+      }
     } catch {
-      // setProxy 失败:回收刚建的端口防泄漏,挂 down(该分区绝不落直连)
+      // setProxy 失败:回收刚建的端口防泄漏,挂 down(任何分区绝不落直连;
+      // 已设活代理的分区随端口回收指向死端口——fail-closed 不破)
       this.deps.releaseBrowserProxy(configId);
       this.exits.set(configId, { down: true });
       return;

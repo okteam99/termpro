@@ -36,10 +36,13 @@ import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
 import { BrowserNetworkController } from './browserNetwork';
 import { BrowserProfileStore } from './browserProfileStore';
+import { createBrowserPartitionPolicy } from './browserPartitionPolicy';
 import { JsonFileSettingsStore } from './settingsStore';
 import { BROWSER_NET_CHANNELS } from '../shared/remoteHost';
 import {
   BROWSER_PROFILE_CHANNELS,
+  DEFAULT_PROFILE_ID,
+  parseBrowserPartition,
   type BrowserProfileInput,
 } from '../shared/browserProfile';
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
@@ -105,14 +108,9 @@ let mainWin: BrowserWindow | null = null;
 const fileWins = new Map<string, BrowserWindow>();
 let diffWin: BrowserWindow | null = null;
 
-// 浏览器分区判定(标签级出口):persist:browser=本机直连;persist:browser-<configId>=
-// 远程分区(恒代理,attach 时静态设 WebRTC 防泄漏,不再全局切换)。
-const isRemoteBrowserPartition = (partition: string | undefined): boolean =>
-  typeof partition === 'string' && partition.startsWith('persist:browser-');
-const isKnownBrowserPartition = (partition: string | undefined): boolean =>
-  partition === 'persist:browser' ||
-  (isRemoteBrowserPartition(partition) &&
-    remoteHostConfigStore.get(partition!.slice('persist:browser-'.length)) !== undefined);
+// 浏览器分区判定:profile × 出口 二维(阶段2)——白名单/本机直连集合/组合分区枚举
+// 单源在 browserPartitionPolicy(下方 store 声明后创建;wireBrowserWebviewPolicies
+// 等使用点都在 ready 之后,不存在 TDZ)。
 
 // .md 文件关联:双击 md / 「打开方式」选 OkWork → 查看器窗口打开。
 // macOS 冷启动时 open-file 可能早于 ready,先入队,ready 后统一打开(openFileWindow
@@ -180,6 +178,12 @@ const browserProfileStore = new BrowserProfileStore(
     file: 'browser-profiles.json',
   }),
 );
+// 分区策略:白名单双确认(profile/config 存在性)+ 本机直连集合 + 组合分区枚举
+const browserPartitionPolicy = createBrowserPartitionPolicy({
+  hasProfile: (id) => browserProfileStore.get(id) !== null,
+  hasRemoteConfig: (id) => remoteHostConfigStore.get(id) !== null,
+  listProfileIds: () => browserProfileStore.list().map((p) => p.id),
+});
 const remoteHostOrchestrator = new RemoteHostOrchestrator({
   connectSsh: SshConnection.connect,
   credentials: remoteHostCredentials,
@@ -233,6 +237,8 @@ const browserNetwork = new BrowserNetworkController({
     ),
   browserProxyFor: (configId) => remoteHostOrchestrator.browserProxyFor(configId),
   releaseBrowserProxy: (configId) => remoteHostOrchestrator.releaseBrowserProxy(configId),
+  // 组合分区集合(profile × 该出口;调用期取值,profile 增删后自动变新)
+  partitionsOf: (configId) => browserPartitionPolicy.partitionsOfExit(configId),
   aliasOf: (configId) => remoteHostConfigStore.get(configId)?.alias,
   emitChanged: (snapshot) => {
     // 广播到所有窗口:主窗 + 弹出的窗格壳窗(各自的出口选择器都要收 down/恢复)
@@ -287,16 +293,35 @@ ipcMain.handle(BROWSER_PROFILE_CHANNELS.save, (event, payload: BrowserProfileInp
   }
   const saved = browserProfileStore.save(payload);
   broadcastBrowserProfiles();
+  // 新增 profile ⇒ 各远程出口的组合分区集合变大:在用且 up 的重放活代理覆盖新分区,
+  // 其余全量黑洞(P1-1 铁律:新组合分区在首个 guest attach 前绝不裸奔)。更新(改名/
+  // 改 UA)不影响代理拓扑,重放幂等无害,不做区分。
+  void browserNetwork.onProfilesChanged(remoteHostConfigStore.list().map((c) => c.id));
   return saved;
 });
 ipcMain.handle(BROWSER_PROFILE_CHANNELS.delete, (event, payload: { id: string }) => {
   if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
     throw new Error('browserProfile.delete: main window only');
   }
-  const removed = browserProfileStore.delete(
-    typeof payload?.id === 'string' ? payload.id : '',
-  );
-  if (removed) broadcastBrowserProfiles();
+  const id = typeof payload?.id === 'string' ? payload.id : '';
+  // partitionsOfProfile 只依赖给定 id 与 config 列表(不查 profile 存在性),故删除后
+  // 仍可枚举清盘;白名单则从删除一刻起拒绝该 profile 的新 attach。
+  const removed = browserProfileStore.delete(id);
+  if (!removed) return;
+  broadcastBrowserProfiles();
+  // 删除语义 = 清盘(用户可见文案已明示):该 profile 全部组合分区的存储/缓存清空,
+  // 防孤儿数据堆积。webview 若仍在挂(renderer 对账回落 default 前的窗口期),清的
+  // 是活 session——无害,标签随对账重挂到 default 分区。
+  for (const partition of browserPartitionPolicy.partitionsOfProfile(
+    id,
+    remoteHostConfigStore.list().map((c) => c.id),
+  )) {
+    const ses = session.fromPartition(partition);
+    void ses
+      .clearStorageData()
+      .then(() => ses.clearCache())
+      .catch((err) => console.error('[main] profile partition clear failed:', err));
+  }
 });
 
 // ---- 浏览器窗格窗口化(弹出=整个窗格独立成窗 · OkBrowser-<终端tab名>)---------
@@ -926,8 +951,8 @@ function buildMenu(): void {
  * 内置浏览器 webview 的硬化与策略接线(主窗与浏览器窗格壳窗共用):
  * - 🔴 will-attach 硬化(opus 评审 P1):guest webPreferences 创建前锁定——即使 renderer
  *   被注入任意 HTML,也造不出带 node/自定义 preload 的 webview;初始 src 收口 http(s);
- *   分区白名单(标签级出口):只许 persist:browser / persist:browser-<已知 configId>,
- *   被注入的 renderer 不能借任意 partition 逃出浏览器分区体系。
+ *   分区白名单(profile × 出口 二维,单源 browserPartitionPolicy):只许【已知 profile
+ *   × 已知出口】的组合分区,被注入的 renderer 不能借任意 partition 逃出浏览器分区体系。
  * - WebRTC 防泄漏静态化:远程分区恒代理 → attach 即 disable_non_proxied_udp
  *   (SOCKS5 只代理 TCP,UDP 会绕过代理暴露本机真实 IP);本机分区直连保持默认。
  * - 弹窗策略:target=_blank/window.open 恒不开原生新窗,http(s) 送回【本窗口】renderer
@@ -941,10 +966,27 @@ function wireBrowserWebviewPolicies(win: BrowserWindow): void {
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
     if (params.src && !/^https?:\/\//i.test(params.src)) event.preventDefault();
-    if (!isKnownBrowserPartition(params.partition)) event.preventDefault();
+    if (!browserPartitionPolicy.isKnown(params.partition)) {
+      event.preventDefault();
+      return;
+    }
+    // 每分区 UA(profile 自定义;默认 profile 恒系统默认):attach 前设 session UA,
+    // 覆盖 service worker 等 session 级请求;guest 首帧 UA 由 renderer 的 webview
+    // useragent 属性另行兜底(双保险,见阶段3)。幂等,重复 attach 无副作用。
+    const parsed = parseBrowserPartition(params.partition!);
+    if (parsed && parsed.profileId !== DEFAULT_PROFILE_ID) {
+      const ua = browserProfileStore.get(parsed.profileId)?.userAgent;
+      if (ua) session.fromPartition(params.partition!).setUserAgent(ua);
+    }
   });
   win.webContents.on('did-attach-webview', (_event, guest) => {
-    if (guest.session !== session.fromPartition('persist:browser')) {
+    // WebRTC 防泄漏(fail-closed 方向):只有【已知本机直连分区】保持默认;
+    // 其余(远程组合分区/一切未知)恒 disable_non_proxied_udp——SOCKS5 只代理 TCP,
+    // UDP 会绕过代理暴露本机真实 IP。
+    const isLocalDirect = browserPartitionPolicy
+      .localDirectPartitions()
+      .some((p) => guest.session === session.fromPartition(p));
+    if (!isLocalDirect) {
       guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
     }
     let lastOpenAt = 0;
