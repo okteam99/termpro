@@ -6,6 +6,7 @@ import { t } from '../../../shared/i18n';
 import { useAppStore } from '../../state/store';
 import type { BuiltinBrowserSurface, LinkBrowserMode } from '../../state/store';
 import { SettingsModal, SettingsOptionGroup, SettingsOptionRow } from './SettingsModal';
+import { BrowserProfilesSection } from './BrowserProfilesSection';
 
 // label/desc 用函数:t() 须在 render 期取词,模块级常量会被冻结在导入期语言
 const LINK_MODE_OPTIONS: {
@@ -85,6 +86,8 @@ export function BrowserSettingsPage({ onClose }: { onClose(): void }) {
           />
         ))}
       </SettingsOptionGroup>
+
+      <BrowserProfilesSection />
     </SettingsModal>
   );
 }

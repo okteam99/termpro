@@ -296,6 +296,20 @@ export const zh: Record<string, string> = {
   'The built-in browser opens in the panel on the right of the main window.':
     '内置浏览器开在主窗右侧的面板里。',
 
+  // --- 设置:浏览器 Profile 管理区块(BrowserProfilesSection) ---
+  'Browser profiles': '浏览器 Profile',
+  'Each profile has isolated cookies, storage and an optional custom User-Agent. Workspaces choose a profile in their edit dialog.':
+    '每个 profile 拥有独立的 cookie/存储空间,并可自定义 User-Agent。工作区在其编辑弹层里选择使用哪个 profile。',
+  'OkWork (built-in)': 'OkWork(内置)',
+  'Built-in': '内置',
+  'Shared default storage · system User-Agent': '共享默认存储 · 系统 User-Agent',
+  'System default User-Agent': '系统默认 User-Agent',
+  'New profile': '新建 Profile',
+  'Profile name': 'Profile 名称',
+  // 'Edit'/'Delete' 字典已有(RemoteHostsPage 引入),不重复加
+  'Delete profile "{name}"? Its cookies, logins and cache on this device will be cleared.':
+    '删除 profile「{name}」?本机上它的 cookie、登录态与缓存将被清除。',
+
   // --- 浏览器 Profile(main/browserProfileStore 校验文案) ---
   'The built-in profile cannot be modified': '内置 profile 不可修改',
   'Profile name is required': 'Profile 名称不能为空',

@@ -1,0 +1,178 @@
+// @vitest-environment jsdom
+/// <reference types="@testing-library/jest-dom" />
+// 浏览器 Profile 管理区块(BrowserSettingsPage 追加区块):内置行恒在展示 + 自定义
+// profile 的增/改/删。store 镜像用 useAppStore.setState 播种(profilesSync 服务本身
+// 不在本测试范围内);window.okwork.browserProfile 用内存态假桥挂桩。
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import * as matchers from '@testing-library/jest-dom/matchers';
+
+expect.extend(matchers);
+
+// store.ts → terminalRegistry.ts 会拉入 @xterm/* 浏览器模块,本测试与终端无关,
+// mock 掉断开该链(复刻 BrowserPanel.test.tsx 的惯例)。
+vi.mock('../../../terminal/terminalRegistry', () => ({
+  disposeTerminal: vi.fn(),
+  getSessionId: vi.fn(),
+}));
+
+import { BrowserProfilesSection } from '../BrowserProfilesSection';
+import { useAppStore } from '../../../state/store';
+import type { BrowserProfile, BrowserProfileInput } from '../../../../shared/browserProfile';
+
+function profile(overrides: Partial<BrowserProfile> = {}): BrowserProfile {
+  return { id: 'p1', name: 'Work', createdAt: 1, ...overrides };
+}
+
+/** 挂桩 window.okwork.browserProfile:save/delete 默认成功,可传 override 令其 reject。 */
+function mockBridge(overrides: {
+  save?: (input: BrowserProfileInput) => Promise<BrowserProfile>;
+  delete?: (payload: { id: string }) => Promise<void>;
+} = {}) {
+  const bridge = {
+    list: vi.fn().mockResolvedValue([]),
+    save: vi.fn(
+      overrides.save ??
+        (async (input: BrowserProfileInput) => ({
+          id: input.id ?? 'new-id',
+          name: input.name,
+          userAgent: input.userAgent,
+          createdAt: Date.now(),
+        })),
+    ),
+    delete: vi.fn(overrides.delete ?? (async () => undefined)),
+    onChanged: vi.fn(() => () => undefined),
+  };
+  (window as unknown as { okwork: unknown }).okwork = { browserProfile: bridge };
+  return bridge;
+}
+
+beforeEach(() => {
+  useAppStore.setState({ browserProfiles: [] });
+});
+
+afterEach(() => {
+  cleanup();
+  delete (window as unknown as { okwork?: unknown }).okwork;
+  vi.restoreAllMocks();
+});
+
+describe('BrowserProfilesSection', () => {
+  it('内置行恒在且无编辑/删除按钮;自定义 profile 逐行展示 UA 摘要', () => {
+    mockBridge();
+    useAppStore.setState({
+      browserProfiles: [
+        profile({ id: 'p1', name: 'Work', userAgent: 'CustomUA/1.0' }),
+        profile({ id: 'p2', name: 'Personal' }),
+      ],
+    });
+    render(<BrowserProfilesSection />);
+
+    expect(screen.getByText('OkWork (built-in)')).toBeInTheDocument();
+    expect(screen.getByText('Built-in')).toBeInTheDocument();
+    expect(screen.getByText('Shared default storage · system User-Agent')).toBeInTheDocument();
+
+    expect(screen.getByText('Work')).toBeInTheDocument();
+    expect(screen.getByText('CustomUA/1.0')).toBeInTheDocument();
+    expect(screen.getByText('Personal')).toBeInTheDocument();
+    expect(screen.getByText('System default User-Agent')).toBeInTheDocument();
+
+    // 只有两个自定义 profile 各一对编辑/删除;内置行不贡献按钮
+    expect(screen.getAllByText('Edit')).toHaveLength(2);
+    expect(screen.getAllByText('Delete')).toHaveLength(2);
+  });
+
+  it('新增:点新建 → 填名 → 保存以 {name, userAgent} 调用 save;名称空白时保存禁用', async () => {
+    const bridge = mockBridge();
+    render(<BrowserProfilesSection />);
+
+    fireEvent.click(screen.getByText('+ New profile'));
+    const saveBtn = screen.getByText('Save');
+    expect(saveBtn).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText('Profile name'), {
+      target: { value: 'Shopping' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('System default User-Agent'), {
+      target: { value: 'UA-X' },
+    });
+    expect(saveBtn).not.toBeDisabled();
+
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(bridge.save).toHaveBeenCalledWith({
+        id: undefined,
+        name: 'Shopping',
+        userAgent: 'UA-X',
+      });
+    });
+    // 保存成功后表单关闭
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Profile name')).not.toBeInTheDocument();
+    });
+  });
+
+  it('编辑:点某行编辑 → 表单预填 → 保存带 id', async () => {
+    const bridge = mockBridge();
+    useAppStore.setState({
+      browserProfiles: [profile({ id: 'p1', name: 'Work', userAgent: 'CustomUA/1.0' })],
+    });
+    render(<BrowserProfilesSection />);
+
+    fireEvent.click(screen.getByText('Edit'));
+    const nameInput = screen.getByPlaceholderText('Profile name') as HTMLInputElement;
+    const uaInput = screen.getByPlaceholderText('System default User-Agent') as HTMLInputElement;
+    expect(nameInput.value).toBe('Work');
+    expect(uaInput.value).toBe('CustomUA/1.0');
+
+    fireEvent.change(nameInput, { target: { value: 'Work (renamed)' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(bridge.save).toHaveBeenCalledWith({
+        id: 'p1',
+        name: 'Work (renamed)',
+        userAgent: 'CustomUA/1.0',
+      });
+    });
+  });
+
+  it('删除:confirm 确认后调用 delete;取消则不调用', async () => {
+    const bridge = mockBridge();
+    useAppStore.setState({ browserProfiles: [profile({ id: 'p1', name: 'Work' })] });
+    render(<BrowserProfilesSection />);
+
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
+    fireEvent.click(screen.getByText('Delete'));
+    expect(bridge.delete).not.toHaveBeenCalled();
+
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+    fireEvent.click(screen.getByText('Delete'));
+    await waitFor(() => {
+      expect(bridge.delete).toHaveBeenCalledWith({ id: 'p1' });
+    });
+  });
+
+  it('save reject → 表单内展示错误行,表单不关闭', async () => {
+    const bridge = mockBridge({
+      save: async () => {
+        throw new Error('Profile name is required');
+      },
+    });
+    render(<BrowserProfilesSection />);
+
+    fireEvent.click(screen.getByText('+ New profile'));
+    fireEvent.change(screen.getByPlaceholderText('Profile name'), {
+      target: { value: 'X' },
+    });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Profile name is required/)).toBeInTheDocument();
+    });
+    expect(bridge.save).toHaveBeenCalled();
+    // 表单仍开着
+    expect(screen.getByPlaceholderText('Profile name')).toBeInTheDocument();
+  });
+});

@@ -1,0 +1,197 @@
+/* 浏览器 Profile 管理区块(BrowserSettingsPage 追加区块)· 视觉语言抄自
+   SettingsModal.css(组标题/说明文案排版)与 RemoteHostsPage.css(列表行/表单)。 */
+
+.browser-profiles {
+  /* 对齐 .settings-modal__group + .settings-modal__group 的组间距 */
+  margin-top: 18px;
+}
+
+.browser-profiles__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--fg-dim);
+  margin-bottom: 6px;
+}
+
+.browser-profiles__desc {
+  font-size: 11px;
+  color: var(--fg-dim);
+  line-height: 1.45;
+  margin-bottom: 10px;
+}
+
+.browser-profiles__list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-y: auto;
+  /* 紧凑行高 · 约 6 行后滚动(行高 ~34px) */
+  max-height: 204px;
+}
+
+.browser-profiles__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-profiles__row:last-child {
+  border-bottom: none;
+}
+
+.browser-profiles__name {
+  flex: none;
+  font-weight: 600;
+  color: var(--fg);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-profiles__badge {
+  flex: none;
+  font-size: 10px;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.browser-profiles__row-desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.browser-profiles__row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.browser-profiles__action {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.browser-profiles__action:hover {
+  color: var(--fg);
+  background: var(--bg-active);
+}
+
+.browser-profiles__action--danger {
+  color: var(--red, #e06c75);
+  border-color: rgba(224, 108, 117, 0.4);
+}
+
+.browser-profiles__action--danger:hover {
+  background: rgba(224, 108, 117, 0.12);
+}
+
+.browser-profiles__add-btn {
+  width: 100%;
+  margin-top: 8px;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.browser-profiles__add-btn:hover {
+  background: var(--bg-active);
+}
+
+.browser-profiles__form {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.browser-profiles__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.browser-profiles__field input {
+  height: 26px;
+  padding: 2px 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.browser-profiles__form-error {
+  padding: 8px 10px;
+  background: rgba(224, 108, 117, 0.08);
+  border: 1px solid rgba(224, 108, 117, 0.28);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--red, #e06c75);
+  line-height: 1.5;
+}
+
+.browser-profiles__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.browser-profiles__btn {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.browser-profiles__btn:hover {
+  background: var(--bg-active);
+}
+
+.browser-profiles__btn--primary {
+  background: var(--accent);
+  border-color: rgba(74, 141, 248, 0.8);
+  color: #fff;
+}
+
+.browser-profiles__btn--primary:hover {
+  opacity: 0.9;
+}
+
+.browser-profiles__btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
