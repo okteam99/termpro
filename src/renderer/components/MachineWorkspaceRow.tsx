@@ -128,7 +128,7 @@ export interface MachineWorkspaceRowProps {
   onClick?: () => void;
   /** 行右上角 hover 显现的 × 删除钮(与本机行同款);缺省不渲染 */
   onRemove?: () => void;
-  /** 名称旁 hover 显现的铅笔重命名钮(与本机行同款);缺省不渲染 */
+  /** 名称旁 hover 显现的铅笔编辑钮(改名 + 浏览器 profile,与本机行同款);缺省不渲染 */
   onRename?: () => void;
 }
 
@@ -158,7 +158,7 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: Machine
               e.stopPropagation();
               onRename();
             }}
-            title={t('Rename workspace')}
+            title={t('Edit workspace')}
           >
             <PencilIcon />
           </button>

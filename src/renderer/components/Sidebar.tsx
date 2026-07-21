@@ -14,7 +14,7 @@ import { scheduleDropUnlessReconnecting } from '../services/reconnectController'
 import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
 import type { RemoteHostConfig } from '../../shared/remoteHost';
 import { ProtocolIncompatibleError } from '../../shared/versionCompat';
-import { RenameModal } from './RenameModal';
+import { WorkspaceEditModal } from './WorkspaceEditModal';
 import { NotificationCenter } from './NotificationCenter';
 import { SettingsEntry } from './SettingsEntry';
 import { AddWorkspaceModal } from './AddWorkspaceModal';
@@ -161,7 +161,6 @@ export function Sidebar() {
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const removeWorkspace = useAppStore((s) => s.removeWorkspace);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const renameWorkspace = useAppStore((s) => s.renameWorkspace);
   const moveWorkspace = useAppStore((s) => s.moveWorkspace);
   const notifications = useAppStore((s) => s.notifications);
   const collapsedMachines = useAppStore((s) => s.collapsedMachines);
@@ -176,7 +175,7 @@ export function Sidebar() {
   const unreadCount = notifications.filter((n) => !n.read).length;
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
-  // Modal state: null = closed, string = workspace id being renamed
+  // Modal state: null = closed, string = workspace id being edited
   const [editingId, setEditingId] = useState<string | null>(null);
   const [ncOpen, setNcOpen] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -436,13 +435,9 @@ export function Sidebar() {
     confirmRemove(id, name);
   }
 
-  function openRenameModal(e: React.MouseEvent, id: string) {
+  function openEditModal(e: React.MouseEvent, id: string) {
     e.stopPropagation();
     setEditingId(id);
-  }
-
-  function handleModalSave(id: string, name: string) {
-    void renameWorkspace(id, name);
   }
 
   function handleModalClose() {
@@ -509,7 +504,7 @@ export function Sidebar() {
     moveWorkspace(srcId, dest < 0 ? 0 : dest);
   }
 
-  // Find the workspace being renamed (for the modal's initial name)
+  // Find the workspace being edited (for the modal's initial name/profile)
   const editingWorkspace = editingId
     ? workspaces.find((w) => w.id === editingId) ?? null
     : null;
@@ -675,8 +670,8 @@ export function Sidebar() {
                         <button
                           className="sidebar-edit-btn no-drag"
                           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                          onClick={(e) => openRenameModal(e, ws.id)}
-                          title={t('Rename Workspace')}
+                          onClick={(e) => openEditModal(e, ws.id)}
+                          title={t('Edit workspace')}
                         >
                           <PencilIcon />
                         </button>
@@ -737,14 +732,9 @@ export function Sidebar() {
         <SettingsEntry devChannel={window.okwork.devChannel} />
       </div>
 
-      {/* Rename modal — rendered at sidebar root level */}
+      {/* 工作区编辑弹层(改名 + 浏览器 profile)— 渲染在 sidebar 根节点 */}
       {editingWorkspace && (
-        <RenameModal
-          title={t('Rename Workspace')}
-          initialValue={editingWorkspace.name}
-          onSave={(name) => handleModalSave(editingWorkspace.id, name)}
-          onClose={handleModalClose}
-        />
+        <WorkspaceEditModal workspace={editingWorkspace} onClose={handleModalClose} />
       )}
 
       {/* 远程机配置弹层(组头齿轮入口):编辑/删除远程机;删除后 E4 轮询清残留分组 */}

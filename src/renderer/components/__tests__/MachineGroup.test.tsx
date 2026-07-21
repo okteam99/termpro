@@ -96,7 +96,7 @@ describe('MachineGroup · 已连接展开(AC-2)', () => {
         onRemoveWorkspace={onRemoveWorkspace}
       />,
     );
-    fireEvent.click(screen.getByTitle('Rename workspace'));
+    fireEvent.click(screen.getByTitle('Edit workspace'));
     expect(onRenameWorkspace).toHaveBeenCalledWith(machine, machine.workspaces?.[0]);
     fireEvent.click(screen.getByTitle('Remove workspace'));
     expect(onRemoveWorkspace).toHaveBeenCalledWith(machine, machine.workspaces?.[0]);

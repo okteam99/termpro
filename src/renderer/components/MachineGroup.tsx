@@ -167,7 +167,7 @@ export interface MachineGroupProps {
   onSelectWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
   /** 行级 × 删除钮(与本机行同款);缺省不渲染 */
   onRemoveWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
-  /** 行级铅笔重命名钮(与本机行同款);缺省不渲染 */
+  /** 行级铅笔编辑钮(改名 + 浏览器 profile,与本机行同款);缺省不渲染 */
   onRenameWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
   /** 已连接但该机 0 个 workspace 时的「添加项目」入口;缺省渲染纯文案不可点 */
   onAddWorkspace?: (machineId: string) => void;

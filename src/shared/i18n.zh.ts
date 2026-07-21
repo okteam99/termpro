@@ -15,7 +15,11 @@ export const zh: Record<string, string> = {
   'Local': '本机',
   'Disconnected · Click to reconnect': '已断开 · 点击重连',
   'Notifications': '通知',
-  'Rename Workspace': '重命名 Workspace',
+  'Edit Workspace': '编辑 Workspace',
+  'Edit workspace': '编辑 workspace',
+  'Browser profile': '浏览器 Profile',
+  'Profiles have isolated cookies and storage. Switching reloads this workspace’s browser tabs.':
+    'Profile 之间 cookie 与存储相互隔离;切换会重载本工作区的浏览器标签。',
 
   // --- MachineGroup ---
   'Connecting…': '连接中…',
@@ -388,7 +392,6 @@ export const zh: Record<string, string> = {
   // 以下 key 有意留英(两端同文案),勿当漏项:
   //   '0 session' / '{count} session' / '{count} session · {running} running'
   //     —— 用户指定徽章用 "N session"(2026-07-11);
-  //   'Rename workspace'(已统一为 'Rename Workspace',无小写调用点);
   //   'DEV'(渠道徽标)/ 'Root' / 'WorkTree' / 'Diff' / 'diff' / 'detached' /
   //   'detached · {head}' / '{branch} · {head}' / 'exit {code}' / 'exited'
   //     —— git/终端术语与纯插值,不译;
