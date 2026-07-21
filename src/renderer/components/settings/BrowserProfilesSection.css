@@ -150,6 +150,24 @@
   font-size: 12px;
 }
 
+/* UA 输入行:输入框 + 随机生成按钮并排 */
+.browser-profiles__ua-row {
+  display: flex;
+  gap: 6px;
+}
+
+.browser-profiles__ua-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.browser-profiles__ua-row .browser-profiles__btn {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .browser-profiles__form-error {
   padding: 8px 10px;
   background: rgba(224, 108, 117, 0.08);

@@ -7,6 +7,7 @@ import { useState, type KeyboardEvent } from 'react';
 import './BrowserProfilesSection.css';
 import { t } from '../../../shared/i18n';
 import { useAppStore } from '../../state/store';
+import { randomUserAgent } from './randomUserAgent';
 import type { BrowserProfile } from '../../../shared/browserProfile';
 
 interface FormValues {
@@ -137,11 +138,23 @@ export function BrowserProfilesSection() {
             />
           </label>
           <label className="browser-profiles__field">
-            <input
-              value={formValues.userAgent}
-              onChange={(e) => setFormValues({ ...formValues, userAgent: e.target.value })}
-              placeholder={t('System default User-Agent')}
-            />
+            <span className="browser-profiles__ua-row">
+              <input
+                value={formValues.userAgent}
+                onChange={(e) => setFormValues({ ...formValues, userAgent: e.target.value })}
+                placeholder={t('System default User-Agent')}
+              />
+              <button
+                type="button"
+                className="browser-profiles__btn"
+                title={t('Generate a random User-Agent')}
+                onClick={() =>
+                  setFormValues({ ...formValues, userAgent: randomUserAgent() })
+                }
+              >
+                🎲 {t('Random')}
+              </button>
+            </span>
           </label>
           {formError && (
             <div className="browser-profiles__form-error" role="alert">

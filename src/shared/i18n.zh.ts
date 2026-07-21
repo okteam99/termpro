@@ -310,6 +310,8 @@ export const zh: Record<string, string> = {
   'System default User-Agent': '系统默认 User-Agent',
   'New profile': '新建 Profile',
   'Profile name': 'Profile 名称',
+  'Random': '随机',
+  'Generate a random User-Agent': '随机生成一个 User-Agent',
   // 'Edit'/'Delete' 字典已有(RemoteHostsPage 引入),不重复加
   'Delete profile "{name}"? Its cookies, logins and cache on this device will be cleared.':
     '删除 profile「{name}」?本机上它的 cookie、登录态与缓存将被清除。',
