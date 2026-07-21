@@ -198,6 +198,8 @@ export function serialize(s: AppState): PersistedState {
     activeWorkspaceId,
     workspaces: localWorkspaces.map((w) => ({
       workspaceId: w.id,
+      // 浏览器 profile 绑定(缺省=默认 profile 不写盘)
+      ...(w.browserProfileId ? { browserProfileId: w.browserProfileId } : {}),
       activeTabId: w.activeTabId,
       tabs: w.tabs.map(serializeTab),
     })),
@@ -225,6 +227,7 @@ function serializeRemoteTabs(s: AppState): PersistedRemoteWorkspace[] {
     .map((w) => ({
       hostId: w.hostId,
       workspaceId: w.id,
+      ...(w.browserProfileId ? { browserProfileId: w.browserProfileId } : {}),
       activeTabId: w.activeTabId,
       // sessionId 已由 serializeTab 统一写入(本地/远程同构)
       tabs: w.tabs.map(serializeTab),

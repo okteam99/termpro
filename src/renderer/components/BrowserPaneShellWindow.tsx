@@ -9,12 +9,15 @@ import { BrowserPanel } from './BrowserPanel';
 import { useAppStore } from '../state/store';
 import type { BrowserTabState } from '../state/store';
 import { initBrowserControlBridge } from '../services/browserControlBridge';
+import { initProfilesSync } from '../services/profilesSync';
 import { t } from '../../shared/i18n';
 
 interface PaneSeed {
   terminalTabId: string;
   tabName: string;
   ownerHostId: string;
+  /** 所属 ws 的浏览器 profile 绑定(缺省 = 默认 profile;分区/UA 随之) */
+  browserProfileId?: string;
   pane: { tabs: BrowserTabState[]; activeTabId: string | null };
 }
 
@@ -36,6 +39,9 @@ function sanitizeSeed(raw: unknown, terminalTabId: string): PaneSeed | null {
     terminalTabId,
     tabName: typeof p.tabName === 'string' ? p.tabName : 'Tab',
     ownerHostId: typeof p.ownerHostId === 'string' ? p.ownerHostId : 'local',
+    ...(typeof p.browserProfileId === 'string' && p.browserProfileId
+      ? { browserProfileId: p.browserProfileId }
+      : {}),
     pane: {
       tabs,
       activeTabId: tabs.some((b) => b.id === p.pane?.activeTabId)
@@ -51,8 +57,10 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
 
   // AI 浏览器控制:窗格弹出后 webview 活在本壳窗,main 把该 tab 的 browserControl:invoke
   // 改路由到本窗(见 main.invokeBrowserControl)。故壳窗也要挂控制桥,让 MCP 能驱动弹出窗口。
+  // profile 快照同步同理:本窗 store 独立,分区计算/UA 透传吃本地快照。
   useEffect(() => {
     initBrowserControlBridge();
+    initProfilesSync();
   }, []);
 
   // 取种子 → 种本窗 store(单 workspace 单终端 tab,BrowserPanel 全量复用)
@@ -72,6 +80,7 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
               name: s.tabName,
               root: '/',
               hostId: s.ownerHostId,
+              ...(s.browserProfileId ? { browserProfileId: s.browserProfileId } : {}),
               tabs: [
                 {
                   id: terminalTabId,

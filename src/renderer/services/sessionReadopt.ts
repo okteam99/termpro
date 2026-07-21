@@ -99,7 +99,14 @@ export function restoreRemoteTabLayouts(
 ): void {
   const s = useAppStore.getState();
   for (const layout of s.consumeRemoteTabLayouts(configId)) {
-    if (!s.restoreWorkspaceTabs(layout.workspaceId, layout.tabs, layout.activeTabId)) {
+    if (
+      !s.restoreWorkspaceTabs(
+        layout.workspaceId,
+        layout.tabs,
+        layout.activeTabId,
+        layout.browserProfileId,
+      )
+    ) {
       continue;
     }
     for (const t of layout.tabs) {

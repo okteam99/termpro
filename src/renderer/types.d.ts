@@ -77,6 +77,8 @@ declare global {
           terminalTabId: string;
           tabName: string;
           ownerHostId: string;
+          /** 所属 ws 的浏览器 profile 绑定(缺省 = 默认 profile) */
+          browserProfileId?: string;
           pane: unknown;
         }): void;
         getState(terminalTabId: string): Promise<unknown>;

@@ -6,6 +6,8 @@ import { reconcileWorkspaces } from './workspaceSync';
 import type { WorkspaceEntry } from '../../shared/protocol';
 import { resolveLocalePref, setLocale, t } from '../../shared/i18n';
 import type { LocalePref } from '../../shared/i18n';
+import { DEFAULT_PROFILE_ID } from '../../shared/browserProfile';
+import type { BrowserProfile } from '../../shared/browserProfile';
 
 const LOCAL_HOST_ID = 'local';
 
@@ -62,8 +64,9 @@ export interface BrowserTabState {
   url: string;
   title?: string;
   /** 该标签的网络出口('local'|configId)。缺省(旧存档/旧窗格)= 所属终端 tab 的
-   *  ws.hostId(resolveBrowserTabNet)。新建标签在创建时物化;决定 webview 分区
-   *  (partitionOf),换出口 = 换分区 = 该标签 webview 重挂重载。 */
+   *  ws.hostId(resolveBrowserTabNet)。新建标签在创建时物化;与所属 ws 的
+   *  browserProfileId 共同决定 webview 分区(browserPartition(profileId, netHostId)),
+   *  换出口/换 profile = 换分区 = 该标签 webview 重挂重载。 */
   netHostId?: string;
 }
 
@@ -117,6 +120,9 @@ export interface WorkspaceState {
   /** 运行时路由键(BL-004):'local' | configId。'local' 随存档持久化 v2;
    *  非 local(远程发现注入)为纯视图态,serialize 过滤不写盘。hostRegistry.forWorkspace(ws) 据此选客户端。 */
   hostId: string;
+  /** 该工作区使用的浏览器 profile(独立存储空间 + UA);缺省 = 内置默认 profile。
+   *  分区 = profile × 标签出口 二维(shared/browserPartition);随 v2/remoteTabs 存档。 */
+  browserProfileId?: string;
   tabs: TabState[];
   activeTabId: string | null;
 }
@@ -152,6 +158,8 @@ export interface PersistedWorkspaceV1 {
 export interface PersistedWorkspaceV2 {
   /** 外键 → WorkspaceEntry.id(name/root 单源 = Host 注册表) */
   workspaceId: string;
+  /** 浏览器 profile 绑定;缺省 = 默认 profile(不写盘) */
+  browserProfileId?: string;
   activeTabId: string | null;
   tabs: PersistedTab[];
 }
@@ -165,6 +173,8 @@ export interface PersistedRemoteWorkspace {
   /** 路由键 configId(恢复时按 host 消费) */
   hostId: string;
   workspaceId: string;
+  /** 浏览器 profile 绑定;缺省 = 默认 profile(不写盘) */
+  browserProfileId?: string;
   activeTabId: string | null;
   tabs: PersistedTab[];
 }
@@ -264,12 +274,25 @@ export interface AppState {
   remoteTabLayouts: Record<string, PersistedRemoteWorkspace>;
   /** 消费(读取并删除)某 host 的全部布局条目——恢复是单次性的,消费后 live 视图态即唯一真相 */
   consumeRemoteTabLayouts(hostId: string): PersistedRemoteWorkspace[];
-  /** 布局恢复:仅当远程 ws 存在且当前 0 tab 时按存档原序重建 tabs;返回是否应用 */
+  /** 布局恢复:仅当远程 ws 存在且当前 0 tab 时按存档原序重建 tabs;返回是否应用。
+   *  browserProfileId 一并恢复(远程 ws 的 profile 绑定随布局存档走)。 */
   restoreWorkspaceTabs(
     workspaceId: string,
     tabs: PersistedTab[],
     activeTabId: string | null,
+    browserProfileId?: string,
   ): boolean;
+  // ---- 浏览器 Profile(每工作区独立存储 + UA;权威在 main,此处为快照镜像)----
+  /** 全部自定义 profile(不含虚拟默认;profilesSync 从 main 拉取/订阅) */
+  browserProfiles: BrowserProfile[];
+  /** profile 快照已到达(list 至少成功一次)——profile 绑定工作区的 webview 以此为
+   *  渲染门,避免「先按 default 挂、快照到了再重挂」的启动双载与跨分区串写 */
+  browserProfilesLoaded: boolean;
+  /** 快照落地 + 对账:workspace 绑定的 profile 已不存在 → 剥离(回落默认 profile) */
+  setBrowserProfiles(profiles: BrowserProfile[]): void;
+  /** 设置某工作区的浏览器 profile;'default'/undefined = 清除绑定(回默认)。
+   *  消费方(BrowserPanel 分区计算)据此重挂重载该 ws 全部浏览器标签。 */
+  setWorkspaceBrowserProfile(workspaceId: string, profileId: string | undefined): void;
   /** 设置/清除一次性提示 */
   setTransientNotice(text: string | null): void;
   /** 拖拽排序:把工作区移到目标下标(越界自动夹紧) */
@@ -458,6 +481,7 @@ function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemot
   return {
     hostId,
     workspaceId: w.id,
+    ...(w.browserProfileId ? { browserProfileId: w.browserProfileId } : {}),
     activeTabId: w.activeTabId,
     tabs: w.tabs.map((t) => ({
       id: t.id,
@@ -585,6 +609,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   linkBrowserMode: 'builtin',
   builtinBrowserSurface: 'window',
   remoteTabLayouts: {},
+  browserProfiles: [],
+  browserProfilesLoaded: false,
 
   hydrate(registry, archive) {
     // 🔴 旧版全局浏览器标签(面板级)→ per-tab 迁移(一次性):新存档不再写 ui.browserTabs,
@@ -678,6 +704,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           name: entry.name,
           root: entry.root,
           hostId: LOCAL_HOST_ID, // 存档只含本机 ws(远程不持久化)
+          // profile 绑定原样带回;有效性对账推迟到 setBrowserProfiles(快照到达时剥离失效绑定)
+          ...(typeof pw.browserProfileId === 'string' &&
+          pw.browserProfileId &&
+          pw.browserProfileId !== DEFAULT_PROFILE_ID
+            ? { browserProfileId: pw.browserProfileId }
+            : {}),
           tabs,
           activeTabId: resolveActiveTab(tabs, pw.activeTabId),
         });
@@ -901,7 +933,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return mine;
   },
 
-  restoreWorkspaceTabs(workspaceId, tabs, activeTabId) {
+  restoreWorkspaceTabs(workspaceId, tabs, activeTabId, browserProfileId) {
     const ws = get().workspaces.find((w) => w.id === workspaceId);
     // 仅远程 ws + 当前 0 tab 才恢复:已有 tab(闪断未 drop 的 live 视图态)以 live 为准
     if (!ws || ws.hostId === LOCAL_HOST_ID || ws.tabs.length > 0 || tabs.length === 0) {
@@ -909,12 +941,52 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     const restored = tabs.map(hydrateTab);
     const nextActive = resolveActiveTab(restored, activeTabId);
+    // profile 绑定随布局恢复;失效绑定由 setBrowserProfiles 对账剥离(与 hydrate 同策)
+    const profilePatch =
+      typeof browserProfileId === 'string' &&
+      browserProfileId &&
+      browserProfileId !== DEFAULT_PROFILE_ID
+        ? { browserProfileId }
+        : {};
     set((s) => ({
       workspaces: s.workspaces.map((w) =>
-        w.id === workspaceId ? { ...w, tabs: restored, activeTabId: nextActive } : w,
+        w.id === workspaceId
+          ? { ...w, ...profilePatch, tabs: restored, activeTabId: nextActive }
+          : w,
       ),
     }));
     return true;
+  },
+
+  setBrowserProfiles(profiles) {
+    set((s) => {
+      // 对账:绑定的 profile 已删除 → 剥离(回默认 profile;webview 随分区变化重挂)
+      const valid = new Set(profiles.map((p) => p.id));
+      let changed = false;
+      const workspaces = s.workspaces.map((w) => {
+        if (!w.browserProfileId || valid.has(w.browserProfileId)) return w;
+        changed = true;
+        const { browserProfileId: _dropped, ...rest } = w;
+        return rest as WorkspaceState;
+      });
+      return {
+        browserProfiles: profiles,
+        browserProfilesLoaded: true,
+        ...(changed ? { workspaces } : {}),
+      };
+    });
+  },
+
+  setWorkspaceBrowserProfile(workspaceId, profileId) {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => {
+        if (w.id !== workspaceId) return w;
+        const { browserProfileId: _dropped, ...rest } = w;
+        return profileId && profileId !== DEFAULT_PROFILE_ID
+          ? { ...rest, browserProfileId: profileId }
+          : (rest as WorkspaceState);
+      }),
+    }));
   },
 
   setTransientNotice(text) {

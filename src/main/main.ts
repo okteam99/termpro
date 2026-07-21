@@ -335,6 +335,8 @@ interface BrowserPaneSeed {
   terminalTabId: string;
   tabName: string;
   ownerHostId: string;
+  /** 所属 ws 的浏览器 profile 绑定(缺省 = 默认 profile;壳窗按此分区挂 webview) */
+  browserProfileId?: string;
   pane: unknown;
 }
 const paneWins = new Map<string, BrowserWindow>();

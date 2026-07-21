@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveBrowserTabNet, useAppStore, selectActiveWorkspace } from '../state/store';
 import type { BrowserTabState } from '../state/store';
 import { t } from '../../shared/i18n';
-import { partitionOf } from '../../shared/remoteHost';
+import { DEFAULT_PROFILE_ID, browserPartition } from '../../shared/browserProfile';
 import { registerBrowserView } from '../services/browserViewRegistry';
 import type {
   BrowserNetworkSnapshot,
@@ -89,9 +89,13 @@ interface BrowserWebviewProps {
   /** 该浏览器标签所属的终端 tab id;事件回写(did-navigate 等)据此定位 store 里的窗格,
    *  因为保活渲染时事件可能来自非活跃终端 tab 的后台 webview。 */
   ownerTerminalTabId: string;
-  /** 该标签的 session 分区(partitionOf(netHostId));创建后不可变——调用方换出口时
-   *  必须换 React key 重挂本组件(该标签重载,分区即网络出口+登录态边界)。 */
+  /** 该标签的 session 分区(browserPartition(profileId, netHostId));创建后不可变——
+   *  调用方换出口/换 profile 时必须换 React key 重挂本组件(该标签重载,分区即
+   *  网络出口 + profile 存储/登录态边界)。 */
   partition: string;
+  /** profile 自定义 UA(guest 首帧即生效);缺省 = 系统默认。main 侧另在 attach 前设
+   *  session UA 兜底 service worker 等 session 级请求(双保险)。变更时调用方换 key 重挂。 */
+  useragent?: string;
   url: string;
   active: boolean;
   onWebviewRef: (id: string, el: WebviewElement | null) => void;
@@ -108,6 +112,7 @@ function BrowserWebview({
   tabId,
   ownerTerminalTabId,
   partition,
+  useragent,
   url,
   active,
   onWebviewRef,
@@ -193,6 +198,8 @@ function BrowserWebview({
       ref={setRef}
       src={srcRef.current}
       partition={partition}
+      // 自定义 UA(有才落属性;空串会把 UA 覆盖成空,恒不传)
+      {...(useragent ? { useragent } : {})}
       // 🔴 无 allowpopups 时 target=_blank/window.open 在 guest 层被直接吞掉,
       // 主进程 setWindowOpenHandler 收不到请求;开了它,请求才会到达拦截器——
       // 拦截器恒 deny 原生新窗,把 http(s) URL 转成面板新标签(main.ts did-attach-webview)。
@@ -414,6 +421,8 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const workspaces = useAppStore((s) => s.workspaces);
   const activeWorkspace = useAppStore(selectActiveWorkspace);
   const browserPanelOpen = useAppStore((s) => s.browserPanelOpen);
+  const browserProfiles = useAppStore((s) => s.browserProfiles);
+  const browserProfilesLoaded = useAppStore((s) => s.browserProfilesLoaded);
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
   const closeBrowserTab = useAppStore((s) => s.closeBrowserTab);
   const setBrowserActiveTab = useAppStore((s) => s.setBrowserActiveTab);
@@ -593,6 +602,10 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
       terminalTabId: activeTermTabId,
       tabName: activeTermTab?.customName ?? activeTermTab?.title ?? 'Tab',
       ownerHostId: activeWorkspace?.hostId ?? 'local',
+      // profile 绑定随种子走:壳窗按同一 profile 分区/UA 挂 webview,弹出不换登录态
+      ...(activeWorkspace?.browserProfileId
+        ? { browserProfileId: activeWorkspace.browserProfileId }
+        : {}),
       pane: { tabs: pane.tabs, activeTabId: pane.activeTabId },
     });
     popOutBrowserPane(activeTermTabId);
@@ -750,18 +763,29 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             只挂载活跃 tab 的 webview,否则切终端 tab/切 workspace 时旧标签会被卸载重挂,
             <webview> reparent/remount 必重新加载页面。
             已弹出窗格(poppedOut)跳过:其 webview 活在壳窗,主窗渲染=同页双载。 */}
-        {workspaces.flatMap((w) =>
-          w.tabs.flatMap((tb) =>
+        {workspaces.flatMap((w) => {
+          // 分区 = profile × 出口 二维:workspace 的 profile 定第一维,标签出口定第二维。
+          // 🔴 渲染门:绑定了自定义 profile 但快照未到(browserProfilesLoaded=false)时
+          // 先不挂该 ws 的 webview——若先按快照缺省挂上,快照到达后 key 变化重挂 = 启动
+          // 双载,且首载会把页面写错分区(跨 profile 串写)。默认 profile 的 ws 不受影响。
+          const profileId = w.browserProfileId ?? DEFAULT_PROFILE_ID;
+          if (profileId !== DEFAULT_PROFILE_ID && !browserProfilesLoaded) return [];
+          const userAgent = browserProfiles.find((p) => p.id === profileId)?.userAgent;
+          return w.tabs.flatMap((tb) =>
             (tb.browser?.poppedOut ? [] : (tb.browser?.tabs ?? [])).map((bt) => {
-              // 分区 = 该标签出口(标签级网络);掺进 key——换出口即重挂重载该标签
-              // (webview partition 创建后不可变,Chromium 语义)
-              const partition = partitionOf(resolveBrowserTabNet(bt, w.hostId));
+              // 分区/UA 掺进 key——换出口/换 profile/改 UA 即重挂重载该标签
+              // (webview partition 创建后不可变,Chromium 语义;UA 变更同语义处理)
+              const partition = browserPartition(
+                profileId,
+                resolveBrowserTabNet(bt, w.hostId),
+              );
               return (
                 <BrowserWebview
-                  key={`${bt.id}:${partition}`}
+                  key={`${bt.id}:${partition}:${userAgent ?? ''}`}
                   tabId={bt.id}
                   ownerTerminalTabId={tb.id}
                   partition={partition}
+                  useragent={userAgent}
                   url={bt.url}
                   active={
                     tb.id === activeTermTabId && bt.id === (tb.browser?.activeTabId ?? null)
@@ -773,8 +797,8 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
                 />
               );
             }),
-          ),
-        )}
+          );
+        })}
         {isEmptyTab && (
           <div className="browser-panel__empty">
             {t('Enter a URL or search to get started')}

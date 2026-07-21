@@ -6,6 +6,7 @@ import { initPersistence } from './state/persistence';
 import { initSessionEvents } from './services/sessionEvents';
 import { initSettingsSync } from './services/settingsSync';
 import { initExitsSync } from './services/exitsSync';
+import { initProfilesSync } from './services/profilesSync';
 import { initBrowserControlBridge } from './services/browserControlBridge';
 import { setBrowserMcpBase } from './terminal/browserMcpEnv';
 import { Sidebar } from './components/Sidebar';
@@ -95,6 +96,7 @@ export default function App() {
     initSessionEvents();
     initSettingsSync();
     initExitsSync();
+    initProfilesSync();
     initBrowserControlBridge();
     // 拉一次 MCP base URL,本地 session spawn 时据此注入终端 env(agent 发现浏览器端点)
     void window.okwork?.browserControl?.mcpBase?.().then(setBrowserMcpBase).catch(() => undefined);
