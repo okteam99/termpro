@@ -67,6 +67,21 @@ export function parseBrowserPartition(
   return { profileId: DEFAULT_PROFILE_ID, netHostId: rest };
 }
 
+/**
+ * 某字符串用作网络出口 id(configId)时,是否会与 profile 分区命名空间碰撞——即
+ * browserPartition('default', id) 会被 parseBrowserPartition 误读成某 profile 的分区。
+ * 🔴 configId 由 renderer 提供(remoteHost.save 展开 ...config,HostConfigStore 无形状
+ * 校验),save 时必须据此拒绝:否则被注入的主窗 renderer 可先建 profile 拿到其 id X、
+ * 再把 configId 设成 `prof-<X>`,让 default 走该出口的远程分区与 profile X 的本机直连
+ * 分区【同名】——WebRTC 防泄漏判定(localDirectPartitions 含 profile-X-local)会把这个
+ * 已挂活代理的远程分区误判为本机直连、不设 disable_non_proxied_udp → UDP 从真实 IP 泄漏。
+ * 本守卫恢复文件头「自定义 profile id 无 '-' 是可解析前提」所依赖的命名空间不相交性。
+ */
+export function isReservedNetHostId(id: string): boolean {
+  const parsed = parseBrowserPartition(browserPartition(DEFAULT_PROFILE_ID, id));
+  return parsed !== null && parsed.profileId !== DEFAULT_PROFILE_ID;
+}
+
 /** 浏览器 Profile IPC 通道(preload bridge ↔ main handler 单源)。 */
 export const BROWSER_PROFILE_CHANNELS = {
   /** 全部自定义 profile(默认 profile 是虚拟实体,renderer 侧自行置顶展示)。 */

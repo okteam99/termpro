@@ -6,6 +6,7 @@ import {
   DEFAULT_PROFILE_ID,
   PROFILE_ID_RE,
   browserPartition,
+  isReservedNetHostId,
   parseBrowserPartition,
 } from '../browserProfile';
 import { partitionOf } from '../remoteHost';
@@ -75,5 +76,20 @@ describe('parseBrowserPartition', () => {
     expect(PROFILE_ID_RE.test('A'.repeat(32))).toBe(false);
     expect(PROFILE_ID_RE.test('a'.repeat(31))).toBe(false);
     expect(PROFILE_ID_RE.test(DEFAULT_PROFILE_ID)).toBe(false); // 'default' 永不撞自定义形状
+  });
+});
+
+describe('isReservedNetHostId(评审 P2-A 命名空间守卫)', () => {
+  it('侵入 profile 命名空间的 configId 一律保留(拒绝)', () => {
+    expect(isReservedNetHostId(`prof-${PID}`)).toBe(true); // 撞 profile-X 本机分区
+    expect(isReservedNetHostId(`prof-${PID}-extra`)).toBe(true); // 撞 profile-X 远程分区
+  });
+
+  it('正常 configId(base64url 短串)与形似但非法 hex 不保留', () => {
+    expect(isReservedNetHostId(CFG)).toBe(false);
+    expect(isReservedNetHostId('k7_x-9Qz4AbC')).toBe(false);
+    expect(isReservedNetHostId('prof-nothex')).toBe(false); // 非 32hex → 旧形态 default
+    expect(isReservedNetHostId(`prof-${'A'.repeat(32)}`)).toBe(false); // 大写非法形状
+    expect(isReservedNetHostId('local')).toBe(false);
   });
 });

@@ -977,10 +977,13 @@ function wireBrowserWebviewPolicies(win: BrowserWindow): void {
     // 每分区 UA(profile 自定义;默认 profile 恒系统默认):attach 前设 session UA,
     // 覆盖 service worker 等 session 级请求;guest 首帧 UA 由 renderer 的 webview
     // useragent 属性另行兜底(双保险,见阶段3)。幂等,重复 attach 无副作用。
+    // 🔴 清空 UA 必须【显式复位默认】(评审 P3-1):session.setUserAgent 会驻留旧值,
+    // 只在有 UA 时 set 会让「把自定义 UA 清空」后 service worker 等 session 级请求仍用
+    // 旧 UA 直到重启。用 app.userAgentFallback(Electron 的默认 UA)复位。
     const parsed = parseBrowserPartition(params.partition!);
     if (parsed && parsed.profileId !== DEFAULT_PROFILE_ID) {
       const ua = browserProfileStore.get(parsed.profileId)?.userAgent;
-      if (ua) session.fromPartition(params.partition!).setUserAgent(ua);
+      session.fromPartition(params.partition!).setUserAgent(ua || app.userAgentFallback);
     }
   });
   win.webContents.on('did-attach-webview', (_event, guest) => {

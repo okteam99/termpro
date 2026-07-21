@@ -43,6 +43,18 @@ describe('AC-1 HostConfigStore CRUD', () => {
     expect(store.list()).toEqual([]);
   });
 
+  it('P2-A 命名空间守卫:拒绝侵入 profile 分区命名空间的 configId(prof-<32hex>)', () => {
+    const store = makeStore();
+    const base = { alias: 'x', host: '1.2.3.4', port: 22, username: 'root', authType: 'password' as const };
+    const pid = 'a'.repeat(32);
+    expect(() => store.save({ id: `prof-${pid}`, ...base })).toThrow();
+    expect(() => store.save({ id: `prof-${pid}-extra`, ...base })).toThrow();
+    expect(store.list()).toEqual([]); // 拒绝后不落盘
+    // 正常显式 id 与自动生成 id 不受影响
+    expect(() => store.save({ id: 'normal-cfg-id', ...base })).not.toThrow();
+    expect(() => store.save(base)).not.toThrow();
+  });
+
   it('T-002 持久化跨重启(新 store 实例读到同一目录)', () => {
     const store1 = makeStore();
     const created = store1.save({

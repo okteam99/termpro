@@ -320,6 +320,7 @@ export const zh: Record<string, string> = {
   'The built-in profile cannot be modified': '内置 profile 不可修改',
   'Profile name is required': 'Profile 名称不能为空',
   'Browser profile not found': '该浏览器 profile 不存在',
+  'Invalid host id': '非法的主机 id',
 
   // --- 浏览器面板:加载失败错误条 ---
   'Page failed to load: {error}': '页面加载失败：{error}',

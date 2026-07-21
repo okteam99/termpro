@@ -10,6 +10,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { RemoteHostConfig, RemoteHostConfigInput } from '../../shared/remoteHost';
+import { isReservedNetHostId } from '../../shared/browserProfile';
 import { t } from '../../shared/i18n';
 
 const SECRETS_FILE = 'remote-hosts.secrets.json';
@@ -152,6 +153,12 @@ export class HostConfigStore {
 
   /** 新建(省略 id)或更新(id 命中既有)。 */
   save(input: HostConfigSaveInput): RemoteHostConfig {
+    // 🔴 命名空间守卫(评审 P2-A):renderer 提供的 configId 不得侵入 profile 分区命名空间
+    // (prof-<32hex> 形状)——否则可构造 default 远程分区与 profile 本机直连分区同名,
+    // 骗过 WebRTC 防泄漏判定。generateId 输出(12 位 base64url)天然不撞,只校验显式 id。
+    if (input.id !== undefined && isReservedNetHostId(input.id)) {
+      throw new Error(t('Invalid host id'));
+    }
     const list = this.list();
     if (input.id) {
       const idx = list.findIndex((c) => c.id === input.id);
