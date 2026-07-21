@@ -363,20 +363,26 @@ export class RemoteHostOrchestrator {
     const existingConnect = this.connectInflight.get(configId);
     if (existingConnect) return existingConnect;
 
-    const session = this.ensureSession(configId);
-    if (session.stage === 'ready') {
-      // 🔴 陈旧 ready 自愈:renderer 只在自认为「未连接」时才发 connect(Sidebar 的
-      // Connect/重连/重试按钮;RemoteHostsPage 在 ready 态只给 Disconnect)。此时 main
-      // 若仍停在 ready(WS 已死但 main 无心跳感知,renderer 重连预算耗尽已 drop),
-      // 原 no-op 会让「点 Connect 永远没反应」——reconnectController 的 disconnect-first
-      // 注释指的就是同一坑,但手动按钮不走它。改为等价 disconnect-first:同步关掉
-      // 陈旧传输 → 广播 disconnected → 照常走 runConnect 重建。
+    let session = this.ensureSession(configId);
+    // 🔴 陈旧/孤儿态自愈:renderer 只在自认为「未连接」时才发 connect(Sidebar 的
+    // Connect/重连/重试按钮;RemoteHostsPage 在 ready 态只给 Disconnect)。走到这里
+    // 说明 connectInflight 已无此 id(上一次 connect 已 settle),却仍停在 ready 或某
+    // active 阶段——必是过期:
+    //   · ready:WS 已死但 main 无心跳感知(renderer 重连预算耗尽已 drop);
+    //   · active:上一次编排被取消/中断后没清干净(closeSessionTransport 不改 stage、
+    //     disconnect 的 wasActive 只认 ready/verifying)留下的孤儿态。
+    // 旧实现:ready 走 disconnect-first 重建、active 静默 no-op。后者会让「点 Connect
+    // 永远没反应」(2026-07-20 事故)。统一改为:作废旧会话对象(在途的僵尸 runConnect
+    // 经 sessions 身份校验在下个 emit/写入点自弃),必要时广播 disconnected 让 renderer
+    // 同步,再以全新会话重建。
+    if (session.stage === 'ready' || ACTIVE_STAGES.has(session.stage)) {
+      const wasConnected = session.stage === 'ready' || session.stage === 'verifying';
       this.closeSessionTransport(session);
-      this.safeEmit(configId, { stage: 'disconnected' });
-    } else if (ACTIVE_STAGES.has(session.stage)) {
-      // 在途编排(connecting/deploying/…):不重复编排(ARCH-B3)——阶段自身有界超时,
-      // 会以 failed/ready 事件收场,renderer 很快能听到。
-      return Promise.resolve();
+      // ready/verifying→disconnected 是合法边,广播给 renderer;connecting/deploying/…
+      // →disconnected 非法,safeEmit 吞掉(renderer 端本就已本地清空,无须此事件)。
+      if (wasConnected) this.safeEmit(configId, { stage: 'disconnected' });
+      this.sessions.delete(configId);
+      session = this.ensureSession(configId); // 全新 idle 会话,与僵尸引用彻底分家
     }
 
     const priorMutex = this.mutex.get(configId) ?? Promise.resolve();
@@ -401,6 +407,11 @@ export class RemoteHostOrchestrator {
       // 由其自身 catch 分支收场(不会崩溃/悬挂)。
       await Promise.race([pending.catch(() => undefined), this.sleep(DISCONNECT_WAIT_TIMEOUT_MS)]);
     }
+    // disconnect-vs-connect 竞态:等待期间用户可能又点了 Connect(新 tracked 进
+    // connectInflight)——意图已翻转为「要连」,放手让新编排跑,绝不清它的会话/去重槽。
+    const currentInflight = this.connectInflight.get(configId);
+    if (currentInflight && currentInflight !== pending) return;
+
     const session = this.sessions.get(configId);
     if (!session) return;
     const wasActive = session.stage === 'ready' || session.stage === 'verifying';
@@ -408,6 +419,20 @@ export class RemoteHostOrchestrator {
     if (wasActive) {
       this.safeEmit(configId, { stage: 'disconnected' });
     }
+    // 🔴 彻底作废这次连接尝试(2026-07-20 事故根因):此前只关传输、不清 connectInflight
+    //   /mutex、也不改 session.stage——若编排卡在途(connectSsh 黑洞/部署慢),会话就冻在
+    //   某 active 阶段且去重槽仍被占,用户再点 Connect 命中 connect() 顶部的 connectInflight
+    //   去重(返回那条卡死的 Promise)→「点了没反应」。这里摘除会话对象 + 清去重槽:
+    //   在途 runConnect 仍持旧 session 引用,其直接写入落到被替换的孤儿对象(无害),其
+    //   emit/failSession 经 sessions 身份不符而自弃,其 watcher 经资源身份校验对新会话无效;
+    //   下一次 connect() 立刻走全新编排。清槽用 === pending 守卫,不误删并发新 connect 的槽。
+    // 用一个全新的 'disconnected' 会话替换旧对象(而非纯删除):stages() 快照据此仍报
+    //   disconnected(浏览器出口选择器契约),后续 connect 从 disconnected→connecting 起步。
+    //   直接置 stage 属「新对象初始化」而非状态转移,不经 emit 的转移守卫。
+    this.sessions.delete(configId);
+    this.ensureSession(configId).stage = 'disconnected';
+    if (this.connectInflight.get(configId) === pending) this.connectInflight.delete(configId);
+    if (this.mutex.get(configId) === pending) this.mutex.delete(configId);
   }
 
   test(configId: string): Promise<TestResult> {
@@ -692,7 +717,14 @@ export class RemoteHostOrchestrator {
 
   /** 本地转发 net.Server 挂了(其自身 accept 循环出错/被动关闭)。 */
   private wireDisconnectWatcher(configId: string, server: NetServer): void {
-    const handleDown = () => this.handleTransportDown(configId);
+    // 资源身份校验:仅当这台 server 仍是当前会话的转发 server 时才判「断线」。作废的
+    // 僵尸尝试关掉它自己的 server 时,当前会话(可能已是接管的新连接)的 forwardServer
+    // 已不是它 → 不误触发 handleTransportDown 拆掉新连接(2026-07-20 完整修复)。
+    const handleDown = () => {
+      if (this.sessions.get(configId)?.forwardServer === server) {
+        this.handleTransportDown(configId);
+      }
+    };
     server.on('close', handleDown);
     server.on('error', handleDown);
   }
@@ -710,7 +742,11 @@ export class RemoteHostOrchestrator {
    * 当前 stage 是否仍是 ready/verifying,天然幂等(见函数顶部注释的时序论证)。
    */
   private wireSshDisconnectWatcher(configId: string, ssh: SshConnectionLike): void {
-    ssh.onClose(() => this.handleTransportDown(configId));
+    // 资源身份校验(同 wireDisconnectWatcher):仅当这条 ssh 仍是当前会话的连接时才判
+    // 断线。僵尸尝试的 ssh 关闭(或它超时自关)不得拆掉已接管的新会话(2026-07-20)。
+    ssh.onClose(() => {
+      if (this.sessions.get(configId)?.ssh === ssh) this.handleTransportDown(configId);
+    });
   }
 
   /**
@@ -760,6 +796,11 @@ export class RemoteHostOrchestrator {
   }
 
   private async runConnect(configId: string, session: RemoteHostSession): Promise<void> {
+    // 本次尝试是否仍当值:disconnect()/connect() 自愈会把会话对象从 map 摘除/替换,
+    // 此后本(僵尸)尝试的 session 引用 !== 当前 map 里的会话。任何会改状态/发事件的
+    // 动作前都据此自弃,杜绝僵尸编排污染接管的新会话(用户指令 2026-07-20 · 完整修复)。
+    const isCurrent = () => this.sessions.get(configId) === session;
+
     const config = this.deps.configStore.get(configId);
     if (!config) {
       this.failSession(configId, 'internal', 'config not found');
@@ -778,7 +819,14 @@ export class RemoteHostOrchestrator {
         readyTimeoutMs: this.deps.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
       });
     } catch (err) {
+      if (!isCurrent()) return; // 已作废:静默,不把失败 emit 到接管的新会话
       this.failSession(configId, classifyConnectError(err), sanitizeDetail(err));
+      return;
+    }
+    // 🔴 连上后先验当值:cancel/断开最常发生在 connectSsh 在途(黑洞连接 10s 才超时),
+    //   此刻会话可能已被作废——立即弃连,不接管 session、不装 watcher、不再往下编排。
+    if (!isCurrent()) {
+      ssh.close();
       return;
     }
     session.ssh = ssh;
@@ -1085,6 +1133,16 @@ export class RemoteHostOrchestrator {
       void this.establishBrowserMcpForward(configId);
       this.deps.configStore.touchLastUsed(configId);
     } catch (err) {
+      // 本次尝试已被作废(disconnect/自愈把会话摘除/替换):静默收尾。此时若 emit
+      // 'failed' 会命中接管的新会话,且非法转移会二次抛出成 main 未处理拒绝(可能弹窗)。
+      if (!isCurrent()) {
+        try {
+          ssh.close();
+        } catch {
+          /* 已关 */
+        }
+        return;
+      }
       this.failSession(configId, 'internal', sanitizeDetail(err));
       ssh.close();
     }

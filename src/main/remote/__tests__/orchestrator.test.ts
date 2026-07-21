@@ -832,6 +832,48 @@ describe('AC-12 认证失败改配置重试 / 断开后手动重连', () => {
     expect(seq[0]).toBe('disconnected'); // disconnect-first 复位
     expect(seq.at(-1)).toBe('ready'); // 隧道重建成功
   });
+
+  it('🔴 2026-07-20 回归:cancel 卡在途的 connect 后再点 Connect,立刻走全新编排(不被 connectInflight 去重吞掉);迟到的僵尸连接不污染新会话', async () => {
+    // 复现「点 connect 没反应」:host 黑洞 → connect 卡在 SSH 握手,用户 Cancel 后再点
+    // Connect。旧实现 disconnect 不清 connectInflight → 二次 connect 命中去重、返回那条
+    // 卡死的 Promise → 无事发生。修复后应作废旧尝试,二次 connect 全新跑到 ready。
+    let resolveHung!: (ssh: RoutedSsh) => void;
+    const hung = new Promise<RoutedSsh>((r) => {
+      resolveHung = r;
+    });
+    const zombieSsh = createFreshDeploySsh('vps-hk');
+    let call = 0;
+    const h = makeHarness({
+      connectSshImpl: async () => {
+        call++;
+        if (call === 1) return hung; // 首次:黑洞,一直卡在 SSH 握手
+        return createFreshDeploySsh('vps-hk'); // 重连:健康
+      },
+    });
+    saveConfig(h.configStore);
+
+    // 1) 首次 connect 卡在 connectSsh(emit 到 connecting 后挂起)
+    const p1 = h.orchestrator.connect('vps-hk');
+    void p1.catch(() => undefined);
+    await flushMicrotasks();
+    expect(h.events.map((e) => e.stage)).toEqual(['connecting']);
+
+    // 2) Cancel:disconnect 有界等待(注入 sleep 立即 resolve)后作废该尝试 + 清去重槽
+    await h.orchestrator.disconnect('vps-hk');
+
+    // 3) 再点 Connect:必须真正跑起来到 ready(旧实现在此死于去重,await 永不 resolve)
+    await h.orchestrator.connect('vps-hk');
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    const readyCount = h.events.filter((e) => e.stage === 'ready').length;
+
+    // 4) 迟到的首个 SSH 现在才握手成功:僵尸 runConnect 恢复 → 经身份校验自弃,关掉自己
+    //    的连接、绝不接管/改动已 ready 的新会话(不发多余 ready,不拆新连接)
+    resolveHung(zombieSsh);
+    await flushMicrotasks(10);
+    expect(h.orchestrator.stages()['vps-hk']).toBe('ready');
+    expect(h.events.filter((e) => e.stage === 'ready').length).toBe(readyCount);
+    expect(zombieSsh.closed).toBe(true);
+  });
 });
 
 describe('AC-14 删除随删清凭据 + 活跃连接先断开', () => {
