@@ -138,6 +138,7 @@ contextBridge.exposeInMainWorld('okwork', {
       terminalTabId: string;
       tabName: string;
       ownerHostId: string;
+      workspaceName?: string;
       pane: unknown;
     }): void {
       ipcRenderer.send('browserPane:popout', payload);
@@ -194,6 +195,31 @@ contextBridge.exposeInMainWorld('okwork', {
       const listener = (_e: unknown, terminalTabId: string) => callback(terminalTabId);
       ipcRenderer.on('browserPane:closed', listener);
       return () => ipcRenderer.removeListener('browserPane:closed', listener);
+    },
+    /** 壳窗:工作区编辑保存(改名/换 profile)→ 主窗权威 store 应用并持久化 */
+    workspaceEdit(terminalTabId: string, patch: { name: string; profileId: string }): void {
+      ipcRenderer.send('browserPane:workspaceEdit', { terminalTabId, ...patch });
+    },
+    /** 主窗:订阅壳窗发起的工作区编辑,返回退订函数 */
+    onWorkspaceEdit(
+      callback: (terminalTabId: string, patch: { name?: string; profileId?: string }) => void,
+    ): () => void {
+      const listener = (
+        _e: unknown,
+        p: { terminalTabId: string; name?: string; profileId?: string },
+      ) => callback(p.terminalTabId, { name: p.name, profileId: p.profileId });
+      ipcRenderer.on('browserPane:workspaceEdit', listener);
+      return () => ipcRenderer.removeListener('browserPane:workspaceEdit', listener);
+    },
+    /** 主窗:把 profile 绑定变更推给某终端 tab 的壳窗(壳窗换分区重挂) */
+    setProfile(terminalTabId: string, profileId: string): void {
+      ipcRenderer.send('browserPane:setProfile', { terminalTabId, profileId });
+    },
+    /** 壳窗:订阅主窗推来的 profile 绑定变更,返回退订函数 */
+    onSetProfile(callback: (profileId: string) => void): () => void {
+      const listener = (_e: unknown, profileId: string) => callback(profileId);
+      ipcRenderer.on('browserPane:setProfile', listener);
+      return () => ipcRenderer.removeListener('browserPane:setProfile', listener);
     },
   },
   /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;

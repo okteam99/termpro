@@ -2,16 +2,19 @@ import './WorkspaceEditModal.css';
 import { useState } from 'react';
 import { t } from '../../shared/i18n';
 import { useAppStore } from '../state/store';
+import { relayProfileToPoppedPanes } from '../services/browserPaneRelay';
 import { DEFAULT_PROFILE_ID } from '../../shared/browserProfile';
 
 interface WorkspaceEditModalProps {
   workspace: { id: string; name: string; browserProfileId?: string };
   onClose: () => void;
+  /** 覆盖保存行为(壳窗:本地立即换分区 + IPC 转主窗权威 store);缺省走本窗 store */
+  onSave?: (result: { name: string; profileId: string }) => void;
 }
 
 /** 工作区编辑弹层:改名 + 选择浏览器 profile。Enter 保存,Esc / 点遮罩 / 取消 关闭。
  *  保存逻辑内聚于此(RenameModal 只管改名,本弹层多一个字段,不复用它)。 */
-export function WorkspaceEditModal({ workspace, onClose }: WorkspaceEditModalProps) {
+export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEditModalProps) {
   const profiles = useAppStore((s) => s.browserProfiles);
   const renameWorkspace = useAppStore((s) => s.renameWorkspace);
   const setWorkspaceBrowserProfile = useAppStore((s) => s.setWorkspaceBrowserProfile);
@@ -29,12 +32,19 @@ export function WorkspaceEditModal({ workspace, onClose }: WorkspaceEditModalPro
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) return;
+    if (onSave) {
+      onSave({ name: trimmed, profileId });
+      onClose();
+      return;
+    }
     if (trimmed !== workspace.name) {
       void renameWorkspace(workspace.id, trimmed);
     }
     const currentProfileId = workspace.browserProfileId ?? DEFAULT_PROFILE_ID;
     if (profileId !== currentProfileId) {
       setWorkspaceBrowserProfile(workspace.id, profileId);
+      // 该 ws 已弹出的壳窗同步换绑(壳窗 store 独立,不推就一直用旧分区浏览)
+      relayProfileToPoppedPanes(workspace.id, profileId);
     }
     onClose();
   }

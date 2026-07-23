@@ -639,6 +639,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
       terminalTabId: activeTermTabId,
       tabName: activeTermTab?.customName ?? activeTermTab?.title ?? 'Tab',
       ownerHostId: activeWorkspace?.hostId ?? 'local',
+      workspaceName: activeWorkspace?.name ?? 'Workspace',
       // profile 绑定随种子走:壳窗按同一 profile 分区/UA 挂 webview,弹出不换登录态
       ...(activeWorkspace?.browserProfileId
         ? { browserProfileId: activeWorkspace.browserProfileId }

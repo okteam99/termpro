@@ -8,6 +8,7 @@ import { initSettingsSync } from './services/settingsSync';
 import { initExitsSync } from './services/exitsSync';
 import { initProfilesSync } from './services/profilesSync';
 import { initBrowserControlBridge } from './services/browserControlBridge';
+import { relayProfileToPoppedPanes } from './services/browserPaneRelay';
 import { setBrowserMcpBase } from './terminal/browserMcpEnv';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
@@ -128,10 +129,26 @@ export default function App() {
     const offClosed = window.okwork?.browserPane?.onClosed?.((terminalTabId) => {
       useAppStore.getState().closePoppedPane(terminalTabId);
     });
+    // 壳窗内的工作区编辑(profile 徽标点开)→ 权威 store 应用:改名走 host RPC,
+    // 绑定持久化并推给该 ws 其它已弹出壳窗(发起壳窗已本地生效,跳过防重复)
+    const offWsEdit = window.okwork?.browserPane?.onWorkspaceEdit?.(
+      (terminalTabId, patch) => {
+        const s = useAppStore.getState();
+        const ws = s.workspaces.find((w) => w.tabs.some((tb) => tb.id === terminalTabId));
+        if (!ws) return;
+        const name = typeof patch?.name === 'string' ? patch.name.trim() : '';
+        if (name && name !== ws.name) void s.renameWorkspace(ws.id, name);
+        if (typeof patch?.profileId === 'string' && patch.profileId) {
+          s.setWorkspaceBrowserProfile(ws.id, patch.profileId);
+          relayProfileToPoppedPanes(ws.id, patch.profileId, terminalTabId);
+        }
+      },
+    );
     return () => {
       offSync?.();
       offDocked?.();
       offClosed?.();
+      offWsEdit?.();
     };
   }, []);
 

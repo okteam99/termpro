@@ -148,6 +148,83 @@ describe('WorkspaceEditModal', () => {
     expect(ws?.browserProfileId).toBeUndefined();
   });
 
+  it('onSave 覆盖(壳窗模式):保存只回调不碰本窗 store,随后 onClose', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+    const renameWorkspace = vi.fn();
+    const setWorkspaceBrowserProfile = vi.fn();
+    useAppStore.setState({
+      browserProfiles: [profile({ id: 'p1', name: 'Work' }), profile({ id: 'p2', name: 'Personal' })],
+      renameWorkspace: renameWorkspace as any,
+      setWorkspaceBrowserProfile,
+    });
+    render(
+      <WorkspaceEditModal
+        workspace={{ id: 'shell-ws', name: 'my-project', browserProfileId: 'p1' }}
+        onSave={onSave}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue('my-project'), {
+      target: { value: '  renamed  ' },
+    });
+    fireEvent.change(screen.getByLabelText('Browser profile'), { target: { value: 'p2' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(onSave).toHaveBeenCalledWith({ name: 'renamed', profileId: 'p2' });
+    expect(onClose).toHaveBeenCalled();
+    expect(renameWorkspace).not.toHaveBeenCalled();
+    expect(setWorkspaceBrowserProfile).not.toHaveBeenCalled();
+  });
+
+  it('默认路径换 profile:该 ws 已弹出壳窗被推送 setProfile,未弹出 tab 不推', () => {
+    const setProfile = vi.fn();
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserPane: { setProfile },
+    };
+    useAppStore.setState({
+      browserProfiles: [profile({ id: 'p1', name: 'Work' }), profile({ id: 'p2', name: 'Personal' })],
+      workspaces: [
+        {
+          id: 'w1',
+          name: 'my-project',
+          root: '/w',
+          hostId: 'local',
+          browserProfileId: 'p1',
+          tabs: [
+            {
+              id: 't-pop',
+              title: 't',
+              cwd: '/w',
+              browser: { tabs: [], activeTabId: null, poppedOut: true },
+            },
+            {
+              id: 't-dock',
+              title: 't2',
+              cwd: '/w',
+              browser: { tabs: [], activeTabId: null },
+            },
+          ],
+          activeTabId: 't-pop',
+        },
+      ],
+    });
+    render(
+      <WorkspaceEditModal
+        workspace={{ id: 'w1', name: 'my-project', browserProfileId: 'p1' }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Browser profile'), { target: { value: 'p2' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(setProfile).toHaveBeenCalledTimes(1);
+    expect(setProfile).toHaveBeenCalledWith('t-pop', 'p2');
+    delete (window as unknown as Record<string, unknown>).okwork;
+  });
+
   it('名称空白 → 保存按钮 disabled', () => {
     useAppStore.setState({ browserProfiles: [] });
     render(

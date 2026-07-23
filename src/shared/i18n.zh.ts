@@ -334,6 +334,7 @@ export const zh: Record<string, string> = {
   'Dock back': '收回面板',
   'Dock back to the panel': '收回到主窗口面板',
   'Focus the OkBrowser window': '聚焦 OkBrowser 独立窗口',
+  'Workspace browser profile — click to edit the workspace': '当前 Workspace 使用的浏览器 Profile——点击编辑 workspace',
   'Close all browser tabs?': '关闭所有浏览器标签？',
   'This window has {count} browser tabs open. Closing it closes them all — use "Dock back" to keep them in the panel.':
     '该窗口开着 {count} 个浏览器标签，关闭窗口将全部关掉；想保留标签请改用「收回面板」。',

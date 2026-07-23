@@ -77,6 +77,8 @@ declare global {
           terminalTabId: string;
           tabName: string;
           ownerHostId: string;
+          /** 所属 workspace 名(壳窗工作区编辑弹层用) */
+          workspaceName?: string;
           /** 所属 ws 的浏览器 profile 绑定(缺省 = 默认 profile) */
           browserProfileId?: string;
           pane: unknown;
@@ -93,6 +95,14 @@ declare global {
         /** 壳窗:直接关闭本窗(不回落);主窗经 onClosed 清空该窗格镜像 */
         close(terminalTabId: string): void;
         onClosed(callback: (terminalTabId: string) => void): () => void;
+        /** 壳窗:工作区编辑保存 → 主窗权威 store 应用(改名走 host RPC,绑定持久化) */
+        workspaceEdit(terminalTabId: string, patch: { name: string; profileId: string }): void;
+        onWorkspaceEdit(
+          callback: (terminalTabId: string, patch: { name?: string; profileId?: string }) => void,
+        ): () => void;
+        /** 主窗:profile 绑定变更推给已弹出壳窗(壳窗换分区重挂 webview) */
+        setProfile(terminalTabId: string, profileId: string): void;
+        onSetProfile(callback: (profileId: string) => void): () => void;
       };
       /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
        *  sourceWebContentsId=来源 guest 的 webContents id(据此把新标签落回来源终端 tab 的窗格) */

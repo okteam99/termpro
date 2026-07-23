@@ -354,6 +354,8 @@ interface BrowserPaneSeed {
   terminalTabId: string;
   tabName: string;
   ownerHostId: string;
+  /** 所属 workspace 名(壳窗的工作区编辑弹层用) */
+  workspaceName?: string;
   /** 所属 ws 的浏览器 profile 绑定(缺省 = 默认 profile;壳窗按此分区挂 webview) */
   browserProfileId?: string;
   pane: unknown;
@@ -524,6 +526,54 @@ ipcMain.on('browserPane:dock', (event, payload: { terminalTabId?: string }) => {
     win.close();
   }
 });
+
+// 种子的 profile 绑定跟随变更(壳窗意外重载时按新绑定重种,不回落旧分区)
+function updateSeedProfile(tabId: string, profileId: string): void {
+  const seed = paneSeeds.get(tabId);
+  if (!seed) return;
+  if (profileId && profileId !== DEFAULT_PROFILE_ID) {
+    paneSeeds.set(tabId, { ...seed, browserProfileId: profileId });
+  } else {
+    const { browserProfileId: _dropped, ...rest } = seed;
+    paneSeeds.set(tabId, rest);
+  }
+}
+
+// 壳窗内工作区编辑保存(改名/换 profile)→ 转主窗权威 store 应用(改名走 host RPC,
+// 绑定持久化);发起壳窗已本地生效,种子同步跟上
+ipcMain.on(
+  'browserPane:workspaceEdit',
+  (event, payload: { terminalTabId?: string; name?: string; profileId?: string }) => {
+    const tabId = payload?.terminalTabId;
+    if (!tabId || BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)) {
+      return;
+    }
+    if (typeof payload.profileId === 'string') updateSeedProfile(tabId, payload.profileId);
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('browserPane:workspaceEdit', {
+        terminalTabId: tabId,
+        ...(typeof payload.name === 'string' ? { name: payload.name } : {}),
+        ...(typeof payload.profileId === 'string' ? { profileId: payload.profileId } : {}),
+      });
+    }
+  },
+);
+
+// 主窗改 profile 绑定 → 推给该终端 tab 的壳窗(壳窗换分区重挂 webview)
+ipcMain.on(
+  'browserPane:setProfile',
+  (event, payload: { terminalTabId?: string; profileId?: string }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
+    const tabId = payload?.terminalTabId;
+    const profileId = payload?.profileId;
+    if (!tabId || typeof profileId !== 'string') return;
+    updateSeedProfile(tabId, profileId);
+    const win = paneWins.get(tabId);
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('browserPane:setProfile', profileId);
+    }
+  },
+);
 
 // 直接关闭:壳窗标签关光时自发(空窗格无形态)——不设回落标记,closed → browserPane:closed
 ipcMain.on('browserPane:close', (event, payload: { terminalTabId?: string }) => {

@@ -368,12 +368,19 @@
   -webkit-app-region: drag;
 }
 
-.browser-shell__dock {
+.browser-shell__actions {
   position: absolute;
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
   -webkit-app-region: no-drag;
+}
+
+.browser-shell__dock,
+.browser-shell__profile {
   padding: 3px 10px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -383,9 +390,32 @@
   cursor: pointer;
 }
 
-.browser-shell__dock:hover {
+.browser-shell__dock:hover,
+.browser-shell__profile:hover {
   background: var(--bg-hover);
   color: var(--fg);
+}
+
+/* 当前 workspace 的 profile 徽标(点开工作区编辑);名字太长截断,字重回常规 */
+.browser-shell__profile {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.browser-shell__profile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-shell__profile-label {
+  color: var(--fg-dim);
+  opacity: 0.7;
+  flex-shrink: 0;
 }
 
 .browser-shell__body {

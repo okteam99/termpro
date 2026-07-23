@@ -322,6 +322,7 @@ describe('窗格窗口化(弹出=整个窗格独立成窗 · 2026-07-14)', () =>
     const payload = popout.mock.calls[0][0];
     expect(payload.terminalTabId).toBe(TERM);
     expect(payload.ownerHostId).toBe('local');
+    expect(payload.workspaceName).toBe('w'); // 壳窗工作区编辑弹层的名称初值
     expect(payload.pane.tabs.map((b: { id: string }) => b.id)).toEqual(['a', 'b']);
     expect(payload.pane.activeTabId).toBe('a');
 

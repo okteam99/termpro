@@ -7,16 +7,23 @@
 
 import { useEffect, useState } from 'react';
 import { BrowserPanel } from './BrowserPanel';
+import { WorkspaceEditModal } from './WorkspaceEditModal';
 import { useAppStore } from '../state/store';
 import type { BrowserTabState } from '../state/store';
 import { initBrowserControlBridge } from '../services/browserControlBridge';
 import { initProfilesSync } from '../services/profilesSync';
 import { t } from '../../shared/i18n';
+import { DEFAULT_PROFILE_ID } from '../../shared/browserProfile';
+
+/** 壳窗 store 里唯一 workspace 的固定 id(种子时写入) */
+const SHELL_WS_ID = 'shell-ws';
 
 interface PaneSeed {
   terminalTabId: string;
   tabName: string;
   ownerHostId: string;
+  /** 所属 workspace 名(工作区编辑弹层用;改名保存后本地跟进) */
+  workspaceName: string;
   /** 所属 ws 的浏览器 profile 绑定(缺省 = 默认 profile;分区/UA 随之) */
   browserProfileId?: string;
   pane: { tabs: BrowserTabState[]; activeTabId: string | null };
@@ -40,6 +47,7 @@ function sanitizeSeed(raw: unknown, terminalTabId: string): PaneSeed | null {
     terminalTabId,
     tabName: typeof p.tabName === 'string' ? p.tabName : 'Tab',
     ownerHostId: typeof p.ownerHostId === 'string' ? p.ownerHostId : 'local',
+    workspaceName: typeof p.workspaceName === 'string' ? p.workspaceName : 'Workspace',
     ...(typeof p.browserProfileId === 'string' && p.browserProfileId
       ? { browserProfileId: p.browserProfileId }
       : {}),
@@ -55,6 +63,18 @@ function sanitizeSeed(raw: unknown, terminalTabId: string): PaneSeed | null {
 export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: string }) {
   const [seed, setSeed] = useState<PaneSeed | null>(null);
   const browserPanelOpen = useAppStore((s) => s.browserPanelOpen);
+  // 工作区编辑弹层(头部 profile 徽标点开);ws 名本地跟进改名保存,种子只给初值
+  const [editOpen, setEditOpen] = useState(false);
+  const [wsName, setWsName] = useState('Workspace');
+  // 当前生效的 profile 绑定:读本窗 store(编辑保存/主窗推送即时反映,快照对账同源)
+  const boundProfileId = useAppStore(
+    (s) => s.workspaces[0]?.browserProfileId ?? DEFAULT_PROFILE_ID,
+  );
+  const profiles = useAppStore((s) => s.browserProfiles);
+  const profileName =
+    boundProfileId === DEFAULT_PROFILE_ID
+      ? t('OkWork (built-in)')
+      : (profiles.find((p) => p.id === boundProfileId)?.name ?? t('OkWork (built-in)'));
 
   // AI 浏览器控制:窗格弹出后 webview 活在本壳窗,main 把该 tab 的 browserControl:invoke
   // 改路由到本窗(见 main.invokeBrowserControl)。故壳窗也要挂控制桥,让 MCP 能驱动弹出窗口。
@@ -74,10 +94,11 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
         const s = sanitizeSeed(raw, terminalTabId);
         if (!s) return; // 无种子(异常路径):停留空态,用户关窗即直接关闭
         document.title = `OkBrowser-${s.tabName}`;
+        setWsName(s.workspaceName);
         useAppStore.setState({
           workspaces: [
             {
-              id: 'shell-ws',
+              id: SHELL_WS_ID,
               name: s.tabName,
               root: '/',
               hostId: s.ownerHostId,
@@ -93,7 +114,7 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
               activeTabId: terminalTabId,
             },
           ],
-          activeWorkspaceId: 'shell-ws',
+          activeWorkspaceId: SHELL_WS_ID,
           browserPanelOpen: true,
           hydrated: true,
         });
@@ -133,21 +154,59 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
     window.okwork?.browserPane?.close?.(terminalTabId);
   }, [seed, browserPanelOpen, terminalTabId]);
 
+  // 主窗改了本 ws 的 profile 绑定 → 本地跟进(webview 按新分区重挂重载)
+  useEffect(() => {
+    return window.okwork?.browserPane?.onSetProfile?.((profileId) => {
+      useAppStore.getState().setWorkspaceBrowserProfile(SHELL_WS_ID, profileId);
+    });
+  }, []);
+
+  // 工作区编辑保存:本地立即生效(换分区重挂)+ 经 main 转主窗权威 store(改名走
+  // host RPC、绑定持久化;主窗 App.onWorkspaceEdit 应用并推给该 ws 其它壳窗)
+  function handleWorkspaceSave({ name, profileId }: { name: string; profileId: string }) {
+    setWsName(name);
+    useAppStore.getState().setWorkspaceBrowserProfile(SHELL_WS_ID, profileId);
+    window.okwork?.browserPane?.workspaceEdit?.(terminalTabId, { name, profileId });
+  }
+
   return (
     <div className="browser-shell">
       <div className="browser-shell__header">
         <span className="browser-shell__title">
           OkBrowser-{seed?.tabName ?? terminalTabId}
         </span>
-        <button
-          className="browser-shell__dock"
-          onClick={() => window.okwork?.browserPane?.dock?.(terminalTabId)}
-          title={t('Dock back to the panel')}
-        >
-          {t('Dock back')}
-        </button>
+        <div className="browser-shell__actions">
+          <button
+            className="browser-shell__profile"
+            onClick={() => setEditOpen(true)}
+            title={t('Workspace browser profile — click to edit the workspace')}
+          >
+            <span className="browser-shell__profile-label">{t('Profile')}</span>
+            <span className="browser-shell__profile-name">{profileName}</span>
+          </button>
+          <button
+            className="browser-shell__dock"
+            onClick={() => window.okwork?.browserPane?.dock?.(terminalTabId)}
+            title={t('Dock back to the panel')}
+          >
+            {t('Dock back')}
+          </button>
+        </div>
       </div>
       <div className="browser-shell__body">{seed && <BrowserPanel shell />}</div>
+      {editOpen && seed && (
+        <WorkspaceEditModal
+          workspace={{
+            id: SHELL_WS_ID,
+            name: wsName,
+            ...(boundProfileId !== DEFAULT_PROFILE_ID
+              ? { browserProfileId: boundProfileId }
+              : {}),
+          }}
+          onSave={handleWorkspaceSave}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
     </div>
   );
 }
