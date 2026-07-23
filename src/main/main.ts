@@ -341,7 +341,7 @@ ipcMain.handle(BROWSER_PROFILE_CHANNELS.delete, (event, payload: { id: string })
   }
 });
 
-// ---- 浏览器窗格窗口化(弹出=整个窗格独立成窗 · OkBrowser-<终端tab名>)---------
+// ---- 浏览器窗格窗口化(弹出=整个窗格独立成窗 · OkBrowser · <终端tab名>)---------
 // 壳窗复用 renderer bundle(?browserPane=<terminalTabId> 路由 BrowserPaneShellWindow):
 // 头部条(标题/回落)+ 完整 BrowserPanel(标签条/地址栏/出口选择器/webview 按标签分区)。
 // 状态所有权:弹出期间壳窗 store 独占,内容经 browserPane:sync 单向回流主窗镜像

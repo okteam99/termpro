@@ -93,7 +93,7 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
         if (cancelled) return;
         const s = sanitizeSeed(raw, terminalTabId);
         if (!s) return; // 无种子(异常路径):停留空态,用户关窗即直接关闭
-        document.title = `OkBrowser-${s.tabName}`;
+        document.title = `OkBrowser · ${s.tabName}`;
         setWsName(s.workspaceName);
         useAppStore.setState({
           workspaces: [
@@ -173,7 +173,7 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
     <div className="browser-shell">
       <div className="browser-shell__header">
         <span className="browser-shell__title">
-          OkBrowser-{seed?.tabName ?? terminalTabId}
+          OkBrowser · {seed?.tabName ?? terminalTabId}
         </span>
         <div className="browser-shell__actions">
           <button
