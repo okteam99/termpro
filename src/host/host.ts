@@ -7,6 +7,12 @@
 import * as fs from 'node:fs';
 import { PROTOCOL_VERSION } from '../shared/protocol';
 import { createHostCore, PortLike } from './hostCore';
+
+// stdout/stderr 写失败免疫(同 main.ts 2026-07-23):host 的日志走 nohup 重定向文件/
+// 父进程管道,任一先死后 console.* 会以 stream 'error'(EPIPE/EIO)炸掉进程——host 一死
+// 全部会话陪葬。日志写不出去只能静默丢弃,不能决定 host 存亡。
+process.stdout?.on?.('error', () => undefined);
+process.stderr?.on?.('error', () => undefined);
 import { gitInfo } from './gitService';
 import { healWorkspaceProfile, OKWORK_PROFILE_PATH } from './profileHeal';
 import { resolveToken, writeIdentityTokenFile } from './token';

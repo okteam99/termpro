@@ -53,6 +53,14 @@ if (started) {
   app.quit();
 }
 
+// 🔴 stdout/stderr 写失败免疫(用户报告 2026-07-23「write EIO」弹窗):从终端启动
+// (npm start/electron-forge)的实例,父 shell/管道先死后,任何 console.log/error 都会
+// 对已关闭的 fd 写入 → EPIPE/EIO 以 stream 'error' 事件抛出 → main 进程 Uncaught
+// Exception 模态弹窗,还会卡住 app.quit。挂空 error 监听把「日志写不出去」降级为
+// 静默丢弃——日志通道的死活永远不该决定应用进程的死活。
+process.stdout?.on?.('error', () => undefined);
+process.stderr?.on?.('error', () => undefined);
+
 // DEV 渠道:npm start(未打包)或 make:dev 出的 "OkWork Dev" 包。
 // 独立 userData、不查更新、UI 显示红色 DEV 徽标,与正式版可同时安装。
 const isDevChannel = !app.isPackaged || app.getName().includes('Dev');
