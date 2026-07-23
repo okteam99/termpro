@@ -2,7 +2,8 @@
 // 内容 = 完整 BrowserPanel(标签条/地址栏/出口选择器/webview 按标签分区);头部条 =
 // 终端 tab 名 + 回落按钮。状态所有权:本窗 store(独立 zustand 实例——每个渲染进程
 // 一份)以 main 下发的种子起步,此后独占窗格内容;变更经 browserPane:sync 单向回流
-// 主窗镜像(主窗承担持久化与出口对账)。回落 = 关窗(按钮与红灯钮同路)。
+// 主窗镜像(主窗承担持久化与出口对账)。回落 = 仅回落按钮;红灯钮 = 直接关闭浏览器
+// (主窗清空镜像,多标签 main 先弹确认,见 browserPaneClose.ts)。
 
 import { useEffect, useState } from 'react';
 import { BrowserPanel } from './BrowserPanel';
@@ -71,7 +72,7 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
       .then((raw) => {
         if (cancelled) return;
         const s = sanitizeSeed(raw, terminalTabId);
-        if (!s) return; // 无种子(异常路径):停留空态,用户关窗即回落
+        if (!s) return; // 无种子(异常路径):停留空态,用户关窗即直接关闭
         document.title = `OkBrowser-${s.tabName}`;
         useAppStore.setState({
           workspaces: [
@@ -126,10 +127,10 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
   }, [terminalTabId]);
 
   // 窗格被清空(用户关光标签 → BrowserPanel 的收面板逻辑把 browserPanelOpen 置 false)
-  // → 壳窗没有「空面板」形态,自动回落关窗
+  // → 壳窗没有「空面板」形态,直接关窗(浏览器就此关闭,不回落开主窗面板)
   useEffect(() => {
     if (!seed || browserPanelOpen) return;
-    window.okwork?.browserPane?.dock?.(terminalTabId);
+    window.okwork?.browserPane?.close?.(terminalTabId);
   }, [seed, browserPanelOpen, terminalTabId]);
 
   return (

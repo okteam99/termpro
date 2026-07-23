@@ -111,7 +111,8 @@ export default function App() {
     });
   }, [hydrated]);
 
-  // 窗格窗口化:壳窗内容回流 → 镜像;壳窗关闭(回落按钮/红灯钮同路)→ 清 poppedOut
+  // 窗格窗口化:壳窗内容回流 → 镜像;壳窗关闭两路——回落按钮 → docked(保留镜像、
+  // 开面板);红灯钮/标签关光 → closed(清空镜像,浏览器就此关闭,不回落)
   useEffect(() => {
     const offSync = window.okwork?.browserPane?.onSync?.((terminalTabId, pane) => {
       const p = pane as { tabs?: unknown; activeTabId?: string | null } | null;
@@ -124,9 +125,13 @@ export default function App() {
     const offDocked = window.okwork?.browserPane?.onDocked?.((terminalTabId) => {
       useAppStore.getState().dockBrowserPane(terminalTabId);
     });
+    const offClosed = window.okwork?.browserPane?.onClosed?.((terminalTabId) => {
+      useAppStore.getState().closePoppedPane(terminalTabId);
+    });
     return () => {
       offSync?.();
       offDocked?.();
+      offClosed?.();
     };
   }, []);
 

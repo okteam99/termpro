@@ -175,15 +175,25 @@ contextBridge.exposeInMainWorld('okwork', {
     focus(terminalTabId: string): void {
       ipcRenderer.send('browserPane:focus', { terminalTabId });
     },
-    /** 壳窗/主窗:回落——关闭壳窗(统一走 closed → docked 通知) */
+    /** 壳窗/主窗:回落——关闭壳窗(走 closed → docked 通知,镜像保留) */
     dock(terminalTabId: string): void {
       ipcRenderer.send('browserPane:dock', { terminalTabId });
     },
-    /** 主窗:订阅「窗格已回落」(壳窗关闭,含红灯钮),返回退订函数 */
+    /** 主窗:订阅「窗格已回落」(回落按钮发起),返回退订函数 */
     onDocked(callback: (terminalTabId: string) => void): () => void {
       const listener = (_e: unknown, terminalTabId: string) => callback(terminalTabId);
       ipcRenderer.on('browserPane:docked', listener);
       return () => ipcRenderer.removeListener('browserPane:docked', listener);
+    },
+    /** 壳窗:直接关闭本窗(标签关光的自发关闭;不回落,走 closed → browserPane:closed) */
+    close(terminalTabId: string): void {
+      ipcRenderer.send('browserPane:close', { terminalTabId });
+    },
+    /** 主窗:订阅「窗格窗口被直接关闭」(红灯钮/标签关光)——据此清空该窗格镜像 */
+    onClosed(callback: (terminalTabId: string) => void): () => void {
+      const listener = (_e: unknown, terminalTabId: string) => callback(terminalTabId);
+      ipcRenderer.on('browserPane:closed', listener);
+      return () => ipcRenderer.removeListener('browserPane:closed', listener);
     },
   },
   /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;

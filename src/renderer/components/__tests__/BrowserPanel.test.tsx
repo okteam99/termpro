@@ -350,6 +350,26 @@ describe('窗格窗口化(弹出=整个窗格独立成窗 · 2026-07-14)', () =>
     expect(pane.activeTabId).toBe('n2');
   });
 
+  it('独立窗口直接关闭(红灯钮/标签关光):closePoppedPane 清空镜像、清标记,不开面板', () => {
+    seedWorkspace({
+      tabs: [
+        { id: 'a', url: 'https://a.dev' },
+        { id: 'b', url: 'https://b.dev' },
+      ],
+      activeTabId: 'a',
+      poppedOut: true,
+    });
+    useAppStore.setState({ browserPanelOpen: false }); // 弹出期间主窗无面板
+    act(() => useAppStore.getState().closePoppedPane(TERM));
+
+    const pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
+    expect(pane.tabs).toEqual([]);
+    expect(pane.activeTabId).toBeNull();
+    expect(pane.poppedOut).toBeUndefined();
+    // 与回落(dockBrowserPane)相反:不重开面板——浏览器就此关闭
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+  });
+
   it('弹出期间:弹出入口禁用(不可二次弹出);种空标签的 effect 不往镜像里种', () => {
     (window as unknown as { okwork: unknown }).okwork = { browserPane: {} };
     seedWorkspace({ tabs: [], activeTabId: null, poppedOut: true });

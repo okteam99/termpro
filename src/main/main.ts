@@ -25,6 +25,13 @@ import {
   createExitConfirmationCoordinator,
   shouldBypassExitConfirmation,
 } from './exitConfirmation';
+import {
+  PANE_CLOSE_CONFIRM_INDEX,
+  buildPaneCloseConfirmationOptions,
+  decidePaneClose,
+  paneClosedNotice,
+  paneTabCount,
+} from './browserPaneClose';
 import { installExternalUrlPolicy } from './externalUrlPolicy';
 import { createRendererRecovery } from './rendererRecovery';
 import { startBrowserMcpServer, type BrowserMcpHandle } from './browserMcp';
@@ -339,7 +346,9 @@ ipcMain.handle(BROWSER_PROFILE_CHANNELS.delete, (event, payload: { id: string })
 // 头部条(标题/回落)+ 完整 BrowserPanel(标签条/地址栏/出口选择器/webview 按标签分区)。
 // 状态所有权:弹出期间壳窗 store 独占,内容经 browserPane:sync 单向回流主窗镜像
 // (主窗承担持久化与出口对账);主窗侧的新增(终端链接等)经 addTab relay 进壳窗。
-// 回落 = 壳窗关闭(按钮/红灯钮同路):closed → 通知主窗 docked → 清 poppedOut。
+// 关闭两路(用户指令 2026-07-23):回落按钮 → dock → closed → docked(保留镜像、
+// 开面板);红灯钮/标签关光 → closed → browserPane:closed(清空镜像,不回落),
+// 多标签先弹「关闭所有标签」确认(决策纯函数见 browserPaneClose.ts)。
 
 interface BrowserPaneSeed {
   terminalTabId: string;
@@ -351,6 +360,8 @@ interface BrowserPaneSeed {
 }
 const paneWins = new Map<string, BrowserWindow>();
 const paneSeeds = new Map<string, BrowserPaneSeed>();
+/** 回落发起的关闭(browserPane:dock)在 close/closed 里免确认、走 docked 通知 */
+const paneDockRequests = new Set<string>();
 
 ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
   if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return; // 仅主窗口可弹
@@ -389,12 +400,43 @@ ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
   paneWins.set(tabId, win);
   installExternalUrlPolicy(win, { devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL });
   wireBrowserWebviewPolicies(win); // webview 硬化/WebRTC/弹窗策略与主窗同级
+  // 红灯钮(非回落)关闭:多标签先确认「关闭所有标签」;app 退出/冒烟不拦
+  // (退出时镜像要原样持久化)。确认后二次 close() 经 closeConfirmed 放行。
+  let closeConfirming = false;
+  let closeConfirmed = false;
+  win.on('close', (e) => {
+    const action = decidePaneClose({
+      quitting: exitLifecycle.isQuitting(),
+      bypass: shouldBypassExitConfirmation(),
+      dockRequested: paneDockRequests.has(tabId),
+      confirmed: closeConfirmed,
+      confirming: closeConfirming,
+      tabCount: paneTabCount(paneSeeds.get(tabId)?.pane),
+    });
+    if (action === 'proceed') return;
+    e.preventDefault();
+    if (action === 'ignore') return;
+    closeConfirming = true;
+    void dialog
+      .showMessageBox(win, buildPaneCloseConfirmationOptions(paneTabCount(paneSeeds.get(tabId)?.pane)))
+      .then(({ response }) => {
+        if (response !== PANE_CLOSE_CONFIRM_INDEX || win.isDestroyed()) return;
+        closeConfirmed = true;
+        win.close();
+      })
+      .catch((err) => console.error('[main] pane close confirm failed:', err))
+      .finally(() => {
+        closeConfirming = false;
+      });
+  });
   win.on('closed', () => {
+    const dockRequested = paneDockRequests.delete(tabId);
     if (paneWins.get(tabId) === win) paneWins.delete(tabId);
     paneSeeds.delete(tabId);
-    // 关窗即回落(按钮 dock 与红灯钮同路):通知主窗清 poppedOut(镜像已是最新)
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('browserPane:docked', tabId);
+    // 回落 → docked(保留镜像、开面板);直接关 → closed(清空镜像);退出中不通知
+    const notice = paneClosedNotice({ dockRequested, quitting: exitLifecycle.isQuitting() });
+    if (notice && mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send(notice, tabId);
     }
   });
   const query = { browserPane: tabId };
@@ -470,14 +512,26 @@ ipcMain.on('browserPane:focus', (event, payload: { terminalTabId?: string }) => 
   }
 });
 
-// 回落:壳窗自己(回落按钮)或主窗都可发起;统一走 close → closed → docked 通知
+// 回落:壳窗自己(回落按钮)或主窗都可发起;设回落标记走 close → closed → docked 通知
 ipcMain.on('browserPane:dock', (event, payload: { terminalTabId?: string }) => {
   const tabId = payload?.terminalTabId;
   if (!tabId) return;
   const win = paneWins.get(tabId);
   const sender = BrowserWindow.fromWebContents(event.sender);
   if (sender !== mainWin && sender !== win) return;
-  if (win && !win.isDestroyed()) win.close();
+  if (win && !win.isDestroyed()) {
+    paneDockRequests.add(tabId);
+    win.close();
+  }
+});
+
+// 直接关闭:壳窗标签关光时自发(空窗格无形态)——不设回落标记,closed → browserPane:closed
+ipcMain.on('browserPane:close', (event, payload: { terminalTabId?: string }) => {
+  const tabId = payload?.terminalTabId;
+  if (!tabId) return;
+  const win = paneWins.get(tabId);
+  if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
+  if (!win.isDestroyed()) win.close();
 });
 
 // ---- AI 浏览器控制桥(main 侧)----------------------------------------------

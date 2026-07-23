@@ -358,6 +358,9 @@ export interface AppState {
   ): void;
   /** 回落:清 poppedOut(镜像已是最新);该 tab 正活跃时顺手打开面板让内容可见 */
   dockBrowserPane(terminalTabId: string): void;
+  /** 独立窗口被直接关闭(红灯钮/标签关光,非回落):清空窗格镜像并清 poppedOut;
+   *  不动面板开关——浏览器就此关闭,不回落到面板(用户指令 2026-07-23) */
+  closePoppedPane(terminalTabId: string): void;
   /** 开机对账(主窗重载/崩溃自愈期间壳窗还开着):只补 poppedOut 标记,不动面板开关
    *  ——poppedOut 是视图态不入档,重载即丢;不对账会对同窗格双渲染 webview(双载) */
   markPanePoppedOut(terminalTabId: string): void;
@@ -1212,6 +1215,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
       };
     });
+  },
+
+  closePoppedPane(terminalTabId) {
+    set((s) => ({
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, () => ({
+        tabs: [],
+        activeTabId: null,
+      })),
+    }));
   },
 
   closeBrowserTab(terminalTabId, browserTabId) {

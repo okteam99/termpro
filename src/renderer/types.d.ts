@@ -90,6 +90,9 @@ declare global {
         focus(terminalTabId: string): void;
         dock(terminalTabId: string): void;
         onDocked(callback: (terminalTabId: string) => void): () => void;
+        /** 壳窗:直接关闭本窗(不回落);主窗经 onClosed 清空该窗格镜像 */
+        close(terminalTabId: string): void;
+        onClosed(callback: (terminalTabId: string) => void): () => void;
       };
       /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
        *  sourceWebContentsId=来源 guest 的 webContents id(据此把新标签落回来源终端 tab 的窗格) */
