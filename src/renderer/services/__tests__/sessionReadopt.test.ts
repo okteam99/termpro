@@ -172,17 +172,43 @@ describe('readoptHostSessions:同 configId 串行化', () => {
     expect(order).toEqual(['start-1', 'end-1', 'start-2']);
   });
 
-  it('第一轮失败只 WARN,不断链:第二轮照常执行', async () => {
+  it('失败自动退避重试(2026-07-23 输入黑洞修复):首次失败 → sleep(首档退避) → 重试成功即止', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fake = vi
       .fn()
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValueOnce(undefined);
+    const sleep = vi.fn(async () => {});
 
-    await readoptHostSessions('cfg-1', fake);
-    await readoptHostSessions('cfg-1', fake);
+    await readoptHostSessions('cfg-1', fake, { retryDelaysMs: [2000, 6000], sleep });
 
     expect(fake).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(2000);
+    warnSpy.mockRestore();
+  });
+
+  it('全部尝试失败 → 只 WARN 不断链;仅末次尝试 hooks 带 onAdoptFailed(终端可见提示·中间尝试静默)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const hooksSeen: Array<{ onAdoptFailed?: unknown }> = [];
+    const fake = vi.fn(async (_h: string, hooks: { onAdoptFailed?: unknown }) => {
+      hooksSeen.push(hooks);
+      throw new Error('boom');
+    });
+    const sleep = vi.fn(async (_ms: number) => {});
+
+    await readoptHostSessions('cfg-1', fake as never, { retryDelaysMs: [1, 2], sleep });
+
+    expect(fake).toHaveBeenCalledTimes(3); // 1 次 + 2 次重试
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([1, 2]);
+    expect(hooksSeen[0].onAdoptFailed).toBeUndefined();
+    expect(hooksSeen[1].onAdoptFailed).toBeUndefined();
+    expect(hooksSeen[2].onAdoptFailed).toBeTypeOf('function');
+
+    // 不断链:后续调用照常执行
+    const ok = vi.fn(async () => {});
+    await readoptHostSessions('cfg-1', ok);
+    expect(ok).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });

@@ -577,6 +577,9 @@ export interface ReadoptHooks {
   reconcileBadge?(hostId: string, sessionId: string, snapshot: SessionSnapshot): void;
   /** path②:session.list 有本地无 inst → 据快照重建 tab,返回 tabId(null=不重建)。默认不重建。 */
   rebuildTab?(hostId: string, snapshot: SessionSnapshot): string | null;
+  /** 单会话收养失败(per-inst 容错继续其余会话)时逐个回调(sessionReadopt 末次重试
+   *  接终端可见提示)。默认 no-op——失败仍经末尾聚合 throw 上抛驱动重试。 */
+  onAdoptFailed?(tabId: string, error: unknown): void;
   /** path② rebuildTab 未收养(null)时的策略钩子(评审 P2-2):本地=kill 回收防「孤儿会话
    *  续跑不可见」(embedded 时代 reload 即 kill,不回收是行为回归);远程=缺省 no-op,
    *  维持「收养只做加法」的多端语义(其他设备可能还挂着)。 */
@@ -613,9 +616,24 @@ export async function readoptHost(
   const reconcileBadge = hooks.reconcileBadge ?? (() => undefined);
   const rebuildTab = hooks.rebuildTab ?? (() => null);
   const onUnadopted = hooks.onUnadopted ?? (() => undefined);
+  const onAdoptFailed = hooks.onAdoptFailed ?? (() => undefined);
 
   const client = getClient(hostId);
   if (!client) return;
+
+  // 🔴 per-inst 容错(2026-07-23「远程机连着但无法输入」根因):失败只记录并继续,
+  // 全部会话处理完后聚合 throw(交由 readoptHostSessions 退避重试;sessionId 保留,
+  // 下轮可再收养)。此前任一 session.attach reject 会中止整个收养——其余 inst 钉死在
+  // 「renderer 侧看似绑定、新连接的 host client.sessions 缺位」的聋哑态:pty:input 被
+  // hostCore 归属门静默丢弃、无输出订阅,而心跳/延迟/其它 RPC 一切正常。
+  const failedSids: string[] = [];
+  const throwIfFailures = (): void => {
+    if (failedSids.length > 0) {
+      throw new Error(
+        `readopt incomplete: ${failedSids.length} session(s) failed to re-attach [${failedSids.join(', ')}]`,
+      );
+    }
+  };
 
   const insts = listInstances().filter(
     ([, inst]) => inst.hostId === hostId && inst.sessionId,
@@ -637,18 +655,23 @@ export async function readoptHost(
   // 路径①闪断:逐 inst 收养
   for (const [tabId, inst] of insts) {
     const sid = inst.sessionId as string;
-    const result = await adoptInst(inst, tabId, client, sid, inst.renderedBytes);
-    if (!result.found) {
-      // 幂等收养 miss(被逐/从未有)→ new spawn(不误把旧 scrollback 当 gap 追加)
-      inst.sessionId = null;
-      inst.renderedBytes = 0;
-      inst.exited = false;
-      await spawnNew(tabId, inst.spawnCwd, hostId);
-      continue;
+    try {
+      const result = await adoptInst(inst, tabId, client, sid, inst.renderedBytes);
+      if (!result.found) {
+        // 幂等收养 miss(被逐/从未有)→ new spawn(不误把旧 scrollback 当 gap 追加)
+        inst.sessionId = null;
+        inst.renderedBytes = 0;
+        inst.exited = false;
+        await spawnNew(tabId, inst.spawnCwd, hostId);
+        continue;
+      }
+      adoptedSids.add(sid);
+      inst.exited = result.snapshot.status === 'exited';
+      reconcileBadge(hostId, sid, result.snapshot);
+    } catch (err) {
+      failedSids.push(sid);
+      onAdoptFailed(tabId, err);
     }
-    adoptedSids.add(sid);
-    inst.exited = result.snapshot.status === 'exited';
-    reconcileBadge(hostId, sid, result.snapshot);
   }
 
   // 路径②重建:session.list 有、本地无 inst → 重建 tab 全量回放
@@ -657,7 +680,9 @@ export async function readoptHost(
     const res = await client.rpc('session.list', undefined);
     sessions = res.sessions;
   } catch {
-    return; // list 失败(旧 core 未知 method 等)→ 止步路径②
+    // list 失败(旧 core 未知 method 等)→ 止步路径②;路径① 的失败仍须上抛驱动重试
+    throwIfFailures();
+    return;
   }
   const localSids = new Set(
     listInstances()
@@ -678,15 +703,32 @@ export async function readoptHost(
     inst.sessionId = snap.sessionId;
     inst.renderedBytes = 0;
     inst.exited = false;
-    wireLive(inst, tabId, client, snap.sessionId);
-    const result = await adoptInst(inst, tabId, client, snap.sessionId, 0);
-    if (!result.found) {
-      inst.sessionId = null;
-      continue;
+    try {
+      wireLive(inst, tabId, client, snap.sessionId);
+      const result = await adoptInst(inst, tabId, client, snap.sessionId, 0);
+      if (!result.found) {
+        inst.sessionId = null;
+        continue;
+      }
+      inst.exited = result.snapshot.status === 'exited';
+      reconcileBadge(hostId, snap.sessionId, result.snapshot);
+    } catch (err) {
+      // sessionId 已绑定 → 下轮重试走路径① 原位收养,不再重复建 tab
+      failedSids.push(snap.sessionId);
+      onAdoptFailed(tabId, err);
     }
-    inst.exited = result.snapshot.status === 'exited';
-    reconcileBadge(hostId, snap.sessionId, result.snapshot);
   }
+  throwIfFailures();
+}
+
+/**
+ * 往指定 tab 的终端写一行暗色系统提示(「不许无声死 tab」惯例,同 ensureSession 失败路径)。
+ * tab 不存在/已销毁则忽略。当前消费方:sessionReadopt 收养重试全数失败后的终端可见提示。
+ */
+export function writeTerminalNotice(tabId: string, message: string): void {
+  const inst = registry.get(tabId);
+  if (!inst || inst.disposed) return;
+  inst.term.writeln(`\r\n\x1b[2m${message}\x1b[0m`);
 }
 
 /**

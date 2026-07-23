@@ -110,6 +110,12 @@ describe('transient_disconnect_suppresses_full_drop_keeps_terminal_and_workspace
     expect(readopt).toHaveBeenCalledWith('cfg-1'); // 收养回放对账
     expect(stopSync).not.toHaveBeenCalled(); // 成功不 drop
   });
+
+  it('onReconnected 非 reconnecting(cancel 后重连/编排外握手)也跑 readopt(2026-07-23:跳过会把存活终端钉死聋哑)', () => {
+    const { controller, readopt } = makeDeps();
+    controller.onReconnected('cfg-1'); // 从未进入 reconnecting
+    expect(readopt).toHaveBeenCalledWith('cfg-1');
+  });
 });
 
 describe('definite_disconnect_over_budget_triggers_bl004_full_drop (T-031)', () => {

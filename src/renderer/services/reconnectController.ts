@@ -134,13 +134,14 @@ export function createReconnectController(
     },
 
     onReconnected(configId: string): void {
-      const wasReconnecting = deps.isReconnecting(configId);
       cleanup(configId);
-      if (wasReconnecting) {
-        // 收养回放 + session.list 对账(横幅由 reconnecting 清除驱动消失)。
-        // 🔴 由 client.reconnect() resolve 驱动 → 此刻 transport 已就绪·session.attach 不会 reject(A1)。
-        void deps.readopt(configId);
-      }
+      // 收养回放 + session.list 对账(横幅由 reconnecting 清除驱动消失)。
+      // 🔴 由 client.reconnect() resolve 驱动 → 此刻 transport 已就绪·session.attach 不会 reject(A1)。
+      // 🔴 收养恒跑,不再以 wasReconnecting 为门(2026-07-23「连着但无法输入」):cancel 后重连/
+      // 编排外完成的握手同样接在「host 侧订阅已随旧连接丢失」之后,跳过收养会把存活 inst 钉死在
+      // 「pty:input 被 hostCore 归属门静默丢弃」的聋哑态。真·初次连接时无 inst、无 ws 映射,
+      // readopt 天然近零成本(仅多一次 session.list)。
+      void deps.readopt(configId);
     },
 
     manualRetry(configId: string): void {

@@ -18,7 +18,9 @@ import {
   readoptHost,
   findTab,
   bindRestoredSessionTab,
+  writeTerminalNotice,
 } from '../terminal/terminalRegistry';
+import { t } from '../../shared/i18n';
 import { useAppStore } from '../state/store';
 import type { WorkspaceState } from '../state/store';
 import type { SessionSnapshot } from '../../shared/protocol';
@@ -136,27 +138,74 @@ function reapUnmappedLocalSession(
 /** hostId → 在途收养 promise(串行化尾指针) */
 const inflight = new Map<string, Promise<void>>();
 
+/** 收养失败重试退避(2026-07-23「连着但无法输入」):readoptHost 幂等(已收养 inst
+ *  增量 re-attach 近零成本),整轮重跑安全。host 已 drop 时 getClient 落空 → readopt
+ *  早退成功,重试链自然终止。 */
+const READOPT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000];
+
+/** 末次重试仍失败 → 终端里说话(「不许无声死 tab」惯例):该 tab 的输入正被 host
+ *  归属门静默丢弃,必须给用户一条可行动的提示。 */
+function notifyAdoptFailed(tabId: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  writeTerminalNotice(
+    tabId,
+    t(
+      '[OkWork] Could not restore this session after reconnecting: {message} — disconnect and reconnect this machine to retry',
+      { message },
+    ),
+  );
+}
+
 /**
  * 收养入口(生产 hooks 单源·hostId 同构:'local'|configId):同 hostId 的并发调用
  * 串行执行——onReconnected(闪断)与 startRemoteWorkspaceSync(ready 首拉后)可能
  * 背靠背触发,并行跑会双双看到「本地无 inst」而重建两份 tab;串行后后一轮经
- * adoptedSids/localSids 去重自然收敛为 no-op。失败只 WARN(收养是尽力恢复,
- * 不阻断连接可用性)。
+ * adoptedSids/localSids 去重自然收敛为 no-op。
+ * 失败退避重试(READOPT_RETRY_DELAYS_MS,重试轮全部串在同一尾指针内);全部尝试
+ * 失败只 WARN + 逐失败 tab 终端提示(收养是尽力恢复,不阻断连接可用性)——绝不能
+ * 静默放弃:未收养的 inst 在 host 侧无归属,pty:input 会被无声丢弃(输入黑洞)。
  */
 export function readoptHostSessions(
   hostId: string,
   readopt: typeof readoptHost = readoptHost,
+  opts?: {
+    retryDelaysMs?: readonly number[];
+    sleep?: (ms: number) => Promise<void>;
+  },
 ): Promise<void> {
+  const delays = opts?.retryDelaysMs ?? READOPT_RETRY_DELAYS_MS;
+  const sleep =
+    opts?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const attempt = (isFinal: boolean): Promise<void> =>
+    readopt(hostId, {
+      reconcileBadge,
+      rebuildTab: rebuildTabForSnapshot,
+      // 终端可见提示只挂末次尝试:中间尝试静默重试,避免瞬断场景刷重复提示行
+      ...(isFinal ? { onAdoptFailed: notifyAdoptFailed } : {}),
+      // 本地孤儿回收策略仅挂 'local'(评审 P2-2);远程不传 → 默认 no-op 只做加法
+      ...(hostId === 'local' ? { onUnadopted: reapUnmappedLocalSession } : {}),
+    });
   const prev = inflight.get(hostId) ?? Promise.resolve();
   const next = prev
-    .then(() =>
-      readopt(hostId, {
-        reconcileBadge,
-        rebuildTab: rebuildTabForSnapshot,
-        // 本地孤儿回收策略仅挂 'local'(评审 P2-2);远程不传 → 默认 no-op 只做加法
-        ...(hostId === 'local' ? { onUnadopted: reapUnmappedLocalSession } : {}),
-      }),
-    )
+    .then(async () => {
+      for (let i = 0; ; i++) {
+        const isFinal = i >= delays.length;
+        try {
+          await attempt(isFinal);
+          return;
+        } catch (err) {
+          if (isFinal) throw err;
+          console.warn(
+            '[sessionReadopt] readopt attempt %d failed hostId=%s — retrying in %dms',
+            i + 1,
+            hostId,
+            delays[i],
+            err,
+          );
+          await sleep(delays[i]);
+        }
+      }
+    })
     .catch((err) => {
       console.warn('[sessionReadopt] readopt failed hostId=%s', hostId, err);
     })

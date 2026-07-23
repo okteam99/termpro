@@ -84,7 +84,7 @@ interface FakeClient {
 
 function makeFakeClient(opts: {
   resume?: boolean;
-  attach?: () => SessionAttachResult;
+  attach?: (params: { sessionId: string }) => SessionAttachResult;
   sessions?: SessionSnapshot[];
 }): FakeClient {
   const attachCalls: FakeClient['attachCalls'] = [];
@@ -101,8 +101,9 @@ function makeFakeClient(opts: {
     supportsSessionResume: () => opts.resume ?? true,
     rpc: vi.fn(async (method: string, params: unknown) => {
       if (method === 'session.attach') {
-        attachCalls.push(params as FakeClient['attachCalls'][number]);
-        return opts.attach ? opts.attach() : defaultAttach;
+        const p = params as FakeClient['attachCalls'][number];
+        attachCalls.push(p);
+        return opts.attach ? opts.attach(p) : defaultAttach;
       }
       if (method === 'session.list') return { sessions: opts.sessions ?? [] };
       return {};
@@ -310,6 +311,82 @@ describe('readopt capability gate (T-038 renderer 半侧)', () => {
     expect(client.rpc).not.toHaveBeenCalled();
     expect(spawnNew).toHaveBeenCalledWith('t', '/repo', 'cfg-1');
     expect(writes.length).toBe(0);
+  });
+});
+
+describe('readopt per-inst 容错(2026-07-23「远程机连着但无法输入」回归网)', () => {
+  it('路径① 单 inst attach reject → 其余 inst 照常收养;失败 inst 保留 sessionId 供下轮;末尾聚合 reject;onAdoptFailed 逐失败回调', async () => {
+    const bad = makeFakeInst({ hostId: 'cfg-1', sessionId: 's-bad', renderedBytes: 5 });
+    const good = makeFakeInst({ hostId: 'cfg-1', sessionId: 's-good', renderedBytes: 7 });
+    const client = makeFakeClient({
+      attach: (p) => {
+        if (p.sessionId === 's-bad') throw new Error('attach boom');
+        return {
+          found: true, full: false, baseOffset: 7, data: 'LIVE', nextOffset: 11,
+          snapshot: snap('running', 'live', null, 's-good'),
+        };
+      },
+    });
+    const onAdoptFailed = vi.fn();
+    await expect(
+      readoptHost('cfg-1', {
+        getClient: () => asClient(client),
+        listInstances: () => [
+          ['t-bad', bad.inst],
+          ['t-good', good.inst],
+        ],
+        onAdoptFailed,
+      }),
+    ).rejects.toThrow(/1 session/);
+    // 🔴 核心断言:s-bad 失败不得中止循环——否则 s-good 在新连接上永不 re-attach,
+    // host 侧 client.sessions 缺位 → pty:input 被静默丢弃 = 「连着但无法输入」
+    expect(client.attachCalls.map((c) => c.sessionId)).toEqual(['s-bad', 's-good']);
+    expect(good.writes).toContain('LIVE');
+    expect(good.inst.renderedBytes).toBe(11);
+    expect(bad.inst.sessionId).toBe('s-bad'); // 保留,readoptHostSessions 重试可再收养
+    expect(onAdoptFailed).toHaveBeenCalledTimes(1);
+    expect(onAdoptFailed).toHaveBeenCalledWith('t-bad', expect.any(Error));
+  });
+
+  it('路径② 单快照收养失败 → 其余快照照常重建收养;整体 reject', async () => {
+    const badSnap = snap('running', 'live', null, 's-bad');
+    const goodSnap = snap('running', 'live', null, 's-good');
+    const client = makeFakeClient({
+      sessions: [badSnap, goodSnap],
+      attach: (p) => {
+        if (p.sessionId === 's-bad') throw new Error('attach boom');
+        return { found: true, full: true, baseOffset: 0, data: 'REPLAY', nextOffset: 6, snapshot: goodSnap };
+      },
+    });
+    const instBad = makeFakeInst({});
+    const instGood = makeFakeInst({});
+    const onAdoptFailed = vi.fn();
+    await expect(
+      readoptHost('cfg-1', {
+        getClient: () => asClient(client),
+        listInstances: () => [],
+        rebuildTab: (_h, s) => (s.sessionId === 's-bad' ? 't-bad' : 't-good'),
+        getOrCreateInst: (tabId) => (tabId === 't-bad' ? instBad.inst : instGood.inst),
+        wireLiveSession: () => undefined,
+        onAdoptFailed,
+      }),
+    ).rejects.toThrow(/1 session/);
+    expect(instGood.writes).toContain('REPLAY');
+    expect(instGood.inst.sessionId).toBe('s-good');
+    expect(instBad.inst.sessionId).toBe('s-bad'); // 已绑定,下轮路径① 重试
+    expect(onAdoptFailed).toHaveBeenCalledWith('t-bad', expect.any(Error));
+  });
+
+  it('全部成功 → 不 reject、不调 onAdoptFailed(容错不改变健康路径)', async () => {
+    const { inst } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1' });
+    const client = makeFakeClient({});
+    const onAdoptFailed = vi.fn();
+    await readoptHost('cfg-1', {
+      getClient: () => asClient(client),
+      listInstances: () => [['t', inst]],
+      onAdoptFailed,
+    });
+    expect(onAdoptFailed).not.toHaveBeenCalled();
   });
 });
 
