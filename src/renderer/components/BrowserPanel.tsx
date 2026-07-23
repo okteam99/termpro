@@ -252,6 +252,43 @@ function ForwardIcon() {
   );
 }
 
+/** 刷新:环形箭头(文本字形 ⟳ 太小,改 SVG 并放大到 14px 对齐同级图标观感) */
+function RefreshIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10.5 6a4.5 4.5 0 1 1-1.32-3.18L10.5 4.1" />
+      <polyline points="10.6,1.4 10.5,4.1 7.8,4" />
+    </svg>
+  );
+}
+
+/** 停止加载:叉(与 RefreshIcon 同尺寸,加载中替换显示) */
+function StopIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    >
+      <line x1="3.4" y1="3.4" x2="8.6" y2="8.6" />
+      <line x1="8.6" y1="3.4" x2="3.4" y2="8.6" />
+    </svg>
+  );
+}
+
 /** 弹出独立窗口:方框 + 右上出箭头 */
 function PopoutIcon() {
   return (
@@ -709,7 +746,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
           }}
           title={activeNav.loading ? t('Stop') : t('Refresh')}
         >
-          {activeNav.loading ? '✕' : '⟳'}
+          {activeNav.loading ? <StopIcon /> : <RefreshIcon />}
         </button>
         <input
           ref={addressInputRef}
