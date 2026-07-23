@@ -1,7 +1,7 @@
 {
   "name": "okwork",
   "productName": "OkWork",
-  "version": "0.3.87",
+  "version": "0.3.88",
   "description": "Terminal-first workbench for running many AI coding agents in parallel — agent-agnostic, macOS.",
   "main": ".vite/build/main.js",
   "private": true,
