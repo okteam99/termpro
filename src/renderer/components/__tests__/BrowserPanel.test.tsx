@@ -280,6 +280,29 @@ describe('主帧加载失败错误条(空白页自解释 · 2026-07-14)', () => 
   });
 });
 
+describe('地址栏手动导航(用户报告 2026-07-23:失败页地址栏回退旧地址)', () => {
+  it('回车即回写 store url/标签名(不等 did-navigate;失败页也不回退)', () => {
+    seedWorkspace({
+      tabs: [{ id: 'a', url: 'https://www.baidu.com/', title: '百度一下' }],
+      activeTabId: 'a',
+    });
+    render(<BrowserPanel />);
+    const view = document.querySelector('webview')!;
+    const loadURL = vi.fn();
+    (view as unknown as { loadURL: unknown }).loadURL = loadURL;
+
+    const input = document.querySelector<HTMLInputElement>('.browser-panel__address-input')!;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'aon.pro' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(loadURL).toHaveBeenCalledWith('https://aon.pro');
+    const bt = useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0];
+    expect(bt.url).toBe('https://aon.pro'); // 地址栏值 = store url,立即切换
+    expect(bt.title).toBe('aon.pro'); // 标签名先落目标 host,成功后被真实标题覆盖
+  });
+});
+
 describe('窗格窗口化(弹出=整个窗格独立成窗 · 2026-07-14)', () => {
   it('点头部弹出 → browserPane.popout(完整窗格快照) + 主窗收面板标 poppedOut', () => {
     const popout = vi.fn();

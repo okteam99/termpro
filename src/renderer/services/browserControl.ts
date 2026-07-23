@@ -90,8 +90,10 @@ export async function navigate(
   }
   const targetId = resolveTargetTabId(terminalTabId, browserTabId);
   const el = getBrowserView(targetId);
+  // 先写 store 再导航:失败页(SSL/DNS 错)did-navigate 不回写,url 得先落镜像
+  // (与地址栏手动导航同语义);未挂载时写 store 兼触发 src 首次加载
+  s.updateBrowserTab(terminalTabId, targetId, { url });
   if (el) await el.loadURL(url);
-  else s.updateBrowserTab(terminalTabId, targetId, { url }); // 未挂载:写 store 触发 src 加载
   return { browserTabId: targetId };
 }
 

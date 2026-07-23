@@ -610,14 +610,14 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     if (!activeTermTabId || !activeTab) return;
     const url = normalizeUrlInput(raw);
     if (!url) return;
+    // 立即回写 store:地址栏/标签名马上反映目标地址。加载失败(SSL/DNS 错)时
+    // did-navigate 不会来,不写这步地址栏会退回旧地址(用户报告 2026-07-23)。
+    // src 由 srcRef 锁定一次,store 更新不会反向触发 reload;标签名先落目标 host,
+    // 成功后由 page-title-updated 覆盖为真实标题。
+    updateBrowserTab(activeTermTabId, activeTab.id, { url, title: hostOf(url) ?? url });
     const el = webviewRefs.current.get(activeTab.id);
-    if (el) {
-      // 已有 webview:直接导航,store 由 did-navigate 回写(避免 src 反向绑定循环 reload)
-      void el.loadURL(url);
-    } else {
-      // 空标签:写 store 触发 webview 首次渲染(src 锁定为这个 url)
-      updateBrowserTab(activeTermTabId, activeTab.id, { url });
-    }
+    // 已有 webview:直接导航(空标签则由上面的 store 写入触发首次渲染,src 锁定为这个 url)
+    if (el) void el.loadURL(url);
   }
 
   function handleAddressKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

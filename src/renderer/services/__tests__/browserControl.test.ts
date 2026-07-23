@@ -85,13 +85,16 @@ describe('控制原语', () => {
     expect(await bc.screenshot(TERM)).toBe('data:image/png;base64,ABC');
   });
 
-  it('navigate:已有标签 → loadURL 现有 webview', async () => {
+  it('navigate:已有标签 → loadURL 现有 webview;store url 先落镜像(失败页无 did-navigate 回写)', async () => {
     seed({ tabs: [{ id: 'a', url: 'https://a.dev' }], activeTabId: 'a' });
     const v = fakeView();
     registerBrowserView('a', v);
     const r = await bc.navigate(TERM, 'https://new.dev');
     expect(r.browserTabId).toBe('a');
     expect((v.loadURL as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('https://new.dev');
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url).toBe(
+      'https://new.dev',
+    );
   });
 
   it('navigate:窗格无标签 → 开新标签(store 加载,返回新 id)', async () => {
