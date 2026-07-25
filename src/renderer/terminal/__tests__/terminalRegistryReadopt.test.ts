@@ -297,6 +297,81 @@ describe('readopt_full_replay_restores_bracketed_paste_mode', () => {
   });
 });
 
+// 修「远程重连后大片空白 + 碎片」:全屏 TUI 的 ?1049h 被挤出全量切片 → reset 后 xterm
+// 停在主屏,整段备用屏重绘落进主屏且差分基准全错。
+describe('readopt_full_replay_restores_altscreen_mode', () => {
+  const attachFull = (data: string, over: Partial<SessionSnapshot> = {}) =>
+    makeFakeClient({
+      attach: () => ({
+        found: true,
+        full: true,
+        baseOffset: 0,
+        data,
+        nextOffset: Buffer.byteLength(data, 'utf8'),
+        snapshot: { ...snap('running'), ...over },
+      }),
+    });
+
+  it('full=true 且快照 altscreen → reset 后、切片前写 ?1049h', async () => {
+    const { inst, writes, resets } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1' });
+    await readoptHost('cfg-1', {
+      getClient: () => asClient(attachFull('FRAME', { altscreen: true })),
+      listInstances: () => [['t', inst]],
+    });
+    expect(resets.n).toBe(1);
+    expect(writes).toEqual(['\x1b[?1049h', 'FRAME']);
+  });
+
+  it('切片自含进入序列 → 不补写(否则 xterm 再清一次备用屏,抹掉切片已画内容)', async () => {
+    for (const enter of ['\x1b[?1049h', '\x1b[?1047h', '\x1b[?47h']) {
+      const { inst, writes } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1' });
+      await readoptHost('cfg-1', {
+        getClient: () => asClient(attachFull(`main${enter}FRAME`, { altscreen: true })),
+        listInstances: () => [['t', inst]],
+      });
+      expect(writes).toEqual([`main${enter}FRAME`]);
+    }
+  });
+
+  it('快照非 altscreen → 不注入(reset 后本就是主屏)', async () => {
+    const { inst, writes } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1' });
+    await readoptHost('cfg-1', {
+      getClient: () => asClient(attachFull('PLAIN', { altscreen: false })),
+      listInstances: () => [['t', inst]],
+    });
+    expect(writes).toEqual(['PLAIN']);
+  });
+
+  it('altscreen + bracketedPaste 同时恢复:备用屏先于粘贴模式,二者均先于切片', async () => {
+    const { inst, writes } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1' });
+    await readoptHost('cfg-1', {
+      getClient: () =>
+        asClient(attachFull('FRAME', { altscreen: true, bracketedPaste: true })),
+      listInstances: () => [['t', inst]],
+    });
+    expect(writes).toEqual(['\x1b[?1049h', '\x1b[?2004h', 'FRAME']);
+  });
+
+  it('增量回放不注入(xterm 状态连续)', async () => {
+    const { inst, writes } = makeFakeInst({
+      hostId: 'cfg-1',
+      sessionId: 's1',
+      renderedBytes: 10,
+    });
+    const inc = makeFakeClient({
+      attach: () => ({
+        found: true, full: false, baseOffset: 10, data: 'GAP', nextOffset: 13,
+        snapshot: { ...snap('running'), altscreen: true },
+      }),
+    });
+    await readoptHost('cfg-1', {
+      getClient: () => asClient(inc),
+      listInstances: () => [['t', inst]],
+    });
+    expect(writes).toEqual(['GAP']);
+  });
+});
+
 describe('readopt capability gate (T-038 renderer 半侧)', () => {
   it('supportsSessionResume=false → 不发 session.attach·每个 inst new spawn', async () => {
     const { inst, writes } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1', spawnCwd: '/repo' });

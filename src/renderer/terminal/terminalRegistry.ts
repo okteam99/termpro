@@ -529,6 +529,9 @@ function markTakenover(inst: TermInstance): void {
   );
 }
 
+/** 备用屏进入序列(1049 现代 / 1047 · 47 老式):切片自含则不补写快照模式(见 adoptInst)。 */
+const ALT_ENTER_RE = /\x1b\[\?(?:1049|1047|47)h/;
+
 /**
  * 收养一个 inst 的既有会话(BL-005·CR-5 回放顺序):session.attach → full 则 term.reset() 后写 data·
  * 否则增量 write → 🔴 renderedBytes = result.nextOffset(权威·不自算 byteLength·EXT-B-5)。
@@ -556,10 +559,19 @@ async function adoptInst(
     if (!result.found) return result;
     if (result.full) {
       inst.term.reset(); // gap 超缓冲 / 重建 tab → 先清屏
-      // ring 只存字节:TUI 开机时的 ?2004h 常被挤出全量切片,reset 后 xterm 不知远端
-      // 已开 bracketed paste → term.paste 不加 200~/201~ 包裹,远端 TUI 把长文本粘贴
-      // 当逐键输入(不聚合)。据 host 快照恢复模式(写本地 xterm 解析,不进 PTY);
-      // 先于切片写入——切片内若还有模式翻转,以切片为准(快照=切片末尾态,终态一致)。
+      // ring 只存字节:TUI 开机时的模式序列常被挤出全量切片,reset 后 xterm 不知远端
+      // 已处于该模式。据 host 快照恢复(写本地 xterm 解析,不进 PTY);先于切片写入——
+      // 切片内若还有模式翻转,以切片为准(快照=切片末尾态,终态一致)。
+      //
+      // ?1049h(备用屏):远端是全屏 TUI 而进入序列被挤出时,整段备用屏重绘会落进主屏,
+      // 且 TUI 的差分重绘基于我们没有的屏幕态 → 大片空白 + 碎片(用户实测截图)。
+      // 🔴 仅在切片【自身不含】进入序列时补:否则 xterm 的 ?1049h 会再清一次备用屏,
+      // 把切片里本属主屏(scrollback)的内容画进备用屏又抹掉。
+      if (result.snapshot.altscreen && !ALT_ENTER_RE.test(result.data)) {
+        inst.term.write('\x1b[?1049h');
+      }
+      // ?2004h(bracketed paste):不恢复则 term.paste 不加 200~/201~ 包裹,远端 TUI
+      // 把长文本粘贴当逐键输入(不聚合)。无视觉副作用,无需上面的「切片自含」判别。
       if (result.snapshot.bracketedPaste) inst.term.write('\x1b[?2004h');
     }
     if (result.data) inst.term.write(result.data);
