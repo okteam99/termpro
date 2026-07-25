@@ -60,9 +60,20 @@ interface Session {
   cwd: string;
   /** shell basename(title 兜底) */
   shellName: string;
+  /** 在途的重绘拨动定时器(见 nudgeRedraw);任何真实 resize 落地即作废 */
+  redrawNudge: NodeJS.Timeout | null;
 }
 
 const PROCESS_POLL_MS = 1500;
+/**
+ * 重绘拨动的还原延迟(见 nudgeRedraw):要大到中间尺寸能被前台程序观测(否则比对新旧
+ * 尺寸的 TUI 会跳过重绘),又小到用户看不出那一行的抖动。env 可调(测试用短值)。
+ */
+const DEFAULT_REDRAW_NUDGE_MS = 60;
+const REDRAW_NUDGE_MS = (() => {
+  const n = Number(process.env.OKWORK_REDRAW_NUDGE_MS);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_REDRAW_NUDGE_MS;
+})();
 const DEFAULT_MAX_SESSIONS = 64;
 /** spawn / 直调 pool 的旧调用点缺省订阅者 id(hostCore 恒传真实 client.id,不会撞这个值)。 */
 const DEFAULT_SUBSCRIBER_ID = -1;
@@ -210,6 +221,7 @@ export class PtyPool {
       evicting: false,
       cwd,
       shellName,
+      redrawNudge: null,
     };
 
     proc.onData((data) => {
@@ -257,6 +269,7 @@ export class PtyPool {
     });
 
     proc.onExit(({ exitCode }) => {
+      this.cancelNudge(session); // 死 pty resize 会抛
       if (session.mode === 'embedded' || session.evicting) {
         // 嵌入式:立即 delete(零回归)· 手动 kill:彻底逐出(不留 exited)
         this.sessions.delete(id);
@@ -328,6 +341,7 @@ export class PtyPool {
       sub.cols = cols;
       sub.rows = rows;
     }
+    this.cancelNudge(s); // 同 recalcMinSize:真实尺寸优先于在途拨动还原
     s.pty.resize(cols, rows);
   }
 
@@ -454,6 +468,10 @@ export class PtyPool {
       this.maybeResume(s);
     }
 
+    // full 回放 = 差分重绘的基准态已被挤出 ring → 客户端 reset 后只能拼出碎片。
+    // 尺寸对账完成后拨动一下逼前台程序整屏重画(exited 会话无进程可逼,天然跳过)。
+    if (slice.full && s.status === 'live') this.nudgeRedraw(s);
+
     return {
       found: true,
       full: slice.full,
@@ -530,6 +548,53 @@ export class PtyPool {
    * (过滤 cols<2/rows<1 的非法视口)。变化才 pty.resize;单订阅者时 min=其视口=旧单 owner
    * 行为(但该路径只在 mirror/多订阅场景调用,exclusive 走独立的直接 resize 分支)。
    */
+  /**
+   * 强制前台程序整屏重绘(full 回放收尾 · 修「重连后屏幕停在碎片态」)。
+   *
+   * 全量回放只能重放 ring 里剩下的字节,而 TUI 发的是【差分】重绘(基于它以为的屏幕态)。
+   * gap 超缓冲时那个基准态早被挤掉 → 客户端 term.reset() 后拼出来的是碎片,除非让程序
+   * 自己重画一遍。唯一不侵入输入流的办法是 SIGWINCH(不能塞 Ctrl-L:那是往 app 注入按键)。
+   *
+   * 🔴 必须【真的改一下尺寸再改回来】:内核只在 winsize 实际变化时发 SIGWINCH,而 reattach
+   * 的 resize 对账在尺寸没变时是 no-op —— 这正是 ringBuffer 老注释里「靠 proc.resize 逼重绘
+   * 兜底」从来没生效的原因。同 tick 改回去也不行:Ink 一类 TUI 会比对新旧尺寸,一样即跳过
+   * 重绘。故先缩一行,下一拍还原,让中间尺寸可观测(用户实测「再断开重连一次就恢复」正是
+   * 重连时视口尺寸恰好抖了一下、误打误撞触发了同一条路径)。
+   *
+   * 期间任何真实 resize 落地都会作废在途还原(见 resize / recalcMinSize),不覆盖新尺寸。
+   */
+  private nudgeRedraw(s: Session): void {
+    if (s.status !== 'live') return;
+    const cols = s.pty.cols;
+    const rows = s.pty.rows;
+    if (!(cols >= 2 && rows >= 2)) return; // rows-1 会退化成非法视口
+    this.cancelNudge(s);
+    try {
+      s.pty.resize(cols, rows - 1);
+    } catch (err) {
+      console.warn('[host] redraw nudge failed for', s.id, err);
+      return;
+    }
+    s.redrawNudge = setTimeout(() => {
+      s.redrawNudge = null;
+      if (s.status !== 'live') return;
+      try {
+        s.pty.resize(cols, rows);
+      } catch (err) {
+        console.warn('[host] redraw nudge restore failed for', s.id, err);
+      }
+    }, REDRAW_NUDGE_MS);
+    // host 进程不该被这个定时器吊住生命周期(测试里同理)
+    s.redrawNudge.unref?.();
+  }
+
+  /** 作废在途重绘拨动(真实 resize / 会话终止时调用,避免还原覆盖新尺寸)。 */
+  private cancelNudge(s: Session): void {
+    if (!s.redrawNudge) return;
+    clearTimeout(s.redrawNudge);
+    s.redrawNudge = null;
+  }
+
   private recalcMinSize(s: Session): void {
     if (s.status !== 'live' || s.subscribers.size === 0) return;
     let minCols = Infinity;
@@ -541,6 +606,7 @@ export class PtyPool {
     }
     if (!Number.isFinite(minCols) || !Number.isFinite(minRows)) return;
     if (minCols === s.pty.cols && minRows === s.pty.rows) return;
+    this.cancelNudge(s); // 真实尺寸落地 → 在途拨动还原作废(否则会还原成旧尺寸)
     try {
       s.pty.resize(minCols, minRows);
     } catch (err) {
@@ -567,7 +633,10 @@ export class PtyPool {
   }
 
   dispose(): void {
-    for (const s of this.sessions.values()) s.pty.kill();
+    for (const s of this.sessions.values()) {
+      this.cancelNudge(s);
+      s.pty.kill();
+    }
     this.sessions.clear();
     this.stopPollingIfIdle();
   }
