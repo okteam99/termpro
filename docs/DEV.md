@@ -278,6 +278,7 @@ gh secret set APPLE_TEAM_ID                -R okteam99/termpro
 |---|---|
 | ~~单窗口单客户端~~（v0.2 已解） | Host 现支持多客户端：共享 PTY 池、会话按归属路由、窗口关闭只回收自己的资源（v0.2 2026-06 交付） |
 | 本地会话生命周期（2026-07 standalone 化） | 本地 host 以 `--standalone` 跑远程同款会话语义：客户端断开（renderer 崩溃/⌘R/关窗）转 detach 续跑 + ring（256 KiB/会话，回放非全保真）回放收养；renderer 事故退出由 main 自动 reload（5 分钟 3 次限频，成功加载清零，give-up 弹窗告知 ⌘R）；映射不到 workspace 的本地孤儿会话在收养时 kill 回收（仅本地，远程只做加法）；会话仍随 app 退出整体回收。遗留 P3（opus 评审 2026-07，均可辩护）：① launch-failed 仍走限频 reload 而非直接 give-up；② 本地 host.info 多暴露 fs.temp-png 能力位（本地不消费，cosmetic） |
+| 重连全量回放的保真边界（2026-07） | gap 超 ring（256 KiB/会话）→ `full=true` 全量回放,客户端 `term.reset()` 后重写整缓冲。三处已封:① ring 驱逐点对齐**转义序列边界**(否则 `\x1b[0m` 被切成 `0m` 当正文打印);② 收养据快照恢复 `?1049h`/`?2004h`(备用屏 / 粘贴聚合,开机序列常被挤出切片);③ host 在 full 回放收尾**拨动 winsize**(缩一行、60ms 还原)逼前台程序整屏重绘——TUI 发的是差分重绘,其基准态已被挤出 ring,不逼重绘则屏幕停在碎片态。仍不保真的部分:滚动区(DECSTBM)、光标可见性等未进快照的模式,靠 ③ 的重绘覆盖 |
 | Electron 升级需重编 node-pty | forge 的 `rebuild` 配置自动处理，直接 `npm start` / `make` 即可 |
 | 沙箱 preload 无 process.env | 冒烟开关 `OKWORK_SMOKE` 不能在 preload 读取；main 通过 `additionalArguments: ['--okwork-smoke']` 传入，preload 读 `process.argv` |
 | 协议版本 | `PROTOCOL_VERSION = 1`；M5 远程接入时需做版本握手校验 |
