@@ -95,4 +95,113 @@ describe('RingBuffer', () => {
     expect(ring.absoluteOffset).toBe(0);
     expect(ring.length).toBe(0);
   });
+
+  // ---- 转义序列边界对齐(修「远程重连后满屏 `0m` 垃圾」)-------------------
+  describe('驱逐点对齐转义序列边界(full 回放不带残尾)', () => {
+    /**
+     * 独立预言:按【token 构造】算出合法 ground 偏移集合(不复用实现里的态机)。
+     * 转义 token 只有起点合法(切进去就是残尾);正文 token 每个码点起点都合法。
+     */
+    function groundOffsets(tokens: readonly string[]): Set<number> {
+      const set = new Set<number>();
+      let off = 0;
+      for (const tk of tokens) {
+        if (tk.startsWith('\x1b')) {
+          set.add(off);
+        } else {
+          let p = off;
+          for (const ch of tk) {
+            set.add(p);
+            p += bytes(ch);
+          }
+        }
+        off += bytes(tk);
+      }
+      set.add(off); // 流末尾(全驱逐)
+      return set;
+    }
+
+    it('驱逐点落在 CSI 中段 → 前移到序列外(不再回放 `0m` 这类残尾)', () => {
+      // '\x1b[1;36mhello\x1b[0m' —— 容量迫使驱逐点落进第一条 SGR 的参数区
+      const ring = new RingBuffer(14);
+      ring.push('\x1b[1;36mhello\x1b[0m');
+      const slice = ring.sliceFrom(0);
+      expect(slice.full).toBe(true);
+      // 朴素字节驱逐会得到 ';36mhello\x1b[0m'(`;36m` 会被当正文打印)
+      expect(slice.data.startsWith(';36m')).toBe(false);
+      expect(slice.data).toBe('hello\x1b[0m');
+      expect(slice.baseOffset).toBe(ring.startOffset);
+    });
+
+    it('驱逐点落在 OSC 中段 → 前移到 BEL/ST 之后', () => {
+      const ring = new RingBuffer(12);
+      ring.push('\x1b]0;my title\x07done!\r\n');
+      const slice = ring.sliceFrom(0);
+      expect(slice.data).toBe('done!\r\n');
+    });
+
+    it('驱逐点落在 ESC 与类型字节之间 → 不留裸 ESC', () => {
+      const ring = new RingBuffer(10);
+      ring.push('abc\x1b[2Jxyz-tail');
+      const slice = ring.sliceFrom(0);
+      expect(slice.data.includes('\x1b[2J')).toBe(false); // 该序列已整条驱逐
+      expect(slice.data).toBe('xyz-tail');
+    });
+
+    it('TUI 帧流填满 ring → 驱逐点恒落 ground(回归:满屏残尾)', () => {
+      const tokens: string[] = [];
+      for (let i = 0; i < 200; i++) {
+        tokens.push(`\x1b[${(i % 20) + 1};1H`, '\x1b[1;36m', `line ${i}`, '\x1b[0m');
+      }
+      const ground = groundOffsets(tokens);
+      const ring = new RingBuffer(64);
+      for (const tk of tokens) {
+        ring.push(tk);
+        expect(ring.length).toBeLessThanOrEqual(64);
+        expect(ground.has(ring.startOffset)).toBe(true);
+      }
+      // full 切片 = 缓冲原样,起点即上面校验过的 ground 偏移
+      expect(ring.sliceFrom(0).baseOffset).toBe(ring.startOffset);
+    });
+
+    it('chunk 切在序列中段 → 不变式与 chunk 划分无关', () => {
+      const tokens: string[] = [];
+      for (let i = 0; i < 120; i++) {
+        tokens.push(`\x1b[3${i % 8}m`, `[${i}]`, '\x1b[0m', ' ', `\x1b]0;t${i}\x07`);
+      }
+      const ground = groundOffsets(tokens);
+      const stream = tokens.join('');
+      const ring = new RingBuffer(96);
+      for (let i = 0; i < stream.length; i += 7) {
+        ring.push(stream.slice(i, i + 7)); // 与 token 边界无关的切法
+        expect(ground.has(ring.startOffset)).toBe(true);
+      }
+    });
+
+    it('病态未终止 OSC 超搜索窗 → 退回 UTF-8 对齐,缓冲不被吃光', () => {
+      const ring = new RingBuffer(64);
+      ring.push('\x1b]0;' + 'x'.repeat(20_000)); // 无 BEL/ST 终止
+      expect(ring.length).toBeLessThanOrEqual(64);
+      expect(ring.length).toBeGreaterThan(0);
+    });
+
+    it('转义对齐不破坏 UTF-8 码点边界', () => {
+      const ring = new RingBuffer(11);
+      ring.push('\x1b[32m你好世界');
+      const slice = ring.sliceFrom(0);
+      expect(slice.data.includes('�')).toBe(false);
+      expect(ring.absoluteOffset - ring.startOffset).toBe(ring.length);
+    });
+
+    it('增量切片仍按原样续流(xterm 解析器跨 write 保状态)', () => {
+      const ring = new RingBuffer(1024);
+      ring.push('\x1b[1;3'); // chunk 切在 CSI 中段
+      const at = ring.absoluteOffset;
+      ring.push('6mhi');
+      const slice = ring.sliceFrom(at);
+      expect(slice.full).toBe(false);
+      expect(slice.data).toBe('6mhi'); // 不对齐、不吞字节
+      expect(slice.baseOffset).toBe(at);
+    });
+  });
 });
