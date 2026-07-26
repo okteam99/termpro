@@ -53,6 +53,7 @@ declare global {
       }): Promise<string | null>;
       showTabContextMenu(): Promise<string | null>;
       clipboardWriteText(text: string): void;
+      nativeCopy(): void;
       clipboardReadText(): Promise<string>;
       clipboardReadImage(): Promise<{ base64: string; size: number } | null>;
       openExternal(url: string): void;

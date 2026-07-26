@@ -10,6 +10,8 @@ import { initProfilesSync } from './services/profilesSync';
 import { initBrowserControlBridge } from './services/browserControlBridge';
 import { relayProfileToPoppedPanes } from './services/browserPaneRelay';
 import { setBrowserMcpBase } from './terminal/browserMcpEnv';
+import { handleMenuCopy, hasDomSelection } from './terminal/menuCopy';
+import { getTerminalSelection } from './terminal/terminalRegistry';
 import { Sidebar } from './components/Sidebar';
 import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
@@ -182,9 +184,23 @@ export default function App() {
     return () => window.removeEventListener('focus', refresh);
   }, [hydrated, wsKey]);
 
-  // 原生菜单事件(⌘T 新建 tab / ⌘W 关闭 tab)
+  // 原生菜单事件(⌘T 新建 tab / ⌘W 关闭 tab / ⌘C 复制)
   useEffect(() => {
     return window.okwork.onMenu((action) => {
+      // ⌘C 与 workspace 无关(浏览器 tab / 无 workspace 时也要能交回原生 copy),
+      // 故先于 ws 守卫处理
+      if (action === 'copy') {
+        handleMenuCopy({
+          terminalSelection: () => {
+            const tabId = selectActiveWorkspace(useAppStore.getState())?.activeTabId;
+            return tabId ? getTerminalSelection(tabId) : '';
+          },
+          writeClipboard: (text) => window.okwork.clipboardWriteText(text),
+          nativeCopy: () => window.okwork.nativeCopy(),
+          hasDomSelection: () => hasDomSelection(),
+        });
+        return;
+      }
       const s = useAppStore.getState();
       const ws = selectActiveWorkspace(s);
       if (!ws) return;

@@ -778,6 +778,8 @@ ipcMain.on('clipboard:write-text', (_event, text: string) => {
   if (typeof text === 'string') clipboard.writeText(text);
 });
 ipcMain.handle('clipboard:read-text', () => clipboard.readText());
+// 渲染层判定「这次 ⌘C 不归终端选区」后交回原生 Copy 编辑命令(见 menuCopy.ts 决策顺序)
+ipcMain.on('clipboard:native-copy', (event) => event.sender.copy());
 ipcMain.handle('clipboard:read-image', () => encodeClipboardImage(clipboard.readImage()));
 
 // 语言偏好切换(renderer Settings 发起):main 即时换语言并重建原生菜单。
@@ -1011,6 +1013,55 @@ function buildMenu(): void {
     exitLifecycle.requestAppQuit(app, confirmationParentWindow());
   };
 
+  /**
+   * Edit 菜单:除 Copy 外全用 role,Copy 改由渲染层接管。
+   *
+   * `role: 'copy'` = `webContents.copy()` = Chromium Copy 编辑命令,只认 DOM 选区;xterm
+   * 的选区画在 canvas 上,于是终端里 ⌘C 一直静默失败(只有右键菜单能复制)。改成 click →
+   * 渲染层按「DOM 选区 > 终端选区 > 原生兜底」决策(见 renderer/terminal/menuCopy.ts),
+   * 不归终端的那些经 clipboard:native-copy 原样交回原生命令,输入框行为不变。
+   *
+   * 🔴 只在 darwin 换:非 darwin 的 role:'copy' 加速键是 Ctrl+C,那同时是终端的 SIGINT。
+   * 本项目只出 darwin 包,不冒这个风险(Linux/Windows 的终端复制惯例是 Ctrl+Shift+C,
+   * 要支持得另开一条加速键,不在本次范围)。
+   */
+  const editMenu = (): Electron.MenuItemConstructorOptions => {
+    if (process.platform !== 'darwin') return { role: 'editMenu' };
+    return {
+      label: t('Edit'),
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        {
+          label: t('Copy'),
+          accelerator: 'Cmd+C',
+          click: () => {
+            // 用 getFocusedWindow 而非 click 的 window 形参:后者在当前 Electron 类型里是
+            // BaseWindow(无 webContents),且 sendMenu 的其余菜单项本就是这个取法。
+            const wc = BrowserWindow.getFocusedWindow()?.webContents;
+            if (!wc) return;
+            // 🔴 只有主窗口渲染层实现了 menu 'copy' 决策。查看器 / 浏览器壳窗一律走原生
+            // copy(与改动前逐点一致)——否则那些窗口的 ⌘C 会变成无人接手的空动作。
+            if (mainWin && wc === mainWin.webContents) wc.send('menu', 'copy');
+            else wc.copy();
+          },
+        },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+        // 与 Electron 默认 darwin editMenu 对齐(手搭菜单别把系统惯例项弄丢)
+        { type: 'separator' },
+        {
+          label: t('Speech'),
+          submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }],
+        },
+      ],
+    };
+  };
+
   const appMenu = (): Electron.MenuItemConstructorOptions => ({
     label: app.getName(),
     submenu: [
@@ -1054,7 +1105,7 @@ function buildMenu(): void {
         },
       ],
     },
-    { role: 'editMenu' },
+    editMenu(),
     { role: 'viewMenu' },
     { role: 'windowMenu' },
   ];

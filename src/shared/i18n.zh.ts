@@ -353,6 +353,7 @@ export const zh: Record<string, string> = {
   'Paste': '粘贴',
   'Select All': '全选',
   'Clear Screen': '清屏',
+  'Speech': '语音',
   'The local clipboard has no image or text to paste': '本机剪贴板中没有可粘贴的图片或文本',
   'Could not paste the clipboard into the remote terminal: {message}':
     '无法把剪贴板内容粘贴到远程终端：{message}',

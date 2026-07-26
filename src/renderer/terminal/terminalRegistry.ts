@@ -744,6 +744,16 @@ export function writeTerminalNotice(tabId: string, message: string): void {
 }
 
 /**
+ * 该 tab 终端的当前选区文本(无实例/已销毁/无选区 → '')。**不创建**实例
+ * ——⌘C 可能落在浏览器 tab 或尚未挂载的 tab 上,不该因为查一次选区就凭空造终端。
+ */
+export function getTerminalSelection(tabId: string): string {
+  const inst = registry.get(tabId);
+  if (!inst || inst.disposed) return '';
+  return inst.term.hasSelection() ? inst.term.getSelection() : '';
+}
+
+/**
  * 恢复 tab 的会话预绑定(远程 tab 布局恢复 · 用户规则 2026-07)。客户端重启/full-drop
  * 后由 restoreRemoteTabLayouts 调用:存档里带 sessionId 的恢复 tab,**同步**把 inst 绑到
  * 该会话并接好 live 管线——两重作用:

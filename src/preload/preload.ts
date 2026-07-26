@@ -88,6 +88,10 @@ contextBridge.exposeInMainWorld('okwork', {
   clipboardWriteText(text: string): void {
     ipcRenderer.send('clipboard:write-text', text);
   },
+  /** 交回 Chromium 原生 Copy 编辑命令(⌘C 不落在终端选区时的兜底 · 见 menuCopy.ts) */
+  nativeCopy(): void {
+    ipcRenderer.send('clipboard:native-copy');
+  },
   clipboardReadText(): Promise<string> {
     return ipcRenderer.invoke('clipboard:read-text');
   },
