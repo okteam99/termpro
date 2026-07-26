@@ -23,6 +23,7 @@ import { BottomBarPin } from './bottomBarPin';
 import { disposeWebglAddon } from './webglContextRelease';
 import { t } from '../../shared/i18n';
 import { installRemoteClipboardPasteHandler } from './remoteClipboardPaste';
+import { parseOsc52 } from './osc52';
 import { RemotePasteInputBarrier } from './remotePasteInputBarrier';
 import { browserMcpEnvFor } from './browserMcpEnv';
 
@@ -253,6 +254,15 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   term.parser.registerOscHandler(7, (data) => {
     const cwd = parseOsc7(data);
     if (cwd) inst.callbacks.onCwd?.(cwd);
+    return true;
+  });
+
+  // OSC 52:程序 → 本机剪贴板(远程会话里程序看不到本机剪贴板,这是唯一通道)。
+  // xterm.js 不内建,不注册则整条序列进黑洞。读请求/越界/非法载荷由 parseOsc52 挡掉
+  // (安全边界见该文件头);恒返 true —— 已识别并处置,不再交给内建/上层。
+  term.parser.registerOscHandler(52, (data) => {
+    const text = parseOsc52(data);
+    if (text !== null) window.okwork.clipboardWriteText(text);
     return true;
   });
 
