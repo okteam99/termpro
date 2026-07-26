@@ -32,6 +32,17 @@ export interface PtyListener {
 
 const RPC_TIMEOUT_MS = 15_000;
 
+/**
+ * 逐方法超时上调(缺省 RPC_TIMEOUT_MS)。
+ * `session.attach` 的响应体带全量回放切片(每会话最多 1 个 ring = 256 KiB),且恰好发生
+ * 在重连后链路最挤的时刻(N 个会话串行收养 + 各自 live 输出同管道回灌)。窄带链路上
+ * 15s 传不完就被判超时,收养失败反而触发下一轮重连——越挤越超时。放宽到 60s:链路真死
+ * 由 send 守卫/onclose 立刻拒(不靠超时兜底),这里的耐心只作用于「活着但慢」。
+ */
+const RPC_TIMEOUT_OVERRIDES_MS: Partial<Record<RpcMethodName, number>> = {
+  'session.attach': 60_000,
+};
+
 /** 传输契约:嵌入式 MessagePort 与 standalone WebSocket 两实现。 */
 export interface Transport {
   send(msg: ClientMessage): void;
@@ -61,6 +72,15 @@ export class MessagePortTransport implements Transport {
 export class WebSocketTransport implements Transport {
   constructor(private ws: WebSocket) {}
   send(msg: ClientMessage): void {
+    // 🔴 非 OPEN 必须显式抛(2026-07「重连时 rpc timeout: session.attach」根因):
+    // WebSocket 规范里 CLOSING/CLOSED 上的 send 是**静默丢弃**(只有 CONNECTING 抛),
+    // 而 close 事件是异步派发的 —— 链路已死、onclose 还没到的那个窗口里发出的 RPC 既
+    // 到不了 host,也进不了 handleTransportClose 的 rejectPending(它先于本次 pending
+    // 登记跑完),于是干吊满 15s 才以「rpc timeout」现身。闪断重连恰好落在这个窗口:
+    // 收养逐会话串行 attach,每个都吊 15s,连着几轮就刷出一屏「Could not restore」。
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('host connection lost');
+    }
     this.ws.send(JSON.stringify(msg));
   }
   onMessage(cb: (msg: HostMessage) => void): void {
@@ -438,7 +458,7 @@ export class HostClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`rpc timeout: ${method}`));
-      }, RPC_TIMEOUT_MS);
+      }, RPC_TIMEOUT_OVERRIDES_MS[method] ?? RPC_TIMEOUT_MS);
       this.pending.set(id, {
         resolve: (v) => {
           clearTimeout(timer);
@@ -450,7 +470,14 @@ export class HostClient {
         },
       });
       const msg: ClientMessage = { t: 'rpc:req', id, method, params };
-      transport.send(msg);
+      try {
+        transport.send(msg);
+      } catch (err) {
+        // 发送即失败(链路非 OPEN 等)→ 立刻拒 + 拆记账,不留计时器/pending 空转到超时
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
