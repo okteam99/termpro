@@ -40,6 +40,8 @@ export function reconcileBadge(
 ): void {
   const tabId = findTab(hostId, sessionId);
   if (!tabId) return;
+  // 收养成功 → 清「已提示」位:此后若再收养失败,才是值得再说一次的新情况(见 noticedTabs)
+  noticedTabs.delete(tabId);
   const exited = snapshot.status === 'exited';
   useAppStore.getState().updateTab(tabId, {
     activity: snapshot.state === 'running' ? 'running' : 'idle',
@@ -143,9 +145,19 @@ const inflight = new Map<string, Promise<void>>();
  *  早退成功,重试链自然终止。 */
 const READOPT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000];
 
+/**
+ * 已写过收养失败提示、且此后未成功收养过的 tab。
+ * 提示是写进 xterm 缓冲的,对满屏 TUI 而言每写一行就是一行错位 —— 链路反复闪断时每轮
+ * 重连都补一条,几轮下来就把 TUI 界面戳成筛子(用户实测截图:同一行连刷 5 遍)。
+ * 一条提示足够可行动,重复毫无新增信息:收养成功前只写一次(见 reconcileBadge 清位)。
+ */
+const noticedTabs = new Set<string>();
+
 /** 末次重试仍失败 → 终端里说话(「不许无声死 tab」惯例):该 tab 的输入正被 host
- *  归属门静默丢弃,必须给用户一条可行动的提示。 */
+ *  归属门静默丢弃,必须给用户一条可行动的提示。同一 tab 收养成功前只说一次。 */
 function notifyAdoptFailed(tabId: string, error: unknown): void {
+  if (noticedTabs.has(tabId)) return;
+  noticedTabs.add(tabId);
   const message = error instanceof Error ? error.message : String(error);
   writeTerminalNotice(
     tabId,
@@ -154,6 +166,11 @@ function notifyAdoptFailed(tabId: string, error: unknown): void {
       { message },
     ),
   );
+}
+
+/** 测试钩子:清空「已提示」记忆(生产由收养成功经 reconcileBadge 清位)。 */
+export function __resetAdoptNoticeMemoForTests(): void {
+  noticedTabs.clear();
 }
 
 /**
