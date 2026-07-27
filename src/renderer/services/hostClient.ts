@@ -103,6 +103,11 @@ export class WebSocketTransport implements Transport {
 
 export class HostClient {
   private transport: Transport | null = null;
+  // 连接代次:每挂上一条新 transport +1。host 侧的会话归属(client.sessions)绑在**连接**上
+  // ——旧连接一死,归属随之消失,新连接必须重发 session.attach 才能收发。消费方(TermInstance)
+  // 记下自己 attach 成功时的代次,与现值一比即知「这条会话在当前连接上还有没有归属」,
+  // 不必猜测断线时序。0 = 尚未连过任何 transport。
+  private connectionEpoch = 0;
   private connectPromise: Promise<HostInfo> | null = null;
   // 断线重连的并发再入守卫(BL-005 · ARCH-B-2):手动「立即重试」+ 退避循环可能同时触发
   // reconnect;in-flight 复用同一 promise,不重复开 ws。
@@ -142,6 +147,11 @@ export class HostClient {
   readonly reconnectable: boolean;
 
   info: HostInfo | null = null;
+
+  /** 当前连接代次(见 connectionEpoch)。attach 时记下、用时比对 → 判「归属是否还在」。 */
+  get epoch(): number {
+    return this.connectionEpoch;
+  }
 
   constructor(opts?: { reconnectable?: boolean }) {
     this.reconnectable = opts?.reconnectable ?? false;
@@ -495,6 +505,15 @@ export class HostClient {
     };
   }
 
+  /**
+   * 摘除某会话的输出订阅与缓存(不通知 host)。用于「同一 tab 的 inst 迁到该 host 的**新
+   * client 实例**」时清理旧实例残留:旧实例若仍活着(理论上),留着监听会双写同一屏。
+   */
+  detachPty(sessionId: string): void {
+    this.ptyListeners.delete(sessionId);
+    this.bufferedData.delete(sessionId);
+  }
+
   input(sessionId: string, data: string): void {
     this.post({ t: 'pty:input', sessionId, data });
   }
@@ -516,6 +535,8 @@ export class HostClient {
 
   private attachTransport(transport: Transport): void {
     this.transport = transport;
+    this.connectionEpoch += 1; // 新连接 = 新代次:host 侧旧归属已随旧连接消失
+
     transport.onMessage((msg) => this.handle(msg));
     transport.onClose(() => this.handleTransportClose());
   }

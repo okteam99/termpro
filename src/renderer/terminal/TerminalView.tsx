@@ -3,6 +3,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import {
   TermCallbacks,
   TermInstance,
+  ensureAttached,
   ensureSession,
   getOrCreateTerminal,
   remirrorIfTakenOver,
@@ -109,8 +110,10 @@ export default function TerminalView({ tabId, cwd, hostId, active, callbacks }: 
     }
     inst.fit.fit();
     inst.term.focus();
-    // M2:被另一设备独占接管过的 tab,重新激活即自动 mirror re-attach 取回
-    void remirrorIfTakenOver(tabId);
+    // M2:被另一设备独占接管过的 tab,重新激活即自动 mirror re-attach 取回。
+    // 串上 ensureAttached:断链期收养失败的 tab(host 侧当前连接无归属 = 输入黑洞 + 无输出)
+    // 切回来即自愈重收养,不必等用户先盲敲一下。取回成功的 tab 已刷新代次,自然 no-op。
+    void remirrorIfTakenOver(tabId).then(() => ensureAttached(tabId));
 
     const el = containerRef.current;
     let ro: ResizeObserver | null = null;

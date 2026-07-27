@@ -223,8 +223,8 @@ export const zh: Record<string, string> = {
   'Close this tab and reopen it to retry': '关闭该 tab 后重新打开即可重试',
   '[OkWork] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror':
     '[OkWork] 会话已被另一设备独占接管 · 回到此 tab 自动恢复镜像',
-  '[OkWork] Could not restore this session after reconnecting: {message} — disconnect and reconnect this machine to retry':
-    '[OkWork] 重连后未能恢复此会话:{message} —— 断开并重新连接该机器可重试',
+  '[OkWork] Could not restore this session after reconnecting: {message} — press any key to retry':
+    '[OkWork] 重连后未能恢复此会话:{message} —— 按任意键即重试恢复',
 
   // --- bottomBarPin ---
   '↓ Back to bottom': '↓ 回到底部',

@@ -143,7 +143,7 @@ const inflight = new Map<string, Promise<void>>();
 /** 收养失败重试退避(2026-07-23「连着但无法输入」):readoptHost 幂等(已收养 inst
  *  增量 re-attach 近零成本),整轮重跑安全。host 已 drop 时 getClient 落空 → readopt
  *  早退成功,重试链自然终止。 */
-const READOPT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000];
+const READOPT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000, 15000];
 
 /**
  * 已写过收养失败提示、且此后未成功收养过的 tab。
@@ -153,8 +153,10 @@ const READOPT_RETRY_DELAYS_MS: readonly number[] = [2000, 6000];
  */
 const noticedTabs = new Set<string>();
 
-/** 末次重试仍失败 → 终端里说话(「不许无声死 tab」惯例):该 tab 的输入正被 host
- *  归属门静默丢弃,必须给用户一条可行动的提示。同一 tab 收养成功前只说一次。 */
+/** 末次重试仍失败 → 终端里说话(「不许无声死 tab」惯例):该 tab 在 host 侧当前连接上
+ *  仍无归属,必须给用户一条可行动的提示。同一 tab 收养成功前只说一次。
+ *  🔴 提示语只说「按任意键重试」:击键会被 terminalRegistry.deliverInput 攒住并触发就地
+ *  重收养,成功后原样补发——比旧文案的「断开并重连该机器」既快又不丢会话。 */
 function notifyAdoptFailed(tabId: string, error: unknown): void {
   if (noticedTabs.has(tabId)) return;
   noticedTabs.add(tabId);
@@ -162,7 +164,7 @@ function notifyAdoptFailed(tabId: string, error: unknown): void {
   writeTerminalNotice(
     tabId,
     t(
-      '[OkWork] Could not restore this session after reconnecting: {message} — disconnect and reconnect this machine to retry',
+      '[OkWork] Could not restore this session after reconnecting: {message} — press any key to retry',
       { message },
     ),
   );

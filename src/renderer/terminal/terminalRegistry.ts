@@ -55,6 +55,13 @@ export interface TermInstance {
   /** spawn 时绑定的路由 host id('local'|configId)。spawn 前为 null。会话复合键路由用。 */
   hostId: string | null;
   /**
+   * 本会话最后一次在 host 侧建立归属(pty.spawn / session.attach 成功)时的 client 连接代次
+   * (HostClient.epoch)。与 client.epoch 现值不等 = 这条会话在**当前**连接上没有归属:
+   * host 的 pty:input 门会静默丢弃击键、也不会给本端推 pty:data —— 即「连着但终端卡死」。
+   * -1 = 从未 attach 过(如 bindRestoredSessionTab 的预绑定),同样视为需要重新收养。
+   */
+  attachedEpoch: number;
+  /**
    * BL-005(ARCH-B-4):已接收字节高水位(绝对偏移)。🔴 在 onData 里**同步累加**(term.write 之前·
    * 非 write 回调)——重连 session.attach 报 resumeOffset=renderedBytes,host 只回放
    * [resumeOffset, absoluteOffset) 的 gap;若用 write 回调式记账,attach 时在途未回调 chunk 会被
@@ -144,6 +151,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     callbacks: {},
     client: null,
     hostId: null,
+    attachedEpoch: -1,
     renderedBytes: 0,
     replaying: false,
     replayQueue: [],
@@ -162,11 +170,19 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     readImage: () => window.okwork.clipboardReadImage(),
     readText: () => window.okwork.clipboardReadText(),
     begin: () => {
-      const client = inst.client;
       const sessionId = inst.sessionId;
-      if (inst.disposed || !client || !sessionId) {
-        throw new Error('remote terminal is not ready');
+      if (inst.disposed || !sessionId) throw new Error('remote terminal is not ready');
+      // 🔴 断链后尚未重新收养(2026-07-27 用户实测:Ctrl+V 报「host not connected」而侧栏
+      // 显示 90ms 连接正常——那是**另一个** client 实例的心跳,inst 还攥着已 dispose 的旧
+      // 实例,fs.writeTempFile 打进它的 null transport)。同步迁到该 host 的当前实例,让本
+      // 次上传就能成;再后台自愈重收养,随后 bracketed paste 的键入才有 host 侧归属可落。
+      if (!attachedOnCurrentConnection(inst)) {
+        const live = inst.hostId ? hostRegistry.forHostId(inst.hostId) : null;
+        if (live) rebindInstClient(inst, tabId, live, sessionId, wireLiveSession);
+        void ensureAttached(tabId);
       }
+      const client = inst.client;
+      if (!client) throw new Error('remote terminal is not ready');
       inst.remotePaste = {
         barrier: new RemotePasteInputBarrier(),
         client,
@@ -352,7 +368,8 @@ export async function ensureSession(
       onDesynced: () => void resyncDesynced(inst, tabId),
     });
 
-    wireInputOnce(inst);
+    wireInputOnce(inst, tabId);
+    inst.attachedEpoch = clientEpoch(client); // 归属建立在这一代连接上
     // spawn 进行期间 fit 可能已改变终端尺寸(onResize 当时未注册),
     // 主动同步一次当前尺寸,避免 TUI 以 80x24 启动
     client.resize(sessionId, inst.term.cols, inst.term.rows);
@@ -402,6 +419,8 @@ export function disposeTerminal(tabId: string): void {
   const inst = registry.get(tabId);
   if (!inst) return;
   inst.disposed = true;
+  pendingInput.delete(tabId);
+  healingTabs.delete(tabId);
   inst.remotePasteDispose?.();
   inst.remotePasteDispose = null;
   inst.remotePaste = null;
@@ -473,19 +492,138 @@ function flushReplayQueue(
  * 击键双发 input。handler 读 inst.client/inst.sessionId 现值(respawn 换会话/换 client
  * 后仍路由正确),不闭包捕获挂载时的 client。
  */
-function wireInputOnce(inst: TermInstance): void {
+function wireInputOnce(inst: TermInstance, tabId: string): void {
   if (inst.inputWired) return;
   inst.inputWired = true;
   inst.term.onData((d) => {
     if (inst.remotePaste) {
       inst.remotePaste.barrier.capture(d);
-    } else if (inst.sessionId && inst.client) {
-      inst.client.input(inst.sessionId, d);
+    } else {
+      deliverInput(tabId, d);
     }
   });
   inst.term.onResize(({ cols, rows }) => {
     if (inst.sessionId && inst.client) inst.client.resize(inst.sessionId, cols, rows);
   });
+}
+
+/** 读 client 连接代次;测试桩/旧实现无该字段 → -1(与 inst 初值一致 = 不触发自愈)。 */
+function clientEpoch(client: HostClient | null): number {
+  const e = (client as { epoch?: number } | null)?.epoch;
+  return typeof e === 'number' ? e : -1;
+}
+
+/** 该 inst 的会话在**当前**连接上还有 host 侧归属吗(见 TermInstance.attachedEpoch)。 */
+function attachedOnCurrentConnection(inst: TermInstance): boolean {
+  return inst.attachedEpoch === clientEpoch(inst.client);
+}
+
+/** 自愈期攒下的击键上限(只留末尾:ctrl+c 这类「最新的那下」才是用户真正想送达的)。 */
+const MAX_PENDING_INPUT = 4096;
+/** tabId → 自愈期攒下的击键 */
+const pendingInput = new Map<string, string>();
+/** tabId → 自愈在途(去重:一串击键只触发一轮重收养) */
+const healingTabs = new Set<string>();
+
+/**
+ * 键入投递单一入口(wireInputOnce 的 onData / 单测)。
+ * 🔴 断链后未重新收养的会话不再直发(2026-07-27「终端卡死、ctrl+c 不起作用」):host 的
+ * pty:input 门只认当前连接的归属,直发 = 静默丢进黑洞,用户砸多少下都没反应,只能靠
+ * 「断开重连机器」自救。改为:攒住击键 → 就地重新收养(session.attach 重建归属 + 回放
+ * 断开期输出)→ 成功后按序补发。收养失败则丢弃本轮攒的键(不留到几分钟后突然诈尸),
+ * 下一次击键再试一轮。
+ */
+export function deliverInput(tabId: string, data: string): void {
+  const inst = registry.get(tabId);
+  if (!inst || inst.disposed || !inst.sessionId || !inst.client) return;
+  if (attachedOnCurrentConnection(inst)) {
+    inst.client.input(inst.sessionId, data);
+    return;
+  }
+  const queued = (pendingInput.get(tabId) ?? '') + data;
+  pendingInput.set(
+    tabId,
+    queued.length > MAX_PENDING_INPUT ? queued.slice(-MAX_PENDING_INPUT) : queued,
+  );
+  if (healingTabs.has(tabId)) return;
+  healingTabs.add(tabId);
+  void healDetached(inst, tabId)
+    .then((ok) => {
+      const buffered = pendingInput.get(tabId) ?? '';
+      pendingInput.delete(tabId);
+      // ok=false 含「会话已不在 host → 原位重 spawn」:那是全新 shell,旧击键不补发
+      if (ok && buffered && inst.sessionId && inst.client) {
+        inst.client.input(inst.sessionId, buffered);
+      }
+    })
+    .catch((err) => {
+      pendingInput.delete(tabId);
+      console.warn('[terminalRegistry] input self-heal failed tabId=%s', tabId, err);
+    })
+    .finally(() => healingTabs.delete(tabId));
+}
+
+/** 回放在途时的等待节拍/上限(上限 > RPC 超时,attach 再慢也会落定)。 */
+const REPLAY_WAIT_TICK_MS = 50;
+const REPLAY_WAIT_MAX_MS = 20_000;
+
+/**
+ * 自愈总入口:已有一轮回放/收养在途(readopt、desync 重同步、tab 激活取回)就**等它落定**,
+ * 不并发再发一次 session.attach —— 两条 attach 各按调用当时的 renderedBytes 报 resumeOffset,
+ * 后发的那条拿到过时偏移,host 会把同一段再回放一遍(屏幕重复)。等完若归属已重建(代次
+ * 追平)即视作成功,攒下的击键照常补发。
+ */
+async function healDetached(inst: TermInstance, tabId: string): Promise<boolean> {
+  if (inst.replaying) {
+    const deadline = Date.now() + REPLAY_WAIT_MAX_MS;
+    while (inst.replaying && !inst.disposed && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, REPLAY_WAIT_TICK_MS));
+    }
+    if (attachedOnCurrentConnection(inst)) return true;
+  }
+  return reattachDetached(inst, tabId);
+}
+
+/**
+ * 就地重新收养一条「当前连接上无归属」的会话(输入自愈 / tab 激活时调用)。
+ * 迁到路由现值 client(实例可能已被换掉)→ session.attach 重建归属 + 回放断开期输出。
+ * 返回是否仍是**原会话**(found=false → 会话已被回收,原位重 spawn 后返 false)。
+ */
+async function reattachDetached(inst: TermInstance, tabId: string): Promise<boolean> {
+  const sessionId = inst.sessionId;
+  const hostId = inst.hostId;
+  if (!sessionId || !hostId || inst.disposed) return false;
+  const client = hostRegistry.forHostId(hostId);
+  if (!client) return false;
+  rebindInstClient(inst, tabId, client, sessionId, wireLiveSession);
+  const result = await adoptInst(inst, tabId, client, sessionId, inst.renderedBytes);
+  if (!result.found) {
+    inst.sessionId = null;
+    inst.renderedBytes = 0;
+    inst.exited = false;
+    await ensureSession(tabId, inst.spawnCwd, hostId);
+    return false;
+  }
+  inst.exited = result.snapshot.status === 'exited';
+  return true;
+}
+
+/**
+ * tab 激活时的会话可用性兜底(TerminalView):当前连接上没归属就重新收养。
+ * 与输入自愈同一条路径——用户切回一个断链期间没收养成功的 tab,不必先盲敲一下才复活。
+ */
+export async function ensureAttached(tabId: string): Promise<void> {
+  const inst = registry.get(tabId);
+  if (!inst || inst.disposed || !inst.sessionId || !inst.client) return;
+  if (attachedOnCurrentConnection(inst) || healingTabs.has(tabId)) return;
+  healingTabs.add(tabId);
+  try {
+    await healDetached(inst, tabId);
+  } catch (err) {
+    console.warn('[terminalRegistry] reattach on activate failed tabId=%s', tabId, err);
+  } finally {
+    healingTabs.delete(tabId);
+  }
 }
 
 /** live 会话接线(attachPty + onData 消费 + input/resize 反向)。ensureSession 与 path② 重建共用。 */
@@ -507,7 +645,7 @@ function wireLiveSession(
     onTakenover: () => markTakenover(inst),
     onDesynced: () => void resyncDesynced(inst, tabId),
   });
-  wireInputOnce(inst);
+  wireInputOnce(inst, tabId);
 }
 
 /**
@@ -537,6 +675,30 @@ function markTakenover(inst: TermInstance): void {
   inst.term.writeln(
     `\r\n\x1b[2m${t('[OkWork] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror')}\x1b[0m`,
   );
+}
+
+/**
+ * 把 inst 迁到该 host 的当前 HostClient 实例(同实例 = 廉价 no-op)。
+ * client 实例只在「手动断开/删机 → hostRegistry.drop → 重连 getOrCreateRemote」时被换掉;
+ * 闪断重连复用同一实例(内部换 transport),故此路径平时不触发。
+ * 迁移三步:摘旧实例残留监听(防双写)→ 换指针 → 在新实例上重挂 live 管线。
+ */
+function rebindInstClient(
+  inst: TermInstance,
+  tabId: string,
+  client: HostClient,
+  sessionId: string,
+  wireLive: (
+    inst: TermInstance,
+    tabId: string,
+    client: HostClient,
+    sessionId: string,
+  ) => void,
+): void {
+  if (inst.client === client) return;
+  inst.client?.detachPty?.(sessionId);
+  inst.client = client;
+  wireLive(inst, tabId, client, sessionId);
 }
 
 /** 备用屏进入序列(1049 现代 / 1047 · 47 老式):切片自含则不补写快照模式(见 adoptInst)。 */
@@ -586,6 +748,7 @@ async function adoptInst(
     }
     if (result.data) inst.term.write(result.data);
     inst.renderedBytes = result.nextOffset; // 权威推进(非 baseOffset + byteLength)
+    inst.attachedEpoch = clientEpoch(client); // 归属重建在这一代连接上
     return result;
   } finally {
     inst.replaying = false;
@@ -678,6 +841,14 @@ export async function readoptHost(
   for (const [tabId, inst] of insts) {
     const sid = inst.sessionId as string;
     try {
+      // 🔴 收养前先把 inst 迁到该 host 的**当前** client 实例(2026-07-27「连接正常但终端
+      // 卡死、ctrl+c 无效」根因):手动断开走 hostRegistry.drop(dispose 实例 + 从 map 摘除)
+      // 却**不**销毁 tab,重连时 getOrCreateRemote 造的是新实例。此前收养用新实例发
+      // session.attach(host 侧归属建在新连接上,故 attach「成功」),而 inst 仍攥着已 dispose
+      // 的旧实例:输出监听挂在旧实例上 → 新连接来的 pty:data 无人认领,进 bufferedData 永不
+      // 上屏;输入 post 进旧实例的 null transport → 静默丢弃。于是心跳/延迟一切正常,终端
+      // 却全冻。迁移含重挂 live 管线(attachPty 覆盖同 sid 监听 + 顺带补 wireInputOnce)。
+      rebindInstClient(inst, tabId, client, sid, wireLive);
       const result = await adoptInst(inst, tabId, client, sid, inst.renderedBytes);
       if (!result.found) {
         // 幂等收养 miss(被逐/从未有)→ new spawn(不误把旧 scrollback 当 gap 追加)
