@@ -221,8 +221,19 @@ export function FilesWindow({
               {t('Save')}
             </button>
           )}
-          {/* 「默认应用打开」是本机 OS 动作:远程路径交给本机 shell 会静默作用于
-              本机同名(但无关)文件——远程窗口直接不渲染该入口(D-7) */}
+          {/* 「Finder 中显示」与「默认应用打开」同属本机 OS 动作:远程路径交给本机 shell
+              会静默作用于本机同名(但无关)文件——远程窗口直接不渲染这两个入口(D-7)。
+              只给文件 tab:目录 tab 的「默认应用打开」本就是拿 Finder 开这个目录,
+              再挂一个「跳转所在目录」只会让人分不清两个按钮的差别。 */}
+          {active?.kind === 'file' && !remote && (
+            <button
+              className="viewer-btn"
+              onClick={() => window.okwork.showItemInFolder(active.path)}
+              title={t('Show in Finder')}
+            >
+              {t('Reveal in Finder')}
+            </button>
+          )}
           {active && !remote && (
             <button
               className="viewer-btn"

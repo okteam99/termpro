@@ -176,6 +176,8 @@ export const zh: Record<string, string> = {
   'Preview': '预览',
   'Open with the default app': '用系统默认应用打开',
   'Open with default app': '系统应用打开',
+  // 按钮短标题(工具栏)+ tooltip 复用 FilePanel 的 'Show in Finder'(在 Finder 中显示…)
+  'Reveal in Finder': 'Finder 中显示',
 
   // --- DiffPanel ---
   'Monaco failed to load': 'Monaco 加载失败',
