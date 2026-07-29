@@ -94,6 +94,58 @@ export interface TermInstance {
 
 const registry = new Map<string, TermInstance>();
 
+/**
+ * 🔴 xterm 解析/写入循环内部回调的护栏(2026-07-29「单个 session 卡死」通用防线)。
+ *
+ * WriteBuffer._innerWrite 的主循环里有两处**裸调**:`_action(chunk)`(= 解析,含我们经
+ * parser.registerOscHandler/registerCsiHandler 注册的 handler)与紧随其后的 write 回调
+ * (= 我们的 ack)。任一处抛出,它既不推进 `_bufferOffset`、也不再排下一拍 `setTimeout`
+ * —— 该 Terminal 的写入泵从此**永久停摆**:后续 write 只入队不消费(屏幕定格在半帧)、
+ * 回调永不触发 → 永不 ack → host 流控憋停这条 PTY。表征就是「心跳/侧栏/其它 tab 全绿,
+ * 单独一个终端卡死、ctrl+c 也没反应」,重连收养也救不回来(回放只是往死队列里再塞一段)。
+ *
+ * 这个形态已出现两次(2026-07-15 线上压缩包里 requestMode 的 ReferenceError;2026-07-29
+ * 死链路上 ack 的上抛),故不再逐个堵洞:凡**我们**塞进解析路径的回调一律套这层。
+ *
+ * ⚠️ 边界:经 xterm Emitter 派发的事件(onData/onResize/onScroll…)另有豁免——xterm 6 的
+ * Emitter 逐个 listener try/catch 后走 onUnexpectedError 异步重抛,泵不会停(已实测)。
+ * 那几处仍套本护栏,只为不把「不冻死」这件事挂在 xterm 的内部实现细节上,顺带留条带
+ * 上下文的日志。
+ *
+ * @param fallback 抛出时的返回值。OSC/CSI handler 一律给 `true`(= 已识别并处置):
+ *   返 false 会回落到 xterm 内建 handler,而内建 requestMode 正是历史上崩过的那个。
+ */
+function guardParse<A extends unknown[], R>(
+  where: string,
+  fn: (...args: A) => R,
+  fallback: R,
+): (...args: A) => R {
+  return (...args: A) => {
+    try {
+      return fn(...args);
+    } catch (err) {
+      console.error(
+        '[terminalRegistry] %s threw inside the xterm parse loop (swallowed)',
+        where,
+        err,
+      );
+      return fallback;
+    }
+  };
+}
+
+/**
+ * term.write 护栏:写入本身也会抛(xterm 的 DISCARD_WATERMARK、同步解析路径的内部异常),
+ * 不拦就顺着 hostClient 的消息分发往上炸,连累同一条连接上的其它消息处理。
+ */
+function safeWrite(inst: TermInstance, data: string, cb?: () => void): void {
+  try {
+    inst.term.write(data, cb);
+  } catch (err) {
+    console.error('[terminalRegistry] term.write threw (swallowed)', err);
+  }
+}
+
 // 「底部输入栏固定」设置的当前值:新建终端的默认(默认关),由 settingsSync 经
 // applyPinBottomBar 推入。不直接 import store,避免 store↔terminalRegistry 循环依赖。
 let pinBottomBarEnabled = false;
@@ -267,20 +319,34 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   new LinkHighlighter(term, linkProvider).attach();
 
   // OSC 7:shell 上报当前目录(file://host/path),用于持久化 tab cwd
-  term.parser.registerOscHandler(7, (data) => {
-    const cwd = parseOsc7(data);
-    if (cwd) inst.callbacks.onCwd?.(cwd);
-    return true;
-  });
+  term.parser.registerOscHandler(
+    7,
+    guardParse(
+      'osc7',
+      (data: string) => {
+        const cwd = parseOsc7(data);
+        if (cwd) inst.callbacks.onCwd?.(cwd);
+        return true;
+      },
+      true,
+    ),
+  );
 
   // OSC 52:程序 → 本机剪贴板(远程会话里程序看不到本机剪贴板,这是唯一通道)。
   // xterm.js 不内建,不注册则整条序列进黑洞。读请求/越界/非法载荷由 parseOsc52 挡掉
   // (安全边界见该文件头);恒返 true —— 已识别并处置,不再交给内建/上层。
-  term.parser.registerOscHandler(52, (data) => {
-    const text = parseOsc52(data);
-    if (text !== null) window.okwork.clipboardWriteText(text);
-    return true;
-  });
+  term.parser.registerOscHandler(
+    52,
+    guardParse(
+      'osc52',
+      (data: string) => {
+        const text = parseOsc52(data);
+        if (text !== null) window.okwork.clipboardWriteText(text);
+        return true;
+      },
+      true,
+    ),
+  );
 
   // 🔴 DECRQM(请求模式 · `CSI ? mode $ p` / `CSI mode $ p`)拦截修复
   // (用户报告 2026-07-15「进 vim 卡死」根因):xterm 自带 requestMode 在【线上压缩
@@ -291,14 +357,20 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
   // 输出 = 冻死,Ctrl-C 也无回显)。自注册 handler 拦在内建 requestMode 之前
   // (同选择器·后注册者先被调,返回 true 即跳过崩溃的内建),回「未识别(0)」应答
   // 让 vim/TUI 按默认继续(所查多为可选特性,未识别=不启用该优化,不影响正确性)。
-  const answerDecrqm = (params: (number | number[])[], dec: boolean): boolean => {
-    const p0 = params[0];
-    const mode = typeof p0 === 'number' ? p0 : Array.isArray(p0) ? (p0[0] ?? 0) : 0;
-    if (inst.sessionId && inst.client) {
-      inst.client.input(inst.sessionId, `\x1b[${dec ? '?' : ''}${mode};0$y`);
-    }
-    return true;
-  };
+  // 🔴 应答走 client.input 会碰传输层(死链路上 send 会抛)→ 必须套 guardParse:
+  // 拦不住就又是一次「解析循环里抛异常 = 该终端永久冻死」(见 guardParse 注释)。
+  const answerDecrqm = guardParse(
+    'decrqm',
+    (params: (number | number[])[], dec: boolean): boolean => {
+      const p0 = params[0];
+      const mode = typeof p0 === 'number' ? p0 : Array.isArray(p0) ? (p0[0] ?? 0) : 0;
+      if (inst.sessionId && inst.client) {
+        inst.client.input(inst.sessionId, `\x1b[${dec ? '?' : ''}${mode};0$y`);
+      }
+      return true;
+    },
+    true,
+  );
   term.parser.registerCsiHandler({ prefix: '?', intermediates: '$', final: 'p' }, (p) =>
     answerDecrqm(p, true),
   );
@@ -462,7 +534,9 @@ export function ingestPtyData(
   }
   recordOutput(tabId);
   inst.renderedBytes += bytes; // 已接收高水位(同步·term.write 之前)
-  inst.term.write(data, () => client.ack(sessionId, bytes));
+  // ack 回调由 WriteBuffer._innerWrite 在 _bufferOffset++ **之前**裸调:抛出即冻死整条
+  // 终端(见 guardParse)。client.ack 内部已不上抛,这里再兜一层,防未来改动重新开洞。
+  safeWrite(inst, data, guardParse('ack', () => client.ack(sessionId, bytes), undefined));
 }
 
 /** 解冻:回放切片写完后,按序 flush 冻结期到达的 live 切片(append 在回放之后·不重不乱)。 */
@@ -481,7 +555,11 @@ function flushReplayQueue(
     }
     recordOutput(tabId);
     inst.renderedBytes += chunk.bytes;
-    inst.term.write(chunk.data, () => client.ack(sessionId, chunk.bytes));
+    safeWrite(
+      inst,
+      chunk.data,
+      guardParse('ack', () => client.ack(sessionId, chunk.bytes), undefined),
+    );
   }
 }
 
@@ -495,16 +573,31 @@ function flushReplayQueue(
 function wireInputOnce(inst: TermInstance, tabId: string): void {
   if (inst.inputWired) return;
   inst.inputWired = true;
-  inst.term.onData((d) => {
-    if (inst.remotePaste) {
-      inst.remotePaste.barrier.capture(d);
-    } else {
-      deliverInput(tabId, d);
-    }
-  });
-  inst.term.onResize(({ cols, rows }) => {
-    if (inst.sessionId && inst.client) inst.client.resize(inst.sessionId, cols, rows);
-  });
+  // 两条都会在**解析中**触发(onData:DA/DSR 等自动应答;onResize:DECCOLM / `CSI 8 t`),
+  // 且都下探到会抛的传输层。xterm 6 的 Emitter 已替 listener 兜住异常(见 guardParse 边界
+  // 说明),这里再套一层只为不依赖那个内部细节 + 留一条带上下文的日志。
+  inst.term.onData(
+    guardParse(
+      'onData',
+      (d: string) => {
+        if (inst.remotePaste) {
+          inst.remotePaste.barrier.capture(d);
+        } else {
+          deliverInput(tabId, d);
+        }
+      },
+      undefined,
+    ),
+  );
+  inst.term.onResize(
+    guardParse(
+      'onResize',
+      ({ cols, rows }: { cols: number; rows: number }) => {
+        if (inst.sessionId && inst.client) inst.client.resize(inst.sessionId, cols, rows);
+      },
+      undefined,
+    ),
+  );
 }
 
 /** 读 client 连接代次;测试桩/旧实现无该字段 → -1(与 inst 初值一致 = 不触发自愈)。 */
@@ -740,13 +833,13 @@ async function adoptInst(
       // 🔴 仅在切片【自身不含】进入序列时补:否则 xterm 的 ?1049h 会再清一次备用屏,
       // 把切片里本属主屏(scrollback)的内容画进备用屏又抹掉。
       if (result.snapshot.altscreen && !ALT_ENTER_RE.test(result.data)) {
-        inst.term.write('\x1b[?1049h');
+        safeWrite(inst, '\x1b[?1049h');
       }
       // ?2004h(bracketed paste):不恢复则 term.paste 不加 200~/201~ 包裹,远端 TUI
       // 把长文本粘贴当逐键输入(不聚合)。无视觉副作用,无需上面的「切片自含」判别。
-      if (result.snapshot.bracketedPaste) inst.term.write('\x1b[?2004h');
+      if (result.snapshot.bracketedPaste) safeWrite(inst, '\x1b[?2004h');
     }
-    if (result.data) inst.term.write(result.data);
+    if (result.data) safeWrite(inst, result.data);
     inst.renderedBytes = result.nextOffset; // 权威推进(非 baseOffset + byteLength)
     inst.attachedEpoch = clientEpoch(client); // 归属重建在这一代连接上
     return result;

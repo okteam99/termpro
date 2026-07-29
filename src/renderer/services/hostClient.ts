@@ -530,7 +530,23 @@ export class HostClient {
     // 握手期丢弃(与 transport 未建时的静默丢弃同语义):pty input/resize/ack 插话
     // 同样会撞 host.info-first 门控;resize 丢失由重连后 session.attach 带 cols/rows 纠正。
     if (this.handshaking) return;
-    this.transport?.send(msg);
+    // 🔴 数据报路径【绝不上抛】(2026-07-29「单个 session 卡死」根因):
+    // WebSocketTransport.send 在非 OPEN 时**故意抛**(见其注释:让 rpc 就地拒,不吊满超时),
+    // 而 ack/input/resize 这三条恰恰都从 **xterm 的解析/写入循环内部**被同步调用:
+    //   · ack   ← term.write(data, cb) 的回调,WriteBuffer._innerWrite 在 _bufferOffset++ 之前裸调;
+    //   · input ← term.onData(DA/DSR/DECRQM 等自动应答在**解析中**触发)+ DECRQM 拦截 handler;
+    //   · resize← term.onResize(DECCOLM / `CSI 8 t` 在**解析中**触发)。
+    // 一旦异常从这里逃出去,_innerWrite 既不推进 _bufferOffset、也不再排下一拍 setTimeout
+    // ——该 Terminal 的写入泵从此彻底停摆:后续 write 只入队不消费,屏幕定格在半帧(用户
+    // 截图里那种错位重叠),write 回调永不触发 → 永不 ack → host 流控把这条 PTY 憋停。
+    // 于是心跳/侧栏/其它 tab 全绿,唯独这一个 session 卡死,连 ctrl+c 都没反应。
+    // 链路已死时这一发本就是白发,丢弃即可:输入由 deliverInput 的代次自愈攒住重发,
+    // 尺寸由重连后的 session.attach 带 cols/rows 纠正,ack 由 reattach 复位 unacked 抹平。
+    try {
+      this.transport?.send(msg);
+    } catch (err) {
+      console.warn('[hostClient] dropped %s on a dead link', msg.t, err);
+    }
   }
 
   private attachTransport(transport: Transport): void {

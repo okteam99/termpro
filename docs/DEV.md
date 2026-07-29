@@ -99,6 +99,23 @@ PTY 输出 → host 累加 session.unacked
 
 常量定义在 `src/shared/protocol.ts` 的 `FLOW` 对象，本地/远程传输共用同一机制。
 
+> 🔴 **不变式：解析/写入循环里的回调绝不许抛。** 上面这条链的 ack 是 xterm
+> `WriteBuffer._innerWrite` 在 `_bufferOffset++` **之前**裸调的 write 回调；同样裸调的还有
+> `_action(chunk)`（解析，含我们经 `parser.registerOscHandler/registerCsiHandler` 注册的
+> handler）。任一处抛出，`_innerWrite` 既不推进偏移、也不再排下一拍 `setTimeout` ——
+> 该 Terminal 的写入泵**永久停摆**：后续 write 只入队不消费（屏幕定格在半帧）、回调永不
+> 触发 → 永不 ack → host 把这条 PTY 憋停。表征是「心跳/侧栏/其它 tab 全绿，单独一个终端
+> 卡死、ctrl+c 也没反应」，且重连收养救不回来（回放只是往死队列里再塞一段）。
+>
+> 已两次栽在这里：2026-07-15 线上压缩包里 `requestMode` 的 ReferenceError；2026-07-29
+> 死链路上 `hostClient.ack` 经 `WebSocketTransport.send` 抛 `host connection lost`。
+> 现有防线：`hostClient.post`（ack/input/resize 三条数据报）一律吞不抛——注意 `rpc` 相反，
+> 保持发送失败即拒；`terminalRegistry.guardParse` 包住所有我们注册进解析路径的回调。
+> 经 xterm Emitter 派发的事件（onData/onResize/onScroll）另有豁免：xterm 6 的 Emitter 自己
+> 逐 listener try/catch，泵不会停——但别依赖它，新增回调照样套护栏。
+> 回归测试：`terminal/__tests__/parseLoopWedgeGuard.test.ts`、
+> `services/__tests__/hostClientDatagramNoThrow.test.ts`。
+
 ### 4.3 WebGL Renderer 只挂可见 Tab
 
 `TerminalView` 挂载时才为当前 tab 附加 `WebglAddon`；切走时卸载 WebGL context（保留 Terminal 实例与 buffer）。防止超出 GPU context 数量上限。
