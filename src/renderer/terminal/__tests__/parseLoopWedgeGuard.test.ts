@@ -8,9 +8,9 @@
 // 触发 → 永不 ack → host 流控憋停这条 PTY。表征即「心跳/其它 tab 全绿,单独一个终端
 // 卡死、ctrl+c 无反应」,重连收养也救不回来(回放同样只是往死队列里塞)。
 //
-// 直接触发源是 WebSocketTransport.send 在非 OPEN 时故意抛的「host connection lost」,而
-// ack/input/resize 三条恰好都从解析循环内部下探到传输层。本测锁的是通用防线:凡我们塞进
-// 解析路径的回调抛出,写入泵都必须照常往下跑。
+// 已知直接触发源包括死链路上的 WebSocketTransport.send,以及生产压缩后 xterm 内建
+// handler 的 ReferenceError。本测锁的是两层通用防线:我们注册的回调抛错时精确降级；
+// 任意内建/第三方 parser handler 抛错时,整个写入泵也必须照常往下跑。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fakeClient = {
@@ -82,6 +82,25 @@ function writeAndFlush(
 }
 
 describe('解析循环内抛异常不再冻死终端', () => {
+  it('xterm 内部/第三方 parser handler 抛错 → 后续输出仍能解析', async () => {
+    const inst = getOrCreateTerminal('t-wedge-raw-parser');
+    inst.term.parser.registerOscHandler(99, () => {
+      throw new Error('raw parser handler exploded');
+    });
+
+    ingestPtyData(
+      inst,
+      't-wedge-raw-parser',
+      fakeClient as unknown as HostClient,
+      's-raw',
+      '\x1b]99;boom\x07',
+      10,
+    );
+    await expect(writeAndFlush(inst.term, 'still alive')).resolves.toBeUndefined();
+    expect(inst.term.buffer.active.getLine(0)?.translateToString(true)).toContain('still alive');
+    expect(fakeClient.ack).toHaveBeenCalled();
+  });
+
   it('DECRQM 应答时 client.input 抛(死链路上 send 抛)→ 后续输出照常上屏', async () => {
     const inst = getOrCreateTerminal('t-wedge-decrqm');
     inst.sessionId = 's1';

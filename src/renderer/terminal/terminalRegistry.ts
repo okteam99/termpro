@@ -95,6 +95,64 @@ export interface TermInstance {
 const registry = new Map<string, TermInstance>();
 
 /**
+ * xterm 的公开 Terminal 包装层下、我们唯一需要的私有面。@xterm/xterm@6.0 的
+ * CoreTerminal 用 WriteBuffer._action 指向 InputHandler.parse；这是能在「任意内建/
+ * 第三方 parser handler」之外给整条解析路径放异常边界的最窄接缝。
+ * 升级 xterm 若改私有结构，本防线安全降级（具体 handler 的 guardParse 仍在）。
+ */
+interface XtermParserBoundaryCore {
+  _writeBuffer?: {
+    _action?: (
+      data: string | Uint8Array,
+      promiseResult?: boolean,
+    ) => void | Promise<boolean>;
+  };
+  _inputHandler?: {
+    _parser?: { reset?(): void };
+  };
+}
+
+/**
+ * 🔴 解析器总边界（2026-07-30 「最新版仍会卡住」）。
+ *
+ * guardParse 只能护住我们自己注册的 callback；xterm 内建 handler 或今后 addon 的
+ * handler 仍可能抛出。生产 bundle 已有过实例：Vite/esbuild 二次压缩破坏
+ * xterm requestMode 的局部作用域。异常从 WriteBuffer._action 逃出时，
+ * `_bufferOffset++` 和下一拍调度都不会执行，所以「在 term.write 外 try/catch」也救不了
+ * 异步 `_innerWrite`。
+ *
+ * 此处包住真正的 parser 入口：异常时先 reset EscapeSequenceParser（丢弃当前已损坏
+ * 的控制序列状态），再返回同步完成，让 WriteBuffer 照常调 ACK、推进偏移并
+ * 消费后续 chunk。代价最多是丢掉「抛错那一 chunk 未解析的尾部」，而不是整个
+ * session 永久冻死。
+ */
+function installParserBoundary(term: Terminal): void {
+  const core = (term as unknown as { _core?: XtermParserBoundaryCore })._core;
+  const writeBuffer = core?._writeBuffer;
+  const original = writeBuffer?._action;
+  if (!writeBuffer || typeof original !== 'function') {
+    console.warn('[terminalRegistry] xterm parser boundary unavailable');
+    return;
+  }
+  writeBuffer._action = (data, promiseResult) => {
+    try {
+      return original.call(writeBuffer, data, promiseResult);
+    } catch (err) {
+      console.error(
+        '[terminalRegistry] xterm parser threw; current chunk tail dropped, parser reset',
+        err,
+      );
+      try {
+        core?._inputHandler?._parser?.reset?.();
+      } catch (resetErr) {
+        console.error('[terminalRegistry] xterm parser reset after failure also threw', resetErr);
+      }
+      return undefined;
+    }
+  };
+}
+
+/**
  * 🔴 xterm 解析/写入循环内部回调的护栏(2026-07-29「单个 session 卡死」通用防线)。
  *
  * WriteBuffer._innerWrite 的主循环里有两处**裸调**:`_action(chunk)`(= 解析,含我们经
@@ -180,6 +238,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
       selectionBackground: 'rgba(74, 141, 248, 0.40)',
     },
   });
+  installParserBoundary(term);
   const fit = new FitAddon();
   term.loadAddon(fit);
   const search = new SearchAddon();

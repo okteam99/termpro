@@ -109,8 +109,16 @@ PTY 输出 → host 累加 session.unacked
 >
 > 已两次栽在这里：2026-07-15 线上压缩包里 `requestMode` 的 ReferenceError；2026-07-29
 > 死链路上 `hostClient.ack` 经 `WebSocketTransport.send` 抛 `host connection lost`。
-> 现有防线：`hostClient.post`（ack/input/resize 三条数据报）一律吞不抛——注意 `rpc` 相反，
-> 保持发送失败即拒；`terminalRegistry.guardParse` 包住所有我们注册进解析路径的回调。
+> 2026-07-30 用户再报「最新版仍卡住」后，失败用例证明上一层 `guardParse` 只护住了
+> 我们注册的 handler，xterm 内建/第三方 handler 抛错仍可原样冻死。现有防线因此是四层：
+> 1. renderer 生产压缩固定用 Terser，不再让 Vite/esbuild 二次压缩破坏已压过的
+>    xterm bundle 局部作用域；
+> 2. `terminalRegistry.installParserBoundary` 包住 xterm 真正的 `WriteBuffer._action`，任意
+>    同步 parser 异常都会 reset 当前控制序列状态并让写入泵继续推进；
+> 3. `terminalRegistry.guardParse` 给我们自己注册的回调保留精确 fallback 与带上下文日志；
+> 4. `hostClient.post`（ack/input/resize 三条数据报）一律吞不抛——注意 `rpc` 相反，
+>    保持发送失败即拒。
+>
 > 经 xterm Emitter 派发的事件（onData/onResize/onScroll）另有豁免：xterm 6 的 Emitter 自己
 > 逐 listener try/catch，泵不会停——但别依赖它，新增回调照样套护栏。
 > 回归测试：`terminal/__tests__/parseLoopWedgeGuard.test.ts`、
