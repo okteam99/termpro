@@ -3,9 +3,15 @@
 // 各挂非递归 watcher,预算/深度封顶,新建子目录增量补挂,事件只发去抖信号。
 // forceManual 注入让本套测试在任意平台都走手工路径。
 //
-// 平台注记:手工模式生产上只在 linux 启用(inotify)。macOS 的非递归 fs.watch 走
-// FSEvents,嵌套多 watcher 有事件漏发/深层穿透怪癖 → 三个细粒度用例仅在 linux 跑
-// (CI=ubuntu 全覆盖;okwork-node 容器实测 7/7 PASS 2026-07-20),本地跑基础组。
+// 平台注记:手工模式生产上**只在 linux 启用**(inotify);macOS/win32 走原生递归
+// fs.watch,是另一条代码路径(由 wsRpcParity T-032/T-033 覆盖)。`forceManual: true`
+// 纯属测试注入,macOS 上跑它测的是一条生产永不执行的路径。
+// 而 macOS 的非递归 fs.watch 走 FSEvents,嵌套多 watcher 有事件漏发/深层穿透怪癖:
+// 2026-07-29 v0.3.93 的 Release(build-macos)就栽在「已存在子目录内的变化」上,同
+// commit 的 CI(ubuntu)却全绿;本地单跑 8/8 绿、全量套件并行负载下连续触碰 5s 零事件
+// —— 是负载相关的漏发,不是竞态,重试也救不回来。
+// 故:凡依赖「事件真的送达」的用例一律 linux only(itDelivers),macOS 只留断言「静默」
+// 的那条(不依赖投递)。CI=ubuntu 仍 7/7 全覆盖。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -29,6 +35,9 @@ async function waitForEvent(count: number, timeoutMs = 3000): Promise<void> {
   }
 }
 
+/** 依赖「事件真的送达」的用例只在 linux 跑(见文件头平台注记)。 */
+const itDelivers = it.runIf(process.platform === 'linux');
+
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-watch-'));
   fs.mkdirSync(path.join(root, 'sub', 'deep'), { recursive: true });
@@ -43,21 +52,21 @@ afterEach(() => {
 });
 
 describe('WatchService manual bounded mode', () => {
-  it('根目录变化 → 去抖后收到 fs:changed', async () => {
+  itDelivers('根目录变化 → 去抖后收到 fs:changed', async () => {
     const id = svc.watch(root);
     fs.writeFileSync(path.join(root, 'a.txt'), 'x');
     await waitForEvent(1);
     expect(events[0]).toEqual({ t: 'fs:changed', watchId: id });
   });
 
-  it('已存在子目录内的变化也有信号', async () => {
+  itDelivers('已存在子目录内的变化也有信号', async () => {
     const id = svc.watch(root);
     fs.writeFileSync(path.join(root, 'sub', 'deep', 'b.txt'), 'x');
     await waitForEvent(1);
     expect(events[0]).toEqual({ t: 'fs:changed', watchId: id });
   });
 
-  it.runIf(process.platform === 'linux')(
+  itDelivers(
     'watch 后新建的子目录会被增量补挂:其内部变化有信号',
     async () => {
     svc.watch(root);
@@ -70,7 +79,7 @@ describe('WatchService manual bounded mode', () => {
     },
   );
 
-  it.runIf(process.platform === 'linux')(
+  itDelivers(
     'node_modules 不建 watcher:内部变化无信号,预算不被吃掉',
     async () => {
     svc.watch(root);
@@ -82,7 +91,7 @@ describe('WatchService manual bounded mode', () => {
     },
   );
 
-  it.runIf(process.platform === 'linux')('预算封顶不炸:超出预算后根目录信号仍工作', async () => {
+  itDelivers('预算封顶不炸:超出预算后根目录信号仍工作', async () => {
     const tight = new WatchService((m) => events.push(m), {
       forceManual: true,
       maxDirs: 2, // root + sub,deep/node_modules 超预算
