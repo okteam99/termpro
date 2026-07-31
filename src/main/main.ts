@@ -6,6 +6,7 @@ import {
   dialog,
   ipcMain,
   nativeImage,
+  powerMonitor,
   safeStorage,
   session,
   utilityProcess,
@@ -1284,6 +1285,10 @@ app.on('ready', () => {
     if (fs.existsSync(devIcon)) app.dock?.setIcon(devIcon);
   }
   buildMenu();
+  // 合盖期间 ssh2 可能只丢 TCP、不交付某条 channel 的 callback/close,使连接编排
+  // Promise 跨睡眠占槽。唤醒时把所有活跃远程连接切到新世代;renderer 既有断线
+  // 重连状态机会重新认领远端驻留 Host/session,无需重启或升级服务器。
+  powerMonitor.on('resume', () => remoteHostOrchestrator.resetAfterSystemResume());
   createWindow();
   // 冲刷启动前(open-file 早于 ready)入队的待打开文件
   appIsReady = true;

@@ -93,6 +93,10 @@ export type ConnectSsh = (o: SshConnectOptions) => Promise<SshConnectionLike>;
 
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 15_000;
 const DEFAULT_KEEPALIVE_COUNT_MAX = 3;
+/** 控制面单操作硬上限:exec/read/rename 卡住不能永久占住 serialize + connectInflight。 */
+const DEFAULT_OPERATION_TIMEOUT_MS = 30_000;
+/** bundle 上传允许更长窗口,但同样不能无限等待失联 SFTP callback。 */
+const UPLOAD_OPERATION_TIMEOUT_MS = 5 * 60_000;
 
 function envPositiveInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -169,10 +173,88 @@ export class SshConnection implements SshConnectionLike {
   private readonly hostKeyDigest: Buffer | null;
   private queue: Promise<void> = Promise.resolve();
   private sftpCached: Promise<SFTPWrapper> | null = null;
+  /** 首个 close/error/控制面超时成为整条连接的终态;之后所有操作 fast-fail。 */
+  private disconnectedError: Error | null = null;
+  /** 正在等 ssh2 callback/stream close 的操作;连接终态到达时统一 reject。 */
+  private readonly pendingRejectors = new Set<(err: Error) => void>();
+  /** onClose 统一走单次终态广播,避免 ssh2 error 紧跟 close 导致调用方收到两遍。 */
+  private readonly closeListeners = new Set<(err?: Error) => void>();
 
-  private constructor(client: Client, hostKeyDigest: Buffer | null) {
+  private constructor(client: Client, hostKeyDigest: Buffer | null = null) {
     this.client = client;
     this.hostKeyDigest = hostKeyDigest;
+    // 🔴 2026-07-31 合盖卡死根因:此前 close/error 只通过 onClose 通知 orchestrator,
+    // 不会触碰已在等待的 exec/SFTP Promise。ssh2 丢失 channel 终态时那些 Promise
+    // 永不 settle,serialize queue 与 connectInflight 随之永久占槽。连接终态必须同时
+    // reject 全部 pending 控制面操作,让 runConnect/finally 能确定性收尾。
+    // `typeof` 守卫仅服务于本模块的结构化单测 fake;生产 ssh2 Client 恒有 on()。
+    if (typeof this.client.on === 'function') {
+      this.client.on('close', () => this.markDisconnected(new Error('ssh connection closed')));
+      this.client.on('error', (err: Error) => this.markDisconnected(err));
+    }
+  }
+
+  private markDisconnected(err: Error): void {
+    if (this.disconnectedError) return;
+    this.disconnectedError = err;
+    for (const reject of [...this.pendingRejectors]) reject(err);
+    this.pendingRejectors.clear();
+    const listeners = [...this.closeListeners];
+    this.closeListeners.clear();
+    for (const cb of listeners) {
+      try {
+        cb(err);
+      } catch {
+        /* 观察者异常不能阻断其它 pending 的收尾 */
+      }
+    }
+  }
+
+  /**
+   * 把一次 ssh2 callback/stream 操作绑定到连接终态。控制面操作另带硬超时;
+   * direct-tcpip/反向转发传 null,只绑定断链而不因目标网站慢误杀整条 SSH。
+   */
+  private runOperation<T>(
+    label: string,
+    timeoutMs: number | null,
+    start: () => Promise<T>,
+  ): Promise<T> {
+    if (this.disconnectedError) return Promise.reject(this.disconnectedError);
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        this.pendingRejectors.delete(onDisconnected);
+        if (timer !== null) clearTimeout(timer);
+        fn();
+      };
+      const onDisconnected = (err: Error) => finish(() => reject(err));
+      this.pendingRejectors.add(onDisconnected);
+
+      if (timeoutMs !== null) {
+        timer = setTimeout(() => {
+          const err = new Error(`ssh ${label} timeout after ${timeoutMs}ms`);
+          // 超时后的底层 channel 状态未知;若只放行 serialize 下一项会与迟到 callback
+          // 并发,破坏本类的串行约束。把整条连接判死并关闭,交给上层重连最安全。
+          this.markDisconnected(err);
+          try {
+            this.client.end();
+          } catch {
+            /* 已断 */
+          }
+        }, timeoutMs);
+      }
+
+      Promise.resolve()
+        .then(start)
+        .then(
+          (value) => finish(() => resolve(value)),
+          (err: unknown) =>
+            finish(() => reject(err instanceof Error ? err : new Error(String(err)))),
+        );
+    });
   }
 
   static connect(o: SshConnectOptions): Promise<SshConnection> {
@@ -286,7 +368,7 @@ export class SshConnection implements SshConnectionLike {
 
   exec(cmd: string): Promise<ExecResult> {
     return this.serialize(
-      () =>
+      () => this.runOperation('exec', DEFAULT_OPERATION_TIMEOUT_MS, () =>
         new Promise<ExecResult>((resolve, reject) => {
           this.client.exec(cmd, (err, stream) => {
             if (err) return reject(err);
@@ -304,12 +386,13 @@ export class SshConnection implements SshConnectionLike {
             stream.on('error', reject);
           });
         }),
+      ),
     );
   }
 
   execDetached(cmd: string, stdin: string): Promise<void> {
     return this.serialize(
-      () =>
+      () => this.runOperation('execDetached', DEFAULT_OPERATION_TIMEOUT_MS, () =>
         new Promise<void>((resolve, reject) => {
           this.client.exec(cmd, (err, stream) => {
             if (err) return reject(err);
@@ -334,22 +417,25 @@ export class SshConnection implements SshConnectionLike {
             });
           });
         }),
+      ),
     );
   }
 
   sftpReadFile(remotePath: string): Promise<Buffer | null> {
-    return this.serialize(async () => {
-      const sftp = await this.sftp();
-      return new Promise<Buffer | null>((resolve, reject) => {
-        sftp.readFile(remotePath, (err, data) => {
-          if (err) {
-            if (isEnoent(err)) return resolve(null);
-            return reject(err);
-          }
-          resolve(Buffer.isBuffer(data) ? data : Buffer.from(data));
+    return this.serialize(() =>
+      this.runOperation('sftpReadFile', DEFAULT_OPERATION_TIMEOUT_MS, async () => {
+        const sftp = await this.sftp();
+        return new Promise<Buffer | null>((resolve, reject) => {
+          sftp.readFile(remotePath, (err, data) => {
+            if (err) {
+              if (isEnoent(err)) return resolve(null);
+              return reject(err);
+            }
+            resolve(Buffer.isBuffer(data) ? data : Buffer.from(data));
+          });
         });
-      });
-    });
+      }),
+    );
   }
 
   sftpWriteDir(
@@ -357,35 +443,39 @@ export class SshConnection implements SshConnectionLike {
     remoteDir: string,
     onProgress: (pct: number) => void,
   ): Promise<void> {
-    return this.serialize(async () => {
-      const sftp = await this.sftp();
-      const files = listFilesRecursive(localDir);
-      const sortedDirs = planRemoteDirs(remoteDir, files.map(toPosix));
-      for (const d of sortedDirs) {
-        await mkdirRemote(sftp, d);
-      }
-      let uploaded = 0;
-      for (const f of files) {
-        const localPath = path.join(localDir, f);
-        const remotePath = `${remoteDir}/${toPosix(f)}`;
-        await putFile(sftp, localPath, remotePath);
-        uploaded++;
-        onProgress(files.length === 0 ? 100 : Math.round((uploaded / files.length) * 100));
-      }
-      if (files.length === 0) onProgress(100);
-    });
+    return this.serialize(() =>
+      this.runOperation('sftpWriteDir', UPLOAD_OPERATION_TIMEOUT_MS, async () => {
+        const sftp = await this.sftp();
+        const files = listFilesRecursive(localDir);
+        const sortedDirs = planRemoteDirs(remoteDir, files.map(toPosix));
+        for (const d of sortedDirs) {
+          await mkdirRemote(sftp, d);
+        }
+        let uploaded = 0;
+        for (const f of files) {
+          const localPath = path.join(localDir, f);
+          const remotePath = `${remoteDir}/${toPosix(f)}`;
+          await putFile(sftp, localPath, remotePath);
+          uploaded++;
+          onProgress(files.length === 0 ? 100 : Math.round((uploaded / files.length) * 100));
+        }
+        if (files.length === 0) onProgress(100);
+      }),
+    );
   }
 
   sftpRename(from: string, to: string): Promise<void> {
-    return this.serialize(async () => {
-      const sftp = await this.sftp();
-      return new Promise<void>((resolve, reject) => {
-        sftp.rename(from, to, (err) => {
-          if (err) return reject(err);
-          resolve();
+    return this.serialize(() =>
+      this.runOperation('sftpRename', DEFAULT_OPERATION_TIMEOUT_MS, async () => {
+        const sftp = await this.sftp();
+        return new Promise<void>((resolve, reject) => {
+          sftp.rename(from, to, (err) => {
+            if (err) return reject(err);
+            resolve();
+          });
         });
-      });
-    });
+      }),
+    );
   }
 
   forwardOut(localPort: number, remotePort: number): net.Server {
@@ -437,19 +527,22 @@ export class SshConnection implements SshConnectionLike {
    * 通道的并发抖动(SSH-1)而设,不适用 direct-tcpip,故此处并发发起、互不阻塞。
    */
   openOutbound(dstHost: string, dstPort: number): Promise<Duplex> {
-    return new Promise<Duplex>((resolve, reject) => {
-      this.client.forwardOut('127.0.0.1', 0, dstHost, dstPort, (err, stream) => {
-        if (err) return reject(err);
-        resolve(stream);
-      });
-    });
+    return this.runOperation('openOutbound', null, () =>
+      new Promise<Duplex>((resolve, reject) => {
+        this.client.forwardOut('127.0.0.1', 0, dstHost, dstPort, (err, stream) => {
+          if (err) return reject(err);
+          resolve(stream);
+        });
+      }),
+    );
   }
 
   forwardInToLocal(localPort: number, remotePort: number): Promise<ReverseForwardHandle> {
-    return new Promise<ReverseForwardHandle>((resolve, reject) => {
-      this.client.forwardIn('127.0.0.1', remotePort, (err, boundPort) => {
-        if (err) return reject(err);
-        const port = remotePort || boundPort;
+    return this.runOperation('forwardInToLocal', null, () =>
+      new Promise<ReverseForwardHandle>((resolve, reject) => {
+        this.client.forwardIn('127.0.0.1', remotePort, (err, boundPort) => {
+          if (err) return reject(err);
+          const port = remotePort || boundPort;
         // 每条反向连接:accept ssh channel,回接本机 MCP server,双向 pipe。
         // 只有本转发在用此 client 的 forwardIn,故 destPort 恒等 port;仍按端口过滤,
         // 万一将来同连接多转发也不误接他人连接。
@@ -472,30 +565,41 @@ export class SshConnection implements SshConnectionLike {
           stream.on('error', () => local.destroy());
           local.on('error', () => stream.destroy());
         };
-        this.client.on('tcp connection', onTcp);
-        resolve({
-          remotePort: port,
-          close: () => {
-            this.client.removeListener('tcp connection', onTcp);
-            // unforwardIn 在连接已断时可能同步抛('Not connected'),吞掉(转发随连接已亡)
-            try {
-              this.client.unforwardIn('127.0.0.1', port, () => undefined);
-            } catch {
-              /* 连接已断,转发自然消失 */
-            }
-          },
+          this.client.on('tcp connection', onTcp);
+          resolve({
+            remotePort: port,
+            close: () => {
+              this.client.removeListener('tcp connection', onTcp);
+              // unforwardIn 在连接已断时可能同步抛('Not connected'),吞掉(转发随连接已亡)
+              try {
+                this.client.unforwardIn('127.0.0.1', port, () => undefined);
+              } catch {
+                /* 连接已断,转发自然消失 */
+              }
+            },
+          });
         });
-      });
-    });
+      }),
+    );
   }
 
   onClose(cb: (err?: Error) => void): void {
-    this.client.on('close', () => cb());
-    this.client.on('error', (err: Error) => cb(err));
+    if (this.disconnectedError) {
+      const err = this.disconnectedError;
+      queueMicrotask(() => cb(err));
+      return;
+    }
+    this.closeListeners.add(cb);
   }
 
   close(): void {
-    this.client.end();
+    try {
+      this.client.end();
+    } finally {
+      // ssh2 的 close 事件可能因已坏 socket 不再到达。延到 microtask 标终态,让调用方
+      // 先完成 session.ssh=null 等身份摘除,避免主动 close 被误判成被动断线递归收尾。
+      queueMicrotask(() => this.markDisconnected(new Error('ssh connection closed')));
+    }
   }
 }
 

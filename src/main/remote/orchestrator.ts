@@ -568,6 +568,32 @@ export class RemoteHostOrchestrator {
     };
   }
 
+  /**
+   * macOS 系统唤醒恢复:合盖期间 TCP/channel 终态可能丢失,旧 runConnect Promise
+   * 因此仍占 connectInflight/mutex。逐 configId 换新 session 世代并立即清去重槽:
+   * renderer 收到 disconnected 后可按既有重连编排重新 connect;旧异步调用迟到恢复时
+   * 因 session 身份不符只能自弃,不能污染新连接。
+   */
+  resetAfterSystemResume(): void {
+    for (const [configId, session] of [...this.sessions]) {
+      const hasInflight =
+        this.connectInflight.has(configId) || this.mutex.has(configId);
+      if (!ACTIVE_STAGES.has(session.stage) && !hasInflight) continue;
+
+      // 先摘权威身份/去重槽,再关旧资源:即使 close 同步触发 watcher,资源身份校验也
+      // 看不到旧 session;renderer 随后发来的重连不会再命中旧 Promise。
+      this.sessions.delete(configId);
+      this.connectInflight.delete(configId);
+      this.mutex.delete(configId);
+      this.closeSessionTransport(session);
+
+      const replacement = this.ensureSession(configId);
+      replacement.stage = 'disconnected';
+      const event: RemoteEvent = { configId, stage: 'disconnected' };
+      for (const cb of this.listeners) cb(event);
+    }
+  }
+
   dispose(): void {
     for (const session of this.sessions.values()) {
       this.closeSessionTransport(session);

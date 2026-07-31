@@ -152,6 +152,99 @@ describe('SshConnection SFTP channel 复用', () => {
   });
 });
 
+// 🔴 合盖/断网卡死回归(2026-07-31):ssh2 Client 已 close,但某条 exec/SFTP channel
+// 的 callback/stream close 没有再到达。旧实现只把 close 通知 orchestrator,不会 reject
+// 正在等待的操作 Promise,于是 serialize queue + orchestrator connectInflight 永久占槽,
+// 后续 Connect 全被去重吞掉,UI 一直停在 Connecting。
+describe('SshConnection 断链会终止所有 pending 操作', () => {
+  const construct = (client: unknown): SshConnection =>
+    new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
+
+  async function settlesSoon<T>(promise: Promise<T>): Promise<'resolved' | 'rejected' | 'timeout'> {
+    return Promise.race([
+      promise.then(
+        () => 'resolved' as const,
+        () => 'rejected' as const,
+      ),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 40)),
+    ]);
+  }
+
+  it('client close 时,已拿到 stream 但等不到 stream.close 的 exec 立即 reject', async () => {
+    const stream = Object.assign(new PassThrough(), { stderr: new PassThrough() });
+    const client = Object.assign(new EventEmitter(), {
+      exec: vi.fn((_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
+        cb(null, stream); // stream 此后永不 close,模拟睡眠断网时丢失 channel 终态
+      }),
+      end: vi.fn(),
+    });
+    const pending = construct(client).exec('echo $HOME');
+    await Promise.resolve(); // 放行 serialize queue,确保 exec 已进入等待
+
+    client.emit('close');
+
+    expect(await settlesSoon(pending)).toBe('rejected');
+  });
+
+  it('client error 时,等不到 client.sftp callback 的 SFTP 操作立即 reject', async () => {
+    const client = Object.assign(new EventEmitter(), {
+      sftp: vi.fn(() => undefined), // callback 永不抵达
+      end: vi.fn(),
+    });
+    const pending = construct(client).sftpReadFile('/root/.termpro-host/host.port');
+    await Promise.resolve();
+
+    client.emit('error', new Error('socket lost after wake'));
+
+    expect(await settlesSoon(pending)).toBe('rejected');
+  });
+
+  it('主动 close 也会在 ssh2 不回 close 事件时 reject pending 操作', async () => {
+    const stream = Object.assign(new PassThrough(), { stderr: new PassThrough() });
+    const client = Object.assign(new EventEmitter(), {
+      exec: vi.fn((_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
+        cb(null, stream);
+      }),
+      end: vi.fn(), // 刻意不 emit close,模拟已坏 socket
+    });
+    const conn = construct(client);
+    const pending = conn.exec('echo $HOME');
+    await Promise.resolve();
+
+    conn.close();
+
+    expect(await settlesSoon(pending)).toBe('rejected');
+    expect(client.end).toHaveBeenCalledOnce();
+  });
+
+  it('底层既不 callback 也不 close 时,操作硬超时会 reject,不会无限占住串行队列', async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = Object.assign(new PassThrough(), { stderr: new PassThrough() });
+      const client = Object.assign(new EventEmitter(), {
+        exec: vi.fn((_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
+          cb(null, stream);
+        }),
+        end: vi.fn(),
+      });
+      let rejected = false;
+      void construct(client)
+        .exec('uname -sm')
+        .catch(() => {
+          rejected = true;
+        });
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(30_001);
+
+      expect(rejected).toBe(true);
+      expect(client.end).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // 🔴 darwin 远端 pty.spawn 必挂回归(posix_spawnp failed):sftpWriteDir 上传必须
 // 显式携带本地 mode —— ssh2 fastPut 缺省不 fchmod,spawn-helper 丢 0o755 执行位后
 // 远端 Mac 每次 pty.spawn 被 posix_spawn EACCES 拒绝(Linux 走 forkpty 无此依赖,

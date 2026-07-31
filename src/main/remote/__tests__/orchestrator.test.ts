@@ -874,6 +874,43 @@ describe('AC-12 认证失败改配置重试 / 断开后手动重连', () => {
     expect(h.events.filter((e) => e.stage === 'ready').length).toBe(readyCount);
     expect(zombieSsh.closed).toBe(true);
   });
+
+  it('🔴 2026-07-31 回归:系统唤醒会作废跨睡眠的 connectInflight,无需用户先等 Cancel 即可重连', async () => {
+    let resolveSleepingConnect!: (ssh: RoutedSsh) => void;
+    const sleepingConnect = new Promise<RoutedSsh>((resolve) => {
+      resolveSleepingConnect = resolve;
+    });
+    const zombieSsh = createFreshDeploySsh('vps-hk');
+    let calls = 0;
+    const h = makeHarness({
+      connectSshImpl: async () => {
+        calls++;
+        if (calls === 1) return sleepingConnect; // 合盖时停在在途 SSH/操作
+        return createFreshDeploySsh('vps-hk');
+      },
+    });
+    saveConfig(h.configStore);
+
+    const stale = h.orchestrator.connect('vps-hk');
+    void stale.catch(() => undefined);
+    await flushMicrotasks();
+    expect(h.events.map((e) => e.stage)).toEqual(['connecting']);
+
+    h.orchestrator.resetAfterSystemResume();
+    expect(h.orchestrator.stages()['vps-hk']).toBe('disconnected');
+
+    await h.orchestrator.connect('vps-hk');
+    expect(calls).toBe(2);
+    expect(h.events.at(-1)?.stage).toBe('ready');
+
+    // 旧调用迟到返回只能关闭自己,不能污染新 ready 会话。
+    const readyCount = h.events.filter((e) => e.stage === 'ready').length;
+    resolveSleepingConnect(zombieSsh);
+    await flushMicrotasks(10);
+    expect(zombieSsh.closed).toBe(true);
+    expect(h.orchestrator.stages()['vps-hk']).toBe('ready');
+    expect(h.events.filter((e) => e.stage === 'ready')).toHaveLength(readyCount);
+  });
 });
 
 describe('AC-14 删除随删清凭据 + 活跃连接先断开', () => {
