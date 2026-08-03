@@ -645,15 +645,17 @@
   margin-left: auto;
 }
 
-/* 组头齿轮:远程机配置入口(打开「远程机」管理弹层,可编辑/删除该机)。
-   常态弱化、hover 组头浮现(对齐行内铅笔钮的渐显交互) */
-.sidebar-machine-gear {
+/* 组头 +:在该机添加项目(本机/远程组头同款)。
+   常态弱化、hover 组头浮现(对齐行内设置钮的渐显交互) */
+.sidebar-machine-add {
   flex: none;
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1.2;
   border: none;
   border-radius: 3px;
   background: transparent;
@@ -664,18 +666,18 @@
   -webkit-app-region: no-drag;
 }
 
-.sidebar-machine-header:hover .sidebar-machine-gear {
+.sidebar-machine-header:hover .sidebar-machine-add {
   opacity: 0.75;
 }
 
-.sidebar-machine-gear:hover {
+.sidebar-machine-add:hover {
   opacity: 1;
 }
 
-/* 状态徽标/连接钮等右推元素在前时,齿轮紧随其后即可,不再自推(防两处 auto margin 均分空隙) */
-.sidebar-machine-header > .sidebar-machine-status ~ .sidebar-machine-gear,
-.sidebar-machine-header > .sidebar-machine-connect ~ .sidebar-machine-gear,
-.sidebar-machine-header > .sidebar-machine-connecting ~ .sidebar-machine-gear {
+/* 状态徽标/连接钮等右推元素在前时,+ 紧随其后即可,不再自推(防两处 auto margin 均分空隙) */
+.sidebar-machine-header > .sidebar-machine-status ~ .sidebar-machine-add,
+.sidebar-machine-header > .sidebar-machine-connect ~ .sidebar-machine-add,
+.sidebar-machine-header > .sidebar-machine-connecting ~ .sidebar-machine-add {
   margin-left: 0;
 }
 
