@@ -6,8 +6,8 @@
 import './Sidebar.css';
 import { t } from '../../shared/i18n';
 
-/** Small pencil icon 12×12(本机/远程 workspace 行共用;Sidebar 从这里 import) */
-export function PencilIcon() {
+/** Small gear icon 12×12(workspace 行的设置钮,本机/远程共用;Sidebar 从这里 import) */
+export function GearIcon() {
   return (
     <svg
       width="12"
@@ -15,13 +15,21 @@ export function PencilIcon() {
       viewBox="0 0 12 12"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.3"
+      strokeWidth="1.2"
       strokeLinecap="round"
       strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M8.5 1.5 L10.5 3.5 L4 10 L1.5 10.5 L2 8 Z" />
-      <line x1="7" y1="3" x2="9" y2="5" />
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="6" r="1.2" />
+      <line x1="9.6" y1="6" x2="11" y2="6" />
+      <line x1="8.55" y1="3.45" x2="9.54" y2="2.46" />
+      <line x1="6" y1="2.4" x2="6" y2="1" />
+      <line x1="3.45" y1="3.45" x2="2.46" y2="2.46" />
+      <line x1="2.4" y1="6" x2="1" y2="6" />
+      <line x1="3.45" y1="8.55" x2="2.46" y2="9.54" />
+      <line x1="6" y1="9.6" x2="6" y2="11" />
+      <line x1="8.55" y1="8.55" x2="9.54" y2="9.54" />
     </svg>
   );
 }
@@ -54,7 +62,7 @@ export function formatTabBadge(ws: TabBadgeInput): TabBadge {
   return { text, zero: ws.tabCount === 0 };
 }
 
-/** 会话计数图标:小终端窗(>_) */
+/** 会话计数图标:层叠窗格(多 session 语义,与 tab 的终端图标区分) */
 function SessionsGlyph() {
   return (
     <svg
@@ -68,9 +76,8 @@ function SessionsGlyph() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <rect x="1" y="1.5" width="10" height="9" rx="1.5" />
-      <path d="M3.2 4.5 L5.2 6 L3.2 7.5" />
-      <line x1="6.4" y1="8" x2="8.6" y2="8" />
+      <path d="M4.4 1.4 H9.2 A1.4 1.4 0 0 1 10.6 2.8 V7.6" />
+      <rect x="1.4" y="3.4" width="7.2" height="7.2" rx="1.4" />
     </svg>
   );
 }
@@ -128,7 +135,7 @@ export interface MachineWorkspaceRowProps {
   onClick?: () => void;
   /** 行右上角 hover 显现的 × 删除钮(与本机行同款);缺省不渲染 */
   onRemove?: () => void;
-  /** 名称旁 hover 显现的铅笔编辑钮(改名 + 浏览器 profile,与本机行同款);缺省不渲染 */
+  /** 行尾(第一行最右)hover 显现的设置钮(改名 + 浏览器 profile,与本机行同款);缺省不渲染 */
   onRename?: () => void;
 }
 
@@ -151,6 +158,10 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: Machine
     >
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{ws.name}</span>
+        <SessionBadge ws={ws} />
+        {ws.disconnectedPanel && (
+          <span className="sidebar-item-lost-tag">{t('Disconnected')}</span>
+        )}
         {onRename && (
           <button
             className="sidebar-edit-btn no-drag"
@@ -160,13 +171,9 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: Machine
             }}
             title={t('Edit workspace')}
           >
-            <PencilIcon />
+            <GearIcon />
           </button>
         )}
-        {ws.disconnectedPanel && (
-          <span className="sidebar-item-lost-tag">{t('Disconnected')}</span>
-        )}
-        <SessionBadge ws={ws} />
       </div>
       <div className="sidebar-item-meta">
         <span className="sidebar-remote-meta-text">{ws.meta}</span>

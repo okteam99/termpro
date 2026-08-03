@@ -27,7 +27,7 @@ import {
   type MachineInfo,
 } from './MachineGroup';
 import {
-  PencilIcon,
+  GearIcon,
   SessionBadge,
   type MachineWorkspaceRowData,
 } from './MachineWorkspaceRow';
@@ -667,15 +667,15 @@ export function Sidebar() {
                     >
                       <div className="sidebar-item-name-row">
                         <span className="sidebar-item-name">{ws.name}</span>
+                        <SessionBadge ws={row} />
                         <button
                           className="sidebar-edit-btn no-drag"
                           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                           onClick={(e) => openEditModal(e, ws.id)}
                           title={t('Edit workspace')}
                         >
-                          <PencilIcon />
+                          <GearIcon />
                         </button>
-                        <SessionBadge ws={row} />
                       </div>
                       <span className="sidebar-item-meta">{row.meta}</span>
                       <button

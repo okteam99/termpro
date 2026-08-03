@@ -131,7 +131,7 @@
   opacity: 0.5;
 }
 
-/* Name row: name + pencil inline */
+/* Name row: name + 会话徽标紧随,设置钮推到行尾 */
 .sidebar-item-name-row {
   display: flex;
   align-items: center;
@@ -147,12 +147,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 0 1 auto; /* 按内容收缩,铅笔紧跟名字而不是被推到行尾 */
+  flex: 0 1 auto; /* 按内容收缩,会话徽标紧跟名字而不是被推到行尾 */
   min-width: 0;
 }
 
-/* Pencil edit button */
+/* 设置钮(gear):第一行最右 */
 .sidebar-edit-btn {
+  margin-left: auto;
   background: transparent;
   border: none;
   color: var(--fg-dim);
@@ -744,11 +745,6 @@
 
 .sidebar-badge-stat svg {
   flex: none;
-}
-
-/* 徽章位于名称行(第一行)时右对齐 */
-.sidebar-item-name-row .sidebar-machine-sessions {
-  margin-left: auto;
 }
 
 /* 行带 × 删除钮(本机/远程行):名称行常驻预留 × 的位置,徽标不被 hover 显现的 × 压住 */
