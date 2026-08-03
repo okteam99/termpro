@@ -3,8 +3,15 @@
 // 单测喂「静默不回」probe + fake timers 即可断言有界时延(QA-B-8),无需整成 integration。
 //
 // 判定机理:每 intervalMs 发一次 probe(host.info),给该 probe 一个 timeoutMs 窗口;
-// probe 在窗口内 resolve → 存活,排下一拍;窗口内未回(挂起)或 reject → onDead(一次性)。
-// 检测时延上界 T = intervalMs(首拍等待)+ timeoutMs。默认 5s+5s → T≈10s(AC-13 上界)。
+// probe 在窗口内 resolve → 存活,排下一拍;reject(传输错误)→ onDead(一次性)。
+// 窗口内未回(挂起)时分两类:
+//   · 窗口内有任何入站流量(notifyActivity)→ 链路在投递字节,只是拥塞——probe 响应
+//     与 pty 批量输出共享同一条 WS/SSH 隧道(FIFO 无优先级),agent 大输出/跨境高峰
+//     可把它挤到 5s 之外(2026-08「liam 总掉线」根因)。放弃本拍、排下一拍继续观察,
+//     不判死——误判的代价是拆掉健康 SSH 连接全量重建,回放洪峰又挤死下一拍,反复闪断。
+//   · 真·静默(窗口内零入站)→ onDead。
+// 真死(冻结 TCP)从无入站流量,检测时延上界不变:T = intervalMs + timeoutMs,
+// 默认 5s+5s → T≈10s(AC-13 上界)。持续拥塞只要仍有字节到达就不判死(链路确实可用)。
 
 export interface HeartbeatConfig {
   /** 相邻两次探活的间隔(ms)。默认 5000。 */
@@ -36,6 +43,8 @@ export class Heartbeat {
   private running = false;
   private intervalTimer: TimerHandle | null = null;
   private timeoutTimer: TimerHandle | null = null;
+  /** 最近一次入站流量时刻(0=从未);仅与本拍 probe 起点比较,陈旧活动不算存活证明 */
+  private lastActivityAt = 0;
   private readonly setTimer: (fn: () => void, ms: number) => TimerHandle;
   private readonly clearTimer: (h: TimerHandle) => void;
 
@@ -51,6 +60,14 @@ export class Heartbeat {
     if (this.running) return;
     this.running = true;
     this.scheduleNext();
+  }
+
+  /**
+   * 任何入站消息都算存活证明(pty:data/rpc:res/事件……,hostClient.handle 逐条上报):
+   * probe 挂起但窗口内有流量 → 拥塞非死链,本拍放弃不判死(见文件头「判定机理」)。
+   */
+  notifyActivity(): void {
+    this.lastActivityAt = Date.now();
   }
 
   stop(): void {
@@ -75,14 +92,19 @@ export class Heartbeat {
   private async beat(): Promise<void> {
     if (!this.running) return;
     let settled = false;
+    const startedAt = Date.now();
     this.timeoutTimer = this.setTimer(() => {
       this.timeoutTimer = null;
       if (settled || !this.running) return;
       settled = true;
+      // 窗口内有入站流量 → 拥塞非死链:放弃本拍(迟到落定被 settled 闸吞),排下一拍
+      // 继续观察;probe 挂起 + 真·静默才判死。陈旧活动(< startedAt)不算。
+      if (this.lastActivityAt >= startedAt) {
+        this.scheduleNext();
+        return;
+      }
       this.die();
     }, this.cfg.timeoutMs);
-
-    const startedAt = Date.now();
     try {
       await this.deps.probe();
       if (settled || !this.running) return;

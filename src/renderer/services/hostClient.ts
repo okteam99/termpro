@@ -558,6 +558,10 @@ export class HostClient {
   }
 
   private handle(msg: HostMessage): void {
+    // 任何入站消息都是存活证明(P1 · 2026-08「总掉线」):拥塞时 host.info 响应会被
+    // pty 批量输出挤到心跳窗口之外(同一条 WS/SSH 隧道 FIFO),但 pty:data 仍在到达
+    // ——喂给心跳,只有真·静默才判死。本地嵌入式(heartbeat=null)零开销。
+    this.heartbeat?.notifyActivity();
     switch (msg.t) {
       case 'rpc:res': {
         const p = this.pending.get(msg.id);
