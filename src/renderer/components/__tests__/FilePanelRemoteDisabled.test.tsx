@@ -25,8 +25,19 @@ expect.extend(matchers);
 vi.mock('../../terminal/terminalRegistry', () => ({ disposeTerminal: vi.fn() }));
 
 const { hostRegistryMock, localClient, remoteClient } = vi.hoisted(() => {
-  const localClient = { info: { homedir: '/Users/liam' }, rpc: vi.fn(async () => ({})) };
-  const remoteClient = { info: { homedir: '/home/pi' }, rpc: vi.fn(async () => ({})) };
+  // supportsTransfer:阶段3(远程文件传输)FilePanel 无条件调用它算行内按钮禁用态——
+  // 本文件不覆盖下载/上传按钮场景(见 FilePanelTransfer.test.tsx),固定 false 即可,
+  // 只求不让 wsClient.supportsTransfer() 因 mock 缺方法而抛出。
+  const localClient = {
+    info: { homedir: '/Users/liam' },
+    rpc: vi.fn(async () => ({})),
+    supportsTransfer: vi.fn(() => false),
+  };
+  const remoteClient = {
+    info: { homedir: '/home/pi' },
+    rpc: vi.fn(async () => ({})),
+    supportsTransfer: vi.fn(() => false),
+  };
   return {
     localClient,
     remoteClient,

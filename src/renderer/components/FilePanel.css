@@ -369,3 +369,75 @@
   color: var(--fg);
   border-color: var(--fg-dim);
 }
+
+/* ── 远程文件传输条(阶段3):面板底部,进行中/最近一条终态 ── */
+.file-panel__transfer {
+  flex-shrink: 0;
+  max-height: 88px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding: 3px 6px;
+}
+
+.file-panel__transfer-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  /* 细进度条:背景渐变叠一层,--xfer-pct 由行内 style 注入 */
+  background-image: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--accent, #f49a55) 22%, transparent) var(--xfer-pct, 0%),
+    transparent var(--xfer-pct, 0%)
+  );
+}
+
+.file-panel__transfer-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.file-panel__transfer-batch {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.file-panel__transfer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.file-panel__transfer-pct {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-panel__transfer-cancel {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg-dim);
+  font-size: 10px;
+  padding: 0 5px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.file-panel__transfer-cancel:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--fg-dim);
+}
+
+.file-panel__transfer-cancel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

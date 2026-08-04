@@ -1,17 +1,47 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { hostRegistry } from '../services/hostRegistry';
 import { useAppStore, selectActiveWorkspace, tildify } from '../state/store';
-import type { DirEntry, GitFileStatus } from '../../shared/protocol';
+import { TRANSFER, type DirEntry, type GitFileStatus } from '../../shared/protocol';
 import { t } from '../../shared/i18n';
 import { gitStatusClass, joinPath } from '../filepanel/core';
 import { registerFilePanelLocateHandler } from '../filepanel/locateRegistry';
 import { useFilePanel } from '../filepanel/useFilePanel';
 import { openHtmlPreview } from '../services/openPreview';
 import { isPreviewable, pickPreviewRoot } from '../services/previewUrl';
+import { transferManager, type TransferItem } from '../services/transferManager';
 import { WorktreeDropdown } from './WorktreeDropdown';
 import { PanelHeader } from './PanelHeader';
 import { RenameModal } from './RenameModal';
 import './FilePanel.css';
+
+const EMPTY_TRANSFER_ITEMS: TransferItem[] = [];
+
+/** TRANSFER.maxFileBytes 的人类可读文案(当前 = 2 GiB,按 GB 取整/一位小数展示)。 */
+function formatByteLimit(bytes: number): string {
+  const gb = bytes / (1024 * 1024 * 1024);
+  return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
+}
+
+/** 传输条目的终态提示文案(showHint 消费);非终态返回 null(不弹提示)。 */
+function transferFinalMessage(item: TransferItem): string | null {
+  if (item.state === 'done') {
+    if (item.direction === 'download') {
+      return t('Saved to {path}', { path: item.resultPath ?? item.name });
+    }
+    // 批量上传:只在批次最后一个文件落定时汇总提示一次,不逐文件刷屏。
+    if (!item.count || item.index === item.count) {
+      return t('Uploaded {count} file(s)', { count: item.count ?? 1 });
+    }
+    return null;
+  }
+  if (item.state === 'canceled') return t('Transfer canceled');
+  if (item.state === 'failed') {
+    if (item.error === 'file-changed') return t('File changed during transfer — canceled');
+    if (item.error === 'link-lost') return t('Connection lost during transfer');
+    return t('Transfer failed: {error}', { error: item.error ?? 'unknown' });
+  }
+  return null;
+}
 
 interface TreeNode {
   entry: DirEntry;
@@ -83,6 +113,46 @@ function FolderPlusIcon() {
       <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
       <line x1="8" y1="7.2" x2="8" y2="11" />
       <line x1="6.1" y1="9.1" x2="9.9" y2="9.1" />
+    </svg>
+  );
+}
+
+/** 行级动作:下载图标(下箭头+底托线)11×11 */
+function DownloadIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="8" y1="2" x2="8" y2="9.5" />
+      <polyline points="4.5,6.5 8,10 11.5,6.5" />
+      <line x1="2.5" y1="13" x2="13.5" y2="13" />
+    </svg>
+  );
+}
+
+/** 行级动作:上传图标(上箭头+底托线)11×11 */
+function UploadIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="8" y1="9.5" x2="8" y2="2" />
+      <polyline points="4.5,5.5 8,2 11.5,5.5" />
+      <line x1="2.5" y1="13" x2="13.5" y2="13" />
     </svg>
   );
 }
@@ -292,6 +362,96 @@ export function FilePanel() {
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
     },
     [],
+  );
+
+  // 远程文件传输(阶段3):面板底部传输条订阅 manager 的粗粒度变化通知,读取
+  // list(workspaceId)(纯读 + revision 缓存,同一批渲染内引用稳定,见 transferManager.ts 头注)。
+  const workspaceId = workspace?.id;
+  const transferItems = useSyncExternalStore(
+    transferManager.subscribe,
+    () => (workspaceId ? transferManager.list(workspaceId) : EMPTY_TRANSFER_ITEMS),
+  );
+  // 终态提示走 manager 的 onFinal 回调(而非 diff 两次 list() 快照)——批量上传时每个文件
+  // 落定都会短暂出现在 list() 里,diff 快照会把它们都误判成"新终态"逐个弹提示;onFinal
+  // 由 manager 在条目真正落定的那一刻精确触发一次,这里只管映射文案。
+  useEffect(() => {
+    return transferManager.onFinal((item) => {
+      if (item.workspaceId !== workspaceId) return;
+      const msg = transferFinalMessage(item);
+      if (msg) showHint(msg);
+    });
+  }, [workspaceId, showHint]);
+
+  /** 下载/上传行动作按钮的三态门(未连接 / host 版本过旧 / 该路径已在传输中)。 */
+  const transferGate = useCallback(
+    (direction: 'download' | 'upload', absPath: string): { disabled: boolean; title: string } => {
+      if (!wsClient.info) {
+        return { disabled: true, title: t('Remote machine is not connected') };
+      }
+      if (!wsClient.supportsTransfer()) {
+        return {
+          disabled: true,
+          title: t('Remote host is too old — upgrade the server to transfer files'),
+        };
+      }
+      if (workspace && transferManager.isBusy(workspace.hostId, absPath, direction)) {
+        return { disabled: true, title: t('Transfer already in progress') };
+      }
+      return {
+        disabled: false,
+        title: direction === 'download' ? t('Download to local') : t('Upload to this folder'),
+      };
+    },
+    [wsClient, workspace],
+  );
+
+  const handleDownloadClick = useCallback(
+    (absPath: string, fileName: string) => {
+      if (!workspace) return;
+      const gate = transferGate('download', absPath);
+      if (gate.disabled) {
+        showHint(gate.title);
+        return;
+      }
+      wsClient
+        .rpc('fs.stat', { path: absPath })
+        .then((res) => {
+          if (res.kind !== 'file' || (res.size ?? 0) > TRANSFER.maxFileBytes) {
+            showHint(t('File is too large (limit {limit})', { limit: formatByteLimit(TRANSFER.maxFileBytes) }));
+            return;
+          }
+          void transferManager.download({
+            client: wsClient,
+            workspaceId: workspace.id,
+            hostId: workspace.hostId,
+            path: absPath,
+            name: fileName,
+            size: res.size ?? 0,
+          });
+        })
+        .catch((err: unknown) => {
+          showHint(String((err as Error)?.message ?? err));
+        });
+    },
+    [wsClient, workspace, transferGate, showHint],
+  );
+
+  const handleUploadClick = useCallback(
+    (destDir: string) => {
+      if (!workspace) return;
+      const gate = transferGate('upload', destDir);
+      if (gate.disabled) {
+        showHint(gate.title);
+        return;
+      }
+      void transferManager.upload({
+        client: wsClient,
+        workspaceId: workspace.id,
+        hostId: workspace.hostId,
+        destDir,
+      });
+    },
+    [wsClient, workspace, transferGate, showHint],
   );
 
   // 「新建子目录」弹层:记录父目录路径,保存时经 workspace host 的 fs.mkdir 创建
@@ -789,6 +949,23 @@ export function FilePanel() {
                   <FolderIcon />
                 </button>
               )}
+              {isRemote && isFile && (() => {
+                const gate = transferGate('download', node.absPath);
+                return (
+                  <button
+                    className="file-panel__row-action"
+                    aria-disabled={gate.disabled ? 'true' : undefined}
+                    title={gate.title}
+                    style={gate.disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDownloadClick(node.absPath, node.entry.name);
+                    }}
+                  >
+                    <DownloadIcon />
+                  </button>
+                );
+              })()}
               {isDir && !isErr && (
                 <button
                   className="file-panel__row-action"
@@ -815,10 +992,68 @@ export function FilePanel() {
                   <FolderIcon />
                 </button>
               )}
+              {isDir && !isErr && isRemote && (() => {
+                const gate = transferGate('upload', node.absPath);
+                return (
+                  <button
+                    className="file-panel__row-action"
+                    aria-disabled={gate.disabled ? 'true' : undefined}
+                    title={gate.title}
+                    style={gate.disabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleUploadClick(node.absPath);
+                    }}
+                  >
+                    <UploadIcon />
+                  </button>
+                );
+              })()}
             </div>
           );
         })}
       </div>
+
+      {/* 传输条(阶段3):当前 workspace 的进行中/最近一条终态传输,useSyncExternalStore
+          订阅 transferManager,块级刷新进度;终态文案经 onFinal → showHint 冒泡显示,
+          这里的行只负责进度/取消,终态项由 manager 侧 TTL 定时器自动摘除(见 transferManager.ts)。 */}
+      {transferItems.length > 0 && (
+        <div className="file-panel__transfer">
+          {transferItems.map((it) => {
+            const pct = Math.min(100, Math.round((it.transferred / Math.max(it.total, 1)) * 100));
+            const finished = it.state === 'done' || it.state === 'failed' || it.state === 'canceled';
+            return (
+              <div
+                key={it.id}
+                className="file-panel__transfer-row"
+                style={{ ['--xfer-pct' as string]: `${pct}%` } as React.CSSProperties}
+              >
+                <span className="file-panel__transfer-icon">
+                  {it.direction === 'download' ? <DownloadIcon /> : <UploadIcon />}
+                </span>
+                {it.count && it.count > 1 && (
+                  <span className="file-panel__transfer-batch">
+                    {it.index}/{it.count}
+                  </span>
+                )}
+                <span className="file-panel__transfer-name" title={it.name}>
+                  {it.name}
+                </span>
+                <span className="file-panel__transfer-pct">{pct}%</span>
+                {!finished && (
+                  <button
+                    className="file-panel__transfer-cancel"
+                    disabled={it.state === 'canceling'}
+                    onClick={() => transferManager.cancel(it.id)}
+                  >
+                    {t('Cancel')}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* 新建子目录弹层:Enter 创建,Esc 取消 */}
       {newDirParent && (

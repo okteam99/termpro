@@ -83,6 +83,20 @@ export const zh: Record<string, string> = {
   'Invalid folder name': '目录名不合法',
   'Create folder failed: {error}': '创建目录失败:{error}',
 
+  // --- FilePanel:远程文件传输(阶段3)---
+  'Download to local': '下载到本机',
+  'Upload to this folder': '上传到此目录',
+  'Remote host is too old — upgrade the server to transfer files':
+    '远程服务端版本过旧,升级后可传输文件',
+  'Transfer already in progress': '该项正在传输中',
+  'File is too large (limit {limit})': '文件过大(上限 {limit})',
+  'Saved to {path}': '已保存到 {path}',
+  'Uploaded {count} file(s)': '已上传 {count} 个文件',
+  'Transfer canceled': '传输已取消',
+  'File changed during transfer — canceled': '文件在传输中被修改,已中止',
+  'Connection lost during transfer': '传输中链路断开',
+  'Transfer failed: {error}': '传输失败:{error}',
+
   // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
   'This file is outside the project — cannot start a preview':
     '该文件不在当前项目内,无法启动预览',

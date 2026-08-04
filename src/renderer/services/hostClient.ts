@@ -41,6 +41,11 @@ const RPC_TIMEOUT_MS = 15_000;
  */
 const RPC_TIMEOUT_OVERRIDES_MS: Partial<Record<RpcMethodName, number>> = {
   'session.attach': 60_000,
+  // 远程文件传输(阶段2/3):单块 512KiB~1MiB base64 载荷在窄带/高延迟链路(如洲际 SSH
+  // 隧道)上可能跑不进默认 15s——同一条隧道还复用着其它 RPC/PTY 流量。放宽到 60s,
+  // 与 session.attach 同口径:真死链路由 send 守卫/onclose 立刻拒,不靠超时兜底。
+  'fs.readFileRange': 60_000,
+  'fs.uploadChunk': 60_000,
 };
 
 /** 传输契约:嵌入式 MessagePort 与 standalone WebSocket 两实现。 */
@@ -204,6 +209,14 @@ export class HostClient {
   /** 远端 Host 是否支持受限临时 PNG RPC;旧长期驻留 Host 缺能力位时不得盲发 unknown RPC。 */
   supportsTempPng(): boolean {
     return this.info?.capabilities?.includes('fs.temp-png') ?? false;
+  }
+
+  /**
+   * 远端 Host 是否支持远程文件传输(下载/上传 · fs.readFileRange / fs.uploadBegin·Chunk·End)。
+   * 旧 host 缺该能力位时不得盲发这些 RPC(会撞 unknown rpc method)。
+   */
+  supportsTransfer(): boolean {
+    return this.info?.capabilities?.includes('fs.transfer') ?? false;
   }
 
   /** 订阅 host 进程退出事件,返回退订函数 */
