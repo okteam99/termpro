@@ -50,7 +50,7 @@ function sanitizeSeed(raw: unknown, terminalTabId: string): PaneSeed | null {
     terminalTabId,
     tabName: typeof p.tabName === 'string' ? p.tabName : 'Tab',
     ownerHostId: typeof p.ownerHostId === 'string' ? p.ownerHostId : 'local',
-    workspaceName: typeof p.workspaceName === 'string' ? p.workspaceName : 'Workspace',
+    workspaceName: typeof p.workspaceName === 'string' ? p.workspaceName : 'Project',
     ...(typeof p.browserProfileId === 'string' && p.browserProfileId
       ? { browserProfileId: p.browserProfileId }
       : {}),
@@ -68,7 +68,7 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
   const browserPanelOpen = useAppStore((s) => s.browserPanelOpen);
   // 工作区编辑弹层(头部 profile 徽标点开);ws 名本地跟进改名保存,种子只给初值
   const [editOpen, setEditOpen] = useState(false);
-  const [wsName, setWsName] = useState('Workspace');
+  const [wsName, setWsName] = useState('Project');
   // 当前生效的 profile 绑定:读本窗 store(编辑保存/主窗推送即时反映,快照对账同源)
   const boundProfileId = useAppStore(
     (s) => s.workspaces[0]?.browserProfileId ?? DEFAULT_PROFILE_ID,
@@ -182,7 +182,7 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
           <button
             className="browser-shell__profile"
             onClick={() => setEditOpen(true)}
-            title={t('Workspace browser profile — click to edit the workspace')}
+            title={t('Project browser profile — click to edit the project')}
           >
             <span className="browser-shell__profile-label">{t('Profile')}</span>
             <span className="browser-shell__profile-name">{profileName}</span>

@@ -290,8 +290,8 @@ export function MachineGroup({
         {onAddWorkspace && machine.workspaces !== null && (
           <button
             className="sidebar-machine-add"
-            title={t('Add Workspace')}
-            aria-label={t('Add Workspace')}
+            title={t('Add Project')}
+            aria-label={t('Add Project')}
             onClick={(e) => { e.stopPropagation(); onAddWorkspace(machine.id); }}
           >
             +
@@ -321,7 +321,7 @@ export function MachineGroup({
           )
         ) : (
           <div className="sidebar-machine-empty">
-            {machine.emptyLabel ?? t('Not connected · Connect to see its workspaces')}
+            {machine.emptyLabel ?? t('Not connected · Connect to see its projects')}
           </div>
         ))}
     </div>

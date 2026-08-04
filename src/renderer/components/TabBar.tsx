@@ -249,7 +249,7 @@ export function TabBar() {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={handleMenuAddRoot}
               >
-                {t('New tab (workspace root)')}
+                {t('New tab (project root)')}
               </button>
               <button
                 className="tabbar-dropdown-item"

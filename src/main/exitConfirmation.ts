@@ -55,7 +55,7 @@ export function buildExitConfirmationOptions(
       type: 'warning',
       title: t('Close the main window?'),
       message: t(
-        'Tab content may be lost after closing and reopening. Cancel to keep Workspace, Tab, and Terminal views available.',
+        'Tab content may be lost after closing and reopening. Cancel to keep Project, Tab, and Terminal views available.',
       ),
       buttons: [t('Cancel'), t('Close Window')],
       defaultId: 0,

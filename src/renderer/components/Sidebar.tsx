@@ -426,7 +426,7 @@ export function Sidebar() {
   function confirmRemove(id: string, name: string) {
     if (
       window.confirm(
-        t('Remove workspace "{name}"? Terminal sessions will be closed.', { name }),
+        t('Remove project "{name}"? Terminal sessions will be closed.', { name }),
       )
     ) {
       void removeWorkspace(id);
@@ -602,7 +602,7 @@ export function Sidebar() {
           className="sidebar-add-btn"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onClick={handleAdd}
-          title={t('Add Workspace')}
+          title={t('Add Project')}
         >
           +
         </button>
@@ -646,8 +646,8 @@ export function Sidebar() {
                   <button
                     className="sidebar-machine-add"
                     style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                    title={t('Add Workspace')}
-                    aria-label={t('Add Workspace')}
+                    title={t('Add Project')}
+                    aria-label={t('Add Project')}
                     onClick={(e) => {
                       e.stopPropagation();
                       void handleLocalAdd();
@@ -677,7 +677,7 @@ export function Sidebar() {
                           className="sidebar-edit-btn no-drag"
                           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                           onClick={(e) => openEditModal(e, ws.id)}
-                          title={t('Edit workspace')}
+                          title={t('Edit project')}
                         >
                           <GearIcon />
                         </button>
@@ -687,7 +687,7 @@ export function Sidebar() {
                         className="sidebar-remove-btn"
                         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                         onClick={(e) => handleRemove(e, ws.id, ws.name)}
-                        title={t('Remove workspace')}
+                        title={t('Remove project')}
                       >
                         &times;
                       </button>
@@ -703,9 +703,9 @@ export function Sidebar() {
               </div>
             ) : (
               <div key={machine.id} className="sidebar-empty" data-testid="machine-group" data-machine-id="local">
-                <span className="sidebar-empty-text">{t('No workspaces')}</span>
+                <span className="sidebar-empty-text">{t('No projects')}</span>
                 <button className="sidebar-add-ws-btn" onClick={handleAdd}>
-                  {t('Add Workspace')}
+                  {t('Add Project')}
                 </button>
               </div>
             )

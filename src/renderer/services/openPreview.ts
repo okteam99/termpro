@@ -20,7 +20,7 @@ export async function openHtmlPreview(args: {
   if (!root) {
     return {
       ok: false,
-      message: t('This file is outside the workspace — cannot start a preview'),
+      message: t('This file is outside the project — cannot start a preview'),
     };
   }
 

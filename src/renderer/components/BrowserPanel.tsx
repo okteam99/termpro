@@ -431,7 +431,7 @@ function BrowserNetSelector({
         onClick={() => (open ? setOpen(false) : openMenu())}
         title={
           isPreview
-            ? t("Preview tabs stay on their workspace's machine")
+            ? t("Preview tabs stay on their project's machine")
             : t('Browser network exit: {name}', { name: label })
         }
       >
@@ -670,7 +670,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
       terminalTabId: activeTermTabId,
       tabName: activeTermTab?.customName ?? activeTermTab?.title ?? 'Tab',
       ownerHostId: activeWorkspace?.hostId ?? 'local',
-      workspaceName: activeWorkspace?.name ?? 'Workspace',
+      workspaceName: activeWorkspace?.name ?? 'Project',
       // profile 绑定随种子走:壳窗按同一 profile 分区/UA 挂 webview,弹出不换登录态
       ...(activeWorkspace?.browserProfileId
         ? { browserProfileId: activeWorkspace.browserProfileId }

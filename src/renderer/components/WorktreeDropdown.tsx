@@ -305,7 +305,7 @@ export function WorktreeDropdown({ worktrees, selectedPath, mainPath, disabled, 
                     type="button"
                     className={`wt-dd__copy${copied ? ' wt-dd__copy--done' : ''}`}
                     onClick={(e) => handleCopy(wt.path, e)}
-                    title={copied ? t('Copied path') : t('Copy workspace path')}
+                    title={copied ? t('Copied path') : t('Copy project path')}
                   >
                     {copied ? <CheckIcon /> : <CopyIcon />}
                   </button>

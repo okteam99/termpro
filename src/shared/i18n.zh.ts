@@ -15,11 +15,11 @@ export const zh: Record<string, string> = {
   'Local': '本机',
   'Disconnected · Click to reconnect': '已断开 · 点击重连',
   'Notifications': '通知',
-  'Edit Workspace': '编辑 Workspace',
-  'Edit workspace': '编辑 workspace',
+  'Edit Project': '编辑项目',
+  'Edit project': '编辑项目',
   'Browser profile': '浏览器 Profile',
-  'Profiles have isolated cookies and storage. Switching reloads this workspace’s browser tabs.':
-    'Profile 之间 cookie 与存储相互隔离;切换会重载本工作区的浏览器标签。',
+  'Profiles have isolated cookies and storage. Switching reloads this project’s browser tabs.':
+    'Profile 之间 cookie 与存储相互隔离;切换会重载本项目的浏览器标签。',
 
   // --- MachineGroup ---
   'Connecting…': '连接中…',
@@ -33,7 +33,7 @@ export const zh: Record<string, string> = {
   'Reconnect': '重连',
   'Connect': '连接',
   'Reconnecting…': '重连中…',
-  'Not connected · Connect to see its workspaces': '未连接 · 连接后显示该机上的 workspace',
+  'Not connected · Connect to see its projects': '未连接 · 连接后显示该机上的项目',
   'No projects on this machine yet · Add one': '此机器暂无项目 · 添加一个',
 
   // --- MachineWorkspaceRow ---
@@ -49,7 +49,7 @@ export const zh: Record<string, string> = {
   'No notifications': '暂无通知',
 
   // --- TabBar ---
-  'New tab (workspace root)': '新 Tab（workspace 根）',
+  'New tab (project root)': '新 Tab（项目根）',
   'New tab (choose directory…)': '新 Tab（选择目录…）',
   'Rename Tab': '重命名 Tab',
   'Leave empty to restore default name': '留空恢复默认名',
@@ -70,10 +70,10 @@ export const zh: Record<string, string> = {
 
   // --- WorktreeDropdown ---
   'Copied path': '已复制路径',
-  'Copy workspace path': '复制工作区路径',
+  'Copy project path': '复制项目路径',
 
   // --- FilePanel ---
-  'Local-only action — unavailable in remote workspaces': '本机专属操作,远程 workspace 不可用',
+  'Local-only action — unavailable in remote projects': '本机专属操作,远程项目不可用',
   'Open diff view': '打开 Diff 视图',
   'Show in Finder': '在 Finder 中显示(跳转所在目录)',
   'Open in Finder': '在 Finder 中打开',
@@ -84,8 +84,8 @@ export const zh: Record<string, string> = {
   'Create folder failed: {error}': '创建目录失败:{error}',
 
   // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
-  'This file is outside the workspace — cannot start a preview':
-    '该文件不在当前 workspace 内,无法启动预览',
+  'This file is outside the project — cannot start a preview':
+    '该文件不在当前项目内,无法启动预览',
   "This machine's host is too old for preview — upgrade it": '该机器的 host 版本过旧,升级后可用预览',
   'Failed to start the preview server: {error}': '预览服务器启动失败:{error}',
   'Failed to build the preview URL': '预览地址生成失败',
@@ -96,7 +96,7 @@ export const zh: Record<string, string> = {
   'Remote machine is not connected': '远程机未连接',
   'Connecting to host…': '连接 Host…',
   '⌘T for a new terminal': '⌘T 新建终端',
-  'Add a workspace on the left to get started': '在左侧添加一个 Workspace 开始',
+  'Add a project on the left to get started': '在左侧添加一个项目开始',
 
   // --- RemoteHostsPage ---
   'Untitled': '未命名',
@@ -218,14 +218,14 @@ export const zh: Record<string, string> = {
 
   // --- store ---
   'Remote operations are unavailable in local fallback mode': '远程操作在本地回退模式下不可用',
-  'Failed to create workspace, please retry': '新增 workspace 失败,请重试',
-  'Failed to delete workspace, please retry': '删除 workspace 失败,请重试',
-  'Failed to rename workspace, please retry': '重命名 workspace 失败,请重试',
+  'Failed to create project, please retry': '新增项目失败,请重试',
+  'Failed to delete project, please retry': '删除项目失败,请重试',
+  'Failed to rename project, please retry': '重命名项目失败,请重试',
 
   // --- persistence ---
-  'Failed to read the workspace registry, retrying…': '无法读取 Workspace 注册表,正在重试…',
-  'Workspace migration is not yet complete — continuing with the local archive (will retry automatically)':
-    'Workspace 迁移暂未完成,已继续以本地存档运行(将自动重试)',
+  'Failed to read the project registry, retrying…': '无法读取项目注册表,正在重试…',
+  'Project migration is not yet complete — continuing with the local archive (will retry automatically)':
+    '项目迁移暂未完成,已继续以本地存档运行(将自动重试)',
 
   // --- sessionEvents ---
   '{label} · Command finished': '{label} · 命令完成',
@@ -276,8 +276,8 @@ export const zh: Record<string, string> = {
 
   // --- main/exitConfirmation ---
   'Close the main window?': '关闭主窗口？',
-  'Tab content may be lost after closing and reopening. Cancel to keep Workspace, Tab, and Terminal views available.':
-    '关闭后再打开，Tab 内容可能丢失。取消后 Workspace、Tab 和 Terminal 视图保持可用。',
+  'Tab content may be lost after closing and reopening. Cancel to keep Project, Tab, and Terminal views available.':
+    '关闭后再打开，Tab 内容可能丢失。取消后 Project、Tab 和 Terminal 视图保持可用。',
   'Close Window': '关闭窗口',
   'Quit OkWork?': '退出 OkWork？',
   'Tab content may be lost after quitting and reopening. State still gets a chance to persist before exit.':
@@ -321,8 +321,8 @@ export const zh: Record<string, string> = {
 
   // --- 设置:浏览器 Profile 管理区块(BrowserProfilesSection) ---
   'Browser profiles': '浏览器 Profile',
-  'Each profile has isolated cookies, storage and an optional custom User-Agent. Workspaces choose a profile in their edit dialog.':
-    '每个 profile 拥有独立的 cookie/存储空间,并可自定义 User-Agent。工作区在其编辑弹层里选择使用哪个 profile。',
+  'Each profile has isolated cookies, storage and an optional custom User-Agent. Projects choose a profile in their edit dialog.':
+    '每个 profile 拥有独立的 cookie/存储空间,并可自定义 User-Agent。项目在其编辑弹层里选择使用哪个 profile。',
   'OkWork (built-in)': 'OkWork(内置)',
   'Built-in': '内置',
   'Shared default storage · system User-Agent': '共享默认存储 · 系统 User-Agent',
@@ -351,7 +351,7 @@ export const zh: Record<string, string> = {
   'Dock back': '收回面板',
   'Dock back to the panel': '收回到主窗口面板',
   'Focus the OkBrowser window': '聚焦 OkBrowser 独立窗口',
-  'Workspace browser profile — click to edit the workspace': '当前 Workspace 使用的浏览器 Profile——点击编辑 workspace',
+  'Project browser profile — click to edit the project': '当前 Project 使用的浏览器 Profile——点击编辑项目',
   'Close all browser tabs?': '关闭所有浏览器标签？',
   'This window has {count} browser tabs open. "Close All" closes them all; "Hide" keeps them running and hides the window; "Dock back" returns them to the panel.':
     '该窗口开着 {count} 个浏览器标签。「全部关闭」会关掉所有标签；「隐藏」保留标签运行并隐藏窗口；「收回面板」把它们送回主窗口面板。',
@@ -390,11 +390,10 @@ export const zh: Record<string, string> = {
   'Host': '主机',
   'User': '用户',
   'Port': '端口',
-  'No workspaces': '暂无 Workspace',
-  'Add Workspace': '添加 Workspace',
-  'Remove workspace': '移除 Workspace',
-  'Remove workspace "{name}"? Terminal sessions will be closed.':
-    '移除 Workspace“{name}”？其终端会话将被关闭。',
+  'No projects': '暂无项目',
+  'Remove project': '移除项目',
+  'Remove project "{name}"? Terminal sessions will be closed.':
+    '移除项目“{name}”？其终端会话将被关闭。',
   'New tab': '新 Tab',
   'New tab options': '新 Tab 选项',
   'Close tab': '关闭 Tab',
@@ -439,7 +438,7 @@ export const zh: Record<string, string> = {
   'Local network': '本机网络',
   'No connected remote machines': '无已连接的远程机',
   'Browser network exit: {name}': '浏览器网络出口:{name}',
-  "Preview tabs stay on their workspace's machine": '预览标签固定使用所属机器的网络出口',
+  "Preview tabs stay on their project's machine": '预览标签固定使用所属机器的网络出口',
   // OkWork 技能横条(okwork skill)
   'Install the okwork skill to let the AI operate the built-in browser':
     '安装 okwork 技能,让 AI 能操作内置浏览器',

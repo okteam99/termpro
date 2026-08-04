@@ -277,7 +277,7 @@ export default function App() {
             <div className="placeholder">{t('⌘T for a new terminal')}</div>
           )}
           {!activeWs && (
-            <div className="placeholder">{t('Add a workspace on the left to get started')}</div>
+            <div className="placeholder">{t('Add a project on the left to get started')}</div>
           )}
         </div>
       </div>

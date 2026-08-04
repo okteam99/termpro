@@ -5,7 +5,7 @@
 // workspace.hostId 直连远程 host(mode:'file'/'diff' 均带 hostId 字段),不再 aria-disabled、
 // 不再弹提示。仍然禁用的只剩「本机 OS 动作」两入口——Finder 中显示(文件行)、Finder 中
 // 打开(目录行)——一律确定性禁用(aria-disabled + 1.8s 行内提示,词条
-// 「Local-only action — unavailable in remote workspaces」)。用 aria-disabled 而非
+// 「Local-only action — unavailable in remote projects」)。用 aria-disabled 而非
 // 原生 disabled:原生 disabled 的按钮不派发 click,会让「点击必须有确定性反馈」静默失效。
 // 这两个(showItemInFolder/openPath)是本机 OS 动作:远程 ws 的路径是该机上的路径,交给
 // 本机执行会静默作用于本机同名但无关的文件——必须禁用(review A1/E2)。
@@ -119,7 +119,7 @@ function mockOkwork() {
   });
 }
 
-const LOCAL_ONLY_HINT = 'Local-only action — unavailable in remote workspaces';
+const LOCAL_ONLY_HINT = 'Local-only action — unavailable in remote projects';
 
 beforeEach(() => {
   mockOkwork();

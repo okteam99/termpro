@@ -96,9 +96,9 @@ describe('MachineGroup · 已连接展开(AC-2)', () => {
         onRemoveWorkspace={onRemoveWorkspace}
       />,
     );
-    fireEvent.click(screen.getByTitle('Edit workspace'));
+    fireEvent.click(screen.getByTitle('Edit project'));
     expect(onRenameWorkspace).toHaveBeenCalledWith(machine, machine.workspaces?.[0]);
-    fireEvent.click(screen.getByTitle('Remove workspace'));
+    fireEvent.click(screen.getByTitle('Remove project'));
     expect(onRemoveWorkspace).toHaveBeenCalledWith(machine, machine.workspaces?.[0]);
     expect(onSelectWorkspace).not.toHaveBeenCalled();
   });
@@ -325,7 +325,7 @@ describe('MachineGroup · 展开/折叠(用户需求 2026-07-13)', () => {
       />,
     );
     expect(
-      screen.queryByText('Not connected · Connect to see its workspaces'),
+      screen.queryByText('Not connected · Connect to see its projects'),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
     expect(onConnect).toHaveBeenCalledWith('cfg-1');
@@ -344,7 +344,7 @@ describe('MachineGroup · 组头 + 添加项目入口(用户需求 2026-08-03,�
         onToggleCollapse={onToggle}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Add Workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Project' }));
     expect(onAddWorkspace).toHaveBeenCalledWith('cfg-1');
     expect(onToggle).not.toHaveBeenCalled();
   });
@@ -352,7 +352,7 @@ describe('MachineGroup · 组头 + 添加项目入口(用户需求 2026-08-03,�
   it('未连接(workspaces=null)不渲染 + 钮;齿轮设置入口已移除', () => {
     render(<MachineGroup machine={remoteMachine()} onAddWorkspace={() => {}} />);
     expect(
-      screen.queryByRole('button', { name: 'Add Workspace' }),
+      screen.queryByRole('button', { name: 'Add Project' }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Configure remote host' }),
@@ -362,7 +362,7 @@ describe('MachineGroup · 组头 + 添加项目入口(用户需求 2026-08-03,�
   it('缺省不传 onAddWorkspace 不渲染 + 钮(零回归)', () => {
     render(<MachineGroup machine={remoteMachine({ status: 'connected', workspaces: [] })} />);
     expect(
-      screen.queryByRole('button', { name: 'Add Workspace' }),
+      screen.queryByRole('button', { name: 'Add Project' }),
     ).not.toBeInTheDocument();
   });
 });

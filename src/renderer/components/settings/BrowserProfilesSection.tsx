@@ -91,7 +91,7 @@ export function BrowserProfilesSection() {
       <div className="browser-profiles__title">{t('Browser profiles')}</div>
       <div className="browser-profiles__desc">
         {t(
-          'Each profile has isolated cookies, storage and an optional custom User-Agent. Workspaces choose a profile in their edit dialog.',
+          'Each profile has isolated cookies, storage and an optional custom User-Agent. Projects choose a profile in their edit dialog.',
         )}
       </div>
 

@@ -74,7 +74,7 @@ export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEdit
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <div className="workspace-edit-modal__title">{t('Edit Workspace')}</div>
+        <div className="workspace-edit-modal__title">{t('Edit Project')}</div>
 
         <div className="workspace-edit-modal__field">
           <label className="workspace-edit-modal__label" htmlFor="workspace-edit-modal-name">
@@ -109,7 +109,7 @@ export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEdit
           </select>
           <span className="workspace-edit-modal__hint">
             {t(
-              'Profiles have isolated cookies and storage. Switching reloads this workspace’s browser tabs.',
+              'Profiles have isolated cookies and storage. Switching reloads this project’s browser tabs.',
             )}
           </span>
         </div>

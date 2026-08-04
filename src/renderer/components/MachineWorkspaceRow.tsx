@@ -162,7 +162,7 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: Machine
               e.stopPropagation();
               onRename();
             }}
-            title={t('Edit workspace')}
+            title={t('Edit project')}
           >
             <GearIcon />
           </button>
@@ -178,7 +178,7 @@ export function MachineWorkspaceRow({ ws, onClick, onRemove, onRename }: Machine
             e.stopPropagation();
             onRemove();
           }}
-          title={t('Remove workspace')}
+          title={t('Remove project')}
         >
           &times;
         </button>

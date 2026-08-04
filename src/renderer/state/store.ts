@@ -860,7 +860,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (err) {
       console.warn('[renderer] workspace create failed:', err);
-      set({ creatingWorkspace: false, transientNotice: t('Failed to create workspace, please retry') });
+      set({ creatingWorkspace: false, transientNotice: t('Failed to create project, please retry') });
     }
   },
 
@@ -920,7 +920,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.warn('[renderer] workspace remove failed:', err);
       set((s) => ({
         pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
-        transientNotice: t('Failed to delete workspace, please retry'),
+        transientNotice: t('Failed to delete project, please retry'),
       }));
     }
   },
@@ -957,7 +957,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.warn('[renderer] workspace rename failed:', err);
       set((s) => ({
         pendingWorkspaceIds: s.pendingWorkspaceIds.filter((x) => x !== id),
-        transientNotice: t('Failed to rename workspace, please retry'),
+        transientNotice: t('Failed to rename project, please retry'),
       }));
     }
   },

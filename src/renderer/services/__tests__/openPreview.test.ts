@@ -32,7 +32,7 @@ describe('openHtmlPreview', () => {
     const res = await openHtmlPreview({ ...BASE_ARGS, filePath: '/elsewhere/index.html' });
     expect(res).toEqual({
       ok: false,
-      message: 'This file is outside the workspace — cannot start a preview',
+      message: 'This file is outside the project — cannot start a preview',
     });
     expect(forHostId).not.toHaveBeenCalled();
   });

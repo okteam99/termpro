@@ -157,7 +157,7 @@ export function FilePanel() {
   // render 期取词(P2:模块级 t() 常量会被冻结在导入期语言,切换/持久化偏好均不生效)。
   // UNREADABLE_LABEL 兼作错误行哨兵:合成(flattenTree)与判定(isErr)同一 render 内
   // 取同一值,rows 无 memo,语言切换后两端一致。
-  const LOCAL_ONLY_HINT_TEXT = t('Local-only action — unavailable in remote workspaces');
+  const LOCAL_ONLY_HINT_TEXT = t('Local-only action — unavailable in remote projects');
   const UNREADABLE_LABEL = t('(unreadable)');
 
   // Root mode: draft path for the text input (mirrors effective root, reset on tab/root change)

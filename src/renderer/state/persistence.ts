@@ -62,7 +62,7 @@ async function hydrateFromHost(): Promise<void> {
   if (outcome.mode === 'v2' && registry === null) {
     useAppStore
       .getState()
-      .setTransientNotice(t('Failed to read the workspace registry, retrying…'));
+      .setTransientNotice(t('Failed to read the project registry, retrying…'));
     scheduleRegistryRetry();
     return;
   }
@@ -124,7 +124,7 @@ function finishHydrate(registry: WorkspaceEntry[], outcome: MigrationOutcome): v
     .setTransientNotice(
       outcome.prompt
         ? t(
-            'Workspace migration is not yet complete — continuing with the local archive (will retry automatically)',
+            'Project migration is not yet complete — continuing with the local archive (will retry automatically)',
           )
         : null,
     );
