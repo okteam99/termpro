@@ -171,6 +171,45 @@ declare global {
         /** 订阅列表变更(增/删/改),返回退订函数 */
         onChanged(callback: (profiles: BrowserProfile[]) => void): () => void;
       };
+      /**
+       * 远程文件传输 阶段2:本机盘票据通道。
+       * 🔴 安全红线(与 main/localTransfer.ts、preload.ts 同一条,三处一致维护):
+       * 本机盘读写的路径永不来自 renderer —— 写落点只能由 beginSave 弹出的系统
+       * 保存对话框产生,读来源只能由 beginOpen 弹出的系统打开对话框产生;
+       * renderer 全程只持有不透明 ticket,无法用它换回或指定任意本机绝对路径。
+       * 绝不新增「renderer 传本机绝对路径 → main 读写」形态的方法。
+       */
+      transfer: {
+        /** 弹保存对话框;取消 → null,否则拿到写票 */
+        beginSave(payload: {
+          suggestedName?: string;
+          size?: number;
+        }): Promise<{ ticket: string; name: string } | null>;
+        /** 弹打开对话框(可多选);取消/空选 → [],否则每个选中文件各一张读票 */
+        beginOpen(): Promise<
+          Array<{ ticket: string; name: string; size: number; path: string }>
+        >;
+        /** 写入一个分块(乱序按 offset 各自落位,不要求顺序到达) */
+        write(payload: {
+          ticket: string;
+          offset: number;
+          base64: string;
+        }): Promise<{ written: number }>;
+        /** 读取一个分块;size/mtimeMs 取自本次读取同一 fstat(TOCTOU 强一致) */
+        read(payload: {
+          ticket: string;
+          offset: number;
+          length: number;
+        }): Promise<{
+          base64: string;
+          bytes: number;
+          eof: boolean;
+          size: number;
+          mtimeMs: number;
+        }>;
+        /** 结束传输:写票 commit=true 落地(覆盖式)/false 放弃;读票忽略 commit,只释放 fd */
+        finish(payload: { ticket: string; commit: boolean }): Promise<{ path: string | null }>;
+      };
     };
   }
 }

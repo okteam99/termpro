@@ -58,6 +58,7 @@ import {
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 import { encodeClipboardImage } from './clipboardImage';
 import { migrateLegacyUserData } from './userDataMigration';
+import { LocalTransferRegistry, sanitizeSuggestedName } from './localTransfer';
 
 if (started) {
   app.quit();
@@ -932,6 +933,71 @@ ipcMain.handle('dialog:pick-directory', async (event) => {
   return res.canceled ? null : res.filePaths[0];
 });
 
+// ---- 远程文件传输 阶段2:本机盘票据通道 ----------------------------------
+// 🔴 安全红线(同 localTransfer.ts 顶部 + preload transfer 命名空间注释,三处
+// 一致维护):写落点只能由本区 showSaveDialog 产生,读来源只能由本区
+// showOpenDialog 产生;renderer 只持不透明 ticket,永不把本机绝对路径传进来。
+const localTransfers = new LocalTransferRegistry();
+// 闲置票据兜底清扫(renderer 崩溃/未走正常 finish 路径时不留孤儿 fd/.part 文件);
+// unref 不阻止 app 退出。
+setInterval(() => void localTransfers.sweepIdle(), 5 * 60_000).unref();
+
+ipcMain.handle(
+  'transfer:begin-save',
+  async (event, payload: { suggestedName?: unknown; size?: unknown }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return null;
+    const res = await dialog.showSaveDialog(win, {
+      defaultPath: sanitizeSuggestedName(payload?.suggestedName),
+    });
+    if (res.canceled || !res.filePath) return null;
+    return localTransfers.createWrite(res.filePath, event.sender.id);
+  },
+);
+
+ipcMain.handle('transfer:begin-open', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return [];
+  const res = await dialog.showOpenDialog(win, {
+    properties: ['openFile', 'multiSelections'],
+  });
+  if (res.canceled || res.filePaths.length === 0) return [];
+  const tickets = [];
+  for (const filePath of res.filePaths) {
+    tickets.push(await localTransfers.createRead(filePath, event.sender.id));
+  }
+  return tickets;
+});
+
+ipcMain.handle(
+  'transfer:write',
+  (event, payload: { ticket?: unknown; offset?: unknown; base64?: unknown }) => {
+    const ticket = typeof payload?.ticket === 'string' ? payload.ticket : '';
+    const offset = Number(payload?.offset);
+    const base64 = typeof payload?.base64 === 'string' ? payload.base64 : '';
+    return localTransfers.write(event.sender.id, ticket, offset, base64);
+  },
+);
+
+ipcMain.handle(
+  'transfer:read',
+  (event, payload: { ticket?: unknown; offset?: unknown; length?: unknown }) => {
+    const ticket = typeof payload?.ticket === 'string' ? payload.ticket : '';
+    const offset = Number(payload?.offset);
+    const length = Number(payload?.length);
+    return localTransfers.read(event.sender.id, ticket, offset, length);
+  },
+);
+
+ipcMain.handle(
+  'transfer:finish',
+  (event, payload: { ticket?: unknown; commit?: unknown }) => {
+    const ticket = typeof payload?.ticket === 'string' ? payload.ticket : '';
+    const commit = payload?.commit === true;
+    return localTransfers.finish(event.sender.id, ticket, commit);
+  },
+);
+
 // ---- 冒烟模式:OKWORK_SMOKE=1 时,渲染层完成 Host 握手即退出(CI 可用)----
 
 if (process.env.OKWORK_SMOKE) {
@@ -1021,6 +1087,12 @@ function openFileWindow(
   fileWin.on('closed', () => {
     if (fileWins.get(hostId) === fileWin) fileWins.delete(hostId);
   });
+  // 本机盘传输票据清理(安全红线兜底,同 createWindow 口径):查看器窗口没了,
+  // 该 sender 名下在途票据一并清。id 挂钩子前捕获(destroyed 后 webContents 已销毁)。
+  const fileWinSenderId = fileWin.webContents.id;
+  fileWin.webContents.once('destroyed', () => {
+    void localTransfers.abortBySender(fileWinSenderId);
+  });
   loadViewer(fileWin, {
     mode: 'files',
     initialPath: filePath,
@@ -1064,6 +1136,11 @@ function openDiffWindow(payload: unknown): void {
   diffWin.on('closed', () => {
     diffWin = null;
     diffWinHostId = null;
+  });
+  // 本机盘传输票据清理(安全红线兜底,同 createWindow/openFileWindow 口径)
+  const diffWinSenderId = diffWin.webContents.id;
+  diffWin.webContents.once('destroyed', () => {
+    void localTransfers.abortBySender(diffWinSenderId);
   });
   loadViewer(diffWin, payload);
 }
@@ -1396,6 +1473,15 @@ const createWindow = () => {
   });
   mainWindow.on('closed', () => {
     if (mainWin === mainWindow) mainWin = null;
+  });
+  // 本机盘传输票据清理(安全红线兜底):窗口(webContents)没了,该 sender 名下
+  // 在途票据(fd + .part 临时文件)必须跟着清,不留孤儿——同 heldSenders 的
+  // 'destroyed' 钩子口径,但这里独立挂(各自只关心自己的清理对象)。
+  // 🔴 id 必须在挂钩子前捕获(同 ensureHoldRelease 的 key 惯例):destroyed 触发后
+  // webContents 已销毁,回调里再读 .id 属性会抛 "Object has been destroyed"。
+  const mainSenderId = mainWindow.webContents.id;
+  mainWindow.webContents.once('destroyed', () => {
+    void localTransfers.abortBySender(mainSenderId);
   });
 };
 

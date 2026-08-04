@@ -381,6 +381,48 @@ contextBridge.exposeInMainWorld('okwork', {
       };
     },
   },
+  // 远程文件传输 阶段2:本机盘票据通道。
+  // 🔴 安全红线(与 main/localTransfer.ts 顶部注释同一条,三处一致维护):本机盘
+  // 读写的路径永不来自 renderer —— 写落点只能由 beginSave 弹出的系统保存对话框
+  // 产生,读来源只能由 beginOpen 弹出的系统打开对话框产生;renderer 全程只持有
+  // 不透明的 ticket 字符串,write/read/finish 一律凭 ticket 操作,无法用它换回或
+  // 指定任意本机绝对路径。绝不新增「renderer 传本机绝对路径 → main 读写」形态
+  // 的方法。
+  transfer: {
+    /** 弹保存对话框(defaultPath = 净化后的建议文件名);取消 → null,否则拿到
+     *  写票(ticket 不透明,后续 write/finish 都凭它)。 */
+    beginSave(payload: {
+      suggestedName?: string;
+      size?: number;
+    }): Promise<{ ticket: string; name: string } | null> {
+      return ipcRenderer.invoke('transfer:begin-save', payload);
+    },
+    /** 弹打开对话框(可多选);取消/空选 → [],否则每个选中文件各一张读票。 */
+    beginOpen(): Promise<Array<{ ticket: string; name: string; size: number; path: string }>> {
+      return ipcRenderer.invoke('transfer:begin-open');
+    },
+    /** 写入一个分块(乱序按 offset 各自落位,不要求顺序到达)。 */
+    write(payload: {
+      ticket: string;
+      offset: number;
+      base64: string;
+    }): Promise<{ written: number }> {
+      return ipcRenderer.invoke('transfer:write', payload);
+    },
+    /** 读取一个分块;size/mtimeMs 取自本次读取同一 fstat(TOCTOU 强一致)。 */
+    read(payload: {
+      ticket: string;
+      offset: number;
+      length: number;
+    }): Promise<{ base64: string; bytes: number; eof: boolean; size: number; mtimeMs: number }> {
+      return ipcRenderer.invoke('transfer:read', payload);
+    },
+    /** 结束传输:写票 commit=true 落地(覆盖式,保存对话框已问过)/false 放弃;
+     *  读票忽略 commit,只释放 fd。 */
+    finish(payload: { ticket: string; commit: boolean }): Promise<{ path: string | null }> {
+      return ipcRenderer.invoke('transfer:finish', payload);
+    },
+  },
 });
 
 // 把 main 转交的 MessagePort 透传给主世界(Electron 官方模式:
