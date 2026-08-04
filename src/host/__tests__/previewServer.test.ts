@@ -424,7 +424,238 @@ describe('root 删除后自清理', () => {
   });
 });
 
-// ---- 13. 纯函数表驱动 ------------------------------------------------------
+// ---- 13. dotfile 拒绝(P1-3)------------------------------------------------
+
+describe('dotfile 拒绝', () => {
+  it('.env / .git/config / 嵌套 .hidden/x → 404', async () => {
+    const reg = mkRegistry();
+    fs.writeFileSync(path.join(tmp, '.env'), 'SECRET=1');
+    fs.mkdirSync(path.join(tmp, '.git'));
+    fs.writeFileSync(path.join(tmp, '.git', 'config'), '[core]');
+    fs.mkdirSync(path.join(tmp, 'a', '.hidden'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'a', '.hidden', 'x'), 'nope');
+    const info = await reg.ensure(tmp);
+
+    const env = await request(info.port, `/${info.token}/.env`);
+    expect(env.status).toBe(404);
+    expect(env.body.length).toBe(0);
+
+    const gitConfig = await request(info.port, `/${info.token}/.git/config`);
+    expect(gitConfig.status).toBe(404);
+
+    const nested = await request(info.port, `/${info.token}/a/.hidden/x`);
+    expect(nested.status).toBe(404);
+  });
+
+  it('Referer 回退路径解析的段同样拒绝 dotfile(根绝对引用命中 .env / 嵌套 .hidden)', async () => {
+    const reg = mkRegistry();
+    fs.writeFileSync(path.join(tmp, '.env'), 'SECRET=1');
+    fs.mkdirSync(path.join(tmp, 'a', '.hidden'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'a', '.hidden', 'x'), 'nope');
+    fs.writeFileSync(path.join(tmp, 'index.html'), '<h1>hi</h1>');
+    const info = await reg.ensure(tmp);
+    const selfOrigin = `http://127.0.0.1:${info.port}`;
+    const referer = { headers: { Referer: `${selfOrigin}/${info.token}/index.html` } };
+
+    const env = await request(info.port, '/.env', referer);
+    expect(env.status).toBe(404);
+
+    const nested = await request(info.port, '/a/.hidden/x', referer);
+    expect(nested.status).toBe(404);
+  });
+});
+
+// ---- 14. fd 一致性:Content-Length 与响应体恒自洽 / 原子替换后仍读旧内容(P1-4) --
+
+describe('fd 一致性(open→fstat→stream 共享同一 fh)', () => {
+  it('Content-Length 与响应体长度恒一致:请求进行中原子替换为不同长度内容', async () => {
+    const reg = mkRegistry();
+    const target = path.join(tmp, 'a.txt');
+    fs.writeFileSync(target, 'short');
+    const info = await reg.ensure(tmp);
+
+    // 不追求精确命中 resolveTarget 内部 open() 前/后的窗口——无论命中哪一侧,
+    // Content-Length(来自 fh.stat())与实际响应体字节(来自同一 fh 的读流)必须
+    // 自洽,因为两者恒源自同一次 open()。这正是 P1-4 修复前会漂移的地方(旧实现
+    // 用 resolveTarget 里独立的 stat() 定 Content-Length,serveFile 里再按路径
+    // 重新 open() 一次读内容,两次 open 可能落在不同 inode 上)。
+    const reqPromise = request(info.port, `/${info.token}/a.txt`);
+    const tmpFile = target + '.tmp';
+    fs.writeFileSync(tmpFile, 'x'.repeat(10_000));
+    fs.renameSync(tmpFile, target);
+    const res = await reqPromise;
+
+    expect(res.status).toBe(200);
+    expect(Number(res.headers['content-length'])).toBe(res.body.length);
+  });
+
+  it('open 期间原子替换文件:响应体仍是 open 时刻的旧内容(POSIX fd 语义,非计时竞态)', async () => {
+    const reg = mkRegistry();
+    const target = path.join(tmp, 'big.txt');
+    const oldContent = 'A'.repeat(2_000_000); // 大到不会在一个 tick 内读完发完
+    const newContent = 'B'.repeat(500_000); // 长度不同,便于区分新旧内容
+    fs.writeFileSync(target, oldContent);
+    const info = await reg.ensure(tmp);
+
+    const received = await new Promise<{ status: number; contentLength: number; body: string }>(
+      (resolve, reject) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port: info.port,
+            path: `/${info.token}/big.txt`,
+            method: 'GET',
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            let replaced = false;
+            res.on('data', (c: Buffer) => {
+              chunks.push(c);
+              if (!replaced) {
+                replaced = true;
+                res.pause();
+                // rename 只换目录项,不影响已打开的 fd:已 open 的读流继续指向旧 inode。
+                const tmpFile = target + '.tmp';
+                fs.writeFileSync(tmpFile, newContent);
+                fs.renameSync(tmpFile, target);
+                setTimeout(() => res.resume(), 30);
+              }
+            });
+            res.on('end', () =>
+              resolve({
+                status: res.statusCode ?? 0,
+                contentLength: Number(res.headers['content-length']),
+                body: Buffer.concat(chunks).toString('utf8'),
+              }),
+            );
+            res.on('error', reject);
+          },
+        );
+        req.on('error', reject);
+        req.end();
+      },
+    );
+
+    expect(received.status).toBe(200);
+    expect(received.contentLength).toBe(oldContent.length);
+    expect(received.body.length).toBe(oldContent.length);
+    expect(received.body).toBe(oldContent);
+  });
+});
+
+// ---- 15. 客户端中断:fd 不泄漏,server 保持健康(P2-1)------------------------
+
+describe('客户端中断销毁流', () => {
+  it('反复请求后立即销毁 socket;server 后续请求仍正常服务、无未处理异常', async () => {
+    const reg = mkRegistry();
+    const target = path.join(tmp, 'big.txt');
+    fs.writeFileSync(target, 'x'.repeat(2_000_000));
+    const info = await reg.ensure(tmp);
+
+    for (let i = 0; i < 20; i++) {
+      await new Promise<void>((resolve) => {
+        const req = http.request(
+          { host: '127.0.0.1', port: info.port, path: `/${info.token}/big.txt`, method: 'GET' },
+          (res) => {
+            res.destroy();
+          },
+        );
+        req.on('error', () => {
+          /* 主动销毁触发的 ECONNRESET 等:预期内,忽略 */
+        });
+        req.end();
+        setTimeout(() => {
+          req.destroy();
+          resolve();
+        }, 5);
+      });
+    }
+
+    // server 未死、状态健康:仍能完整服务一次普通请求(证明没有因未处理异常挂掉,
+    // 也没有因 fd 累积而耗尽资源)。
+    const finalRes = await request(info.port, `/${info.token}/big.txt`);
+    expect(finalRes.status).toBe(200);
+    expect(finalRes.body.length).toBe(2_000_000);
+  });
+});
+
+// ---- 16. stopAll 与 in-flight ensure 竞态(P2-2)-----------------------------
+
+describe('stopAll / stop 与 in-flight ensure 竞态', () => {
+  it('ensure 未决时 stopAll:落地后端口不可连、list() 空', async () => {
+    const reg = mkRegistry();
+    const ensurePromise = reg.ensure(tmp); // 故意不 await:server 还在起(listen 是异步的)
+    await reg.stopAll(); // 此时 servers 表还是空的,Promise.all 立刻 resolve
+    const info = await ensurePromise; // 现在才真正落地
+
+    expect(reg.list().length).toBe(0);
+    await expect(request(info.port, `/${info.token}/`)).rejects.toThrow();
+  });
+
+  it('ensure 未决时对同一 root 调用 stop:落地后端口不可连、list() 空', async () => {
+    const reg = mkRegistry();
+    const ensurePromise = reg.ensure(tmp);
+    const stopped = await reg.stop(tmp);
+    expect(stopped).toBe(true); // 意图必定生效,即便此刻 server 还没起来
+    const info = await ensurePromise;
+
+    expect(reg.list().length).toBe(0);
+    await expect(request(info.port, `/${info.token}/`)).rejects.toThrow();
+  });
+});
+
+// ---- 17. LRU lastUsedAt 请求级刷新(P2-3)-----------------------------------
+
+describe('LRU lastUsedAt 请求级刷新', () => {
+  it('活跃 root(持续被请求,不再调用 ensure)不被更晚 ensure 的冷 root 挤掉', async () => {
+    const reg = mkRegistry({ maxServers: 2 });
+    const rootB = fs.mkdtempSync(path.join(os.tmpdir(), 'tp-preview-b-'));
+    const rootC = fs.mkdtempSync(path.join(os.tmpdir(), 'tp-preview-c-'));
+    try {
+      fs.writeFileSync(path.join(tmp, 'a.txt'), 'hi');
+      const infoA = await reg.ensure(tmp); // A 最早 ensure
+      await delay(5);
+      const infoB = await reg.ensure(rootB); // B 其次
+      await delay(5);
+
+      // A 在两次 ensure 之间持续被“访问”(请求驱动刷新 lastUsedAt),
+      // 此时 A 应变成三者里最新,而不是仍按“最早 ensure”排最旧。
+      await request(infoA.port, `/${infoA.token}/a.txt`);
+      await delay(5);
+
+      await reg.ensure(rootC); // 第三个 root:触发淘汰,应淘汰 B(不是 A)
+
+      const list = reg.list();
+      expect(list.length).toBe(2);
+      expect(list.some((i) => i.root === infoA.root)).toBe(true);
+      expect(list.some((i) => i.root === infoB.root)).toBe(false);
+    } finally {
+      fs.rmSync(rootB, { recursive: true, force: true });
+      fs.rmSync(rootC, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---- 18. localhost selfOrigin(P2-11)----------------------------------------
+
+describe('selfOrigin 用请求 Host 头构造', () => {
+  it('经 Host: localhost:<port> 加载 + Referer http://localhost:<port>/<token>/x.html 的根绝对引用 → 200', async () => {
+    const reg = mkRegistry();
+    fs.writeFileSync(path.join(tmp, 'a.css'), 'x{}');
+    const info = await reg.ensure(tmp);
+
+    const res = await request(info.port, '/a.css', {
+      headers: {
+        Host: `localhost:${info.port}`,
+        Referer: `http://localhost:${info.port}/${info.token}/x.html`,
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.toString('utf8')).toBe('x{}');
+  });
+});
+
+// ---- 19. 纯函数表驱动 ------------------------------------------------------
 
 describe('parsePreviewUrlPath(表驱动)', () => {
   it.each([
@@ -445,6 +676,11 @@ describe('parsePreviewUrlPath(表驱动)', () => {
       '/%e4%bd%a0%e5%a5%bd/a.html',
       { ok: true, token: '你好', segments: ['a.html'] },
     ],
+    ['/T/.env', { ok: false, reason: 'dotfile' }],
+    ['/T/.git/config', { ok: false, reason: 'dotfile' }],
+    ['/T/a/.hidden/x', { ok: false, reason: 'dotfile' }],
+    ['/T/.well-known/x', { ok: false, reason: 'dotfile' }], // 误拒也接受,见函数注释
+    ['/.env/a', { ok: false, reason: 'dotfile' }], // token 段本身以 '.' 开头同样拒绝
   ])('parsePreviewUrlPath(%j) -> %j', (input, expected) => {
     expect(parsePreviewUrlPath(input)).toEqual(expected);
   });
