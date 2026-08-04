@@ -559,6 +559,11 @@ export function FilePanel() {
             e.currentTarget.classList.remove('file-panel__tree--drop-target');
           }
         }}
+        // 拖拽取消(Esc/落到窗外)时 dragleave 可能不来,源在树内时 dragend 冒泡到此,
+        // 兜底清落点高亮,防止残留成常驻样式
+        onDragEnd={(e) => {
+          e.currentTarget.classList.remove('file-panel__tree--drop-target');
+        }}
         onDrop={
           effectiveRoot
             ? (e) => {
