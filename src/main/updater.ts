@@ -1,4 +1,6 @@
 // 更新检查与升级:轮询 GitHub latest release(公开仓库免认证),
+// API 被限流(共享出口 IP 未认证配额 60 次/时)时回退
+// update.electronjs.org feed 检测,避免限流期间胶囊完全失明。
 // 有新版广播给渲染层(侧栏左下角胶囊);用户点击后升级。
 // Squirrel.Mac 自身无下载进度事件,所以下载由我们自己做:
 //   1. 从 update.electronjs.org feed 拿 zip 直链,流式下载到临时目录,
@@ -27,6 +29,12 @@ import {
   resetUpdateInstallSession,
   setUpdateInstalling,
 } from './updateInstallSession';
+import {
+  isNewer,
+  parseLatestRelease,
+  parseUpdateFeed,
+  type LatestRelease,
+} from './updateCheck';
 
 // 品牌改名(TermPro → OkWork)后仓库路径未动:GitHub 仓库仍叫 termpro。
 // 若日后重命名仓库,GitHub 会 301 重定向旧路径,此常量可继续工作;
@@ -82,60 +90,56 @@ function broadcast(payload: UpdateEvent): void {
   }
 }
 
-function isNewer(remote: string, local: string): boolean {
-  const r = remote.split('.').map((n) => Number.parseInt(n, 10) || 0);
-  const l = local.split('.').map((n) => Number.parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) {
-    if ((r[i] ?? 0) !== (l[i] ?? 0)) return (r[i] ?? 0) > (l[i] ?? 0);
-  }
-  return false;
+/** 首选通道:GitHub releases API(信息全,但未认证配额按出口 IP 计) */
+async function checkViaApi(): Promise<LatestRelease | null> {
+  const res = await fetch(
+    `https://api.github.com/repos/${REPO}/releases/latest`,
+    {
+      headers: { accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+    },
+  );
+  // 非 2xx(403 限流/5xx)抛错触发 feed 兜底
+  if (!res.ok) throw new Error(`api: HTTP ${res.status}`);
+  return parseLatestRelease(await res.json(), process.arch);
 }
 
-/** 从 release assets 挑出本平台/架构的 Squirrel zip 直链
- *  (maker-zip 命名:<App>-darwin-<arch>-<version>.zip)。拿到就不必再
- *  依赖 update.electronjs.org——那个第三方 feed 有索引延迟,新版发布后
- *  会短暂返回 204,正是「胶囊已显示却升级失败」的根因。 */
-function pickDarwinZip(
-  assets?: Array<{ name?: string; browser_download_url?: string }>,
-): string | undefined {
-  return (assets ?? []).find(
-    (a) =>
-      !!a.browser_download_url &&
-      !!a.name &&
-      a.name.endsWith('.zip') &&
-      a.name.includes('darwin') &&
-      a.name.includes(process.arch),
-  )?.browser_download_url;
+/** 兜底通道:update.electronjs.org feed,不受 GitHub API 限流;
+ *  URL 自带当前版本,204 = 已是最新,200 = 有新版(name/url 即版本与直链) */
+async function checkViaFeed(): Promise<LatestRelease | null> {
+  const res = await fetch(
+    `https://update.electronjs.org/${REPO}/darwin-${process.arch}/${app.getVersion()}`,
+    {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+    },
+  );
+  if (res.status === 204) return null;
+  if (!res.ok) throw new Error(`feed: HTTP ${res.status}`);
+  return parseUpdateFeed(await res.json());
 }
 
 async function check(): Promise<void> {
   lastCheckTs = Date.now();
   try {
-    const res = await fetch(
-      `https://api.github.com/repos/${REPO}/releases/latest`,
-      { headers: { accept: 'application/vnd.github+json' } },
-    );
-    if (!res.ok) return;
-    const json = (await res.json()) as {
-      tag_name?: string;
-      html_url?: string;
-      prerelease?: boolean;
-      assets?: Array<{ name?: string; browser_download_url?: string }>;
+    const found = await checkViaApi().catch((err) => {
+      console.warn('[updater] api check failed, falling back to feed:', err);
+      return checkViaFeed();
+    });
+    if (!found) return;
+    const { version } = found;
+    if (!isNewer(version, app.getVersion())) return;
+    const isNewFinding = latest?.version !== version;
+    latest = {
+      version,
+      htmlUrl:
+        found.htmlUrl ?? `https://github.com/${REPO}/releases/tag/v${version}`,
+      zipUrl: found.zipUrl,
     };
-    if (json.prerelease) return; // 预发布不推给用户
-    const version = (json.tag_name ?? '').replace(/^v/, '');
-    if (version && isNewer(version, app.getVersion())) {
-      const isNewFinding = latest?.version !== version;
-      latest = {
-        version,
-        htmlUrl: json.html_url ?? `https://github.com/${REPO}/releases`,
-        zipUrl: pickDarwinZip(json.assets),
-      };
-      // 同一版本只广播一次,避免周期检测反复刷事件
-      if (isNewFinding) broadcast({ state: 'available', version });
-    }
+    // 同一版本只广播一次,避免周期检测反复刷事件
+    if (isNewFinding) broadcast({ state: 'available', version });
   } catch {
-    // 离线/限流:静默,等下个周期
+    // 双通道都失败(离线等):静默,等下个周期
   }
 }
 
@@ -160,18 +164,9 @@ let downloadHadLength = false;
  *  update.electronjs.org feed。 */
 async function resolveZipUrl(): Promise<string> {
   if (latest?.zipUrl) return latest.zipUrl;
-  const feedRes = await fetch(
-    `https://update.electronjs.org/${REPO}/darwin-${process.arch}/${app.getVersion()}`,
-    {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-    },
-  );
-  if (feedRes.status === 204) throw new Error('feed: no update available');
-  if (!feedRes.ok) throw new Error(`feed: HTTP ${feedRes.status}`);
-  const feed = (await feedRes.json()) as { url?: string };
-  if (!feed.url) throw new Error('feed: missing url');
-  return feed.url;
+  const found = await checkViaFeed();
+  if (!found?.zipUrl) throw new Error('feed: no update available');
+  return found.zipUrl;
 }
 
 /** 解析 zip 直链,流式下载并广播百分比 */
