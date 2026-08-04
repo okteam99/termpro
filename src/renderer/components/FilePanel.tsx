@@ -420,14 +420,18 @@ export function FilePanel() {
             showHint(t('File is too large (limit {limit})', { limit: formatByteLimit(TRANSFER.maxFileBytes) }));
             return;
           }
-          void transferManager.download({
-            client: wsClient,
-            workspaceId: workspace.id,
-            hostId: workspace.hostId,
-            path: absPath,
-            name: fileName,
-            size: res.size ?? 0,
-          });
+          transferManager
+            .download({
+              client: wsClient,
+              workspaceId: workspace.id,
+              hostId: workspace.hostId,
+              path: absPath,
+              name: fileName,
+              size: res.size ?? 0,
+            })
+            .catch((err: unknown) => {
+              showHint(String((err as Error)?.message ?? err));
+            });
         })
         .catch((err: unknown) => {
           showHint(String((err as Error)?.message ?? err));
@@ -444,12 +448,16 @@ export function FilePanel() {
         showHint(gate.title);
         return;
       }
-      void transferManager.upload({
-        client: wsClient,
-        workspaceId: workspace.id,
-        hostId: workspace.hostId,
-        destDir,
-      });
+      transferManager
+        .upload({
+          client: wsClient,
+          workspaceId: workspace.id,
+          hostId: workspace.hostId,
+          destDir,
+        })
+        .catch((err: unknown) => {
+          showHint(String((err as Error)?.message ?? err));
+        });
     },
     [wsClient, workspace, transferGate, showHint],
   );

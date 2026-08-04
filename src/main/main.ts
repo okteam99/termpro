@@ -58,7 +58,7 @@ import {
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 import { encodeClipboardImage } from './clipboardImage';
 import { migrateLegacyUserData } from './userDataMigration';
-import { LocalTransferRegistry, sanitizeSuggestedName } from './localTransfer';
+import { LocalTransferRegistry, sanitizeSuggestedName, collectReadTickets } from './localTransfer';
 
 if (started) {
   app.quit();
@@ -962,11 +962,9 @@ ipcMain.handle('transfer:begin-open', async (event) => {
     properties: ['openFile', 'multiSelections'],
   });
   if (res.canceled || res.filePaths.length === 0) return [];
-  const tickets = [];
-  for (const filePath of res.filePaths) {
-    tickets.push(await localTransfers.createRead(filePath, event.sender.id));
-  }
-  return tickets;
+  // 批量开票中途失败(含配额耗尽)的回滚逻辑在 collectReadTickets 里(localTransfer.ts,
+  // 零 Electron 依赖可单测)——这里只负责弹对话框拿路径。
+  return collectReadTickets(localTransfers, res.filePaths, event.sender.id);
 });
 
 ipcMain.handle(

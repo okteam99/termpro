@@ -311,3 +311,98 @@ describe('transferManager: download 前置校验', () => {
     expect(items[0].error).toBe('too-large');
   });
 });
+
+// P1-1:取消排队中的 upload 永久泄漏本机读票(8 槽配额锁死)。upload() 在 beginOpen
+// 时就已为每个选中文件开好读票;若条目还在 queued 就被 cancel,从没跑到 runUpload
+// 的 finally 去释放那张票——票据要等 30min idleTtl 才被 main 侧 sweepIdle 回收。
+describe('transferManager: cancel 排队中的 upload → 释放已开的本机读票(P1-1)', () => {
+  it('cancel 一个还在 queued 的 upload 条目 → job.dispose() 触发 bridge.finish(ticket, commit:false)', async () => {
+    const dRunning = deferred<{ ok: true; remotePath: string }>();
+    const finish = vi.fn(async (p: { ticket: string; commit: boolean }) => ({ path: null }));
+    const manager = createTransferManager({
+      bridge: fakeBridge({
+        beginOpen: vi.fn(async () => [
+          { ticket: 't-a', name: 'a', size: 10, path: '/local/a' },
+          { ticket: 't-b', name: 'b', size: 10, path: '/local/b' },
+        ]),
+        finish,
+      }),
+      runUpload: vi.fn((deps: { file: { name: string } }) =>
+        deps.file.name === 'a' ? dRunning.promise : Promise.resolve({ ok: true, remotePath: '/remote/b' }),
+      ) as never,
+    });
+    const client = fakeClient();
+
+    await manager.upload({ client, workspaceId: 'ws1', hostId: 'h1', destDir: '/remote' });
+    finish.mockClear(); // 只关心 cancel 触发的那一次 finish 调用
+
+    const items = manager.list('ws1');
+    const runningItem = items.find((it) => it.name === 'a')!;
+    const queuedItem = items.find((it) => it.name === 'b')!;
+    expect(runningItem.state).toBe('running'); // 串行队列:a 先跑,卡在 deferred
+    expect(queuedItem.state).toBe('queued'); // b 还没轮到
+
+    manager.cancel(queuedItem.id);
+
+    expect(finish).toHaveBeenCalledTimes(1);
+    expect(finish).toHaveBeenCalledWith({ ticket: 't-b', commit: false });
+    expect(manager.list('ws1').find((it) => it.id === queuedItem.id)?.state).toBe('canceled');
+
+    dRunning.resolve({ ok: true, remotePath: '/remote/a' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it('cancel 排队中的 download 条目(job 无 dispose)→ 照常取消,不因缺 dispose 而报错', async () => {
+    // 回归防护:Job.dispose 是可选字段,download 的 job 从不设置它——cancel 的
+    // disposeJob() 必须能安全处理"job 存在但没有 dispose"这种情况。
+    const d1 = deferred<{ ok: true; localPath: string }>();
+    const runB = vi.fn(async () => ({ ok: true, localPath: '/b' }));
+    const runDownload = vi.fn((deps: { path: string }) =>
+      deps.path === '/a' ? d1.promise : runB(),
+    );
+    const manager = createTransferManager({ bridge: fakeBridge(), runDownload: runDownload as never });
+    const client = fakeClient();
+
+    await manager.download({ client, workspaceId: 'ws1', hostId: 'h1', path: '/a', name: 'a', size: 10 });
+    await manager.download({ client, workspaceId: 'ws1', hostId: 'h1', path: '/b', name: 'b', size: 10 });
+
+    const queuedItem = manager.list('ws1').find((it) => it.name === 'b')!;
+    expect(() => manager.cancel(queuedItem.id)).not.toThrow();
+    expect(manager.list('ws1').find((it) => it.id === queuedItem.id)?.state).toBe('canceled');
+
+    d1.resolve({ ok: true, localPath: '/a' });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+});
+
+// P1-2:beginOpen() 拒绝(main 侧多选中途失败/配额回滚后重抛)静默无反应——用户点了
+// 上传按钮却什么都没发生。修法:transferManager.upload() 把 reject 转成一条可见的
+// failed 终态(走 onFinal/showHint 的既有管线),不让异常穿透出 upload() 本身。
+describe('transferManager: upload 的 bridge.beginOpen() 失败(P1-2)', () => {
+  it('beginOpen() reject → upload() 本身 resolve(不外抛),记一条可见的 failed 终态', async () => {
+    const manager = createTransferManager({
+      bridge: fakeBridge({
+        beginOpen: vi.fn(async () => {
+          throw new Error('too many local transfer tickets (max 8)');
+        }),
+      }),
+    });
+    const client = fakeClient();
+    const finals: string[] = [];
+    manager.onFinal((item) => finals.push(`${item.name}:${item.state}:${item.error}`));
+
+    await expect(
+      manager.upload({ client, workspaceId: 'ws1', hostId: 'h1', destDir: '/remote/dir' }),
+    ).resolves.toBeUndefined();
+
+    const items = manager.list('ws1');
+    expect(items).toHaveLength(1);
+    expect(items[0].direction).toBe('upload');
+    expect(items[0].state).toBe('failed');
+    expect(items[0].error).toBe('local-io');
+    expect(finals).toEqual(['dir:failed:local-io']); // onFinal 精确触发一次,showHint 有得说
+  });
+});

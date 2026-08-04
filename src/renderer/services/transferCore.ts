@@ -104,7 +104,14 @@ export async function runDownload(deps: {
 }): Promise<DownloadResult> {
   const { rpc, bridge, path, name, size, onProgress, isCanceled } = deps;
 
-  const saved = await bridge.beginSave({ suggestedName: name, size });
+  let saved: { ticket: string; name: string } | null;
+  try {
+    saved = await bridge.beginSave({ suggestedName: name, size });
+  } catch (err) {
+    // 本机保存对话框/开写票失败(local-io)——不是 host/网络问题,别让上层调用方
+    // (transferManager.runItem 的兜底 catch)把它误判成 remote-io。
+    return { ok: false, reason: 'local-io', detail: errMessage(err) };
+  }
   if (!saved) return { ok: false, reason: 'canceled' };
   const { ticket } = saved;
 
@@ -127,6 +134,12 @@ export async function runDownload(deps: {
         return { ok: false, reason: 'file-changed' };
       }
 
+      // 防御:非 eof 却回报 0 字节 —— offset 永远不推进,循环会原地打转到天荒地老
+      // (远端实现有 bug 或协议被破坏才会走到这)。立即中止而不是无限重试。
+      if (block.bytes === 0 && !block.eof) {
+        return { ok: false, reason: 'remote-io', detail: 'stalled: zero bytes without eof' };
+      }
+
       if (block.bytes > 0) {
         try {
           await bridge.write({ ticket, offset, base64: block.base64 });
@@ -141,7 +154,13 @@ export async function runDownload(deps: {
       if (block.eof) break;
     }
 
-    const finished = await bridge.finish({ ticket, commit: true });
+    let finished: { path: string | null };
+    try {
+      finished = await bridge.finish({ ticket, commit: true });
+    } catch (err) {
+      // 落地提交失败(fsync/close/rename 任一步)——同样是本机盘问题,归 local-io。
+      return { ok: false, reason: 'local-io', detail: errMessage(err) };
+    }
     committed = true;
     if (!finished.path) {
       return { ok: false, reason: 'local-io', detail: 'save did not return a path' };
@@ -199,6 +218,11 @@ export async function runUpload(deps: {
         return { ok: false, reason: 'file-changed' };
       }
 
+      // 防御:本机盘读票非 eof 却回报 0 字节 —— offset 不推进,循环原地打转。
+      if (block.bytes === 0 && !block.eof) {
+        return { ok: false, reason: 'local-io', detail: 'stalled: zero bytes without eof' };
+      }
+
       if (block.bytes > 0) {
         let result: RpcMethods['fs.uploadChunk']['result'];
         try {
@@ -219,7 +243,12 @@ export async function runUpload(deps: {
       if (block.eof) break;
     }
 
-    const ended = await rpc('fs.uploadEnd', { transferId, commit: true });
+    let ended: RpcMethods['fs.uploadEnd']['result'];
+    try {
+      ended = await rpc('fs.uploadEnd', { transferId, commit: true });
+    } catch (err) {
+      return { ok: false, reason: classifyRpcError(err), detail: errMessage(err) };
+    }
     committed = true;
     if (!ended.path) {
       return { ok: false, reason: 'remote-io', detail: 'upload commit returned no path' };

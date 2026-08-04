@@ -22,6 +22,7 @@ import {
   type TransferRpc,
 } from './transferCore';
 import { TRANSFER } from '../../shared/protocol';
+import { basename } from '../state/pathLabel';
 
 export type TransferState = 'queued' | 'running' | 'canceling' | 'done' | 'failed' | 'canceled';
 
@@ -91,6 +92,14 @@ interface Job {
     | { ok: true; localPath?: string; remotePath?: string }
     | { ok: false; reason: TransferFailure; detail?: string }
   >;
+  /**
+   * 排队中(从未 run() 过)被取消/丢弃时的清理钩子。目前仅 upload job 用它:
+   * beginOpen 在入队前就已开好本机读票,job 若从没跑起来(cancel 排队项 /
+   * processQueue 的防御性丢弃分支),没人会走到 runUpload 的 finally 去释放
+   * 那张票——不 dispose 就是让读票挂到 30min idleTtl 才被 sweepIdle 回收,
+   * 8 张配额会被"排队又取消"的上传逐步锁死。
+   */
+  dispose?(): Promise<unknown> | void;
 }
 
 // 惰性访问 window.okwork.transfer(模块求值时机早于 preload 挂载完成的窗口不可假设已就绪;
@@ -170,12 +179,25 @@ export function createTransferManager(overrides?: {
     return (method, params) => client.rpc(method, params);
   }
 
+  /** 取出并摘除 id 对应的 job(若有),fire-and-forget 调用其 dispose()(错误吞掉——
+   *  清理钩子失败不该阻塞队列推进/取消流程,bridge.finish 本身也已是 best-effort 语义)。 */
+  function disposeJob(id: string): void {
+    const job = jobs.get(id);
+    jobs.delete(id);
+    if (job?.dispose) {
+      void Promise.resolve(job.dispose()).catch(() => undefined);
+    }
+  }
+
   function processQueue(): void {
     if (runningId !== null) return;
     const id = queue.shift();
     if (id === undefined) return;
     const item = items.get(id);
     if (!item) {
+      // 防御性分支:item 已被摘除但 job 还挂着(理论不应发生)——job 若持有未释放
+      // 的资源(如 upload 的读票),直接丢弃前必须走 dispose,否则票据永久泄漏。
+      disposeJob(id);
       processQueue();
       return;
     }
@@ -320,7 +342,26 @@ export function createTransferManager(overrides?: {
     destDir: string;
   }): Promise<void> {
     const { client, workspaceId, hostId, destDir } = a;
-    const files = await bridge.beginOpen();
+    let files: Awaited<ReturnType<TransferBridge['beginOpen']>>;
+    try {
+      files = await bridge.beginOpen();
+    } catch (err) {
+      // 打开对话框/开读票失败(含配额耗尽,main 侧已回滚已建票据)——静默吞掉会让用户
+      // 以为点击没反应;记一条可见的 failed 终态,复用 addRejectedItem 走 onFinal/showHint。
+      addRejectedItem(
+        {
+          id: newId(),
+          direction: 'upload',
+          workspaceId,
+          hostId,
+          name: basename(destDir),
+          remotePath: destDir,
+          total: 0,
+        },
+        'local-io',
+      );
+      return;
+    }
     if (files.length === 0) return;
     const count = files.length;
 
@@ -373,6 +414,8 @@ export function createTransferManager(overrides?: {
             onProgress,
             isCanceled,
           }),
+        // 排队中被取消/丢弃(从未 run())→ runUpload 的 finally 从没跑过,读票靠这里释放。
+        dispose: () => bridge.finish({ ticket: f.ticket, commit: false }),
       });
       queue.push(id);
     }
@@ -386,7 +429,7 @@ export function createTransferManager(overrides?: {
     if (item.state === 'queued') {
       const idx = queue.indexOf(id);
       if (idx !== -1) queue.splice(idx, 1);
-      jobs.delete(id);
+      disposeJob(id);
       item.state = 'canceled';
       item.error = 'canceled';
       notify();

@@ -70,8 +70,9 @@ type TicketEntry = WriteEntry | ReadEntry;
 
 const DEFAULT_MAX_TICKETS = 8;
 const DEFAULT_IDLE_TTL_MS = 30 * 60 * 1000;
-/** 写票临时件命名:`<basename><PART_INFIX><16hex ticket>`,与最终文件同目录
- *  (保证 finish 落地时的 rename 恒同设备,不会撞 EXDEV)。 */
+/** 写票临时件命名:`.<basename><PART_INFIX><16hex ticket>`,与最终文件同目录
+ *  (保证 finish 落地时的 rename 恒同设备,不会撞 EXDEV)。前导点号:半成品文件
+ *  不该在 Finder/资源管理器默认视图里碍眼——commit 失败留下的孤儿件同理。 */
 const PART_INFIX = '.okwork-part-';
 const CONTROL_CHARS_RE = new RegExp('[\\x00-\\x1f\\x7f]', 'g');
 
@@ -125,6 +126,14 @@ export class LocalTransferRegistry {
   private readonly idleTtlMs: number;
   private readonly maxChunkBytes: number;
   private readonly now: () => number;
+  /**
+   * 🔴 并发安全(check-then-act):createWrite/createRead 的配额判断(assertQuota,
+   * 读 tickets.size)与登记进 tickets 之间必须跨越至少一次 await(fsp.open,可能还有
+   * handle.stat())——并发调用会在这个窗口里都看到"未满"的旧 size,一起穿过配额闸门。
+   * 修法:配额检查与"占位"在同一段不出让事件循环的同步代码里完成——先给 pending
+   * 计数 +1(把这个名额算进配额,tickets.size 还没来得及体现),open/stat 失败再
+   * -1 回滚;assertQuota 判 tickets.size + pending。 */
+  private pending = 0;
 
   constructor(opts: LocalTransferOptions = {}) {
     this.maxTickets = opts.maxTickets ?? DEFAULT_MAX_TICKETS;
@@ -142,7 +151,7 @@ export class LocalTransferRegistry {
   }
 
   private assertQuota(): void {
-    if (this.tickets.size >= this.maxTickets) {
+    if (this.tickets.size + this.pending >= this.maxTickets) {
       throw new Error(`too many local transfer tickets (max ${this.maxTickets})`);
     }
   }
@@ -172,9 +181,17 @@ export class LocalTransferRegistry {
     const name = basename(finalPath);
     if (!name) throw new Error('finalPath must name a file');
     this.assertQuota();
+    this.pending += 1; // 与 assertQuota 同步块内占位,见类字段注释
     const ticket = this.newTicketId();
-    const partPath = join(dirname(finalPath), `${name}${PART_INFIX}${ticket}`);
-    const handle = await fsp.open(partPath, 'wx');
+    const partPath = join(dirname(finalPath), `.${name}${PART_INFIX}${ticket}`);
+    let handle: import('node:fs/promises').FileHandle;
+    try {
+      handle = await fsp.open(partPath, 'wx');
+    } catch (err) {
+      this.pending -= 1;
+      throw err;
+    }
+    this.pending -= 1;
     this.tickets.set(ticket, {
       kind: 'write',
       handle,
@@ -193,7 +210,14 @@ export class LocalTransferRegistry {
       throw new Error('filePath must be an absolute path');
     }
     this.assertQuota();
-    const handle = await fsp.open(filePath, 'r');
+    this.pending += 1; // 与 assertQuota 同步块内占位,见类字段注释
+    let handle: import('node:fs/promises').FileHandle;
+    try {
+      handle = await fsp.open(filePath, 'r');
+    } catch (err) {
+      this.pending -= 1;
+      throw err;
+    }
     let size: number;
     let mtimeMs: number;
     try {
@@ -203,8 +227,10 @@ export class LocalTransferRegistry {
       mtimeMs = stat.mtimeMs;
     } catch (err) {
       await handle.close().catch(() => undefined);
+      this.pending -= 1;
       throw err;
     }
+    this.pending -= 1;
     const ticket = this.newTicketId();
     const name = basename(filePath);
     this.tickets.set(ticket, {
@@ -311,10 +337,19 @@ export class LocalTransferRegistry {
       return { path: null };
     }
 
-    await entry.handle.sync();
-    await entry.handle.close();
-    await fsp.rename(entry.partPath, entry.finalPath);
-    return { path: entry.finalPath };
+    try {
+      await entry.handle.sync();
+      await entry.handle.close();
+      await fsp.rename(entry.partPath, entry.finalPath);
+      return { path: entry.finalPath };
+    } catch (err) {
+      // 🔴 提交失败(sync/close/rename 任一步)不能留孤儿 part:此时票据已从 tickets
+      // 摘除(上面的 delete),sweepIdle 再也追踪不到它,不在这里兜底就是永久残留。
+      // close() 可能已经在 sync 之后成功过一次,这里的第二次调用容错吞掉(不双重抛错)。
+      await entry.handle.close().catch(() => undefined);
+      await fsp.unlink(entry.partPath).catch(() => undefined);
+      throw err;
+    }
   }
 
   /** 释放走双保险的清理主路径(main.ts 挂 webContents 'destroyed'):关闭该
@@ -351,4 +386,35 @@ export class LocalTransferRegistry {
       await fsp.unlink(entry.partPath).catch(() => undefined);
     }
   }
+}
+
+/**
+ * `transfer:begin-open` 的编排逻辑(main.ts 的 ipcMain.handle 只管弹 showOpenDialog
+ * 拿路径,批量开读票的循环 + 失败回滚都在这里)——只依赖 registry 的窄接口,不碰
+ * dialog/BrowserWindow,可脱离 Electron 单测。
+ *
+ * 🔴 中途失败必须回滚:多选场景下,若第 3/5 个文件 createRead 失败(如配额耗尽),
+ * 前 2 张已建的读票不能悄悄留在 registry 里——不然它们要等 30min idleTtl 才被
+ * sweepIdle 回收,配额被"半成功的一批"占着,后续传输逐步锁死。回滚后把原始错误
+ * 重新抛出(不吞、不改写成另一种"错误形态")——renderer 侧 transferManager.upload()
+ * 已经给 bridge.beginOpen() 的 reject 包了 try/catch,会据此记一条用户可见的 failed
+ * 终态,IPC 拒绝这一条契约足够表达,没必要另造一种返回值形态。
+ */
+export async function collectReadTickets(
+  registry: Pick<LocalTransferRegistry, 'createRead' | 'finish'>,
+  filePaths: readonly string[],
+  senderId: number,
+): Promise<ReadTicketInfo[]> {
+  const tickets: ReadTicketInfo[] = [];
+  try {
+    for (const filePath of filePaths) {
+      tickets.push(await registry.createRead(filePath, senderId));
+    }
+  } catch (err) {
+    await Promise.all(
+      tickets.map((t) => registry.finish(senderId, t.ticket, false).catch(() => undefined)),
+    );
+    throw err;
+  }
+  return tickets;
 }
