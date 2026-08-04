@@ -28,6 +28,7 @@ import {
   writeTempPng,
 } from './fsService';
 import { skillStatus, skillInstall } from './skillService';
+import { createPreviewRegistry, PreviewRegistry } from './previewServer';
 import {
   gitChangedFiles,
   gitInfo,
@@ -65,6 +66,10 @@ export interface HostCore {
   attachClient(port: PortLike): void;
   pool: PtyPool;
   clients: Map<number, Client>;
+  /** 项目内 HTML 预览 server 注册表(host/previewServer.ts)。多客户端语义:同 root
+   *  共用同一预览 server 实例(ensure 幂等);客户端断开不回收(不做引用计数);
+   *  preview.stop 是全局操作,不分发起方。 */
+  previews: PreviewRegistry;
 }
 
 /**
@@ -83,6 +88,7 @@ export function createHostCore(
   const pool = new PtyPool(mode);
   const clients = new Map<number, Client>();
   let clientSeq = 0;
+  const previews = createPreviewRegistry();
 
   // Workspace 注册表:数据目录经壳层(main)注入 env,不调 app.getPath(零 Electron)。
   // 未注入时兜底到 homedir 下的隐藏目录(dev/edge;正常 local 由 main 注入 userData)。
@@ -113,7 +119,7 @@ export function createHostCore(
       const msg = e.data as ClientMessage;
       switch (msg.t) {
         case 'rpc:req':
-          void handleRpc(msg, send, client, pool, workspaces, clients, mode);
+          void handleRpc(msg, send, client, pool, workspaces, clients, mode, previews);
           break;
         // PTY 控制消息只接受会话归属方(sessionId 不当 capability 用;
         // 多连接下的防御纵深)
@@ -163,7 +169,7 @@ export function createHostCore(
     console.log('[host] client %d attached (total %d)', id, clients.size);
   }
 
-  return { attachClient, pool, clients };
+  return { attachClient, pool, clients, previews };
 }
 
 async function handleRpc(
@@ -174,6 +180,7 @@ async function handleRpc(
   workspaces: WorkspaceService,
   clients: Map<number, Client>,
   mode: 'embedded' | 'standalone',
+  previews: PreviewRegistry,
 ): Promise<void> {
   try {
     let result: unknown;
@@ -314,6 +321,16 @@ async function handleRpc(
       case 'skill.install': {
         const p = msg.params as { name: string; content: string };
         result = skillInstall(p.name, p.content);
+        break;
+      }
+      // ---- 项目内 HTML 预览:同 root 跨客户端共用同一 server 实例(previews 单例
+      // 挂在 HostCore 上,不下沉进 per-client 状态);preview.stop 全局停,不判归属。
+      case 'preview.ensure':
+        result = await previews.ensure((msg.params as { root: string }).root);
+        break;
+      case 'preview.stop': {
+        const stopped = await previews.stop((msg.params as { root: string }).root);
+        result = { stopped };
         break;
       }
       // ---- 断线重连回放收养(BL-005)----

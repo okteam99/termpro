@@ -256,6 +256,18 @@ export interface RpcMethods {
   'skill.status': { params: { name: string }; result: SkillStatusResult };
   /** 安装/更新:把 SKILL.md 写入 canonical + 各已装 agent 的 skills 目录;返回安装后状态。 */
   'skill.install': { params: { name: string; content: string }; result: SkillStatusResult };
+  // ---- 项目内 HTML 预览(host/previewServer.ts · 向后兼容追加)----
+  /** 懒启动/幂等:为 root 起(或复用既有)静态预览 server,返回其 port/token。 */
+  'preview.ensure': { params: { root: string }; result: PreviewInfo };
+  /** 关闭 root 对应的预览 server(全局:不分客户端,同 root 共用同实例故全局停)。 */
+  'preview.stop': { params: { root: string }; result: { stopped: boolean } };
+}
+
+/** 项目内 HTML 预览:某 root 对应的静态 server 信息(host/previewServer.ts)。 */
+export interface PreviewInfo {
+  root: string;
+  port: number;
+  token: string;
 }
 
 /** 某技能在一个 agent 位置的状态(present=该 agent 存在;version=已装版本或 null)。 */
