@@ -78,6 +78,10 @@ export const zh: Record<string, string> = {
   'Show in Finder': '在 Finder 中显示(跳转所在目录)',
   'Open in Finder': '在 Finder 中打开',
   'Preview in built-in browser': '内置浏览器预览',
+  'New subfolder': '新建子目录',
+  'Folder name': '目录名',
+  'Invalid folder name': '目录名不合法',
+  'Create folder failed: {error}': '创建目录失败:{error}',
 
   // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
   'This file is outside the workspace — cannot start a preview':

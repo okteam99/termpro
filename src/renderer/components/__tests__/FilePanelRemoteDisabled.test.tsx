@@ -237,16 +237,16 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
     expect(screen.getByText(LOCAL_ONLY_HINT)).toBeInTheDocument();
   });
 
-  it('Finder 中打开(目录行按钮):仍 aria-disabled,不调用 openPath,弹本机专属提示,且不连带触发 toggleDir', () => {
+  it('Finder 中打开(目录行按钮):远程整个不渲染(用户指令 2026-08-04),新建子目录按钮保留', () => {
     render(<FilePanel />);
     const dirRow = screen.getByText('src').closest('.file-panel__row') as HTMLElement;
-    const folderOpenBtn = within(dirRow).getByRole('button'); // 目录行只有这一个 action 按钮
-    expect(folderOpenBtn).toHaveAttribute('aria-disabled', 'true');
+    // 远程隐藏本机 OS 动作入口(非禁用形态);「新建子目录」经 host RPC,远程可用
+    expect(within(dirRow).queryByTitle('Open in Finder')).not.toBeInTheDocument();
+    const newDirBtn = within(dirRow).getByTitle('New subfolder');
 
-    fireEvent.click(folderOpenBtn);
+    fireEvent.click(newDirBtn);
 
     expect(window.okwork.openPath).not.toHaveBeenCalled();
-    expect(screen.getByText(LOCAL_ONLY_HINT)).toBeInTheDocument();
     // 按钮点击 stopPropagation,不应连带触发行的 toggleDir
     expect(toggleDir).not.toHaveBeenCalled();
   });
@@ -271,10 +271,10 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
     vi.useFakeTimers();
     try {
       render(<FilePanel />);
-      // 触发入口用仍禁用的 Finder-打开按钮(Diff 已解禁,不再弹提示)
-      const dirRow = screen.getByText('src').closest('.file-panel__row') as HTMLElement;
-      const folderOpenBtn = within(dirRow).getByRole('button');
-      fireEvent.click(folderOpenBtn);
+      // 触发入口用仍禁用的「Finder 中显示」(文件行;目录行 Finder 入口远程已不渲染)
+      const fileRow = screen.getByText('README.md').closest('.file-panel__row') as HTMLElement;
+      const folderShowBtn = within(fileRow).getAllByRole('button')[1];
+      fireEvent.click(folderShowBtn);
       expect(screen.getByText(LOCAL_ONLY_HINT)).toBeInTheDocument();
 
       act(() => {
@@ -356,10 +356,10 @@ describe('本机 workspace:零回归', () => {
     expect(window.okwork.showItemInFolder).toHaveBeenCalledWith('/repo/README.md');
   });
 
-  it('Finder 中打开(目录行):正常调用 openPath(无禁用)', () => {
+  it('Finder 中打开(目录行):正常调用 openPath(无禁用;与新建子目录按钮并存)', () => {
     render(<FilePanel />);
     const dirRow = screen.getByText('src').closest('.file-panel__row') as HTMLElement;
-    const folderOpenBtn = within(dirRow).getByRole('button');
+    const folderOpenBtn = within(dirRow).getByTitle('Open in Finder');
     expect(folderOpenBtn).not.toHaveAttribute('aria-disabled');
 
     fireEvent.click(folderOpenBtn);

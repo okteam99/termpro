@@ -10,6 +10,7 @@ import { openHtmlPreview } from '../services/openPreview';
 import { isPreviewable, pickPreviewRoot } from '../services/previewUrl';
 import { WorktreeDropdown } from './WorktreeDropdown';
 import { PanelHeader } from './PanelHeader';
+import { RenameModal } from './RenameModal';
 import './FilePanel.css';
 
 interface TreeNode {
@@ -62,6 +63,26 @@ function PanelFolderIcon() {
       xmlns="http://www.w3.org/2000/svg"
     >
       <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
+    </svg>
+  );
+}
+
+/** 行级动作:新建子目录图标(文件夹+加号)11×11 */
+function FolderPlusIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
+      <line x1="8" y1="7.2" x2="8" y2="11" />
+      <line x1="6.1" y1="9.1" x2="9.9" y2="9.1" />
     </svg>
   );
 }
@@ -271,6 +292,29 @@ export function FilePanel() {
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
     },
     [],
+  );
+
+  // 「新建子目录」弹层:记录父目录路径,保存时经 workspace host 的 fs.mkdir 创建
+  // (本机/远程同一条 RPC 路由),成功后展开父目录 + 刷新树
+  const [newDirParent, setNewDirParent] = useState<string | null>(null);
+  const handleCreateSubdir = useCallback(
+    (parent: string, name: string) => {
+      // 单段目录名:拒绝路径分隔符与 . / ..(拼路径语义,不做递归创建)
+      if (/[/\\]/.test(name) || name === '.' || name === '..') {
+        showHint(t('Invalid folder name'));
+        return;
+      }
+      wsClient
+        .rpc('fs.mkdir', { path: joinPath(parent, name) })
+        .then(() => {
+          if (!expanded.has(parent)) toggleDir(parent);
+          refresh();
+        })
+        .catch((e: unknown) => {
+          showHint(t('Create folder failed: {error}', { error: String((e as Error)?.message ?? e) }));
+        });
+    },
+    [wsClient, expanded, toggleDir, refresh, showHint],
   );
 
   // ── Header control: Root mode ──
@@ -748,17 +792,23 @@ export function FilePanel() {
               {isDir && !isErr && (
                 <button
                   className="file-panel__row-action"
-                  aria-disabled={isRemote ? 'true' : undefined}
-                  title={isRemote ? LOCAL_ONLY_HINT_TEXT : t('Open in Finder')}
-                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                  title={t('New subfolder')}
                   onClick={(e) => {
                     e.stopPropagation();
-                    // 目录展开/收起(行点击 handleToggleDir)不受影响——这个按钮是「本机
-                    // Finder 打开」,是本地 OS 动作,与树浏览是两回事,D-7 同样要禁用。
-                    if (isRemote) {
-                      showHint(LOCAL_ONLY_HINT_TEXT);
-                      return;
-                    }
+                    setNewDirParent(node.absPath);
+                  }}
+                >
+                  <FolderPlusIcon />
+                </button>
+              )}
+              {/* 「本机 Finder 打开」是本地 OS 动作:远程 workspace 直接不渲染入口
+                  (用户指令 2026-08-04,原禁用+提示的形态废弃)。 */}
+              {isDir && !isErr && !isRemote && (
+                <button
+                  className="file-panel__row-action"
+                  title={t('Open in Finder')}
+                  onClick={(e) => {
+                    e.stopPropagation();
                     window.okwork.openPath(node.absPath);
                   }}
                 >
@@ -769,6 +819,17 @@ export function FilePanel() {
           );
         })}
       </div>
+
+      {/* 新建子目录弹层:Enter 创建,Esc 取消 */}
+      {newDirParent && (
+        <RenameModal
+          title={t('New subfolder')}
+          initialValue=""
+          placeholder={t('Folder name')}
+          onSave={(v) => handleCreateSubdir(newDirParent, v)}
+          onClose={() => setNewDirParent(null)}
+        />
+      )}
     </div>
   );
 }
