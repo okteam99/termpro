@@ -281,6 +281,31 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
   - host 重启后旧 URL(旧端口/旧 token)全部失效;自愈路径是**重新触发预览**(查看器里点 Retry,或从 FilePanel 重新点开该文件)——`preview.ensure` 会在新 host 进程里懒启动一个新 server 并返回新 URL,但已打开的旧标签/webview 不会自动跳转,需用户手动重开;
   - 不支持 `Range` 请求(`Accept-Ranges: none`),大文件/视频拖动播放不可用——预览面向静态站点/文档场景,非通用文件服务。
 
+### 4.11 远程文件传输(分块协议 + 本机票据通道)
+
+远程 workspace 的 FilePanel:文件行 hover「⤓ 下载到本机」、目录行 hover「⤒ 上传到此目录」。
+两条通道拼成一次传输,字节路径恒为 `远程 host ⇄ renderer ⇄ main`:
+
+- **远程侧(protocol.ts `TRANSFER` + 4 个 RPC)**:无状态 offset 分块,512 KiB/块
+  (host 钳 1 MiB;块大小上界受共享 SSH 隧道队头阻塞约束,不是 WS_MAX_PAYLOAD)。
+  下载走 `fs.readFileRange`(同 fd fstat+pread,防路径替换、尽力检测传输中改写);
+  上传走 `fs.uploadBegin/Chunk/End`:host 在目标目录生成 `.okwork-upload-*.part`,
+  **严格顺序 offset**(per-transfer 串行链,并发 chunk 排队)、commit 时校验
+  `received === size`,落地用 `link+unlink`(重名加后缀,恒不覆盖,与 fs.copy 同口径);
+  断连由 per-client `disposeAll` 删 `.part`,陈旧残留 24h 清扫兜底。
+  能力位 `'fs.transfer'`,旧 host → 按钮禁用 + 升级提示,不上调 HOST_MIN_APP_VERSION。
+- **本机侧(main `localTransfer.ts` 票据通道)**:🔴 红线——本机盘读写的路径**永不来自
+  renderer**:写落点只能由 `transfer:begin-save` 的保存对话框产生、读来源只能由
+  `transfer:begin-open` 的打开对话框产生,renderer 只持不透明 ticket(sender 绑定、
+  配额 8、30 min TTL、窗口 destroyed 即 abort)。绝不新增「renderer 传本机绝对路径 →
+  main 读写」形态的 IPC。
+- **renderer 编排**:`transferCore.ts` 纯分块循环(改写检测/对账/finally 清理/
+  取消在块边界生效)+ `transferManager.ts` 模块级单例 FIFO 串行队列(并发 1,
+  切 tab/折叠面板不中断);进度在 FilePanel 底部传输条,终态走 showHint。
+- **已知边界**:单文件 2 GiB 上限(确定性拒绝);不支持断点续传(offset 协议已预留,
+  v2);目录整体上传/下载不支持(多选文件覆盖主场景);app 崩溃可能在本机留下
+  `.{name}.okwork-part-*` 残件(点前缀不可见,不做本机全盘清扫)。
+
 ---
 
 ## 4.5 CI 与发版
