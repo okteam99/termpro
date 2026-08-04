@@ -1,8 +1,9 @@
 .tabbar {
-  height: 38px;
+  height: 52px;
   display: flex;
   flex-direction: row;
-  align-items: stretch;
+  align-items: center;
+  padding: 0 8px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   overflow: hidden;
@@ -18,7 +19,8 @@
 .tabbar-tabs {
   display: flex;
   flex-direction: row;
-  align-items: stretch;
+  align-items: center;
+  gap: 6px;
   overflow-x: auto;
   scrollbar-width: none; /* Firefox */
   flex: 0 1 auto;
@@ -29,35 +31,38 @@
   display: none;
 }
 
-/* 单个标签 */
+/* 单个标签:胶囊(pill) */
 .tabbar-tab {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 10px;
-  height: 38px;
+  padding: 0 12px;
+  height: 32px;
   font-size: 12px;
   cursor: default;
   white-space: nowrap;
   flex-shrink: 0;
-  border-radius: 6px 6px 0 0;
+  border-radius: 999px;
+  border: 1px solid transparent;
   color: var(--fg-dim);
   background: transparent;
   position: relative;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
   -webkit-app-region: no-drag;
 }
 
 .tabbar-tab:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .tabbar-tab:hover .tabbar-close-btn {
   opacity: 1;
 }
 
-/* 活跃标签:融入下方终端区域 */
+/* 活跃标签:填充底色胶囊 */
 .tabbar-tab--active {
-  background: var(--bg);
+  background: var(--bg-active);
+  border-color: rgba(255, 255, 255, 0.08);
   color: var(--fg);
 }
 
@@ -124,23 +129,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   position: relative;
-  /* 上下等量留白:下方供短横线占位(=与文字间距),上方等量抵消,保持文字垂直居中。
-     所有标签都留,选中/切换不跳动 */
-  padding-top: 6px;
-  padding-bottom: 6px;
-}
-
-/* 选中标签:标题正下方一条 accent 短横线(居中、定宽),与文字拉开间距作主区分 */
-.tabbar-tab--active .tabbar-tab-title::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  width: 14px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--accent);
 }
 
 /* Tab being dragged: reduced opacity */
@@ -162,8 +150,10 @@
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
-  padding: 1px 2px;
-  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
   opacity: 0;
   flex-shrink: 0;
   display: flex;
@@ -182,7 +172,7 @@
   color: var(--fg);
 }
 
-/* 新建标签按钮 */
+/* 新建标签按钮:圆形 */
 .tabbar-add-btn {
   background: transparent;
   border: none;
@@ -190,8 +180,10 @@
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
-  padding: 0 10px;
-  height: 38px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -200,7 +192,7 @@
 }
 
 .tabbar-add-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.07);
   color: var(--fg);
 }
 
@@ -220,8 +212,10 @@
   cursor: pointer;
   font-size: 11px;
   line-height: 1;
-  padding: 0 7px;
-  height: 38px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
