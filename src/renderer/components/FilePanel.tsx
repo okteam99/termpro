@@ -7,7 +7,7 @@ import { gitStatusClass, joinPath } from '../filepanel/core';
 import { registerFilePanelLocateHandler } from '../filepanel/locateRegistry';
 import { useFilePanel } from '../filepanel/useFilePanel';
 import { openHtmlPreview } from '../services/openPreview';
-import { isPreviewable } from '../services/previewUrl';
+import { isPreviewable, pickPreviewRoot } from '../services/previewUrl';
 import { WorktreeDropdown } from './WorktreeDropdown';
 import { PanelHeader } from './PanelHeader';
 import './FilePanel.css';
@@ -660,11 +660,22 @@ export function FilePanel() {
                   : isDir
                     ? () => handleToggleDir(node.absPath)
                     : () => {
-                        // 远程带 hostId:文件内容窗口按它直连远程 host(读/编辑/保存)
+                        // 远程带 hostId:文件内容窗口按它直连远程 host(读/编辑/保存)。
+                        // html 文件额外带 previewRoot:查看器窗口默认 Preview 模式起
+                        // 项目内预览(webview),选根用与「内置浏览器预览」同一条纯函数,
+                        // 越界/两者皆缺 → null(不带 = 查看器侧自行按 git.info 兜底)。
+                        const previewRoot = isHtml
+                          ? pickPreviewRoot({
+                              filePath: node.absPath,
+                              workspaceRoot: workspace?.root ?? null,
+                              effectiveRoot,
+                            })
+                          : null;
                         window.okwork.openViewerWindow({
                           mode: 'file',
                           path: node.absPath,
                           ...(remoteHostId ? { hostId: remoteHostId } : {}),
+                          ...(previewRoot ? { previewRoot } : {}),
                         });
                       }
               }

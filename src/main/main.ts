@@ -963,13 +963,14 @@ function openFileWindow(
   filePath: string,
   kind: 'file' | 'dir' = 'file',
   hostId = 'local',
+  previewRoot?: string,
 ): void {
   const existing = fileWins.get(hostId);
   if (existing && !existing.isDestroyed()) {
     existing.show();
     existing.focus();
     const wc = existing.webContents;
-    const tab = { path: filePath, kind };
+    const tab = { path: filePath, kind, ...(previewRoot ? { previewRoot } : {}) };
     if (wc.isLoading()) {
       // 窗口冷启动尚未完成:渲染层还没订阅 add-tab,延迟到加载完成
       wc.once('did-finish-load', () => {
@@ -1019,6 +1020,7 @@ function openFileWindow(
     mode: 'files',
     initialPath: filePath,
     initialKind: kind,
+    ...(previewRoot ? { initialPreviewRoot: previewRoot } : {}),
     ...(hostId !== 'local' ? { hostId } : {}),
   });
 }
@@ -1068,14 +1070,19 @@ ipcMain.on('viewer:open-window', (_event, payload: unknown) => {
     return;
   }
   const p = payload as
-    | { mode?: string; path?: string; hostId?: string }
+    | { mode?: string; path?: string; hostId?: string; previewRoot?: string }
     | undefined;
   // hostId 缺省 = 本机(既有调用方零变化);远程 = workspace 的 configId
   const hostId = typeof p?.hostId === 'string' && p.hostId ? p.hostId : 'local';
   if (p?.mode === 'diff') {
     openDiffWindow(payload);
   } else if (p?.mode === 'file' && typeof p.path === 'string') {
-    openFileWindow(p.path, 'file', hostId);
+    openFileWindow(
+      p.path,
+      'file',
+      hostId,
+      typeof p.previewRoot === 'string' ? p.previewRoot : undefined,
+    );
   } else if (p?.mode === 'dir' && typeof p.path === 'string') {
     openFileWindow(p.path, 'dir', hostId);
   }

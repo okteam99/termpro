@@ -15,6 +15,8 @@ interface Props {
   registerSave?(fn: (() => void) | null): void;
   /** 暴露当前编辑器内容(markdown 预览读取未保存修改用) */
   registerGetValue?(fn: (() => string) | null): void;
+  /** 保存成功后触发(HTML 预览据此 reloadSeq+1,让盖在上面的 <webview> 拿新盘内容) */
+  onSaved?(): void;
 }
 
 type LoadState =
@@ -175,6 +177,7 @@ function TextFileView({
   onDirtyChange,
   registerSave,
   registerGetValue,
+  onSaved,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monacoNs.editor.IStandaloneCodeEditor | null>(null);
@@ -257,6 +260,7 @@ function TextFileView({
           .then(() => {
             savedVersionRef.current = m.getAlternativeVersionId();
             onDirtyChange?.(false);
+            onSaved?.();
           })
           .catch((e) => {
             setState({

@@ -93,6 +93,11 @@
   text-align: center;
 }
 
+.viewer-message--column {
+  flex-direction: column;
+  gap: 10px;
+}
+
 /* 掉线横幅:不清空文档,只在头部下方挂一条可手动刷新的提示(2026-07-15) */
 .viewer-disconnected {
   flex: 0 0 auto;
@@ -329,6 +334,40 @@
   flex: 1;
   min-height: 0;
   flex-direction: column;
+}
+
+/* ---- HTML 预览(<webview> 指向项目内 preview server)---- */
+
+.html-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 脏态提示条:样式与 .viewer-disconnected 掉线横幅同款(琥珀底,可手动动作) */
+.html-preview__banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--amber, #d9a441) 16%, var(--bg-active, #2a2f37));
+  border-bottom: 1px solid var(--border);
+}
+
+.html-preview__banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg-dim);
+}
+
+.html-preview__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---- markdown 预览 ---- */

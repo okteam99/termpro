@@ -14,6 +14,9 @@ export type ViewerPayload =
       mode: 'files';
       initialPath: string;
       initialKind?: 'file' | 'dir';
+      /** html 预览根(FilePanel 已知 workspaceRoot/effectiveRoot 时传入);
+       *  缺省时查看器侧按 git.info → dirname(path) 回退(HtmlPreview.ts 三级回退) */
+      initialPreviewRoot?: string;
       /** 缺省/'local' = 本机;远程 = workspace 的 configId(一窗一 host) */
       hostId?: string;
     }
@@ -33,6 +36,7 @@ export function ViewerWindow({ payload }: { payload: ViewerPayload }) {
       <FilesWindow
         initialPath={payload.initialPath}
         initialKind={payload.initialKind ?? 'file'}
+        initialPreviewRoot={payload.initialPreviewRoot}
         hostId={payload.hostId}
       />
     );

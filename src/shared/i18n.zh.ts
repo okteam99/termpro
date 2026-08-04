@@ -209,6 +209,10 @@ export const zh: Record<string, string> = {
     '文件过大({size}MB > 2MB),请外跳编辑器',
   'Save failed: {error}': '保存失败:{error}',
 
+  // --- HtmlPreview(项目内 HTML 预览 · 查看器窗口)---
+  'Preview shows the saved file — save to refresh': '预览显示的是已保存内容——保存后自动刷新',
+  'Save & refresh': '保存并刷新',
+
   // --- store ---
   'Remote operations are unavailable in local fallback mode': '远程操作在本地回退模式下不可用',
   'Failed to create workspace, please retry': '新增 workspace 失败,请重试',

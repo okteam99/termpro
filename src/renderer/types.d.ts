@@ -124,7 +124,7 @@ declare global {
       showItemInFolder(path: string): void;
       openInBrowser(path: string): void;
       onViewerAddTab(
-        callback: (tab: { path: string; kind: 'file' | 'dir' }) => void,
+        callback: (tab: { path: string; kind: 'file' | 'dir'; previewRoot?: string }) => void,
       ): () => void;
       /** 取拖入 File 的真实磁盘路径(Electron webUtils) */
       getPathForFile(file: File): string;

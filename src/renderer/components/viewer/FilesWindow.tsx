@@ -8,9 +8,11 @@ import { hostClient } from '../../services/hostClient';
 import { basename, tildify } from '../../state/store';
 import { FileView } from './FileView';
 import { MarkdownPreview } from './MarkdownPreview';
+import { HtmlPreview } from './HtmlPreview';
 import { DirListing } from './DirListing';
 import { isRemoteHost } from './viewerHost';
 import { useViewerConnection } from './useViewerConnection';
+import { isPreviewable } from '../../services/previewUrl';
 import { t } from '../../../shared/i18n';
 
 interface FileTab {
@@ -19,8 +21,13 @@ interface FileTab {
   /** dir = 目录 listing tab(无编辑/脏态),file = 文件内容 tab */
   kind: 'file' | 'dir';
   dirty: boolean;
-  /** null = 非 markdown 或目录(无预览/编辑切换) */
-  mdMode: 'preview' | 'edit' | null;
+  /** null = 非 markdown/html 或目录(无预览/编辑切换) */
+  viewMode: 'preview' | 'edit' | null;
+  /** viewMode 非 null 时对应的预览种类;决定盖在 FileView 上面的是哪个预览组件 */
+  previewKind: 'md' | 'html' | null;
+  /** html 预览根(FilePanel 已知 workspaceRoot/effectiveRoot 时传入);
+   *  缺省时 HtmlPreview 自己按 git.info → dirname(path) 回退 */
+  previewRoot?: string;
 }
 
 const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
@@ -28,10 +35,12 @@ const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
 export function FilesWindow({
   initialPath,
   initialKind = 'file',
+  initialPreviewRoot,
   hostId,
 }: {
   initialPath: string;
   initialKind?: 'file' | 'dir';
+  initialPreviewRoot?: string;
   /** 缺省/'local' = 本机;远程 = configId(本窗口 hostClient 单例连它) */
   hostId?: string;
 }) {
@@ -39,6 +48,8 @@ export function FilesWindow({
   const { ready, error, disconnected, refreshing, refresh } = useViewerConnection(hostId);
   const [tabs, setTabs] = useState<FileTab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // html 预览的 reload 触发信号(保存后 +1);md 预览不需要,读的是内存中的编辑器值
+  const [reloadSeqs, setReloadSeqs] = useState<Map<string, number>>(new Map());
   const saveFns = useRef(new Map<string, () => void>());
   const getValueFns = useRef(new Map<string, () => string>());
   // beforeunload 守卫用:实时镜像 tabs / 用户已确认放弃修改
@@ -68,32 +79,39 @@ export function FilesWindow({
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
-  const addOrFocus = useCallback((path: string, kind: 'file' | 'dir') => {
-    setTabs((prev) => {
-      const existing = prev.find((t) => t.path === path);
-      if (existing) {
-        setActiveId(existing.id);
-        return prev;
-      }
-      const tab: FileTab = {
-        id: crypto.randomUUID(),
-        path,
-        kind,
-        dirty: false,
-        mdMode: kind === 'file' && isMarkdown(path) ? 'preview' : null,
-      };
-      setActiveId(tab.id);
-      return [...prev, tab];
-    });
-  }, []);
+  const addOrFocus = useCallback(
+    (path: string, kind: 'file' | 'dir', previewRoot?: string) => {
+      setTabs((prev) => {
+        const existing = prev.find((t) => t.path === path);
+        if (existing) {
+          setActiveId(existing.id);
+          return prev;
+        }
+        const previewKind: 'md' | 'html' | null =
+          kind !== 'file' ? null : isMarkdown(path) ? 'md' : isPreviewable(path) ? 'html' : null;
+        const tab: FileTab = {
+          id: crypto.randomUUID(),
+          path,
+          kind,
+          dirty: false,
+          viewMode: previewKind ? 'preview' : null,
+          previewKind,
+          ...(previewRoot ? { previewRoot } : {}),
+        };
+        setActiveId(tab.id);
+        return [...prev, tab];
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
-    addOrFocus(initialPath, initialKind);
-  }, [initialPath, initialKind, addOrFocus]);
+    addOrFocus(initialPath, initialKind, initialPreviewRoot);
+  }, [initialPath, initialKind, initialPreviewRoot, addOrFocus]);
 
-  // 窗口复用:主窗口/listing 再次开 → main 推送 add-tab(带 kind)
+  // 窗口复用:主窗口/listing 再次开 → main 推送 add-tab(带 kind + 可选 previewRoot)
   useEffect(
-    () => window.okwork.onViewerAddTab((t) => addOrFocus(t.path, t.kind)),
+    () => window.okwork.onViewerAddTab((t) => addOrFocus(t.path, t.kind, t.previewRoot)),
     [addOrFocus],
   );
 
@@ -157,13 +175,20 @@ export function FilesWindow({
     );
   }
 
-  const setMdMode = (id: string, mode: 'preview' | 'edit') => {
+  const setViewMode = (id: string, mode: 'preview' | 'edit') => {
     setTabs((prev) =>
-      prev.map((t) => (t.id === id && t.mdMode ? { ...t, mdMode: mode } : t)),
+      prev.map((t) => (t.id === id && t.viewMode ? { ...t, viewMode: mode } : t)),
     );
   };
   const setDirty = (id: string, dirty: boolean) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, dirty } : t)));
+  };
+  const bumpReloadSeq = (id: string) => {
+    setReloadSeqs((prev) => {
+      const next = new Map(prev);
+      next.set(id, (next.get(id) ?? 0) + 1);
+      return next;
+    });
   };
 
   return (
@@ -195,17 +220,17 @@ export function FilesWindow({
           ))}
         </div>
         <div className="viewer-actions">
-          {active?.mdMode && (
+          {active?.viewMode && (
             <div className="files-seg">
               <button
-                className={`viewer-btn${active.mdMode === 'preview' ? ' viewer-btn--on' : ''}`}
-                onClick={() => setMdMode(active.id, 'preview')}
+                className={`viewer-btn${active.viewMode === 'preview' ? ' viewer-btn--on' : ''}`}
+                onClick={() => setViewMode(active.id, 'preview')}
               >
                 {t('Preview')}
               </button>
               <button
-                className={`viewer-btn${active.mdMode === 'edit' ? ' viewer-btn--on' : ''}`}
-                onClick={() => setMdMode(active.id, 'edit')}
+                className={`viewer-btn${active.viewMode === 'edit' ? ' viewer-btn--on' : ''}`}
+                onClick={() => setViewMode(active.id, 'edit')}
               >
                 {t('Edit')}
               </button>
@@ -277,14 +302,14 @@ export function FilesWindow({
             </div>
           );
         }
-        const showPreview = tab.mdMode === 'preview';
+        const showPreview = tab.viewMode === 'preview';
         return (
           <div
             key={tab.id}
             className="files-body"
             style={{ display: isActive ? 'flex' : 'none' }}
           >
-            {/* markdown:FileView 始终挂载保留未保存编辑;预览盖在上面 */}
+            {/* markdown/html:FileView 始终挂载保留未保存编辑;预览盖在上面 */}
             <div
               className="files-pane"
               style={{ display: showPreview ? 'none' : 'flex' }}
@@ -292,6 +317,7 @@ export function FilesWindow({
               <FileView
                 path={tab.path}
                 onDirtyChange={(d) => setDirty(tab.id, d)}
+                onSaved={() => bumpReloadSeq(tab.id)}
                 registerSave={(fn) => {
                   if (fn) saveFns.current.set(tab.id, fn);
                   else saveFns.current.delete(tab.id);
@@ -302,7 +328,7 @@ export function FilesWindow({
                 }}
               />
             </div>
-            {showPreview && (
+            {showPreview && tab.previewKind === 'md' && (
               <div className="files-pane" style={{ display: 'flex' }}>
                 <MarkdownPreview
                   path={tab.path}
@@ -310,6 +336,18 @@ export function FilesWindow({
                   getEditorValue={() =>
                     getValueFns.current.get(tab.id)?.() ?? null
                   }
+                />
+              </div>
+            )}
+            {showPreview && tab.previewKind === 'html' && (
+              <div className="files-pane" style={{ display: 'flex' }}>
+                <HtmlPreview
+                  path={tab.path}
+                  hostId={hostId}
+                  previewRoot={tab.previewRoot}
+                  reloadSeq={reloadSeqs.get(tab.id) ?? 0}
+                  dirty={tab.dirty}
+                  onRequestSave={() => saveFns.current.get(tab.id)?.()}
                 />
               </div>
             )}
