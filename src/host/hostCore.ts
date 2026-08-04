@@ -16,14 +16,17 @@ import { WorkspaceService } from './workspaceService';
 import { PtyPool } from './ptyPool';
 import {
   copyInto,
+  createUploadRegistry,
   homeDir,
   listDir,
   makeDir,
   moveInto,
   readBinaryFile,
+  readFileRange,
   readTextFile,
   realPath,
   statPath,
+  UploadRegistry,
   writeTextFile,
   writeTempPng,
 } from './fsService';
@@ -59,6 +62,8 @@ export interface Client {
   /** 该客户端订阅的会话集(spawn 自动订阅 / session.attach 订阅 / unsubscribe·exclusive
    *  抢占摘除;端口关闭时按此集合逐一回收 · M2 订阅语义)。 */
   sessions: Set<string>;
+  /** 该客户端在途的远程文件上传登记表(fs.uploadBegin/Chunk/End);端口关闭时 disposeAll。 */
+  uploads: UploadRegistry;
 }
 
 export interface HostCore {
@@ -110,6 +115,7 @@ export function createHostCore(
       port,
       watches: new WatchService(send),
       sessions: new Set(),
+      uploads: createUploadRegistry(),
     };
     clients.set(id, client);
     // 注册到 workspace 服务:注册表变更广播会推给该客户端
@@ -154,6 +160,7 @@ export function createHostCore(
         else pool.kill(sid);
       }
       client.watches.dispose();
+      void client.uploads.disposeAll();
       workspaces.removeClient(id);
       clients.delete(id);
       console.log(
@@ -193,11 +200,12 @@ async function handleRpc(
           platform: os.platform(),
           homedir: os.homedir(),
           shell: process.env.SHELL ?? '/bin/zsh',
-          // 能力位(向后兼容追加):standalone 支持断线重连回放收养、多订阅镜像与
-          // 远程临时 PNG。embedded 省略 → renderer 对旧/本地 host 按各功能安全降级。
+          // 能力位(向后兼容追加):standalone 支持断线重连回放收养、多订阅镜像、
+          // 远程临时 PNG 与远程文件传输(分块下载/上传)。embedded 省略 → renderer
+          // 对旧/本地 host 按各功能安全降级。
           capabilities:
             mode === 'standalone'
-              ? ['session.resume', 'session.mirror', 'fs.temp-png']
+              ? ['session.resume', 'session.mirror', 'fs.temp-png', 'fs.transfer']
               : undefined,
           // 应用版本:启动方(远程编排 buildStartCommand / 本机 main fork)经 env 注入,
           // 与部署的 bundle/<version>/ 同源。缺省(旧启动方/手工启动)→ 字段省略,
@@ -296,6 +304,27 @@ async function handleRpc(
       case 'fs.copy': {
         const p = msg.params as { src: string; destDir: string };
         result = await copyInto(p.src, p.destDir);
+        break;
+      }
+      // ---- 远程文件传输:下载(分块读)/ 上传(分块写)----
+      case 'fs.readFileRange': {
+        const p = msg.params as { path: string; offset: number; length: number };
+        result = await readFileRange(p.path, p.offset, p.length);
+        break;
+      }
+      case 'fs.uploadBegin': {
+        const p = msg.params as { destDir: string; name: string; size: number };
+        result = await client.uploads.begin(p);
+        break;
+      }
+      case 'fs.uploadChunk': {
+        const p = msg.params as { transferId: string; offset: number; base64: string };
+        result = await client.uploads.chunk(p.transferId, p.offset, p.base64);
+        break;
+      }
+      case 'fs.uploadEnd': {
+        const p = msg.params as { transferId: string; commit: boolean };
+        result = await client.uploads.end(p.transferId, p.commit);
         break;
       }
       case 'git.show': {

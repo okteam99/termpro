@@ -22,6 +22,23 @@ export const FLOW = {
   lowWatermark: 128 * 1024,
 } as const;
 
+/**
+ * 远程文件传输(下载/上传)分块参数。
+ * chunkBytes = 512KiB:明文块 base64 编码后 ≈683KB,约占 WS_MAX_PAYLOAD(host/wsServer.ts,
+ * 32MB)2.1% —— 上界受共享 SSH 隧道队头阻塞约束(块太大 → 单块占满隧道带宽,同隧道复用的
+ * 其他 RPC/PTY 流量排队延迟陡增);下界受 RTT 吞吐天花板(块太小 → 单块往返开销主导,
+ * 高延迟链路吞吐塌缩,例如洲际链路 RTT 200ms 时几十 KB 的块跑不满带宽)。
+ * maxChunkBytes = 1MiB:host 侧钳制的分块上限(高带宽低延迟链路可用更大块,但不得超此值)。
+ * maxFileBytes = 2GiB:单文件传输上限(超出建议走 rsync/scp 等专用工具)。
+ * maxConcurrentUploads = 4:单客户端在途上传并发上限(防大量并发写打爆磁盘 IO/fd)。
+ */
+export const TRANSFER = {
+  chunkBytes: 512 * 1024,
+  maxChunkBytes: 1024 * 1024,
+  maxFileBytes: 2 * 1024 * 1024 * 1024,
+  maxConcurrentUploads: 4,
+} as const;
+
 export interface SpawnOptions {
   cwd: string;
   shell?: string;
@@ -159,8 +176,13 @@ export interface RpcMethods {
   /** 递归监听目录变化,事件经 fs:changed 推送 */
   'fs.watch': { params: { path: string }; result: { watchId: number } };
   'fs.unwatch': { params: { watchId: number }; result: undefined };
-  /** 轻量存在性检查(终端链接 hover 校验用) */
-  'fs.stat': { params: { path: string }; result: { kind: 'file' | 'dir' | null } };
+  /** 轻量存在性检查(终端链接 hover 校验用);kind='file' 时 size/mtimeMs 由带
+   *  'fs.transfer' 能力位的 host 恒填(下载前的元信息预检,不必先发 readFileRange 打头阵)。
+   *  旧 host / 无该能力位时字段可能省略,renderer 按 undefined 兜底。 */
+  'fs.stat': {
+    params: { path: string };
+    result: { kind: 'file' | 'dir' | null; size?: number; mtimeMs?: number };
+  };
   /** 解析真实路径;不存在/不可读时返回 null */
   'fs.realpath': { params: { path: string }; result: { path: string | null } };
   'git.info': { params: { cwd: string }; result: GitInfo };
@@ -202,6 +224,32 @@ export interface RpcMethods {
   };
   /** 新建单层目录(目录浏览器「新建目录」用);父目录须已存在,已存在/无权限抛错 */
   'fs.mkdir': { params: { path: string }; result: undefined };
+  // ---- 远程文件传输:下载(分块读)/ 上传(分块写)· TRANSFER 常量定分块/并发上限 ----
+  /** 分块读文件(下载用):offset/length 定位;length 钳 [1, TRANSFER.maxChunkBytes]。
+   *  eof=true 表示读到文件末尾(含越界读:offset≥size → bytes=0,eof=true)。
+   *  size/mtimeMs 与本次读取取自同一 fd(与实际读取内容强一致,防 TOCTOU)。 */
+  'fs.readFileRange': {
+    params: { path: string; offset: number; length: number };
+    result: { base64: string; bytes: number; eof: boolean; size: number; mtimeMs: number };
+  };
+  /** 开始一次上传(分块写):目标目录/文件名/声明大小由 renderer 提供,临时落地路径由
+   *  Host 自分配(renderer 无法指定,防目录穿越;同 fs.writeTempFile 口径)。 */
+  'fs.uploadBegin': {
+    params: { destDir: string; name: string; size: number };
+    result: { transferId: string };
+  };
+  /** 写入一个分块;offset 须等于已接收字节数(强制顺序到达,乱序/重传直接拒绝且不落盘)。 */
+  'fs.uploadChunk': {
+    params: { transferId: string; offset: number; base64: string };
+    result: { received: number };
+  };
+  /** 结束上传:commit=true → 原子落地到目标目录(重名自动加后缀,不覆盖已有文件);
+   *  commit=false → 放弃并清理临时文件。未知 transferId:commit=false 幂等返回 path=null,
+   *  commit=true 抛错。 */
+  'fs.uploadEnd': {
+    params: { transferId: string; commit: boolean };
+    result: { path: string | null };
+  };
   /** 读 ref 下的文件内容(不存在/二进制 → null) */
   'git.show': {
     params: { toplevel: string; ref: string; path: string };

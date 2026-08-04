@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
+import * as crypto from 'node:crypto';
 import os from 'node:os';
-import { basename, dirname, join, resolve, sep } from 'node:path';
-import { DirEntry } from '../shared/protocol';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { DirEntry, TRANSFER } from '../shared/protocol';
 
 const SYMLINK_STAT_TIMEOUT_MS = 100;
 
@@ -52,10 +53,14 @@ export function homeDir(): { path: string } {
 
 export async function statPath(
   p: string,
-): Promise<{ kind: 'file' | 'dir' | null }> {
+): Promise<{ kind: 'file' | 'dir' | null; size?: number; mtimeMs?: number }> {
   try {
     const st = await fs.stat(p);
-    return { kind: st.isDirectory() ? 'dir' : st.isFile() ? 'file' : null };
+    if (st.isFile()) {
+      // size/mtimeMs 恒随 kind='file' 一起填(远程文件传输下载前的元信息预检)。
+      return { kind: 'file', size: st.size, mtimeMs: st.mtimeMs };
+    }
+    return { kind: st.isDirectory() ? 'dir' : null };
   } catch {
     return { kind: null };
   }
@@ -118,6 +123,52 @@ export async function readBinaryFile(
   return { base64: buf.toString('base64'), size: stat.size };
 }
 
+/** length 钳制到 [1, TRANSFER.maxChunkBytes];非有限数(NaN/Infinity)兜底到上限。 */
+function clampRangeLength(length: number): number {
+  const n = Math.trunc(length);
+  if (!Number.isFinite(n)) return TRANSFER.maxChunkBytes;
+  return Math.min(Math.max(n, 1), TRANSFER.maxChunkBytes);
+}
+
+/**
+ * 分块读文件(远程下载用):open 一次 fd,fstat 与 pread 用同一 fd 取 size/mtimeMs,
+ * 与实际读取内容强一致(防 TOCTOU:文件在两次系统调用之间被替换)。
+ * offset 非法(非有限非负整数)抛错;length 静默钳制(不抛,渲染端可传任意正数试探)。
+ * 越界读(offset≥size)不算错误:返回 bytes=0、eof=true(渲染端据此终止分块循环)。
+ */
+export async function readFileRange(
+  path: string,
+  offset: number,
+  length: number,
+): Promise<{ base64: string; bytes: number; eof: boolean; size: number; mtimeMs: number }> {
+  const handle = await fs.open(path, 'r');
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error('not a regular file');
+    const size = stat.size;
+    const mtimeMs = stat.mtimeMs;
+    const clampedLength = clampRangeLength(length);
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new Error('invalid range offset');
+    }
+    if (offset >= size) {
+      return { base64: '', bytes: 0, eof: true, size, mtimeMs };
+    }
+    const toRead = Math.min(clampedLength, size - offset);
+    const buf = Buffer.alloc(toRead);
+    const { bytesRead } = await handle.read(buf, 0, toRead, offset);
+    return {
+      base64: buf.subarray(0, bytesRead).toString('base64'),
+      bytes: bytesRead,
+      eof: offset + bytesRead >= size,
+      size,
+      mtimeMs,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function writeTextFile(
   path: string,
   content: string,
@@ -128,18 +179,23 @@ export async function writeTextFile(
   await fs.writeFile(path, content, 'utf8');
 }
 
+/**
+ * 严格 base64 解码:字符集/长度/padding 校验 + 解码后字节数上限(泛化自原 PNG 专用实现,
+ * 现同时供 writeTempPng 与远程文件上传分块 UploadRegistry.chunk 复用)。
+ * 校验先行(不先分配/解码超限输入),防恶意超大 base64 触发大内存分配才被拒。
+ */
 function decodeStrictBase64(base64: string, maxBytes: number): Buffer {
-  if (!base64) throw new Error('empty temporary PNG');
+  if (!base64) throw new Error('empty base64 input');
   if (
     base64.length % 4 !== 0 ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)
   ) {
-    throw new Error('invalid base64 for temporary PNG');
+    throw new Error('invalid base64 encoding');
   }
   const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
   const decodedSize = (base64.length / 4) * 3 - padding;
   if (decodedSize > maxBytes) {
-    throw new Error(`temporary PNG exceeds ${maxBytes} bytes`);
+    throw new Error(`base64 payload exceeds ${maxBytes} bytes`);
   }
   return Buffer.from(base64, 'base64');
 }
@@ -285,4 +341,169 @@ export async function copyInto(
       throw err;
     }
   }
+}
+
+// ---- 远程文件传输:上传(分块写)-----------------------------------------
+
+const UPLOAD_PART_PREFIX = '.okwork-upload-';
+const UPLOAD_PART_SUFFIX = '.part';
+/** 与 pruneExpiredTempPngDirs 同 TTL 口径:24h 后视为异常退出遗留,下次 begin 顺手清。 */
+const UPLOAD_PART_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** 上传目标文件名校验:单段(不含路径分隔符/NUL),非空,非 '.'/'..'。 */
+function isValidUploadName(name: string): boolean {
+  if (!name || name === '.' || name === '..') return false;
+  return !name.includes('/') && !name.includes('\\') && !name.includes('\0');
+}
+
+/** 下次 begin 时顺手清掉上次异常退出(崩溃/断连未走 disposeAll)遗留的 .part 临时文件。 */
+async function sweepExpiredUploadParts(dir: string, now = Date.now()): Promise<void> {
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.startsWith(UPLOAD_PART_PREFIX) &&
+          entry.name.endsWith(UPLOAD_PART_SUFFIX),
+      )
+      .map(async (entry) => {
+        const p = join(dir, entry.name);
+        try {
+          if (now - (await fs.stat(p)).mtimeMs >= UPLOAD_PART_TTL_MS) {
+            await fs.unlink(p);
+          }
+        } catch {
+          /* 竞态删除/权限变化:best effort,不影响本次 begin */
+        }
+      }),
+  );
+}
+
+interface UploadEntry {
+  handle: import('node:fs/promises').FileHandle;
+  destDir: string;
+  name: string;
+  size: number;
+  received: number;
+  partPath: string;
+}
+
+export interface UploadRegistry {
+  begin(params: { destDir: string; name: string; size: number }): Promise<{ transferId: string }>;
+  chunk(transferId: string, offset: number, base64: string): Promise<{ received: number }>;
+  end(transferId: string, commit: boolean): Promise<{ path: string | null }>;
+  /** 客户端断连清理主路径:关全部在途 fd + 删全部 .part(不留孤儿临时文件)。 */
+  disposeAll(): Promise<void>;
+}
+
+/**
+ * 每客户端一份的上传登记表(hostCore.ts 建 client 时创建,port close 时 disposeAll)。
+ * 临时落地路径恒由 Host 生成(`.okwork-upload-<16hex>.part`,destDir 内),renderer 只给
+ * destDir/name/size,无法指定路径(防目录穿越,同 fs.writeTempFile 口径)。
+ * commit 用 fs.link + unlink 而非 fs.rename —— rename 会静默覆盖同名目标,违反本项目
+ * 「重名自动加后缀、绝不覆盖」的口径(见 uniqueDest 各调用方)。
+ */
+export function createUploadRegistry(): UploadRegistry {
+  const uploads = new Map<string, UploadEntry>();
+
+  async function begin(params: {
+    destDir: string;
+    name: string;
+    size: number;
+  }): Promise<{ transferId: string }> {
+    const { destDir, name, size } = params;
+    if (!isAbsolute(destDir)) throw new Error('destDir must be an absolute path');
+    const destStat = await fs.stat(destDir);
+    if (!destStat.isDirectory()) throw new Error('destDir is not a directory');
+    if (!isValidUploadName(name)) throw new Error('invalid upload file name');
+    if (!Number.isInteger(size) || size <= 0) {
+      throw new Error('upload size must be a positive integer');
+    }
+    if (size > TRANSFER.maxFileBytes) {
+      throw new Error(`upload exceeds max file size of ${TRANSFER.maxFileBytes} bytes`);
+    }
+    if (uploads.size >= TRANSFER.maxConcurrentUploads) {
+      throw new Error(`too many concurrent uploads (max ${TRANSFER.maxConcurrentUploads})`);
+    }
+
+    const transferId = crypto.randomBytes(8).toString('hex');
+    const partPath = join(destDir, `${UPLOAD_PART_PREFIX}${transferId}${UPLOAD_PART_SUFFIX}`);
+    const handle = await fs.open(partPath, 'wx');
+    uploads.set(transferId, { handle, destDir, name, size, received: 0, partPath });
+
+    // best-effort:清理同目录里过期的遗留 .part(不影响本次 begin 的成败)
+    await sweepExpiredUploadParts(destDir);
+
+    return { transferId };
+  }
+
+  async function chunk(
+    transferId: string,
+    offset: number,
+    base64: string,
+  ): Promise<{ received: number }> {
+    const entry = uploads.get(transferId);
+    if (!entry) throw new Error(`unknown transfer: ${transferId}`);
+    if (offset !== entry.received) {
+      throw new Error('upload offset mismatch');
+    }
+    const bytes = decodeStrictBase64(base64, TRANSFER.maxChunkBytes);
+    if (entry.received + bytes.length > entry.size) {
+      throw new Error('upload exceeds declared size');
+    }
+    await entry.handle.write(bytes, 0, bytes.length, offset);
+    entry.received += bytes.length;
+    return { received: entry.received };
+  }
+
+  async function end(transferId: string, commit: boolean): Promise<{ path: string | null }> {
+    const entry = uploads.get(transferId);
+    if (!entry) {
+      // 未知 id:commit=false 视为已结束的幂等收尾(不抛);commit=true 无物可提交,抛错。
+      if (commit) throw new Error(`unknown transfer: ${transferId}`);
+      return { path: null };
+    }
+    uploads.delete(transferId); // 立即让出并发名额,无论后续成败
+
+    if (!commit) {
+      await entry.handle.close().catch(() => undefined);
+      await fs.unlink(entry.partPath).catch(() => undefined);
+      return { path: null };
+    }
+
+    await entry.handle.sync();
+    await entry.handle.close();
+    for (let attempt = 0; ; attempt++) {
+      const dest = await uniqueDest(entry.destDir, entry.name);
+      try {
+        // 硬链接 + 删源(而非 rename):EEXIST 时不覆盖,重算目标重试(仿 copyInto)。
+        await fs.link(entry.partPath, dest);
+        await fs.unlink(entry.partPath);
+        return { path: dest };
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST' && attempt < 5) continue;
+        throw err;
+      }
+    }
+  }
+
+  async function disposeAll(): Promise<void> {
+    const entries = [...uploads.values()];
+    uploads.clear();
+    await Promise.all(
+      entries.map(async (entry) => {
+        await entry.handle.close().catch(() => undefined);
+        await fs.unlink(entry.partPath).catch(() => undefined);
+      }),
+    );
+  }
+
+  return { begin, chunk, end, disposeAll };
 }
