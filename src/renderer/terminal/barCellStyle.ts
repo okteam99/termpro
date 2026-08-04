@@ -23,7 +23,7 @@ export interface CellAttrs {
 }
 
 export interface BarTheme {
-  foreground: string; // 默认前景,如 '#d7dae0'
+  foreground: string; // 默认前景,如 '#e8e6e3'
   background: string; // 默认背景,如 '#1b1b1b'
 }
 

@@ -42,3 +42,14 @@
 .side-rail-btn--active:hover {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
+
+/* 无活跃终端 tab 时地球钮禁用(P2-4):暗淡 + 默认光标,hover 不换色 */
+.side-rail-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.side-rail-btn:disabled:hover {
+  background: transparent;
+  color: var(--fg-dim);
+}

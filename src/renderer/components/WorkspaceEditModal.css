@@ -89,7 +89,7 @@
 .workspace-edit-modal__save {
   background: var(--accent);
   border: none;
-  color: #fff;
+  color: #1b1b1b;
   cursor: pointer;
   font-size: 12px;
   font-family: inherit;

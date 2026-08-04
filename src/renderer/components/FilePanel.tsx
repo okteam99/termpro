@@ -367,6 +367,14 @@ export function FilePanel() {
   if (!workspace) {
     return (
       <div className="file-panel">
+        {/* 空态也走统一头部(文件夹图标 + 标题 + ✕):此前早退分支在 PanelHeader 之前
+            return,导致无 workspace 时面板缺头部(无法关闭/与浏览器面板视觉不一致) */}
+        <PanelHeader
+          icon={<PanelFolderIcon />}
+          title={t('Files')}
+          onClose={toggleFilePanelCollapsed}
+          closeTitle={t('Hide file panel')}
+        />
         <div className="file-panel__empty">{t('No session')}</div>
       </div>
     );

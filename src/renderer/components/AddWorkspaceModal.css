@@ -97,7 +97,7 @@
   align-self: flex-start;
   background: var(--accent);
   border-color: rgba(240, 140, 60, 0.8);
-  color: #fff;
+  color: #1b1b1b;
 }
 
 .add-ws__btn--primary:hover {

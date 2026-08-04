@@ -59,9 +59,13 @@ function BrowserRailButton() {
   });
   const surface = useAppStore((s) => s.builtinBrowserSurface);
   const active = open || !!poppedTabId;
+  // 无活跃终端 tab 时禁用:没有 tab 就没有归属的浏览器窗格,点了也无处可落
+  // (已弹出独立窗口的例外——那份状态挂在 poppedTabId 上,与当前活跃 tab 无关)
+  const disabled = activeTabId == null && !poppedTabId;
   return (
     <button
       className={`side-rail-btn${active ? ' side-rail-btn--active' : ''}`}
+      disabled={disabled}
       onClick={() => {
         if (poppedTabId) window.okwork?.browserPane?.focus?.(poppedTabId);
         // 面板开着 → 收起(关);从零打开且设置为独立窗口 → 直接弹窗

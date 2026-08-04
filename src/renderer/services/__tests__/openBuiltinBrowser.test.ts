@@ -101,4 +101,38 @@ describe('openBuiltinBrowser', () => {
     openBuiltinBrowser('t-gone', 'https://a.dev/x');
     expect(popout).not.toHaveBeenCalled();
   });
+
+  // P1-1 回归:window 分支落独立窗口时,addBrowserTab 顺手收起的文件面板
+  // (store 互斥语义)必须在 popOutBrowserPane 之后还原——浏览器从未占用主窗面板槽。
+  it('P1-1:文件面板展开时点地球落独立窗口 → 弹窗后还原文件面板态', () => {
+    useAppStore.setState({ filePanelCollapsed: false }); // 用户开着文件面板
+
+    openBuiltinBrowser('t-1', 'https://a.dev/1');
+
+    expect(popout).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+    // 还原,不是残留 addBrowserTab 顺手收起的 true
+    expect(useAppStore.getState().filePanelCollapsed).toBe(false);
+  });
+
+  it('P1-1:文件面板本就收起时点地球落独立窗口 → 收起态不变', () => {
+    useAppStore.setState({ filePanelCollapsed: true });
+
+    openBuiltinBrowser('t-1', 'https://a.dev/1');
+
+    expect(popout).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().filePanelCollapsed).toBe(true);
+  });
+
+  it('P1-1:tab 已关竞态(~40 行早退)不还原文件面板——面板此时真的开着', () => {
+    useAppStore.setState({ filePanelCollapsed: false });
+
+    openBuiltinBrowser('t-gone', 'https://a.dev/x');
+
+    expect(popout).not.toHaveBeenCalled();
+    // addBrowserTab 已把 browserPanelOpen/filePanelCollapsed 都置 true(即便 tab 不存在),
+    // 早退分支没有 popOutBrowserPane,面板态不该被还原成还原前的 false
+    expect(useAppStore.getState().browserPanelOpen).toBe(true);
+    expect(useAppStore.getState().filePanelCollapsed).toBe(true);
+  });
 });

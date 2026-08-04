@@ -15,7 +15,8 @@
 }
 
 /* 横向可滚动标签容器,隐藏滚动条。可收缩(min-width:0):空间不足时标签区内部
-   滚动,右侧功能开关(文件面板/浏览器)恒可见,不被 overflow:hidden 裁掉 */
+   滚动,不被 overflow:hidden 裁掉。文件面板/浏览器开关已迁至 SideRail(独立于
+   tabbar 之外的竖直图标栏),不再挤占这一行的空间 */
 .tabbar-tabs {
   display: flex;
   flex-direction: row;

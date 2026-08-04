@@ -13,6 +13,10 @@ const PANES = {
 // 与 index.css .main-column 的 min-width 硬底线成对
 const MAIN_MIN_W = 50;
 
+// 恒存在的右侧功能图标栏宽度(与 SideRail.css 的 .side-rail width 常量对应),
+// 拖拽上限漏算它会把 rail 挤出窗口
+const RAIL_W = 44;
+
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
@@ -30,7 +34,7 @@ export function PaneHandle({ pane }: { pane: PaneId }) {
     if (pane !== 'sidebar') others += s.sidebarWidth;
     if (pane !== 'filepanel' && !s.filePanelCollapsed) others += s.filePanelWidth;
     if (pane !== 'browser' && s.browserPanelOpen) others += s.browserPanelWidth;
-    const effMax = Math.max(min, Math.min(max, window.innerWidth - others - MAIN_MIN_W));
+    const effMax = Math.max(min, Math.min(max, window.innerWidth - others - MAIN_MIN_W - RAIL_W));
 
     const onMove = (me: MouseEvent) => {
       const dx = me.clientX - startX;

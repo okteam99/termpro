@@ -30,12 +30,17 @@ export function openBuiltinBrowser(terminalTabId: string, url = ''): void {
   }
 
   // 3. 独立窗口:先把标签种进窗格,再拿最新快照弹窗并移交所有权
+  // addBrowserTab 是面板 action,会顺手收起文件面板(store 互斥语义)——但浏览器
+  // 这次落的是独立窗口,从未占用主窗面板槽,收起前先快照,弹窗后必须还原(P1-1)
+  const prevFileCollapsed = s.filePanelCollapsed;
   s.addBrowserTab(terminalTabId, url);
   const after = useAppStore.getState();
   const afterWs = after.workspaces.find((w) => w.tabs.some((tb) => tb.id === terminalTabId));
   const afterTab = afterWs?.tabs.find((tb) => tb.id === terminalTabId);
   const pane = afterTab?.browser;
-  if (!afterTab || !pane || pane.tabs.length === 0) return; // tab 已关等竞态:标签留在镜像里即可
+  // tab 已关等竞态:标签留在镜像里即可,browserPanelOpen 仍是 true(面板真的开了)——
+  // 这条路径不还原文件面板,收起是合理状态
+  if (!afterTab || !pane || pane.tabs.length === 0) return;
   window.okwork?.browserPane?.popout?.({
     terminalTabId,
     tabName: afterTab.customName ?? afterTab.title ?? 'Tab',
@@ -43,4 +48,6 @@ export function openBuiltinBrowser(terminalTabId: string, url = ''): void {
     pane: { tabs: pane.tabs, activeTabId: pane.activeTabId },
   });
   after.popOutBrowserPane(terminalTabId);
+  // 浏览器落独立窗口,从未占用主窗面板槽,互斥附带的收起必须还原
+  useAppStore.setState({ filePanelCollapsed: prevFileCollapsed });
 }

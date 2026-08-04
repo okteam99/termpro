@@ -268,7 +268,7 @@
   cursor: pointer;
   text-align: center;
   background: var(--accent);
-  color: #fff;
+  color: #1b1b1b;
 }
 
 .sidebar-update-pill:hover:not(:disabled) {

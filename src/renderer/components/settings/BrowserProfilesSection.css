@@ -202,7 +202,7 @@
 .browser-profiles__btn--primary {
   background: var(--accent);
   border-color: rgba(240, 140, 60, 0.8);
-  color: #fff;
+  color: #1b1b1b;
 }
 
 .browser-profiles__btn--primary:hover {

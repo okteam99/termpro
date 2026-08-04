@@ -89,4 +89,41 @@ describe('面板互斥(SideRail:浏览器 / 文件面板同一时间只显示一
     expect(useAppStore.getState().browserPanelOpen).toBe(false);
     expect(useAppStore.getState().filePanelCollapsed).toBe(false);
   });
+
+  // 不变量测试:跑一串真实操作序列(开面板/加标签/展开文件面板/回落/弹出…),
+  // 每步之后都断言互斥不变量成立——browserPanelOpen 为 true 时 filePanelCollapsed
+  // 必须也是 true(rail 同一时间只显示一个面板)。
+  it('不变量:action 序列每一步后 browserPanelOpen === true ⟹ filePanelCollapsed === true', () => {
+    const get = () => useAppStore.getState();
+    const assertInvariant = () => {
+      if (get().browserPanelOpen) {
+        expect(get().filePanelCollapsed).toBe(true);
+      }
+    };
+
+    get().toggleBrowserPanel(); // 开浏览器面板(活跃 tab 无标签 → 顺手种一个)
+    assertInvariant();
+
+    get().addBrowserTab(TERM, 'https://example.com/1');
+    assertInvariant();
+
+    get().toggleFilePanelCollapsed(); // 展开文件面板 → 浏览器面板应被关掉
+    assertInvariant();
+    expect(get().browserPanelOpen).toBe(false); // 顺带确认互斥真的生效,不是巧合过关
+
+    get().dockBrowserPane(TERM); // 回落到活跃 tab → 浏览器面板重新可见
+    assertInvariant();
+
+    get().popOutBrowserPane(TERM); // 弹出为独立窗口 → 主窗不再有面板
+    assertInvariant();
+
+    get().toggleFilePanelCollapsed(); // 收起文件面板(此时浏览器面板已是 false,不受影响)
+    assertInvariant();
+
+    get().addBrowserTab(TERM, 'https://example.com/2'); // 再加标签 → 顺手开面板
+    assertInvariant();
+
+    get().toggleBrowserPanel(); // 关浏览器面板
+    assertInvariant();
+  });
 });
