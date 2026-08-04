@@ -45,6 +45,7 @@ import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
 import { BrowserNetworkController } from './browserNetwork';
+import { ExitHoldLedger } from './exitHolds';
 import { BrowserProfileStore } from './browserProfileStore';
 import { createBrowserPartitionPolicy } from './browserPartitionPolicy';
 import { JsonFileSettingsStore } from './settingsStore';
@@ -284,15 +285,55 @@ remoteHostOrchestrator.onEvent((e) => {
   }
 });
 
+// 在用出口合成账本(阶段3):主窗声明式集合 ∪ 各非主窗(查看器)的 hold 集合,
+// 取并集喂给 browserNetwork.syncExits——查看器 HTML 预览需要远程出口的 SOCKS
+// 代理存活,但 syncExits 契约只认主窗上报(浏览器面板专属通道)。
+const exitLedger = new ExitHoldLedger();
+
 // syncExits 仅主窗口可报(浏览器面板在主窗口;拒绝其它渲染进程改代理拓扑);
 // get 无副作用任意窗口可读。
 ipcMain.handle(BROWSER_NET_CHANNELS.syncExits, (event, payload: { hostIds: string[] }) => {
   if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
     return browserNetwork.snapshot();
   }
-  return browserNetwork.syncExits(Array.isArray(payload?.hostIds) ? payload.hostIds : []);
+  exitLedger.setMain(Array.isArray(payload?.hostIds) ? payload.hostIds : []);
+  return browserNetwork.syncExits(exitLedger.effective());
 });
 ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.snapshot());
+
+// browserNet:hold(阶段3):非主窗(目前仅查看器窗口)持有出口存活。三道闸:
+// ① sender 所属窗口必须在 fileWins(查看器窗口集合)——否则任意渲染进程都能
+//   驱动 main 建 SSH 隧道/开代理,直接返回当前快照,不落 hold;
+// ② hostIds 逐个校验在远程配置存在(不存在的丢弃,防拼造 configId 探测);
+// ③ 落账后与主窗集合取并集,重推 syncExits,返回权威快照(与 browserNet.get 同形)。
+// 释放走双保险(sender 'destroyed' + 所属窗口 'closed'),用 heldSenders 防重复挂钩。
+const heldSenders = new Set<number>();
+function ensureHoldRelease(win: BrowserWindow, sender: Electron.WebContents): void {
+  const key = sender.id;
+  if (heldSenders.has(key)) return;
+  heldSenders.add(key);
+  const release = () => {
+    if (!heldSenders.delete(key)) return; // 双保险去重:只在首次触发时清账+重推
+    exitLedger.dropHold(key);
+    void browserNetwork.syncExits(exitLedger.effective());
+  };
+  sender.once('destroyed', release);
+  win.once('closed', release);
+}
+ipcMain.handle(BROWSER_NET_CHANNELS.hold, (event, payload: { hostIds: string[] }) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const isViewerWindow = win !== null && [...fileWins.values()].includes(win);
+  if (!isViewerWindow) {
+    return browserNetwork.snapshot();
+  }
+  const requested = Array.isArray(payload?.hostIds) ? payload.hostIds : [];
+  const validated = requested.filter(
+    (id) => typeof id === 'string' && id && remoteHostConfigStore.get(id) !== null,
+  );
+  ensureHoldRelease(win, event.sender);
+  exitLedger.setHold(event.sender.id, validated);
+  return browserNetwork.syncExits(exitLedger.effective());
+});
 
 // ---- 浏览器 Profile IPC(权威在 main;增删改后广播全量列表)-------------------
 // 变更只许主窗口发起(设置 UI 在主窗;拒绝其它渲染进程改 profile 台账);list 只读随意。
@@ -952,6 +993,9 @@ function openFileWindow(
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 项目内 HTML 预览(阶段3铺路):查看器用 <webview> 内嵌预览,分区 =
+      // browserPartition(DEFAULT_PROFILE_ID, hostId)。
+      webviewTag: true,
       // 查看窗口沿用当前生效 locale(argv 注入,renderer 首帧前应用)
       additionalArguments: buildAdditionalArguments({
         version: app.getVersion(),
@@ -965,6 +1009,9 @@ function openFileWindow(
   installExternalUrlPolicy(fileWin, {
     devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   });
+  // 查看器没有窗格 tab 体系(不同于主窗/浏览器窗格壳窗),webview 弹窗一律送系统
+  // 浏览器,而非发回窗口自己开新标签。
+  wireBrowserWebviewPolicies(fileWin, { popup: 'external' });
   fileWin.on('closed', () => {
     if (fileWins.get(hostId) === fileWin) fileWins.delete(hostId);
   });
@@ -1152,11 +1199,17 @@ function buildMenu(): void {
  *   × 已知出口】的组合分区,被注入的 renderer 不能借任意 partition 逃出浏览器分区体系。
  * - WebRTC 防泄漏静态化:远程分区恒代理 → attach 即 disable_non_proxied_udp
  *   (SOCKS5 只代理 TCP,UDP 会绕过代理暴露本机真实 IP);本机分区直连保持默认。
- * - 弹窗策略:target=_blank/window.open 恒不开原生新窗,http(s) 送回【本窗口】renderer
- *   在窗格里开新标签(附来源 guest id 定位归属);限频 300ms/guest 防灌爆(评审 P2-5)。
+ * - 弹窗策略:target=_blank/window.open 恒不开原生新窗,http(s) 按 opts.popup 分流:
+ *   'pane'(默认,主窗/浏览器窗格壳窗)送回【本窗口】renderer 在窗格里开新标签
+ *   (附来源 guest id 定位归属);'external'(查看器等无窗格的窗口)送系统浏览器
+ *   (shell.openExternal)。限频 300ms/guest 防灌爆(评审 P2-5)。
  * - 主框架导航只许 http(s)/about:(评审 P2-2)。
  */
-function wireBrowserWebviewPolicies(win: BrowserWindow): void {
+function wireBrowserWebviewPolicies(
+  win: BrowserWindow,
+  opts: { popup?: 'pane' | 'external' } = {},
+): void {
+  const popupMode = opts.popup ?? 'pane';
   win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     delete webPreferences.preload;
     delete (webPreferences as { preloadURL?: string }).preloadURL;
@@ -1192,9 +1245,13 @@ function wireBrowserWebviewPolicies(win: BrowserWindow): void {
     let lastOpenAt = 0;
     guest.setWindowOpenHandler(({ url }) => {
       const now = Date.now();
-      if (/^https?:\/\//i.test(url) && !win.isDestroyed() && now - lastOpenAt > 300) {
+      if (/^https?:\/\//i.test(url) && now - lastOpenAt > 300) {
         lastOpenAt = now;
-        win.webContents.send('browser:open-url', url, guest.id);
+        if (popupMode === 'external') {
+          void shell.openExternal(url);
+        } else if (!win.isDestroyed()) {
+          win.webContents.send('browser:open-url', url, guest.id);
+        }
       }
       return { action: 'deny' };
     });

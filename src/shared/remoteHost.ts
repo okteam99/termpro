@@ -159,6 +159,12 @@ export const BROWSER_NET_CHANNELS = {
   get: 'browserNet:get',
   /** 快照变更推送(main→renderer):断线标 down/重连恢复——选择器据此标注状态。 */
   changed: 'browserNet:changed',
+  /**
+   * 非主窗(查看器等)持有出口存活(renderer→main,invoke):HTML 预览走远程 SOCKS
+   * 代理,但 syncExits 专属主窗声明(浏览器面板)。main 侧三道闸(窗口身份/host
+   * 存在性/落账)后与主窗集合取并集重推 syncExits,返回当前快照(与 get 同形)。
+   */
+  hold: 'browserNet:hold',
 } as const;
 
 /**

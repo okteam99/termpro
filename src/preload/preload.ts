@@ -355,6 +355,11 @@ contextBridge.exposeInMainWorld('okwork', {
         ipcRenderer.removeListener(BROWSER_NET_CHANNELS.changed, listener);
       };
     },
+    /** 非主窗(查看器)持有出口存活(HTML 预览需远程 SOCKS 代理);main 校验窗口
+     *  身份+host 存在性后落 hold,与主窗集合取并集,返回权威快照 */
+    hold(hostIds: string[]): Promise<BrowserNetworkSnapshot> {
+      return ipcRenderer.invoke(BROWSER_NET_CHANNELS.hold, { hostIds });
+    },
   },
   /** 浏览器 Profile(每工作区独立存储 + UA;权威在 main,增删改后推全量列表) */
   browserProfile: {
