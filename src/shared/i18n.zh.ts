@@ -380,6 +380,7 @@ export const zh: Record<string, string> = {
   'New tab': '新 Tab',
   'New tab options': '新 Tab 选项',
   'Close tab': '关闭 Tab',
+  'Files': '文件',
   'Show file panel': '显示文件面板',
   'Hide file panel': '隐藏文件面板',
   'Show browser': '显示内置浏览器',

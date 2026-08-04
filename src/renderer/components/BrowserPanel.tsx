@@ -9,6 +9,7 @@ import type {
   RemoteHostConfig,
   RemoteStage,
 } from '../../shared/remoteHost';
+import { PanelHeader, PanelHeaderButton } from './PanelHeader';
 import './BrowserPanel.css';
 
 // webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
@@ -289,6 +290,27 @@ function StopIcon() {
   );
 }
 
+/** 面板头部品牌图标:地球,16×16,feather 风格(抄自 SideRail.tsx 的 GlobeIcon) */
+function BrowserGlobeIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="8" cy="8" r="6.5" />
+      <ellipse cx="8" cy="8" rx="2.9" ry="6.5" />
+      <line x1="1.5" y1="8" x2="14.5" y2="8" />
+    </svg>
+  );
+}
+
 /** 弹出独立窗口:方框 + 右上出箭头 */
 function PopoutIcon() {
   return (
@@ -465,6 +487,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const setBrowserActiveTab = useAppStore((s) => s.setBrowserActiveTab);
   const updateBrowserTab = useAppStore((s) => s.updateBrowserTab);
   const popOutBrowserPane = useAppStore((s) => s.popOutBrowserPane);
+  const toggleBrowserPanel = useAppStore((s) => s.toggleBrowserPanel);
 
   // 浏览器窗格绑定当前活跃终端 tab(像 FilePanel 绑定 activeTab 一样);nav 栏/标签条
   // 都反映它,切终端 tab 面板跟着换一组标签。
@@ -651,21 +674,24 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
 
   return (
     <div className="browser-panel">
-      {/* 品牌标题行:与终端 tab 视觉区隔(用户指令),兼作窗口拖拽区;
-          右上角=弹出整个窗格为独立窗口(壳窗自带头部,shell 模式不再渲染) */}
+      {/* 统一风格头部(OpenChamber 风格):与终端 tab 视觉区隔(用户指令),兼作窗口拖拽区;
+          右侧=弹出整个窗格为独立窗口 + ✕关闭面板(壳窗自带头部,shell 模式不再渲染) */}
       {!shell && (
-        <div className="browser-panel__header">
-          OkBrowser
-          <button
-            className="browser-panel__header-popout"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            disabled={activePopped || !pane || pane.tabs.length === 0}
-            onClick={handlePopout}
-            title={t('Move this browser to a separate window')}
-          >
-            <PopoutIcon />
-          </button>
-        </div>
+        <PanelHeader
+          icon={<BrowserGlobeIcon />}
+          title="OkBrowser"
+          onClose={toggleBrowserPanel}
+          closeTitle={t('Hide browser')}
+          actions={
+            <PanelHeaderButton
+              onClick={handlePopout}
+              disabled={activePopped || !pane || pane.tabs.length === 0}
+              title={t('Move this browser to a separate window')}
+            >
+              <PopoutIcon />
+            </PanelHeaderButton>
+          }
+        />
       )}
       {activePopped && (
         <div className="browser-panel__popped" role="note">

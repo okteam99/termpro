@@ -9,50 +9,7 @@
   overflow: hidden;
 }
 
-/* ── 品牌标题行(第一行):区隔终端 tab,可拖拽窗口 ── */
-.browser-panel__header {
-  position: relative;
-  height: 30px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: var(--fg-dim);
-  border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
-}
-
-/* 右上角弹出独立窗口入口(标题行居中不受影响) */
-.browser-panel__header-popout {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-dim);
-  cursor: pointer;
-}
-
-.browser-panel__header-popout:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--fg);
-}
-
-.browser-panel__header-popout:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
+/* 品牌标题行已改用共享组件 PanelHeader(见 PanelHeader.tsx/.css) */
 
 /* ── 标签条 ── */
 .browser-panel__tabs {

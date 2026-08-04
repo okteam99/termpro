@@ -7,6 +7,7 @@ import { gitStatusClass, joinPath } from '../filepanel/core';
 import { registerFilePanelLocateHandler } from '../filepanel/locateRegistry';
 import { useFilePanel } from '../filepanel/useFilePanel';
 import { WorktreeDropdown } from './WorktreeDropdown';
+import { PanelHeader } from './PanelHeader';
 import './FilePanel.css';
 
 interface TreeNode {
@@ -44,6 +45,25 @@ function FolderIcon() {
   );
 }
 
+/** 面板头部图标:文件夹,16×16,feather 风格(抄自 SideRail.tsx 的 FolderIcon) */
+function PanelFolderIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
+    </svg>
+  );
+}
+
 /** 行级动作:浏览器(地球)图标 11×11 */
 function GlobeIcon() {
   return (
@@ -68,6 +88,7 @@ function GlobeIcon() {
 export function FilePanel() {
   const workspace = useAppStore(selectActiveWorkspace);
   const updateTabFilePanel = useAppStore((s) => s.updateTabFilePanel);
+  const toggleFilePanelCollapsed = useAppStore((s) => s.toggleFilePanelCollapsed);
 
   // Active tab from the workspace
   const activeTab = workspace?.tabs.find((t) => t.id === workspace.activeTabId);
@@ -387,6 +408,14 @@ export function FilePanel() {
           {LOCAL_ONLY_HINT_TEXT}
         </div>
       )}
+      {/* 统一风格头部(OpenChamber 风格):左图标+标题,右侧只有 ✕(无新窗口按钮) */}
+      <PanelHeader
+        icon={<PanelFolderIcon />}
+        title={t('Files')}
+        onClose={toggleFilePanelCollapsed}
+        closeTitle={t('Hide file panel')}
+      />
+
       {/* Draggable top bar + segmented toggle */}
       <div className="file-panel__header">
         <div className="file-panel__seg">
