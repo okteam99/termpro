@@ -5,7 +5,8 @@
   --bg-active: #2a2a2a;
   --fg: #e8e6e3;
   --fg-dim: #9c9a94;
-  --accent: #f49a55;
+  /* 柔和暖橙(Nord aurora orange):低饱和护眼,替换刺眼的 #f49a55(用户反馈 2026-08) */
+  --accent: #d08770;
   --border: #262626;
   /* 状态三色(green/amber/red):此前只 scope 在 .remote-hosts__backdrop 内,
      Sidebar 的 var(--green)/var(--red)(连接圆点/会话徽标/RTT 分级)静默回退成
@@ -111,7 +112,7 @@ body.pane-dragging .pane-handle {
   bottom: 0;
   z-index: 20;
   background: var(--bg);
-  border-top: 1px solid rgba(244, 154, 85, 0.3);
+  border-top: 1px solid rgba(208, 135, 112, 0.3);
   box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   overflow: hidden;

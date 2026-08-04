@@ -687,14 +687,14 @@
   padding: 1px 8px;
   font-size: 10px;
   border-radius: 4px;
-  border: 1px solid rgba(244, 154, 85, 0.5);
+  border: 1px solid rgba(208, 135, 112, 0.5);
   background: transparent;
   color: var(--fg);
   cursor: pointer;
 }
 
 .sidebar-machine-connect:hover {
-  background: rgba(244, 154, 85, 0.16);
+  background: rgba(208, 135, 112, 0.16);
 }
 
 .sidebar-machine-connecting {

@@ -231,11 +231,12 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
     theme: {
       background: '#1b1b1b',
       foreground: '#e8e6e3',
-      cursor: '#f49a55',
-      // 半透明橙色高亮:跟随光标橙(#f49a55),透明度让其叠加在任意底色上都明显
+      // 灰色光标(用户反馈 2026-08):暖灰不抢眼,亮度介于 fg 与 fg-dim 之间保证可见
+      cursor: '#b0aca4',
+      // 半透明橙色高亮:跟随主题橙(--accent #d08770),透明度让其叠加在任意底色上都明显
       // (含 codex 等 TUI 自绘输入框背景),同时选中文字仍清晰可读。
       // 不可用纯灰 #3e4451——与背景 #1b1b1b 过近,叠在 TUI 框上几乎不可见。
-      selectionBackground: 'rgba(244, 154, 85, 0.40)',
+      selectionBackground: 'rgba(208, 135, 112, 0.40)',
     },
   });
   installParserBoundary(term);

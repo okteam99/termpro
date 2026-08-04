@@ -622,9 +622,10 @@ export class FsLinkProvider implements ILinkProvider {
   }
 }
 
-// ---- 链接常驻高亮(橙色):随输出/滚动扫描可视区,decoration 上色 ----
+// ---- 链接常驻高亮(蓝色):随输出/滚动扫描可视区,decoration 上色 ----
 
-const LINK_COLOR = '#f49a55';
+// One Dark 蓝:终端链接的惯例色,与主题橙 accent 区分开(用户反馈 2026-08)
+const LINK_COLOR = '#61afef';
 const HIGHLIGHT_DEBOUNCE_MS = 200;
 
 export class LinkHighlighter {

@@ -235,23 +235,23 @@
 
 /* 拖拽落点高亮:目录行(放进该目录)/ 整树(放进根) */
 .file-panel__row--drop-target {
-  background: color-mix(in srgb, var(--accent, #f49a55) 28%, transparent);
-  box-shadow: inset 0 0 0 1px var(--accent, #f49a55);
+  background: color-mix(in srgb, var(--accent, #d08770) 28%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent, #d08770);
 }
 
 /* 整树落点(放进根)不再用整圈描边(用户指令 2026-08-04:列表边框线去掉;
    且拖拽取消时类名残留会显成常驻边框)——改淡背景提示 */
 .file-panel__tree--drop-target {
-  background: color-mix(in srgb, var(--accent, #f49a55) 8%, transparent);
+  background: color-mix(in srgb, var(--accent, #d08770) 8%, transparent);
 }
 
 .file-panel__row--locate-target {
-  background: color-mix(in srgb, var(--accent, #f49a55) 18%, transparent);
-  box-shadow: inset 2px 0 0 var(--accent, #f49a55);
+  background: color-mix(in srgb, var(--accent, #d08770) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent, #d08770);
 }
 
 .file-panel__row--locate-target:hover {
-  background: color-mix(in srgb, var(--accent, #f49a55) 24%, transparent);
+  background: color-mix(in srgb, var(--accent, #d08770) 24%, transparent);
 }
 
 .file-panel__row--dir {
@@ -391,7 +391,7 @@
   /* 细进度条:背景渐变叠一层,--xfer-pct 由行内 style 注入 */
   background-image: linear-gradient(
     to right,
-    color-mix(in srgb, var(--accent, #f49a55) 22%, transparent) var(--xfer-pct, 0%),
+    color-mix(in srgb, var(--accent, #d08770) 22%, transparent) var(--xfer-pct, 0%),
     transparent var(--xfer-pct, 0%)
   );
 }
