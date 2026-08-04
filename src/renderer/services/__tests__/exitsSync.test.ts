@@ -58,6 +58,32 @@ describe('collectExits', () => {
     expect(collectExits(state)).toEqual([]);
     expect(collectExits({ ...state, browserPanelOpen: true })).toEqual(['cfg-a', 'cfg-b']);
   });
+
+  it('预览标签(preview:true)的出口同样计入在用集合(实现按 tabs 的 netHostId 收集,不看 preview 标志)', () => {
+    const state = {
+      browserPanelOpen: true,
+      workspaces: [
+        {
+          id: 'w1',
+          name: 'w1',
+          root: '/r/w1',
+          hostId: 'local',
+          tabs: [
+            {
+              id: 'w1-t',
+              title: 't',
+              cwd: '/r/w1',
+              browser: {
+                tabs: [{ id: 'preview-1', url: 'http://127.0.0.1:1/tok/x', netHostId: 'cfg-p', preview: true }],
+                activeTabId: 'preview-1',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(collectExits(state)).toEqual(['cfg-p']);
+  });
 });
 
 describe('initExitsSync', () => {

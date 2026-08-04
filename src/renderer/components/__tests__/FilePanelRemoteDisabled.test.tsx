@@ -3,12 +3,15 @@
 // BL-004/D-7:远程 workspace(hostId !== 'local')激活时,FilePanel 的「文件内容/Diff」
 // 三入口——顶部 Diff 按钮、文件行本身、行内 diff 按钮——已解禁:查看器窗口 payload 按
 // workspace.hostId 直连远程 host(mode:'file'/'diff' 均带 hostId 字段),不再 aria-disabled、
-// 不再弹提示。仍然禁用的只剩「本机 OS 动作」三入口——系统浏览器打开(html)、Finder 中
-// 显示(文件行)、Finder 中打开(目录行)——一律确定性禁用(aria-disabled + 1.8s 行内提示,
-// 新词条 「Local-only action — unavailable in remote workspaces」)。用 aria-disabled 而非
+// 不再弹提示。仍然禁用的只剩「本机 OS 动作」两入口——Finder 中显示(文件行)、Finder 中
+// 打开(目录行)——一律确定性禁用(aria-disabled + 1.8s 行内提示,词条
+// 「Local-only action — unavailable in remote workspaces」)。用 aria-disabled 而非
 // 原生 disabled:原生 disabled 的按钮不派发 click,会让「点击必须有确定性反馈」静默失效。
-// 这三个(openInBrowser/showItemInFolder/openPath)是本机 OS 动作:远程 ws 的路径是该机
-// 上的路径,交给本机执行会静默作用于本机同名但无关的文件——必须禁用(review A1/E2)。
+// 这两个(showItemInFolder/openPath)是本机 OS 动作:远程 ws 的路径是该机上的路径,交给
+// 本机执行会静默作用于本机同名但无关的文件——必须禁用(review A1/E2)。
+// html 预览(globe 按钮)阶段 2 起本机/远程均可用(openHtmlPreview 按 hostId 严格路由,
+// 见 openPreview.ts),不再是「本机 OS 动作」——这里只验证 FilePanel 正确透传参数,
+// openHtmlPreview 内部编排(选根/RPC/失败分支)由 openPreview.test.ts 单独覆盖。
 // 目录展开/收起与 git 着色树浏览完全不受影响,本机 workspace 语义零变化(payload 不带 hostId)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,10 +35,20 @@ const { hostRegistryMock, localClient, remoteClient } = vi.hoisted(() => {
       forWorkspace: vi.fn((ws: { hostId: string }) =>
         ws.hostId === 'local' ? localClient : remoteClient,
       ),
+      forHostId: vi.fn((hostId: string) => (hostId === 'local' ? localClient : remoteClient)),
     },
   };
 });
 vi.mock('../../services/hostRegistry', () => ({ hostRegistry: hostRegistryMock }));
+
+// FilePanel 的 globe 按钮只需验证「按正确参数调用 openHtmlPreview」+「失败时提示返回的
+// message」两件事;RPC 编排/选根/失败分支属 openPreview.ts 自己的职责,见 openPreview.test.ts。
+const { openHtmlPreviewMock } = vi.hoisted(() => ({
+  openHtmlPreviewMock: vi.fn(
+    async (): Promise<{ ok: true } | { ok: false; message: string }> => ({ ok: true }),
+  ),
+}));
+vi.mock('../../services/openPreview', () => ({ openHtmlPreview: openHtmlPreviewMock }));
 
 const { useFilePanelMock, toggleDir } = vi.hoisted(() => {
   const toggleDir = vi.fn();
@@ -113,10 +126,13 @@ beforeEach(() => {
   mockOkwork();
   hostRegistryMock.local.mockClear();
   hostRegistryMock.forWorkspace.mockClear();
+  hostRegistryMock.forHostId.mockClear();
   localClient.rpc.mockClear();
   remoteClient.rpc.mockClear();
   toggleDir.mockClear();
   useFilePanelMock.mockClear();
+  openHtmlPreviewMock.mockClear();
+  openHtmlPreviewMock.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => {
@@ -175,17 +191,38 @@ describe('远程 workspace:文件/Diff 入口解禁 + 本机 OS 动作禁用(D-7
     expect(screen.queryByText(LOCAL_ONLY_HINT)).not.toBeInTheDocument();
   });
 
-  it('系统浏览器打开(html 文件行 globe 按钮):仍 aria-disabled,不调用 openInBrowser,弹本机专属提示', () => {
+  it('内置浏览器预览(html 文件行 globe 按钮):远程不再 aria-disabled,按 hostId 调用 openHtmlPreview', async () => {
     render(<FilePanel />);
     const htmlRow = screen.getByText('index.html').closest('.file-panel__row') as HTMLElement;
     // index.html 无 git status(canDiff=false)→ 该行仅 [globe, folder-show] 两个 action
     const globeBtn = within(htmlRow).getAllByRole('button')[0];
-    expect(globeBtn).toHaveAttribute('aria-disabled', 'true');
+    expect(globeBtn).not.toHaveAttribute('aria-disabled');
 
-    fireEvent.click(globeBtn);
+    await act(async () => {
+      fireEvent.click(globeBtn);
+    });
 
-    expect(window.okwork.openInBrowser).not.toHaveBeenCalled();
-    expect(screen.getByText(LOCAL_ONLY_HINT)).toBeInTheDocument();
+    expect(openHtmlPreviewMock).toHaveBeenCalledWith({
+      filePath: '/repo/index.html',
+      workspaceRoot: '/repo',
+      effectiveRoot: '/repo',
+      hostId: 'cfg-1',
+      terminalTabId: 't1',
+    });
+    expect(screen.queryByText(LOCAL_ONLY_HINT)).not.toBeInTheDocument();
+  });
+
+  it('预览失败(openHtmlPreview 返回 ok:false):行内提示显示其确定性 message', async () => {
+    openHtmlPreviewMock.mockResolvedValueOnce({ ok: false, message: 'preview boom' });
+    render(<FilePanel />);
+    const htmlRow = screen.getByText('index.html').closest('.file-panel__row') as HTMLElement;
+    const globeBtn = within(htmlRow).getAllByRole('button')[0];
+
+    await act(async () => {
+      fireEvent.click(globeBtn);
+    });
+
+    expect(screen.getByText('preview boom')).toBeInTheDocument();
   });
 
   it('Finder 中显示(文件行按钮):仍 aria-disabled,不调用 showItemInFolder,弹本机专属提示', () => {
@@ -290,15 +327,23 @@ describe('本机 workspace:零回归', () => {
     );
   });
 
-  it('系统浏览器打开(html 文件行):正常调用 openInBrowser(无禁用)', () => {
+  it('内置浏览器预览(html 文件行):本机同样调用 openHtmlPreview(hostId=local,无禁用)', async () => {
     render(<FilePanel />);
     const htmlRow = screen.getByText('index.html').closest('.file-panel__row') as HTMLElement;
     const globeBtn = within(htmlRow).getAllByRole('button')[0];
     expect(globeBtn).not.toHaveAttribute('aria-disabled');
 
-    fireEvent.click(globeBtn);
+    await act(async () => {
+      fireEvent.click(globeBtn);
+    });
 
-    expect(window.okwork.openInBrowser).toHaveBeenCalledWith('/repo/index.html');
+    expect(openHtmlPreviewMock).toHaveBeenCalledWith({
+      filePath: '/repo/index.html',
+      workspaceRoot: '/repo',
+      effectiveRoot: '/repo',
+      hostId: 'local',
+      terminalTabId: 't1',
+    });
   });
 
   it('Finder 中显示(文件行):正常调用 showItemInFolder(无禁用)', () => {

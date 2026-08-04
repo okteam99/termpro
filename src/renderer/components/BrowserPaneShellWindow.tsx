@@ -41,6 +41,9 @@ function sanitizeSeed(raw: unknown, terminalTabId: string): PaneSeed | null {
           url: /^https?:\/\//i.test(b.url) ? b.url : '',
           ...(typeof b.title === 'string' ? { title: b.title } : {}),
           ...(typeof b.netHostId === 'string' ? { netHostId: b.netHostId } : {}),
+          // preview 透传:壳窗内容经 sync 单向回流主窗镜像,主窗侧 serializeTab 才是
+          // 「不落盘」的把关点——这里剥掉的话镜像会丢失预览标志,反而让它错误地落盘。
+          ...(b.preview === true ? { preview: true as const } : {}),
         }))
     : [];
   return {
@@ -140,10 +143,10 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
     });
   }, [seed, terminalTabId]);
 
-  // 主窗转投的新标签(终端链接点到本窗格)
+  // 主窗转投的新标签(终端链接点到本窗格 / 文件面板预览等,opts 透传 netHostId/preview)
   useEffect(() => {
-    return window.okwork?.browserPane?.onAddTab?.((url) => {
-      useAppStore.getState().addBrowserTab(terminalTabId, url);
+    return window.okwork?.browserPane?.onAddTab?.((url, opts) => {
+      useAppStore.getState().addBrowserTab(terminalTabId, url, opts);
     });
   }, [terminalTabId]);
 

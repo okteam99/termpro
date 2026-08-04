@@ -68,6 +68,11 @@ export interface BrowserTabState {
    *  browserProfileId 共同决定 webview 分区(browserPartition(profileId, netHostId)),
    *  换出口/换 profile = 换分区 = 该标签 webview 重挂重载。 */
   netHostId?: string;
+  /** 预览标签(项目内 HTML 预览 · openHtmlPreview 开的标签)三重语义(单一标志位):
+   *  ① setBrowserTabNet 对它 no-op(出口钉死所属机器,store 层权威守卫);
+   *  ② persistence 序列化过滤掉,不落盘(URL 含一次性 token,存档没有意义且是信息泄露面);
+   *  ③ UI(BrowserNetSelector)据此禁用出口选择器。 */
+  preview?: true;
 }
 
 /** 某终端 tab 的浏览器窗格(绑定终端 tab · 像 filePanel):独立标签组 + 活跃标签。
@@ -134,9 +139,12 @@ export interface PersistedTab {
   cwd: string;
   customName?: string;
   filePanel?: TabFilePanelState;
-  /** 该 tab 的浏览器窗格(只存 {id,url,netHostId};title 视图态);空/未开 → 不写盘 */
+  /** 该 tab 的浏览器窗格(只存 {id,url,netHostId};title 视图态);空/未开 → 不写盘。
+   *  preview 字段仅在**内存态**投影(snapshotRemoteLayout/壳窗种子回流)间透传,供下游
+   *  choke point(persistence.serializeTab / hydrateBrowserPane)识别并剥离——真正落盘前
+   *  必须已被过滤掉(预览标签绝不写盘)。 */
   browser?: {
-    tabs: { id: string; url: string; netHostId?: string }[];
+    tabs: { id: string; url: string; netHostId?: string; preview?: true }[];
     activeTabId: string | null;
   };
   /** 会话收养键(本地/远程同构):恢复时预绑定收养——host 存活则 attach 回放内容;
@@ -335,8 +343,14 @@ export interface AppState {
   toggleBrowserPanel(): void;
   // 浏览器窗格绑定终端 tab(TabState.browser)。以下 action 均按 terminalTabId 定位——
   // 因 webview 跨终端 tab 常驻保活,后台 tab 的 window.open 也须落回它自己的窗格。
-  /** 在指定终端 tab 新建浏览器标签并激活(url 缺省空 → 面板空态待输入);面板保持打开 */
-  addBrowserTab(terminalTabId: string, url?: string): void;
+  /** 在指定终端 tab 新建浏览器标签并激活(url 缺省空 → 面板空态待输入);面板保持打开。
+   *  opts.netHostId 缺省 = 所属终端 tab 的机器(ownerHostIdOf);opts.preview=true → 该
+   *  标签打上预览标志(出口钉死、不落盘、UI 禁用出口选择器,见 BrowserTabState.preview)。 */
+  addBrowserTab(
+    terminalTabId: string,
+    url?: string,
+    opts?: { netHostId?: string; preview?: true },
+  ): void;
   /** 关闭指定终端 tab 的某浏览器标签;关掉最后一个 → 窗格清空,且若该窗格属于当前
    *  活跃终端 tab → 面板一并收起(用户指令 2026-07-14;后台窗格清空不动全局面板态) */
   closeBrowserTab(terminalTabId: string, browserTabId: string): void;
@@ -346,7 +360,9 @@ export interface AppState {
     browserTabId: string,
     patch: { url?: string; title?: string },
   ): void;
-  /** 改某浏览器标签的网络出口('local'|configId);消费方(webview 分区)据此重挂重载该标签 */
+  /** 改某浏览器标签的网络出口('local'|configId);消费方(webview 分区)据此重挂重载该标签。
+   *  预览标签(preview===true)出口钉死所属机器,本 action 对它 no-op(store 层权威守卫,
+   *  UI 侧 BrowserNetSelector 禁用选择器只是第一道防线,不是唯一防线)。 */
   setBrowserTabNet(terminalTabId: string, browserTabId: string, netHostId: string): void;
   // ---- 窗格窗口化(弹出=整个窗格独立成窗 · 2026-07)----
   /** 标记窗格弹出:主窗收面板、停渲染其 webview;内容所有权移交壳窗(壳窗经 sync 回流) */
@@ -403,11 +419,14 @@ function hydrateTab(t: PersistedTab): TabState {
 }
 
 /** 持久化浏览器窗格 → 运行时 BrowserPaneState;空/缺省 → undefined(tab 未开过浏览器)。
- *  activeTabId 失效(指向已不存在的标签)时回落首个标签。 */
+ *  activeTabId 失效(指向已不存在的标签)时回落首个标签。
+ *  🔴 choke point:剥掉 preview——存档本不该有(persistence 序列化已过滤,预览标签不落盘),
+ *  防手改注入伪装预览标签绕过「出口钉死」保护;远程 tab 布局恢复(restoreWorkspaceTabs →
+ *  hydrateTab)同样经此函数,同一次剥离覆盖两条恢复路径。 */
 function hydrateBrowserPane(
   p:
     | {
-        tabs: { id: string; url: string; netHostId?: string }[];
+        tabs: { id: string; url: string; netHostId?: string; preview?: true }[];
         activeTabId: string | null;
       }
     | undefined,
@@ -418,6 +437,7 @@ function hydrateBrowserPane(
     url: b.url,
     // netHostId 原样带回(缺省=跟随所属机器,resolveBrowserTabNet 兜底)
     ...(b.netHostId ? { netHostId: b.netHostId } : {}),
+    // preview 不带回(见函数头注)
   }));
   const activeTabId = tabs.some((b) => b.id === p.activeTabId)
     ? p.activeTabId
@@ -496,7 +516,10 @@ function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemot
       customName: t.customName,
       filePanel: t.filePanel,
       // 浏览器窗格与落盘同投影(只 {id,url,netHostId}),否则断线重连恢复的 tab 丢浏览器
-      // 标签,而整机重启(serializeTab 路径)却能恢复——两条恢复路径必须行为一致
+      // 标签,而整机重启(serializeTab 路径)却能恢复——两条恢复路径必须行为一致。
+      // 🔴 preview 原样透传(不在此过滤):这里只是内存态快照(进 remoteTabLayouts,可能被
+      // 重连消费 → restoreWorkspaceTabs → hydrateBrowserPane 剥离),真正的「不落盘」过滤
+      // 在磁盘序列化边界(persistence.serializeTab / serializeRemoteTabs)统一把关。
       ...(t.browser && t.browser.tabs.length > 0
         ? {
             browser: {
@@ -504,6 +527,7 @@ function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemot
                 id: b.id,
                 url: b.url,
                 ...(b.netHostId ? { netHostId: b.netHostId } : {}),
+                ...(b.preview ? { preview: true as const } : {}),
               })),
               activeTabId: t.browser.activeTabId,
             },
@@ -1166,12 +1190,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  addBrowserTab(terminalTabId, url = '') {
+  addBrowserTab(terminalTabId, url = '', opts) {
     set((s) => {
       const bt: BrowserTabState = {
         id: crypto.randomUUID(),
         url,
-        netHostId: ownerHostIdOf(s.workspaces, terminalTabId),
+        netHostId: opts?.netHostId ?? ownerHostIdOf(s.workspaces, terminalTabId),
+        ...(opts?.preview ? { preview: true as const } : {}),
       };
       return {
         browserPanelOpen: true,
@@ -1189,7 +1214,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
         ...pane,
-        tabs: pane.tabs.map((b) => (b.id === browserTabId ? { ...b, netHostId } : b)),
+        // 预览标签(preview===true)出口钉死所属机器:store 层权威守卫,命中即原样返回
+        // (no-op)——UI 侧 disabled 只是第一道防线,这里是最后一道,防绕过。
+        tabs: pane.tabs.map((b) =>
+          b.id === browserTabId && b.preview !== true ? { ...b, netHostId } : b,
+        ),
       })),
     }));
   },

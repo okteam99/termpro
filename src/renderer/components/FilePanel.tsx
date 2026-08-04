@@ -6,6 +6,8 @@ import { t } from '../../shared/i18n';
 import { gitStatusClass, joinPath } from '../filepanel/core';
 import { registerFilePanelLocateHandler } from '../filepanel/locateRegistry';
 import { useFilePanel } from '../filepanel/useFilePanel';
+import { openHtmlPreview } from '../services/openPreview';
+import { isPreviewable } from '../services/previewUrl';
 import { WorktreeDropdown } from './WorktreeDropdown';
 import { PanelHeader } from './PanelHeader';
 import './FilePanel.css';
@@ -251,20 +253,22 @@ export function FilePanel() {
   const remoteHostId = isRemote && workspace ? workspace.hostId : null;
   const homedir = wsClient.info?.homedir;
 
-  // 本机 OS 动作禁用提示:三入口(浏览器打开 / Finder 显示 / Finder 打开)共用 1.8s 行内提示
-  const [localOnlyHintVisible, setLocalOnlyHintVisible] = useState(false);
-  const localOnlyHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showLocalOnlyHint = useCallback(() => {
-    setLocalOnlyHintVisible(true);
-    if (localOnlyHintTimerRef.current) clearTimeout(localOnlyHintTimerRef.current);
-    localOnlyHintTimerRef.current = setTimeout(() => {
-      setLocalOnlyHintVisible(false);
-      localOnlyHintTimerRef.current = null;
+  // 行内提示(非 modal,1.8s 后自动消失):原本只服务本机 OS 动作禁用三入口(浏览器打开 /
+  // Finder 显示 / Finder 打开),泛化为任意文案的通用提示——预览失败(openHtmlPreview 的
+  // 确定性 message)复用同一条,不新开一套提示机制。
+  const [hintText, setHintText] = useState<string | null>(null);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHint = useCallback((text: string) => {
+    setHintText(text);
+    if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    hintTimerRef.current = setTimeout(() => {
+      setHintText(null);
+      hintTimerRef.current = null;
     }, LOCAL_ONLY_HINT_MS);
   }, []);
   useEffect(
     () => () => {
-      if (localOnlyHintTimerRef.current) clearTimeout(localOnlyHintTimerRef.current);
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
     },
     [],
   );
@@ -395,7 +399,7 @@ export function FilePanel() {
 
   return (
     <div className="file-panel" style={{ position: 'relative' }}>
-      {localOnlyHintVisible && (
+      {hintText && (
         <div
           className="file-panel__remote-hint"
           role="status"
@@ -413,7 +417,7 @@ export function FilePanel() {
             pointerEvents: 'none',
           }}
         >
-          {LOCAL_ONLY_HINT_TEXT}
+          {hintText}
         </div>
       )}
       {/* 统一风格头部(OpenChamber 风格):左图标+标题,右侧只有 ✕(无新窗口按钮) */}
@@ -596,7 +600,7 @@ export function FilePanel() {
             isDir || isErr ? null : fileStatusForPath(node.absPath);
           const canDiff = !!fileStatus && fileStatus !== 'ignored';
           const isFile = !isDir && !isErr;
-          const isHtml = isFile && /\.html?$/i.test(node.entry.name);
+          const isHtml = isFile && isPreviewable(node.entry.name);
 
           return (
             <div
@@ -691,18 +695,22 @@ export function FilePanel() {
               {isHtml && (
                 <button
                   className="file-panel__row-action"
-                  aria-disabled={isRemote ? 'true' : undefined}
-                  title={isRemote ? LOCAL_ONLY_HINT_TEXT : t('Open with default browser')}
-                  style={isRemote ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                  title={t('Preview in built-in browser')}
                   onClick={(e) => {
                     e.stopPropagation();
-                    // 远程 ws 的路径是该机上的路径,交给本机 openInBrowser 会静默作用于
-                    // 本机同名(但无关)文件——D-7 一律禁用 + 提示,而非静默走错文件。
-                    if (isRemote) {
-                      showLocalOnlyHint();
-                      return;
-                    }
-                    window.okwork.openInBrowser(node.absPath);
+                    if (!activeTab) return;
+                    // 内置浏览器预览:选根 → preview.ensure(按 hostId 严格路由)→ 拼 URL →
+                    // 开预览标签,本机/远程均可用(远程时 127.0.0.1 即远端 localhost,走既有
+                    // SOCKS+<-loopback> 机制)。失败一律用返回的确定性 message 提示,不静默。
+                    void openHtmlPreview({
+                      filePath: node.absPath,
+                      workspaceRoot: workspace?.root ?? null,
+                      effectiveRoot,
+                      hostId: workspace?.hostId ?? 'local',
+                      terminalTabId: activeTab.id,
+                    }).then((res) => {
+                      if (!res.ok) showHint(res.message);
+                    });
                   }}
                 >
                   <GlobeIcon />
@@ -717,7 +725,7 @@ export function FilePanel() {
                   onClick={(e) => {
                     e.stopPropagation();
                     if (isRemote) {
-                      showLocalOnlyHint();
+                      showHint(LOCAL_ONLY_HINT_TEXT);
                       return;
                     }
                     window.okwork.showItemInFolder(node.absPath);
@@ -737,7 +745,7 @@ export function FilePanel() {
                     // 目录展开/收起(行点击 handleToggleDir)不受影响——这个按钮是「本机
                     // Finder 打开」,是本地 OS 动作,与树浏览是两回事,D-7 同样要禁用。
                     if (isRemote) {
-                      showLocalOnlyHint();
+                      showHint(LOCAL_ONLY_HINT_TEXT);
                       return;
                     }
                     window.okwork.openPath(node.absPath);

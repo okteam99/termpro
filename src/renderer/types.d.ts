@@ -87,8 +87,14 @@ declare global {
         getState(terminalTabId: string): Promise<unknown>;
         sync(terminalTabId: string, pane: unknown): void;
         onSync(callback: (terminalTabId: string, pane: unknown) => void): () => void;
-        addTab(terminalTabId: string, url: string): void;
-        onAddTab(callback: (url: string) => void): () => void;
+        addTab(
+          terminalTabId: string,
+          url: string,
+          opts?: { netHostId?: string; preview?: true },
+        ): void;
+        onAddTab(
+          callback: (url: string, opts?: { netHostId?: string; preview?: true }) => void,
+        ): () => void;
         list(): Promise<string[]>;
         focus(terminalTabId: string): void;
         dock(terminalTabId: string): void;

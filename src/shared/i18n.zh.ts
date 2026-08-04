@@ -78,6 +78,14 @@ export const zh: Record<string, string> = {
   'Open with default browser': '用系统默认浏览器打开',
   'Show in Finder': '在 Finder 中显示(跳转所在目录)',
   'Open in Finder': '在 Finder 中打开',
+  'Preview in built-in browser': '内置浏览器预览',
+
+  // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
+  'This file is outside the workspace — cannot start a preview':
+    '该文件不在当前 workspace 内,无法启动预览',
+  "This machine's host is too old for preview — upgrade it": '该机器的 host 版本过旧,升级后可用预览',
+  'Failed to start the preview server: {error}': '预览服务器启动失败:{error}',
+  'Failed to build the preview URL': '预览地址生成失败',
 
   // --- App ---
   'Host process exited — press ⌘R to reload the window': 'Host 进程已退出,⌘R 重载窗口可恢复',
@@ -423,6 +431,7 @@ export const zh: Record<string, string> = {
   'Local network': '本机网络',
   'No connected remote machines': '无已连接的远程机',
   'Browser network exit: {name}': '浏览器网络出口:{name}',
+  "Preview tabs stay on their workspace's machine": '预览标签固定使用所属机器的网络出口',
   // OkWork 技能横条(okwork skill)
   'Install the okwork skill to let the AI operate the built-in browser':
     '安装 okwork 技能,让 AI 能操作内置浏览器',

@@ -492,10 +492,14 @@ ipcMain.on(
   },
 );
 
-// 主窗转投新标签(终端链接点到已弹出的窗格)→ 壳窗
+// 主窗转投新标签(终端链接点到已弹出的窗格 / 文件面板预览等)→ 壳窗。opts 透传
+// netHostId/preview(预览标签出口钉死语义需要跟着标签走到壳窗,壳窗侧 addBrowserTab 消费)。
 ipcMain.on(
   'browserPane:addTab',
-  (event, payload: { terminalTabId?: string; url?: string }) => {
+  (
+    event,
+    payload: { terminalTabId?: string; url?: string; netHostId?: string; preview?: true },
+  ) => {
     if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
     const tabId = payload?.terminalTabId;
     const url = payload?.url;
@@ -503,7 +507,11 @@ ipcMain.on(
     const win = paneWins.get(tabId);
     if (win && !win.isDestroyed()) {
       win.show();
-      win.webContents.send('browserPane:addTab', url);
+      win.webContents.send('browserPane:addTab', {
+        url,
+        ...(typeof payload.netHostId === 'string' ? { netHostId: payload.netHostId } : {}),
+        ...(payload.preview === true ? { preview: true as const } : {}),
+      });
     }
   },
 );

@@ -296,3 +296,93 @@ describe('标签级网络出口(netHostId · 2026-07-14)', () => {
     expect(resolveBrowserTabNet({}, 'cfg-7')).toBe('cfg-7');
   });
 });
+
+describe('预览标签(preview · 项目内 HTML 预览 · openHtmlPreview 开的标签)', () => {
+  it('addBrowserTab opts.netHostId/preview 物化到新标签', () => {
+    useAppStore.getState().addBrowserTab(TERM, 'http://127.0.0.1:1/tok/index.html', {
+      netHostId: 'cfg-9',
+      preview: true,
+    });
+    expect(pane()!.tabs[0]).toMatchObject({ netHostId: 'cfg-9', preview: true });
+  });
+
+  it('addBrowserTab 不传 opts → 缺省行为不变(netHostId=所属机器,无 preview 标志)', () => {
+    useAppStore.getState().addBrowserTab(TERM, 'https://a.dev');
+    expect(pane()!.tabs[0].netHostId).toBe('local');
+    expect(pane()!.tabs[0].preview).toBeUndefined();
+  });
+
+  it('setBrowserTabNet 对 preview 标签 no-op(出口钉死所属机器,store 层权威守卫)', () => {
+    useAppStore.getState().addBrowserTab(TERM, 'http://127.0.0.1:1/tok/x.html', {
+      netHostId: 'cfg-9',
+      preview: true,
+    });
+    const id = pane()!.tabs[0].id;
+    useAppStore.getState().setBrowserTabNet(TERM, id, 'local');
+    expect(pane()!.tabs[0].netHostId).toBe('cfg-9'); // 未被改动
+  });
+
+  it('setBrowserTabNet 对普通标签零回归(非 preview 正常生效)', () => {
+    useAppStore.getState().addBrowserTab(TERM, 'https://a.dev');
+    const id = pane()!.tabs[0].id;
+    useAppStore.getState().setBrowserTabNet(TERM, id, 'cfg-1');
+    expect(pane()!.tabs[0].netHostId).toBe('cfg-1');
+  });
+
+  it('serialize:preview 标签过滤不落盘,activeTabId 回落剩余首个标签', () => {
+    useAppStore.getState().addBrowserTab(TERM, 'https://a.com'); // 普通标签
+    useAppStore
+      .getState()
+      .addBrowserTab(TERM, 'http://127.0.0.1:1/tok/x.html', { preview: true }); // 预览标签,新建即激活
+    expect(pane()!.activeTabId).toBe(pane()!.tabs[1].id);
+
+    const archive = serialize(useAppStore.getState());
+    const tab = archive.workspaces[0].tabs[0] as {
+      browser?: { tabs: { id: string; url: string }[]; activeTabId: string | null };
+    };
+    expect(tab.browser!.tabs).toHaveLength(1);
+    expect(tab.browser!.tabs[0].url).toBe('https://a.com');
+    expect(tab.browser!.tabs.some((b) => 'preview' in b)).toBe(false);
+    // 原 activeTabId 指向被过滤掉的预览标签 → 回落剩余首个
+    expect(tab.browser!.activeTabId).toBe(tab.browser!.tabs[0].id);
+  });
+
+  it('serialize:全部标签都是 preview → browser 键整体不写盘(等价从未开过浏览器)', () => {
+    useAppStore
+      .getState()
+      .addBrowserTab(TERM, 'http://127.0.0.1:1/tok/x.html', { preview: true });
+    const archive = serialize(useAppStore.getState());
+    const tab = archive.workspaces[0].tabs[0] as { browser?: unknown };
+    expect(tab.browser).toBeUndefined();
+  });
+
+  it('hydrate:剥掉 preview(存档本不该有,防手改注入伪装预览标签绕过出口钉死)', () => {
+    useAppStore.getState().hydrate(
+      [],
+      persistedV1(
+        [
+          {
+            id: 'ws1',
+            name: 'w',
+            root: '/w',
+            activeTabId: TERM,
+            tabs: [
+              {
+                id: TERM,
+                cwd: '/w',
+                browser: {
+                  tabs: [{ id: 't1', url: 'https://a.com', preview: true }],
+                  activeTabId: 't1',
+                },
+              },
+            ],
+          },
+        ],
+        {},
+      ),
+    );
+    const br = useAppStore.getState().workspaces[0].tabs[0].browser;
+    expect(br?.tabs).toHaveLength(1);
+    expect(br?.tabs[0]).not.toHaveProperty('preview');
+  });
+});

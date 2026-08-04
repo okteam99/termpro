@@ -415,6 +415,9 @@ function BrowserNetSelector({
   const label = isRemote
     ? `${exit?.alias ?? current}${down ? ` · ${t('Reconnecting…')}` : ''}`
     : t('Local network');
+  // 预览标签(openHtmlPreview 开的标签)出口钉死所属机器:选择器禁用 + 文案说明原因,
+  // store 层 setBrowserTabNet 对它 no-op 是最后一道防线,这里只是第一道(UI 不给点)。
+  const isPreview = tab?.preview === true;
 
   return (
     <div className="browser-panel__net">
@@ -424,9 +427,13 @@ function BrowserNetSelector({
         className={`browser-panel__nav-btn browser-panel__net-btn${
           isRemote ? ' browser-panel__net-btn--active' : ''
         }`}
-        disabled={!tab}
+        disabled={!tab || isPreview}
         onClick={() => (open ? setOpen(false) : openMenu())}
-        title={t('Browser network exit: {name}', { name: label })}
+        title={
+          isPreview
+            ? t("Preview tabs stay on their workspace's machine")
+            : t('Browser network exit: {name}', { name: label })
+        }
       >
         {isRemote && (
           <span

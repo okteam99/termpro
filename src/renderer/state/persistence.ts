@@ -219,9 +219,19 @@ function serializeRemoteTabs(s: AppState): PersistedRemoteWorkspace[] {
   const liveRemoteIds = new Set(
     s.workspaces.filter((w) => w.hostId !== 'local').map((w) => w.id),
   );
-  const stored = Object.values(s.remoteTabLayouts).filter(
-    (l) => !liveRemoteIds.has(l.workspaceId),
-  );
+  const stored = Object.values(s.remoteTabLayouts)
+    .filter((l) => !liveRemoteIds.has(l.workspaceId))
+    // 🔴 stored 直接来自内存态快照(store.snapshotRemoteLayout 按设计透传 preview,供
+    // 重连收养链路复用 hydrateBrowserPane 的剥离),绕过了 serializeTab 的过滤——落盘前
+    // 必须在此补一道,否则断线未重连就退出会把预览标签(URL 含一次性 token)写进磁盘存档。
+    .map((l) => ({
+      ...l,
+      tabs: l.tabs.map((t) => {
+        const browser = serializeBrowserTabs(t.browser);
+        const { browser: _droppedBrowser, ...rest } = t;
+        return browser ? { ...rest, browser } : rest;
+      }),
+    }));
   const live = s.workspaces
     .filter((w) => w.hostId !== 'local' && w.tabs.length > 0)
     .map((w) => ({
@@ -235,26 +245,38 @@ function serializeRemoteTabs(s: AppState): PersistedRemoteWorkspace[] {
   return [...stored, ...live];
 }
 
+/** 落盘前过滤预览标签(preview===true 不落盘:URL 含一次性 token,存档没有意义且是信息
+ *  泄露面)。过滤后原 activeTabId 若指向被过滤掉的标签,回落首个剩余标签;剩光了 → 该 tab
+ *  没有可落盘的浏览器窗格(调用方按「browser: undefined」处理,与「从未开过浏览器」等价)。 */
+function serializeBrowserTabs(
+  browser: { tabs: { id: string; url: string; netHostId?: string; preview?: true }[]; activeTabId: string | null } | undefined,
+): { tabs: { id: string; url: string; netHostId?: string }[]; activeTabId: string | null } | null {
+  if (!browser) return null;
+  const kept = browser.tabs.filter((b) => !b.preview);
+  if (kept.length === 0) return null;
+  const activeTabId = kept.some((b) => b.id === browser.activeTabId)
+    ? browser.activeTabId
+    : kept[0].id;
+  return {
+    tabs: kept.map((b) => ({
+      id: b.id,
+      url: b.url,
+      ...(b.netHostId ? { netHostId: b.netHostId } : {}),
+    })),
+    activeTabId,
+  };
+}
+
 function serializeTab(t: AppState['workspaces'][number]['tabs'][number]) {
   const sessionId = getSessionId(t.id);
+  const browser = serializeBrowserTabs(t.browser);
   return {
     id: t.id,
     cwd: t.cwd,
     customName: t.customName,
     filePanel: t.filePanel,
-    // 浏览器窗格:只存 {id,url,netHostId}(title 视图态);空/未开 → 不写盘
-    ...(t.browser && t.browser.tabs.length > 0
-      ? {
-          browser: {
-            tabs: t.browser.tabs.map((b) => ({
-              id: b.id,
-              url: b.url,
-              ...(b.netHostId ? { netHostId: b.netHostId } : {}),
-            })),
-            activeTabId: t.browser.activeTabId,
-          },
-        }
-      : {}),
+    // 浏览器窗格:只存 {id,url,netHostId}(title 视图态);空/未开/全是预览标签 → 不写盘
+    ...(browser ? { browser } : {}),
     // 会话收养键(本地/远程同构):活会话才写盘;本地 embedded 下恒 stale,hydrate 容忍
     ...(sessionId ? { sessionId } : {}),
   };

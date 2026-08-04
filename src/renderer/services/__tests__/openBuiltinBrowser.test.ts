@@ -92,9 +92,30 @@ describe('openBuiltinBrowser', () => {
 
     openBuiltinBrowser('t-1', 'https://a.dev/2');
 
-    expect(addTab).toHaveBeenCalledWith('t-1', 'https://a.dev/2');
+    expect(addTab).toHaveBeenCalledWith('t-1', 'https://a.dev/2', undefined);
     expect(popout).toHaveBeenCalledTimes(1); // 没有二次弹窗
     expect(paneOf('t-1')?.tabs.length).toBe(before);
+  });
+
+  it('opts(netHostId/preview)透传:面板落位分支物化到新标签', () => {
+    useAppStore.setState({ builtinBrowserSurface: 'pane' });
+    openBuiltinBrowser('t-1', 'https://a.dev/1', { netHostId: 'cfg-9', preview: true });
+    expect(paneOf('t-1')?.tabs[0]).toMatchObject({ netHostId: 'cfg-9', preview: true });
+  });
+
+  it('opts(netHostId/preview)透传:已弹出转投分支原样转给壳窗', () => {
+    openBuiltinBrowser('t-1', 'https://a.dev/1'); // 先弹出独立窗口
+    openBuiltinBrowser('t-1', 'https://a.dev/2', { netHostId: 'cfg-7', preview: true });
+    expect(addTab).toHaveBeenLastCalledWith('t-1', 'https://a.dev/2', {
+      netHostId: 'cfg-7',
+      preview: true,
+    });
+  });
+
+  it('opts(netHostId/preview)透传:独立窗口初次弹出的快照里,新标签自带 opts(popout 天然带上)', () => {
+    openBuiltinBrowser('t-1', 'https://a.dev/1', { netHostId: 'cfg-9', preview: true });
+    const payload = popout.mock.calls[0][0];
+    expect(payload.pane.tabs[0]).toMatchObject({ netHostId: 'cfg-9', preview: true });
   });
 
   it('tab 已关(竞态):不弹窗,不抛错', () => {

@@ -11,21 +11,32 @@
 
 import { useAppStore } from '../state/store';
 
-export function openBuiltinBrowser(terminalTabId: string, url = ''): void {
+/** 新标签开位选项:netHostId 显式指定出口(缺省=所属终端 tab 的机器);preview=true 打
+ *  预览标志(出口钉死、不落盘、UI 禁用出口选择器,见 store.ts BrowserTabState.preview)。 */
+export interface OpenBuiltinBrowserOpts {
+  netHostId?: string;
+  preview?: true;
+}
+
+export function openBuiltinBrowser(
+  terminalTabId: string,
+  url = '',
+  opts?: OpenBuiltinBrowserOpts,
+): void {
   const s = useAppStore.getState();
   const ws = s.workspaces.find((w) => w.tabs.some((tb) => tb.id === terminalTabId));
   const tab = ws?.tabs.find((tb) => tb.id === terminalTabId);
 
   // 1. 已弹出:内容归壳窗所有,主窗镜像绝不自己种标签
   if (tab?.browser?.poppedOut) {
-    window.okwork?.browserPane?.addTab?.(terminalTabId, url);
+    window.okwork?.browserPane?.addTab?.(terminalTabId, url, opts);
     return;
   }
 
   // 2. 已在面板里显示 / 3. 设置为面板 → 直接落面板(addBrowserTab 顺手开面板)
   const dockedVisible = s.browserPanelOpen && (tab?.browser?.tabs.length ?? 0) > 0;
   if (dockedVisible || s.builtinBrowserSurface === 'pane') {
-    s.addBrowserTab(terminalTabId, url);
+    s.addBrowserTab(terminalTabId, url, opts);
     return;
   }
 
@@ -33,7 +44,7 @@ export function openBuiltinBrowser(terminalTabId: string, url = ''): void {
   // addBrowserTab 是面板 action,会顺手收起文件面板(store 互斥语义)——但浏览器
   // 这次落的是独立窗口,从未占用主窗面板槽,收起前先快照,弹窗后必须还原(P1-1)
   const prevFileCollapsed = s.filePanelCollapsed;
-  s.addBrowserTab(terminalTabId, url);
+  s.addBrowserTab(terminalTabId, url, opts);
   const after = useAppStore.getState();
   const afterWs = after.workspaces.find((w) => w.tabs.some((tb) => tb.id === terminalTabId));
   const afterTab = afterWs?.tabs.find((tb) => tb.id === terminalTabId);

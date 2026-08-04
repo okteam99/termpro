@@ -162,13 +162,24 @@ contextBridge.exposeInMainWorld('okwork', {
       ipcRenderer.on('browserPane:sync', listener);
       return () => ipcRenderer.removeListener('browserPane:sync', listener);
     },
-    /** 主窗:把 url 转投给已弹出窗格(终端链接点击等) */
-    addTab(terminalTabId: string, url: string): void {
-      ipcRenderer.send('browserPane:addTab', { terminalTabId, url });
+    /** 主窗:把 url 转投给已弹出窗格(终端链接点击/文件面板预览等);opts 透传
+     *  netHostId/preview(预览标签出口钉死语义需要跟着标签走到壳窗)。 */
+    addTab(
+      terminalTabId: string,
+      url: string,
+      opts?: { netHostId?: string; preview?: true },
+    ): void {
+      ipcRenderer.send('browserPane:addTab', { terminalTabId, url, ...opts });
     },
-    /** 壳窗:订阅主窗转投的新标签请求,返回退订函数 */
-    onAddTab(callback: (url: string) => void): () => void {
-      const listener = (_e: unknown, url: string) => callback(url);
+    /** 壳窗:订阅主窗转投的新标签请求,返回退订函数(旧形态只传 url 时 opts 为空对象,
+     *  callback 收 undefined 字段,向后兼容——见 sanitizeSeed 同款防御性收窄惯例) */
+    onAddTab(
+      callback: (url: string, opts?: { netHostId?: string; preview?: true }) => void,
+    ): () => void {
+      const listener = (
+        _e: unknown,
+        p: { url: string; netHostId?: string; preview?: true },
+      ) => callback(p.url, { netHostId: p.netHostId, preview: p.preview });
       ipcRenderer.on('browserPane:addTab', listener);
       return () => ipcRenderer.removeListener('browserPane:addTab', listener);
     },
