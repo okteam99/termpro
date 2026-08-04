@@ -44,16 +44,17 @@
   white-space: nowrap;
   flex-shrink: 0;
   border-radius: 999px;
-  border: 1px solid transparent;
+  /* 非活跃标签也显出胶囊轮廓(用户指令 2026-08-04),只是更淡;活跃=更实的填充+描边 */
+  border: 1px solid rgba(255, 255, 255, 0.045);
   color: var(--fg-dim);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.035);
   position: relative;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
   -webkit-app-region: no-drag;
 }
 
 .tabbar-tab:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .tabbar-tab:hover .tabbar-close-btn {
