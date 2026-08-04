@@ -404,3 +404,100 @@ describe('窗格窗口化(弹出=整个窗格独立成窗 · 2026-07-14)', () =>
     expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toEqual([]);
   });
 });
+
+describe('头部 ✕ 三态确认(Cancel/Close All/Hide · 用户指令 2026-08-04)', () => {
+  function seedTwoTabs(): void {
+    seedWorkspace({
+      tabs: [
+        { id: 'a', url: 'https://a.dev', title: 'A' },
+        { id: 'b', url: 'https://b.dev', title: 'B' },
+      ],
+      activeTabId: 'a',
+    });
+  }
+
+  function clickClose(): void {
+    fireEvent.click(screen.getByTitle('Hide browser'));
+  }
+
+  it('窗格标签数 ≤ 1:直接收起面板(现行为),不弹确认、不碰桥', () => {
+    const confirmClose = vi.fn();
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserPanel: { confirmClose },
+    };
+    seedWorkspace({ tabs: [{ id: 'a', url: 'https://a.dev', title: 'A' }], activeTabId: 'a' });
+    render(<BrowserPanel />);
+
+    clickClose();
+
+    expect(confirmClose).not.toHaveBeenCalled();
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+  });
+
+  it('多标签 + 选「Close All」:关掉窗格全部浏览器标签,面板随之关', async () => {
+    const confirmClose = vi.fn().mockResolvedValue('closeAll');
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserPanel: { confirmClose },
+    };
+    seedTwoTabs();
+    render(<BrowserPanel />);
+
+    await act(async () => {
+      clickClose();
+      await Promise.resolve();
+    });
+
+    expect(confirmClose).toHaveBeenCalledWith(2);
+    const pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
+    expect(pane.tabs).toEqual([]);
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+  });
+
+  it('多标签 + 选「Hide」:面板收起(现行为),标签保留', async () => {
+    const confirmClose = vi.fn().mockResolvedValue('hide');
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserPanel: { confirmClose },
+    };
+    seedTwoTabs();
+    render(<BrowserPanel />);
+
+    await act(async () => {
+      clickClose();
+      await Promise.resolve();
+    });
+
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toHaveLength(2); // 标签保留
+  });
+
+  it('多标签 + 选「Cancel」:什么都不做', async () => {
+    const confirmClose = vi.fn().mockResolvedValue('cancel');
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserPanel: { confirmClose },
+    };
+    seedTwoTabs();
+    render(<BrowserPanel />);
+
+    await act(async () => {
+      clickClose();
+      await Promise.resolve();
+    });
+
+    expect(useAppStore.getState().browserPanelOpen).toBe(true); // 不动
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toHaveLength(2);
+  });
+
+  it('桥不存在(测试态/旧 preload):兜底直接收起面板(与现行为一致)', async () => {
+    delete (window as unknown as Record<string, unknown>).okwork;
+    seedTwoTabs();
+    render(<BrowserPanel />);
+
+    await act(async () => {
+      clickClose();
+      await Promise.resolve();
+    });
+
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toHaveLength(2); // 标签保留
+  });
+});

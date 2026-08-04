@@ -28,7 +28,9 @@ import {
 } from './exitConfirmation';
 import {
   PANE_CLOSE_CONFIRM_INDEX,
+  PANE_CLOSE_HIDE_INDEX,
   buildPaneCloseConfirmationOptions,
+  buildPanelCloseConfirmationOptions,
   decidePaneClose,
   paneClosedNotice,
   paneTabCount,
@@ -423,9 +425,16 @@ ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
     void dialog
       .showMessageBox(win, buildPaneCloseConfirmationOptions(paneTabCount(paneSeeds.get(tabId)?.pane)))
       .then(({ response }) => {
-        if (response !== PANE_CLOSE_CONFIRM_INDEX || win.isDestroyed()) return;
-        closeConfirmed = true;
-        win.close();
+        if (win.isDestroyed()) return;
+        if (response === PANE_CLOSE_CONFIRM_INDEX) {
+          closeConfirmed = true;
+          win.close();
+        } else if (response === PANE_CLOSE_HIDE_INDEX) {
+          // Hide = 仅隐藏窗口,标签继续存活、镜像不动;什么都不清——地球钮经既有
+          // browserPane:focus(已带 win.show())唤回(用户指令 2026-08-04)
+          win.hide();
+        }
+        // 其余(Cancel)什么都不做,e.preventDefault() 已在弹框前拦下
       })
       .catch((err) => console.error('[main] pane close confirm failed:', err))
       .finally(() => {
@@ -583,6 +592,18 @@ ipcMain.on('browserPane:close', (event, payload: { terminalTabId?: string }) => 
   const win = paneWins.get(tabId);
   if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
   if (!win.isDestroyed()) win.close();
+});
+
+// 主窗浏览器面板头部 ✕:与壳窗同款三态确认(Cancel/Close All/Hide),同阈值(窗格标签数
+// > 1 才弹,≤1 由 renderer 直接走现行为)。仅 mainWin 自己可发起(与其它 browserPane* 桥
+// 的守卫一致)。tabCount 来自 renderer 上报,防御性收窄成 number。
+ipcMain.handle('browserPanel:confirmClose', async (event, payload: { tabCount?: unknown }) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin || !mainWin) return 'cancel';
+  const tabCount = typeof payload?.tabCount === 'number' ? payload.tabCount : 0;
+  const { response } = await dialog.showMessageBox(mainWin, buildPanelCloseConfirmationOptions(tabCount));
+  if (response === PANE_CLOSE_CONFIRM_INDEX) return 'closeAll';
+  if (response === PANE_CLOSE_HIDE_INDEX) return 'hide';
+  return 'cancel';
 });
 
 // ---- AI 浏览器控制桥(main 侧)----------------------------------------------

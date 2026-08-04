@@ -488,6 +488,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const updateBrowserTab = useAppStore((s) => s.updateBrowserTab);
   const popOutBrowserPane = useAppStore((s) => s.popOutBrowserPane);
   const toggleBrowserPanel = useAppStore((s) => s.toggleBrowserPanel);
+  const closeBrowserPane = useAppStore((s) => s.closeBrowserPane);
 
   // 浏览器窗格绑定当前活跃终端 tab(像 FilePanel 绑定 activeTab 一样);nav 栏/标签条
   // 都反映它,切终端 tab 面板跟着换一组标签。
@@ -672,6 +673,23 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     popOutBrowserPane(activeTermTabId);
   }
 
+  // 头部 ✕:与壳窗红灯钮同款三态确认(用户指令 2026-08-04)——同阈值,窗格标签数 > 1
+  // 才弹框,≤1 直接按现行为收起面板(Hide)。桥不存在(测试态/旧 preload)一律兜底为
+  // Hide,与「≤1 直接收起」的现行为保持一致,不强行阻断用户的关闭意图。
+  async function handleHeaderClose() {
+    if (tabs.length <= 1) {
+      toggleBrowserPanel();
+      return;
+    }
+    const result = await window.okwork?.browserPanel?.confirmClose?.(tabs.length);
+    if (result === 'closeAll') {
+      if (activeTermTabId) closeBrowserPane(activeTermTabId);
+    } else if (result === 'hide' || !result) {
+      toggleBrowserPanel();
+    }
+    // 'cancel' → 什么都不做
+  }
+
   return (
     <div className="browser-panel">
       {/* 统一风格头部(OpenChamber 风格):与终端 tab 视觉区隔(用户指令),兼作窗口拖拽区;
@@ -680,7 +698,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
         <PanelHeader
           icon={<BrowserGlobeIcon />}
           title="OkBrowser"
-          onClose={toggleBrowserPanel}
+          onClose={handleHeaderClose}
           closeTitle={t('Hide browser')}
           actions={
             <PanelHeaderButton

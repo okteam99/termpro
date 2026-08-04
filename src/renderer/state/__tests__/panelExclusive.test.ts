@@ -65,6 +65,44 @@ describe('面板互斥(SideRail:浏览器 / 文件面板同一时间只显示一
     expect(useAppStore.getState().filePanelCollapsed).toBe(true);
   });
 
+  it('closeBrowserPane:头部 ✕ 三态确认「Close All」落点——清空窗格 + 关面板,不碰文件面板态', () => {
+    const ws: WorkspaceState = {
+      id: 'ws1',
+      name: 'w',
+      root: '/w',
+      hostId: 'local',
+      tabs: [
+        {
+          id: TERM,
+          title: 't',
+          cwd: '/w',
+          browser: {
+            tabs: [
+              { id: 'a', url: 'https://a.dev' },
+              { id: 'b', url: 'https://b.dev' },
+            ],
+            activeTabId: 'a',
+          },
+        },
+      ],
+      activeTabId: TERM,
+    };
+    useAppStore.setState({
+      workspaces: [ws],
+      activeWorkspaceId: 'ws1',
+      browserPanelOpen: true,
+      filePanelCollapsed: true,
+    });
+
+    useAppStore.getState().closeBrowserPane(TERM);
+
+    const pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
+    expect(pane.tabs).toEqual([]);
+    expect(pane.activeTabId).toBeNull();
+    expect(useAppStore.getState().browserPanelOpen).toBe(false);
+    expect(useAppStore.getState().filePanelCollapsed).toBe(true); // 不碰——只关浏览器
+  });
+
   it('dockBrowserPane 回落到活跃 tab → 顺手收起文件面板', () => {
     useAppStore.setState({ filePanelCollapsed: false });
     useAppStore.getState().dockBrowserPane(TERM);

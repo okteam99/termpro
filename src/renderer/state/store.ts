@@ -361,6 +361,10 @@ export interface AppState {
   /** 独立窗口被直接关闭(红灯钮/标签关光,非回落):清空窗格镜像并清 poppedOut;
    *  不动面板开关——浏览器就此关闭,不回落到面板(用户指令 2026-07-23) */
   closePoppedPane(terminalTabId: string): void;
+  /** 主窗浏览器面板头部 ✕ 三态确认的「Close All」落点:清空该窗格所有标签(不回落)
+   *  并关闭浏览器面板。只关浏览器,不碰 filePanelCollapsed(用户可能正想切去文件面板,
+   *  不该被这个动作扰动;用户指令 2026-08-04) */
+  closeBrowserPane(terminalTabId: string): void;
   /** 开机对账(主窗重载/崩溃自愈期间壳窗还开着):只补 poppedOut 标记,不动面板开关
    *  ——poppedOut 是视图态不入档,重载即丢;不对账会对同窗格双渲染 webview(双载) */
   markPanePoppedOut(terminalTabId: string): void;
@@ -1240,6 +1244,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         tabs: [],
         activeTabId: null,
       })),
+    }));
+  },
+
+  // ✕ 三态确认的「Close All」落点:清空窗格 tabs(参考 closePoppedPane 的清空写法)+
+  // 关浏览器面板;不碰 filePanelCollapsed——只关浏览器,别的面板态不受影响。
+  closeBrowserPane(terminalTabId) {
+    set((s) => ({
+      workspaces: patchTabBrowser(s.workspaces, terminalTabId, () => ({
+        tabs: [],
+        activeTabId: null,
+      })),
+      browserPanelOpen: false,
     }));
   },
 

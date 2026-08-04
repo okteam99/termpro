@@ -226,6 +226,13 @@ contextBridge.exposeInMainWorld('okwork', {
       return () => ipcRenderer.removeListener('browserPane:setProfile', listener);
     },
   },
+  // 主窗浏览器面板头部 ✕ 三态确认(Cancel/Close All/Hide),与壳窗红灯钮同款文案/阈值
+  browserPanel: {
+    /** 多标签时弹三态确认框(main 侧按 tabCount 判定标题/文案),返回用户选择 */
+    confirmClose(tabCount: number): Promise<'cancel' | 'closeAll' | 'hide'> {
+      return ipcRenderer.invoke('browserPanel:confirmClose', { tabCount });
+    },
+  },
   /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
    *  sourceWebContentsId 为来源 guest 的 webContents id(renderer 据此落位来源终端 tab) */
   onBrowserOpenUrl(callback: (url: string, sourceWebContentsId: number) => void): () => void {

@@ -105,6 +105,10 @@ declare global {
         setProfile(terminalTabId: string, profileId: string): void;
         onSetProfile(callback: (profileId: string) => void): () => void;
       };
+      /** 主窗浏览器面板头部 ✕ 三态确认(Cancel/Close All/Hide),与壳窗红灯钮同款文案/阈值 */
+      browserPanel: {
+        confirmClose(tabCount: number): Promise<'cancel' | 'closeAll' | 'hide'>;
+      };
       /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
        *  sourceWebContentsId=来源 guest 的 webContents id(据此把新标签落回来源终端 tab 的窗格) */
       onBrowserOpenUrl(

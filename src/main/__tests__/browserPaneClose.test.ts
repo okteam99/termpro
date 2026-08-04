@@ -3,7 +3,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   PANE_CLOSE_CONFIRM_INDEX,
+  PANE_CLOSE_HIDE_INDEX,
   buildPaneCloseConfirmationOptions,
+  buildPanelCloseConfirmationOptions,
   decidePaneClose,
   paneClosedNotice,
   paneTabCount,
@@ -63,13 +65,27 @@ describe('paneClosedNotice(closed 后给主窗的通知路由)', () => {
   });
 });
 
-describe('buildPaneCloseConfirmationOptions(确认框文案)', () => {
-  it('标题/按钮/默认取消;message 插入标签数', () => {
+describe('buildPaneCloseConfirmationOptions(壳窗红灯钮三键确认框文案)', () => {
+  it('标题/三键/默认取消;message 插入标签数', () => {
     const opts = buildPaneCloseConfirmationOptions(3);
     expect(opts.title).toBe('Close all browser tabs?');
     expect(opts.message).toContain('3 browser tabs');
-    expect(opts.buttons).toEqual(['Cancel', 'Close All']);
+    expect(opts.buttons).toEqual(['Cancel', 'Close All', 'Hide']);
     expect(opts.buttons[PANE_CLOSE_CONFIRM_INDEX]).toBe('Close All');
+    expect(opts.buttons[PANE_CLOSE_HIDE_INDEX]).toBe('Hide');
+    expect(opts.defaultId).toBe(0);
+    expect(opts.cancelId).toBe(0);
+  });
+});
+
+describe('buildPanelCloseConfirmationOptions(主窗面板 ✕ 三键确认框文案)', () => {
+  it('标题同壳窗变体;message 插入标签数,三键同款', () => {
+    const opts = buildPanelCloseConfirmationOptions(4);
+    expect(opts.title).toBe('Close all browser tabs?');
+    expect(opts.message).toContain('4 tabs');
+    expect(opts.buttons).toEqual(['Cancel', 'Close All', 'Hide']);
+    expect(opts.buttons[PANE_CLOSE_CONFIRM_INDEX]).toBe('Close All');
+    expect(opts.buttons[PANE_CLOSE_HIDE_INDEX]).toBe('Hide');
     expect(opts.defaultId).toBe(0);
     expect(opts.cancelId).toBe(0);
   });

@@ -338,9 +338,12 @@ export const zh: Record<string, string> = {
   'Focus the OkBrowser window': '聚焦 OkBrowser 独立窗口',
   'Workspace browser profile — click to edit the workspace': '当前 Workspace 使用的浏览器 Profile——点击编辑 workspace',
   'Close all browser tabs?': '关闭所有浏览器标签？',
-  'This window has {count} browser tabs open. Closing it closes them all — use "Dock back" to keep them in the panel.':
-    '该窗口开着 {count} 个浏览器标签，关闭窗口将全部关掉；想保留标签请改用「收回面板」。',
+  'This window has {count} browser tabs open. "Close All" closes them all; "Hide" keeps them running and hides the window; "Dock back" returns them to the panel.':
+    '该窗口开着 {count} 个浏览器标签。「全部关闭」会关掉所有标签；「隐藏」保留标签运行并隐藏窗口；「收回面板」把它们送回主窗口面板。',
+  'The browser panel has {count} tabs open. "Close All" closes them all; "Hide" collapses the panel and keeps them.':
+    '浏览器面板开着 {count} 个标签。「全部关闭」会关掉所有标签；「隐藏」收起面板并保留它们。',
   'Close All': '全部关闭',
+  'Hide': '隐藏',
 
   // --- main/rendererRecovery(崩溃自愈 give-up 弹窗) ---
   'OkWork keeps crashing': 'OkWork 持续崩溃',

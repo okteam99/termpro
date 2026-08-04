@@ -53,7 +53,7 @@ export interface PaneCloseConfirmationOptions {
   type: 'warning';
   title: string;
   message: string;
-  buttons: [string, string];
+  buttons: [string, string, string];
   defaultId: 0;
   cancelId: 0;
   noLink: true;
@@ -61,7 +61,11 @@ export interface PaneCloseConfirmationOptions {
 
 /** buttons 里「全部关闭」的下标(showMessageBox response 与之比对) */
 export const PANE_CLOSE_CONFIRM_INDEX = 1;
+/** buttons 里「隐藏」的下标——仅隐藏窗口/收起面板,标签保活(用户指令 2026-08-04) */
+export const PANE_CLOSE_HIDE_INDEX = 2;
 
+/** 壳窗(弹出的独立窗口)红灯钮关闭确认框:Cancel / Close All / Hide 三键。
+ *  Hide = 仅隐藏窗口,标签继续存活、镜像不动——地球钮经 browserPane:focus 唤回。 */
 export function buildPaneCloseConfirmationOptions(
   tabCount: number,
 ): PaneCloseConfirmationOptions {
@@ -69,10 +73,29 @@ export function buildPaneCloseConfirmationOptions(
     type: 'warning',
     title: t('Close all browser tabs?'),
     message: t(
-      'This window has {count} browser tabs open. Closing it closes them all — use "Dock back" to keep them in the panel.',
+      'This window has {count} browser tabs open. "Close All" closes them all; "Hide" keeps them running and hides the window; "Dock back" returns them to the panel.',
       { count: tabCount },
     ),
-    buttons: [t('Cancel'), t('Close All')],
+    buttons: [t('Cancel'), t('Close All'), t('Hide')],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  };
+}
+
+/** 主窗浏览器面板头部 ✕ 关闭确认框(与壳窗同阈值,窗格标签数 > 1 才弹):
+ *  Cancel / Close All / Hide 三键,Hide = 收起面板,标签保留(现行为)。 */
+export function buildPanelCloseConfirmationOptions(
+  tabCount: number,
+): PaneCloseConfirmationOptions {
+  return {
+    type: 'warning',
+    title: t('Close all browser tabs?'),
+    message: t(
+      'The browser panel has {count} tabs open. "Close All" closes them all; "Hide" collapses the panel and keeps them.',
+      { count: tabCount },
+    ),
+    buttons: [t('Cancel'), t('Close All'), t('Hide')],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
