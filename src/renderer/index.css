@@ -1,12 +1,12 @@
 :root {
   color-scheme: dark;
-  --bg: #1e2227;
-  --bg-panel: #23272e;
-  --bg-active: #2c313a;
-  --fg: #d7dae0;
-  --fg-dim: #9da5b4;
-  --accent: #4a8df8;
-  --border: #181b1f;
+  --bg: #1b1b1b;
+  --bg-panel: #141414;
+  --bg-active: #2a2a2a;
+  --fg: #e8e6e3;
+  --fg-dim: #9c9a94;
+  --accent: #f08c3c;
+  --border: #262626;
   /* 状态三色(green/amber/red):此前只 scope 在 .remote-hosts__backdrop 内,
      Sidebar 的 var(--green)/var(--red)(连接圆点/会话徽标/RTT 分级)静默回退成
      继承色(灰)甚至透明——提升到 :root 作为全局调色板。 */
@@ -109,7 +109,7 @@ body.pane-dragging .pane-handle {
   bottom: 0;
   z-index: 20;
   background: var(--bg);
-  border-top: 1px solid rgba(74, 141, 248, 0.3);
+  border-top: 1px solid rgba(240, 140, 60, 0.3);
   box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   overflow: hidden;

@@ -17,7 +17,7 @@ import {
 // ─────────────────────────────────────────────
 const THEME: BarTheme = {
   foreground: '#d7dae0',
-  background: '#1e2227',
+  background: '#1b1b1b',
 };
 
 // ─────────────────────────────────────────────
@@ -213,14 +213,14 @@ describe('resolveCellStyle 边界', () => {
 
   it('inverse + dim:先 inverse 交换,再 dim 压暗最终前景', () => {
     // palette fg=7(#d3d7cf),bg=default
-    // inverse: fg变background=theme.background(#1e2227),bg变fg的颜色(#d3d7cf)
-    // dim: 对最终前景(#1e2227)应用 0.55 透明度 → rgba(30,34,39,0.55)
+    // inverse: fg变background=theme.background(#1b1b1b),bg变fg的颜色(#d3d7cf)
+    // dim: 对最终前景(#1b1b1b)应用 0.55 透明度 → rgba(27,27,27,0.55)
     const style = resolveCellStyle(
       makeAttrs({ fgMode: 'palette', fg: 7, inverse: true, dim: true }),
       THEME,
     );
-    // theme.background = '#1e2227' → r=30,g=34,b=39
-    expect(style.color).toBe('rgba(30,34,39,0.55)');
+    // theme.background = '#1b1b1b' → r=27,g=27,b=27
+    expect(style.color).toBe('rgba(27,27,27,0.55)');
     // background = 原前景色 = ansi256ToHex(7) = '#d3d7cf'
     expect(style.background).toBe('#d3d7cf');
   });

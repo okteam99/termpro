@@ -15,8 +15,8 @@ monaco.editor.defineTheme('okwork-dark', {
   inherit: true,
   rules: [],
   colors: {
-    'editor.background': '#1e2227',
-    'editor.foreground': '#d7dae0',
+    'editor.background': '#1b1b1b',
+    'editor.foreground': '#e8e6e3',
     'editorLineNumber.foreground': '#5a6372',
     'diffEditor.insertedTextBackground': '#98c37922',
     'diffEditor.removedTextBackground': '#e06c7522',

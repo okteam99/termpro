@@ -219,7 +219,7 @@
 .remote-hosts__action--primary {
   color: #fff;
   background: var(--accent);
-  border-color: rgba(74, 141, 248, 0.8);
+  border-color: rgba(240, 140, 60, 0.8);
 }
 
 .remote-hosts__action--primary:hover {
@@ -421,7 +421,7 @@
 
 .remote-hosts__btn--primary {
   background: var(--accent);
-  border-color: rgba(74, 141, 248, 0.8);
+  border-color: rgba(240, 140, 60, 0.8);
   color: #fff;
 }
 

@@ -382,7 +382,7 @@ ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
     height: 800,
     minWidth: 480,
     minHeight: 400,
-    backgroundColor: '#1e2227',
+    backgroundColor: '#1b1b1b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -917,7 +917,7 @@ function openFileWindow(
     height: 760,
     minWidth: 600,
     minHeight: 400,
-    backgroundColor: '#1e2227',
+    backgroundColor: '#1b1b1b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -961,7 +961,7 @@ function openDiffWindow(payload: unknown): void {
     modal: !!mainWin,
     width: 1200,
     height: 800,
-    backgroundColor: '#1e2227',
+    backgroundColor: '#1b1b1b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1183,7 +1183,7 @@ const createWindow = () => {
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
-    backgroundColor: '#1e2227',
+    backgroundColor: '#1b1b1b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

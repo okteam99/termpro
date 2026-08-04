@@ -19,10 +19,10 @@ import {
 import { t } from '../../shared/i18n';
 
 /** 默认前景/背景/光标兜底(与 terminalRegistry 主题一致) */
-const FALLBACK_FG = '#d7dae0';
-const FALLBACK_BG = '#1e2227';
-const FALLBACK_CURSOR = '#4a8df8';
-/** 面板顶部留白:与上方蓝色分隔线、下方内容拉开间距 */
+const FALLBACK_FG = '#e8e6e3';
+const FALLBACK_BG = '#1b1b1b';
+const FALLBACK_CURSOR = '#f08c3c';
+/** 面板顶部留白:与上方橙色分隔线、下方内容拉开间距 */
 const PANEL_PAD_TOP = 6;
 
 /** 至少固定的行数(输入栏 + 状态行的最小高度) */
