@@ -827,6 +827,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     const disposeAndRemove = () => {
       const ws = get().workspaces.find((w) => w.id === id);
       ws?.tabs.forEach((t) => disposeTerminal(t.id));
+      // best-effort 回收该 workspace 的预览 server:按 ws.hostId 路由到所属 host,拿不到 client 直接跳过;
+      // fire-and-forget,失败只 warn,绝不阻塞/回滚删除流程——外层 try/catch 兜同步抛(理论不可达,
+      // 双保险),?.catch 兜 rpc() 返回非 thenable(同上),两道防线都不许把异常冒泡回调用方
+      if (ws) {
+        try {
+          hostRegistry
+            .forHostId(ws.hostId)
+            ?.rpc('preview.stop', { root: ws.root })
+            ?.catch((err) => console.warn('[renderer] preview.stop best-effort failed:', ws.id, err));
+        } catch (err) {
+          console.warn('[renderer] preview.stop best-effort failed:', ws.id, err);
+        }
+      }
       set((s) => {
         const workspaces = s.workspaces.filter((w) => w.id !== id);
         return {

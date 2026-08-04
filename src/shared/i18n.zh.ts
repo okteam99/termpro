@@ -417,6 +417,7 @@ export const zh: Record<string, string> = {
   // --- 应用菜单(main · buildMenu) ---
   'New Tab': '新建 Tab',
   'Quit {name}': '退出 {name}',
+  'File': '文件',
 
   // 以下 key 有意留英(两端同文案),勿当漏项:
   //   '0 session' / '{count} session' / '{count} session · {running} running'

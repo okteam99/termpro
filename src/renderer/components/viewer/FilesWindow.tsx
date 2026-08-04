@@ -132,10 +132,12 @@ export function FilesWindow({
     });
   }, []);
 
-  // ⌘W → 关当前 tab
+  // ⌘W → 关当前 tab;⌘S → 存当前 tab(原生菜单转发,详见 main.ts buildMenu 的 fileMenu 注释:
+  // webview 持焦时 DOM/Monaco 级 ⌘S 绑定收不到按键,只有原生菜单 accelerator 打得进来)
   useEffect(() => {
     return window.okwork.onMenu((action) => {
       if (action === 'close-tab' && activeId) closeTab(activeId);
+      else if (action === 'save' && activeId) saveFns.current.get(activeId)?.();
     });
   }, [activeId, closeTab]);
 

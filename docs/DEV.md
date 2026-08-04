@@ -257,6 +257,30 @@ claude mcp add --transport http okbrowser "$OKWORK_BROWSER_MCP_URL"
 
 远程等价:`skill.*` 是 host RPC,远程容器同样探测/安装(装到容器的 `/root/.agents/skills`、`/root/.codex/skills` 等已装 agent 目录);容器无 Claude Code 则只装 codex + canonical。
 
+### 4.10 项目内 HTML 预览
+
+点开 workspace 内 `.html`/`.htm` 文件(FilePanel 或查看器)可直接看渲染效果,而非只看源码。host 侧 `src/host/previewServer.ts` 按 root 懒启动一个纯 Node 静态 server(零 Electron import、零第三方依赖,远程就绪);renderer 经 `preview.ensure`/`preview.stop` 两个 RPC 驱动。
+
+```
+FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root 的 http.Server
+  → 返回 {root, port, token} → buildPreviewUrl 拼 URL → <webview src> 直接指向
+```
+
+- **URL 形状**:`http://127.0.0.1:<port>/<token>/<相对 root 路径>`——token(128-bit,`token.ts`)编码进路径首段,`<webview src>` 可直接指向,无需额外请求头。
+- **鉴权**:主路径首段比对 token;根绝对引用(页面里写死的 `/assets/x.css` 之类)靠**同源 Referer 回退**——取 Referer 路径首段当候选 token,且 Referer origin 必须与本 server 自身 origin 完全一致,跨源/无 Referer 一律鉴权失败(零信息 404,不区分「无 token」和「越权」)。每条响应恒带 `Referrer-Policy: same-origin`,防止预览页面里的外链把 token 泄给第三方 Referer。
+- **安全铁律**(评审钉死,勿破):
+  - 监听地址恒 loopback(127.0.0.1/::1/localhost),`createPreviewRegistry` 非 loopback host 直接抛错;
+  - 无目录列表:目录请求只找 `index.html`,找不到就 404,响应体不含任何条目名;
+  - **双层 containment**:词法层(`path.resolve` 后必须仍在 root 前缀内)+ 实体层(`realpath` 解出的真实路径二次校验,防软链逃逸)双重把关,任一层失手都当越权拒绝;
+  - 所有响应 `Cache-Control: no-store`(预览恒读最新盘内容,不缓存旧版本);
+  - 预览标签(浏览器面板里的预览 tab)在存档序列化时**恒被过滤**(`BrowserTabState.preview`),重启后不残留、也不落盘暴露 token;
+  - **出口钉死**:预览标签的网络出口固定为文件所属机器(`preview: true` 时 store 层拒绝改 `netHostId`),UI 也禁用出口选择器,防止预览流量被手滑切去别的出口;
+  - server 数上限 16(LRU,超限按 `lastUsedAt` 关最旧);workspace 删除时 renderer best-effort 调 `preview.stop` 回收对应 server(失败只 warn,不阻塞/回滚删除)。
+- **已知边界**:
+  - 未保存内容不进预览——server 直接读盘,查看器脏 tab 的编辑器内容在保存前不可见(`HtmlPreview` 顶部提示条 + 「Save & refresh」按钮引导先存后看);
+  - host 重启后旧 URL(旧端口/旧 token)全部失效;自愈路径是**重新触发预览**(查看器里点 Retry,或从 FilePanel 重新点开该文件)——`preview.ensure` 会在新 host 进程里懒启动一个新 server 并返回新 URL,但已打开的旧标签/webview 不会自动跳转,需用户手动重开;
+  - 不支持 `Range` 请求(`Accept-Ranges: none`),大文件/视频拖动播放不可用——预览面向静态站点/文档场景,非通用文件服务。
+
 ---
 
 ## 4.5 CI 与发版

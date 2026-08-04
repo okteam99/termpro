@@ -1165,6 +1165,34 @@ function buildMenu(): void {
     ],
   });
 
+  /**
+   * File 菜单:目前只有 Save,专为查看器窗口(fileWins)服务。
+   *
+   * 🔴 加这个菜单项的唯一原因是查看器里嵌 `<webview>`(HTML 预览)时,焦点在 webview
+   * guest 进程手里,渲染层任何 DOM/keydown 级 ⌘S 绑定(含 Monaco 自身的
+   * addCommand(CtrlCmd+S))都收不到——按键被 guest 独吞,压根不冒泡回宿主页。原生应用
+   * 菜单的 accelerator 是 OS/Chromium 菜单层直接分发,不看当前 webContents 焦点在谁
+   * 手上,因此是唯一能在 webview 持焦时仍打到宿主页的路径。
+   * click 只在聚焦窗口是查看器(fileWins 值集合)时才转发 'menu' 'save';主窗/浏览器
+   * 壳窗/diff 模态收不到这个动作也无妨——它们的 onMenu 对未知 action 一律忽略,不是
+   * 只对 'save' 特殊放行,双保险。
+   */
+  const fileMenu = (): Electron.MenuItemConstructorOptions => ({
+    label: t('File'),
+    submenu: [
+      {
+        label: t('Save'),
+        accelerator: 'CmdOrCtrl+S',
+        click: () => {
+          const win = BrowserWindow.getFocusedWindow();
+          if (win && [...fileWins.values()].includes(win)) {
+            win.webContents.send('menu', 'save');
+          }
+        },
+      },
+    ],
+  });
+
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [appMenu()] : []),
     {
@@ -1189,6 +1217,7 @@ function buildMenu(): void {
         },
       ],
     },
+    fileMenu(),
     editMenu(),
     { role: 'viewMenu' },
     { role: 'windowMenu' },
