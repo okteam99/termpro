@@ -1,0 +1,44 @@
+/* 最右侧竖直功能图标栏(OpenChamber 风格 activity bar):全高,固定宽度,
+   不参与 flex 收缩(flex-shrink:0) */
+.side-rail {
+  flex-shrink: 0;
+  width: 44px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 10px;
+  gap: 6px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  -webkit-app-region: no-drag;
+}
+
+.side-rail-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.side-rail-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+}
+
+.side-rail-btn--active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.side-rail-btn--active:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}

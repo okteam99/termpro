@@ -8,7 +8,6 @@ import {
 } from '../state/store';
 import type { TabState } from '../state/store';
 import { hostRegistry } from '../services/hostRegistry';
-import { openBuiltinBrowser } from '../services/openBuiltinBrowser';
 import { RenameModal } from './RenameModal';
 
 /** Small terminal icon: rounded rect with > chevron and underscore line */
@@ -34,101 +33,6 @@ function TerminalIcon() {
         <line x1="6.2" y1="7.2" x2="8.6" y2="7.2" />
       </svg>
     </span>
-  );
-}
-
-/** 文件面板开关图标:圆角矩形 + 右侧分栏竖线(panel-right) */
-function FilePanelIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect x="0.6" y="1.2" width="10.8" height="9.6" rx="1.6" ry="1.6" />
-      <line x1="7.6" y1="1.2" x2="7.6" y2="10.8" />
-    </svg>
-  );
-}
-
-/** 内置浏览器开关图标:地球 12×12 */
-function GlobeIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.1"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <circle cx="6" cy="6" r="4.9" />
-      <ellipse cx="6" cy="6" rx="2.2" ry="4.9" />
-      <line x1="1.1" y1="6" x2="10.9" y2="6" />
-    </svg>
-  );
-}
-
-/** tabbar 最右的内置浏览器开关(与文件面板开关并列)。
- *  活跃终端 tab 的窗格已弹出为独立窗口时(用户语义:弹出后没有 panel),
- *  点击 = 激活(聚焦)那个 OkBrowser 窗口,而非开关面板。
- *  从零打开时落面板还是独立窗口,由设置项 builtinBrowserSurface 决定。 */
-function BrowserToggle() {
-  const open = useAppStore((s) => s.browserPanelOpen);
-  const toggle = useAppStore((s) => s.toggleBrowserPanel);
-  const activeTabId = useAppStore((s) => {
-    const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
-    return ws?.tabs.find((tb) => tb.id === ws.activeTabId)?.id ?? null;
-  });
-  const poppedTabId = useAppStore((s) => {
-    const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
-    const tab = ws?.tabs.find((tb) => tb.id === ws.activeTabId);
-    return tab?.browser?.poppedOut ? tab.id : null;
-  });
-  const surface = useAppStore((s) => s.builtinBrowserSurface);
-  return (
-    <button
-      className={`tabbar-panel-btn${open || poppedTabId ? ' tabbar-panel-btn--active' : ''}`}
-      onClick={() => {
-        if (poppedTabId) window.okwork?.browserPane?.focus?.(poppedTabId);
-        // 面板开着 → 收起(关);从零打开且设置为独立窗口 → 直接弹窗
-        else if (!open && surface === 'window' && activeTabId) openBuiltinBrowser(activeTabId);
-        else toggle();
-      }}
-      title={
-        poppedTabId
-          ? t('Focus the OkBrowser window')
-          : open
-            ? t('Hide browser')
-            : t('Show browser')
-      }
-      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-    >
-      <GlobeIcon />
-    </button>
-  );
-}
-
-/** tabbar 最右的文件面板折叠/展开按钮(空 tabbar 也渲染,保证随时能展开) */
-function FilePanelToggle() {
-  const collapsed = useAppStore((s) => s.filePanelCollapsed);
-  const toggle = useAppStore((s) => s.toggleFilePanelCollapsed);
-  return (
-    <button
-      className={`tabbar-panel-btn${collapsed ? '' : ' tabbar-panel-btn--active'}`}
-      onClick={toggle}
-      title={collapsed ? t('Show file panel') : t('Hide file panel')}
-      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-    >
-      <FilePanelIcon />
-    </button>
   );
 }
 
@@ -177,16 +81,13 @@ export function TabBar() {
     };
   }, [menuOpen]);
 
-  // 无活跃工作区时渲染空拖拽条(保留文件面板开关)
+  // 无活跃工作区时渲染空拖拽条(面板开关已搬到 SideRail,这里保持纯拖拽条)
   if (!ws) {
     return (
       <div
         className="tabbar tabbar--empty"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        <BrowserToggle />
-        <FilePanelToggle />
-      </div>
+      />
     );
   }
 
@@ -367,10 +268,6 @@ export function TabBar() {
         className="tabbar-drag-strip"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
-
-      {/* 文件面板 / 内置浏览器开关 */}
-      <BrowserToggle />
-      <FilePanelToggle />
 
       {/* Tab 改名 modal:留空保存 = 恢复默认名 */}
       {renamingTabId &&

@@ -17,6 +17,7 @@ import { TabBar } from './components/TabBar';
 import { FilePanel } from './components/FilePanel';
 import { BrowserPanel } from './components/BrowserPanel';
 import { PaneHandle } from './components/PaneHandle';
+import { SideRail } from './components/SideRail';
 import { OkworkSkillBanner } from './components/OkworkSkillBanner';
 import { TransientToast } from './components/TransientToast';
 import TerminalView from './terminal/TerminalView';
@@ -294,6 +295,7 @@ export default function App() {
           <FilePanel />
         </>
       )}
+      <SideRail />
       <TransientToast />
     </div>
   );

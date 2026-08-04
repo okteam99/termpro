@@ -641,12 +641,17 @@ export const useAppStore = create<AppState>((set, get) => ({
             : legacyTabs[0].id,
         };
       }
+      // 面板互斥:旧存档可能两个面板都存了「开」态,浏览器优先——若浏览器面板开着
+      // 就强制收起文件面板,不管存档里 filePanelCollapsed 存的是什么
+      const hydratedBrowserPanelOpen = archive.ui.browserPanelOpen ?? false;
       set({
         sidebarWidth: archive.ui.sidebarWidth ?? 240,
         filePanelWidth: archive.ui.filePanelWidth ?? 280,
-        filePanelCollapsed: archive.ui.filePanelCollapsed ?? false,
+        filePanelCollapsed: hydratedBrowserPanelOpen
+          ? true
+          : (archive.ui.filePanelCollapsed ?? false),
         browserPanelWidth: archive.ui.browserPanelWidth ?? 480,
-        browserPanelOpen: archive.ui.browserPanelOpen ?? false,
+        browserPanelOpen: hydratedBrowserPanelOpen,
         pinBottomBar: archive.ui.pinBottomBar ?? false,
         // 只认合法枚举值(防篡改/降级存档);缺省/非法 → 'builtin'
         linkBrowserMode: LINK_BROWSER_MODES.includes(
@@ -1120,17 +1125,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   toggleFilePanelCollapsed() {
-    set((s) => ({ filePanelCollapsed: !s.filePanelCollapsed }));
+    set((s) => ({
+      filePanelCollapsed: !s.filePanelCollapsed,
+      // 面板互斥:展开文件面板时顺手关掉浏览器面板(rail 上同一时间只显示一个面板);
+      // 收起分支不动浏览器面板态
+      ...(s.filePanelCollapsed ? { browserPanelOpen: false } : {}),
+    }));
   },
 
   toggleBrowserPanel() {
     set((s) => {
       const open = !s.browserPanelOpen;
+      // 面板互斥:关闭浏览器面板不影响文件面板态
       if (!open) return { browserPanelOpen: false };
       // 打开:当前活跃终端 tab 若无浏览器标签,种一个空标签(面板不出现无标签死态)
       const activeTab = activeTerminalTab(s);
       if (!activeTab || (activeTab.browser && activeTab.browser.tabs.length > 0)) {
-        return { browserPanelOpen: true };
+        // 面板互斥:打开浏览器面板时顺手收起文件面板
+        return { browserPanelOpen: true, filePanelCollapsed: true };
       }
       const bt: BrowserTabState = {
         id: crypto.randomUUID(),
@@ -1140,6 +1152,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
       return {
         browserPanelOpen: true,
+        // 面板互斥:打开浏览器面板时顺手收起文件面板
+        filePanelCollapsed: true,
         workspaces: patchTabBrowser(s.workspaces, activeTab.id, () => ({
           tabs: [bt],
           activeTabId: bt.id,
@@ -1157,6 +1171,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
       return {
         browserPanelOpen: true,
+        // 面板互斥:开浏览器标签视同打开浏览器面板,顺手收起文件面板
+        filePanelCollapsed: true,
         workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
           tabs: [...pane.tabs, bt],
           activeTabId: bt.id,
@@ -1207,8 +1223,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       const isActive = activeTerminalTab(s)?.id === terminalTabId;
       return {
-        // 回落到活跃 tab → 面板直接可见;后台 tab 回落只清标记(切过去再看)
-        ...(isActive ? { browserPanelOpen: true } : {}),
+        // 回落到活跃 tab → 面板直接可见(面板互斥:顺手收起文件面板);
+        // 后台 tab 回落只清标记(切过去再看),不动任何面板态
+        ...(isActive ? { browserPanelOpen: true, filePanelCollapsed: true } : {}),
         workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
           tabs: pane.tabs,
           activeTabId: pane.activeTabId,
