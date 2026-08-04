@@ -356,8 +356,16 @@ function isValidUploadName(name: string): boolean {
   return !name.includes('/') && !name.includes('\\') && !name.includes('\0');
 }
 
-/** 下次 begin 时顺手清掉上次异常退出(崩溃/断连未走 disposeAll)遗留的 .part 临时文件。 */
-async function sweepExpiredUploadParts(dir: string, now = Date.now()): Promise<void> {
+/**
+ * 下次 begin 时顺手清掉上次异常退出(崩溃/断连未走 disposeAll)遗留的 .part 临时文件。
+ * activePartPaths:当前登记表里在册的 .part 路径(哪怕 mtime 已「过期」也跳过)——
+ * 防止一个停滞很久但仍在传输中的上传,被同目录里另一次 begin 触发的 sweep 误删。
+ */
+async function sweepExpiredUploadParts(
+  dir: string,
+  activePartPaths: ReadonlySet<string>,
+  now = Date.now(),
+): Promise<void> {
   let entries: import('node:fs').Dirent[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
@@ -374,6 +382,7 @@ async function sweepExpiredUploadParts(dir: string, now = Date.now()): Promise<v
       )
       .map(async (entry) => {
         const p = join(dir, entry.name);
+        if (activePartPaths.has(p)) return; // 在册在途传输,不管 mtime 多旧都不动
         try {
           if (now - (await fs.stat(p)).mtimeMs >= UPLOAD_PART_TTL_MS) {
             await fs.unlink(p);
@@ -392,6 +401,9 @@ interface UploadEntry {
   size: number;
   received: number;
   partPath: string;
+  /** per-transfer 串行链:chunk 的「校验 offset + write + 推进 received」整体在此排队,
+   *  防止同一 transferId 的并发 RPC 调度跨 await 穿越校验(见 chunk() 注释)。 */
+  tail: Promise<unknown>;
 }
 
 export interface UploadRegistry {
@@ -411,6 +423,8 @@ export interface UploadRegistry {
  */
 export function createUploadRegistry(): UploadRegistry {
   const uploads = new Map<string, UploadEntry>();
+  /** 「判定已通过、fs.open 尚未落地」的占位计数,与 uploads.size 一起构成并发上限的实际占用。 */
+  let pendingSlots = 0;
 
   async function begin(params: {
     destDir: string;
@@ -422,25 +436,42 @@ export function createUploadRegistry(): UploadRegistry {
     const destStat = await fs.stat(destDir);
     if (!destStat.isDirectory()) throw new Error('destDir is not a directory');
     if (!isValidUploadName(name)) throw new Error('invalid upload file name');
-    if (!Number.isInteger(size) || size <= 0) {
-      throw new Error('upload size must be a positive integer');
+    // 0 是合法的(空文件上传);仍要求有限非负整数。
+    if (!Number.isInteger(size) || size < 0) {
+      throw new Error('upload size must be a non-negative integer');
     }
     if (size > TRANSFER.maxFileBytes) {
       throw new Error(`upload exceeds max file size of ${TRANSFER.maxFileBytes} bytes`);
     }
-    if (uploads.size >= TRANSFER.maxConcurrentUploads) {
+    // 判定与占位之间不能有 await:否则并发 begin() 都能在 uploads.size 还未增长时
+    // 穿越判定。pendingSlots 在此同步区间内立即 ++,把「判定通过」与「占坑」焊在一起。
+    if (uploads.size + pendingSlots >= TRANSFER.maxConcurrentUploads) {
       throw new Error(`too many concurrent uploads (max ${TRANSFER.maxConcurrentUploads})`);
     }
+    pendingSlots++;
+    try {
+      const transferId = crypto.randomBytes(8).toString('hex');
+      const partPath = join(destDir, `${UPLOAD_PART_PREFIX}${transferId}${UPLOAD_PART_SUFFIX}`);
+      const handle = await fs.open(partPath, 'wx');
+      uploads.set(transferId, {
+        handle,
+        destDir,
+        name,
+        size,
+        received: 0,
+        partPath,
+        tail: Promise.resolve(),
+      });
 
-    const transferId = crypto.randomBytes(8).toString('hex');
-    const partPath = join(destDir, `${UPLOAD_PART_PREFIX}${transferId}${UPLOAD_PART_SUFFIX}`);
-    const handle = await fs.open(partPath, 'wx');
-    uploads.set(transferId, { handle, destDir, name, size, received: 0, partPath });
+      // best-effort 清理同目录里过期的遗留 .part;不 await —— 不拖慢 begin 的返回。
+      // 传入当前在册的 .part 路径快照,sweep 内部会跳过它们(哪怕看起来「已过期」)。
+      const active = new Set([...uploads.values()].map((e) => e.partPath));
+      void sweepExpiredUploadParts(destDir, active);
 
-    // best-effort:清理同目录里过期的遗留 .part(不影响本次 begin 的成败)
-    await sweepExpiredUploadParts(destDir);
-
-    return { transferId };
+      return { transferId };
+    } finally {
+      pendingSlots--;
+    }
   }
 
   async function chunk(
@@ -450,16 +481,26 @@ export function createUploadRegistry(): UploadRegistry {
   ): Promise<{ received: number }> {
     const entry = uploads.get(transferId);
     if (!entry) throw new Error(`unknown transfer: ${transferId}`);
-    if (offset !== entry.received) {
-      throw new Error('upload offset mismatch');
-    }
-    const bytes = decodeStrictBase64(base64, TRANSFER.maxChunkBytes);
-    if (entry.received + bytes.length > entry.size) {
-      throw new Error('upload exceeds declared size');
-    }
-    await entry.handle.write(bytes, 0, bytes.length, offset);
-    entry.received += bytes.length;
-    return { received: entry.received };
+    // hostCore 对同一 client 的 RPC 是并发调度的:两个同 transferId 的 chunk 调用可能
+    // 同时进入这个函数,若「校验 offset → write → 推进 received」跨 await 各自独立执行,
+    // 两者都能读到旧的 entry.received 并双双通过校验(同 offset 互相覆盖,received 虚增)。
+    // 用 entry.tail 把整段操作排成一条串行链,同一 transfer 的 chunk 严格挨个执行。
+    const task = entry.tail.then(async () => {
+      if (offset !== entry.received) {
+        throw new Error('upload offset mismatch');
+      }
+      const bytes = decodeStrictBase64(base64, TRANSFER.maxChunkBytes);
+      if (entry.received + bytes.length > entry.size) {
+        throw new Error('upload exceeds declared size');
+      }
+      await entry.handle.write(bytes, 0, bytes.length, offset);
+      entry.received += bytes.length;
+      return { received: entry.received };
+    });
+    // 链上某一环节失败不能让后续 chunk 永远卡在一个 rejected promise 上,
+    // 故 tail 本身接一个吞掉错误的分支;失败原因仍从 task(本次调用的返回值)抛给调用方。
+    entry.tail = task.catch(() => undefined);
+    return task;
   }
 
   async function end(transferId: string, commit: boolean): Promise<{ path: string | null }> {
@@ -471,26 +512,45 @@ export function createUploadRegistry(): UploadRegistry {
     }
     uploads.delete(transferId); // 立即让出并发名额,无论后续成败
 
+    // 等此前排队的 chunk 任务全部落定(不管成功失败),避免 end 与仍在 tail 链上的
+    // 写入竞争同一个 fd/received —— 是 chunk() 串行链在收口处的必要延伸。
+    await entry.tail.catch(() => undefined);
+
     if (!commit) {
       await entry.handle.close().catch(() => undefined);
       await fs.unlink(entry.partPath).catch(() => undefined);
       return { path: null };
     }
 
-    await entry.handle.sync();
-    await entry.handle.close();
-    for (let attempt = 0; ; attempt++) {
-      const dest = await uniqueDest(entry.destDir, entry.name);
-      try {
-        // 硬链接 + 删源(而非 rename):EEXIST 时不覆盖,重算目标重试(仿 copyInto)。
-        await fs.link(entry.partPath, dest);
-        await fs.unlink(entry.partPath);
-        return { path: dest };
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code === 'EEXIST' && attempt < 5) continue;
-        throw err;
+    // 独立防线:哪怕每个 chunk 各自校验都通过,少发/漏发块也不能被 commit 悄悄放过。
+    if (entry.received !== entry.size) {
+      await entry.handle.close().catch(() => undefined);
+      await fs.unlink(entry.partPath).catch(() => undefined);
+      throw new Error('upload incomplete: received bytes do not match declared size');
+    }
+
+    try {
+      await entry.handle.sync();
+      await entry.handle.close();
+      for (let attempt = 0; ; attempt++) {
+        const dest = await uniqueDest(entry.destDir, entry.name);
+        try {
+          // 硬链接 + 删源(而非 rename):EEXIST 时不覆盖,重算目标重试(仿 copyInto)。
+          await fs.link(entry.partPath, dest);
+          await fs.unlink(entry.partPath);
+          return { path: dest };
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === 'EEXIST' && attempt < 5) continue;
+          throw err;
+        }
       }
+    } catch (err) {
+      // 提交路径任何一步失败都不留孤儿:fd 可能已关(sync/close 之后失败)或还开着
+      // (sync 本身失败),close 失败(如已关过)与 unlink 失败(如 .part 已不存在)都忽略。
+      await entry.handle.close().catch(() => undefined);
+      await fs.unlink(entry.partPath).catch(() => undefined);
+      throw err;
     }
   }
 
