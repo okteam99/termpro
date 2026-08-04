@@ -23,6 +23,20 @@ export interface BrowserTabInfo {
 const POPPED_OUT_MSG =
   'browser pane is popped out to a separate window; dock it (click the tab browser icon) so the AI can drive it';
 
+/** 预览标签(preview===true)的 URL 含一次性 token(HtmlPreview 起的本地预览 server),
+ *  不该经 MCP 暴露给 AI(评审 P2-9,信息泄露面)——listTabs 脱敏成 preview://<文件名>,
+ *  只留下「这是个预览标签」与「预览的哪个文件」,不带 host/port/token。取不到文件名时
+ *  退化成裸 'preview://'。 */
+function redactPreviewUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const basename = parsed.pathname.split('/').filter(Boolean).pop();
+    return basename ? `preview://${basename}` : 'preview://';
+  } catch {
+    return 'preview://';
+  }
+}
+
 /** 定位某终端 tab 的浏览器窗格(含所属 workspace,供出口解析)。 */
 function findPane(terminalTabId: string): {
   tabs: BrowserTabState[];
@@ -89,6 +103,12 @@ export async function navigate(
     return { browserTabId: findPane(terminalTabId)!.activeTabId! };
   }
   const targetId = resolveTargetTabId(terminalTabId, browserTabId);
+  // 预览标签(preview===true)出口钉死所属机器、URL 含一次性 token——不许 AI 导航走
+  // (评审 P2-9):既会打穿「出口钉死」语义(导航到别处等于把预览 webview 借去访问任意
+  // 站点),也无意义(预览标签本就是给 HtmlPreview 展示某个本地文件用的)。
+  if (pane.tabs.find((b) => b.id === targetId)?.preview) {
+    throw new Error(`browser tab ${targetId} is a preview tab (read-only; open a new tab to navigate)`);
+  }
   const el = getBrowserView(targetId);
   // 先写 store 再导航:失败页(SSL/DNS 错)did-navigate 不回写,url 得先落镜像
   // (与地址栏手动导航同语义);未挂载时写 store 兼触发 src 首次加载
@@ -216,13 +236,14 @@ export async function waitForSelector(
 
 // ---- 标签管理 ----
 
-/** 列出该终端 tab 的浏览器标签(含活跃标记与出口)。 */
+/** 列出该终端 tab 的浏览器标签(含活跃标记与出口)。预览标签(preview===true)的 url
+ *  脱敏成 preview://<文件名>(见 redactPreviewUrl);title 照常保留。 */
 export function listTabs(terminalTabId: string): BrowserTabInfo[] {
   const pane = findPane(terminalTabId);
   if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
   return pane.tabs.map((b) => ({
     id: b.id,
-    url: b.url,
+    url: b.preview ? redactPreviewUrl(b.url) : b.url,
     title: b.title,
     active: b.id === pane.activeTabId,
     net: resolveBrowserTabNet(b, pane.ownerHostId),

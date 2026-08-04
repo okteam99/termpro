@@ -118,6 +118,14 @@ export function FilesWindow({
   const closeTab = useCallback((id: string) => {
     saveFns.current.delete(id);
     getValueFns.current.delete(id);
+    // 🔴 评审 P2-14:reloadSeqs 一并清——不清的话,关掉的 tab id 永久留在这个 Map 里
+    // (同 id 不会再被复用,纯内存泄露;虽然量级很小,但没有理由不清)。
+    setReloadSeqs((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.id === id);
       const next = prev.filter((t) => t.id !== id);

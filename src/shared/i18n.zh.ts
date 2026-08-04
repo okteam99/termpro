@@ -75,7 +75,6 @@ export const zh: Record<string, string> = {
   // --- FilePanel ---
   'Local-only action — unavailable in remote workspaces': '本机专属操作,远程 workspace 不可用',
   'Open diff view': '打开 Diff 视图',
-  'Open with default browser': '用系统默认浏览器打开',
   'Show in Finder': '在 Finder 中显示(跳转所在目录)',
   'Open in Finder': '在 Finder 中打开',
   'Preview in built-in browser': '内置浏览器预览',

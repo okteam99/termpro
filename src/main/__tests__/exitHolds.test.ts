@@ -1,7 +1,36 @@
 // ExitHoldLedger(阶段3):主窗声明式集合 ∪ 各非主窗(查看器)hold 集合 → 并集,
 // 喂给 browserNetwork.syncExits。纯逻辑,零 Electron,main.ts 按 webContents.id 记账。
 import { describe, expect, it } from 'vitest';
-import { ExitHoldLedger } from '../exitHolds';
+import { ExitHoldLedger, filterHoldRequest } from '../exitHolds';
+
+describe('filterHoldRequest(评审 P2-6 · 评审盲区1:hold 请求闸的纯逻辑部分)', () => {
+  it('ownHostId 非空 → 只保留等于它的元素(⊆ {ownHostId})', () => {
+    expect(filterHoldRequest(['cfg-a', 'cfg-b'], 'cfg-a')).toEqual(['cfg-a']);
+    expect(filterHoldRequest(['cfg-a', 'cfg-a'], 'cfg-a')).toEqual(['cfg-a', 'cfg-a']); // 去重是上游 setHold/effective 的事,这里只做闸
+  });
+
+  it('ownHostId 为 null(sender 不是已知查看器窗口)→ 恒返回空', () => {
+    expect(filterHoldRequest(['cfg-a'], null)).toEqual([]);
+    expect(filterHoldRequest([], null)).toEqual([]);
+  });
+
+  it('请求列表不含 ownHostId → 全部丢弃', () => {
+    expect(filterHoldRequest(['cfg-b', 'cfg-c'], 'cfg-a')).toEqual([]);
+  });
+
+  it('非法元素(非字符串/空串)被过滤', () => {
+    expect(
+      filterHoldRequest(
+        ['cfg-a', '', null as unknown as string, 42 as unknown as string],
+        'cfg-a',
+      ),
+    ).toEqual(['cfg-a']);
+  });
+
+  it('空请求列表 → 空结果', () => {
+    expect(filterHoldRequest([], 'cfg-a')).toEqual([]);
+  });
+});
 
 describe('ExitHoldLedger', () => {
   it('effective:并集,去重,排序', () => {
@@ -82,5 +111,49 @@ describe('ExitHoldLedger', () => {
     l.setHold(1, ['x']);
     l.setHold(2, ['x']);
     expect(l.effective()).toEqual(['x']);
+  });
+
+  describe('purge(评审 P2-5:远程机被删除)', () => {
+    it('从主窗集合摘除该 hostId,其余不动', () => {
+      const l = new ExitHoldLedger();
+      l.setMain(['a', 'b']);
+      l.purge('a');
+      expect(l.effective()).toEqual(['b']);
+    });
+
+    it('从所有非主窗 hold 集合摘除该 hostId(多 key 同时持有也一并清)', () => {
+      const l = new ExitHoldLedger();
+      l.setHold(1, ['a', 'b']);
+      l.setHold(2, ['a', 'c']);
+      l.purge('a');
+      expect(l.effective()).toEqual(['b', 'c']);
+    });
+
+    it('某 key 的 hold 集合因 purge 变空 → 该 key 整体摘除(与 setHold 空数组同效)', () => {
+      const l = new ExitHoldLedger();
+      l.setHold(1, ['a']);
+      l.setHold(2, ['b']);
+      l.purge('a');
+      expect(l.effective()).toEqual(['b']);
+      // key 1 已整体清除:再对它 setHold 空数组是 no-op,不应报错
+      l.setHold(1, []);
+      expect(l.effective()).toEqual(['b']);
+    });
+
+    it('main 与 hold 都持有同一 hostId → 一次 purge 两处都清', () => {
+      const l = new ExitHoldLedger();
+      l.setMain(['a']);
+      l.setHold(1, ['a', 'b']);
+      l.purge('a');
+      expect(l.effective()).toEqual(['b']);
+    });
+
+    it('对不存在的 hostId 是无害 no-op', () => {
+      const l = new ExitHoldLedger();
+      l.setMain(['a']);
+      l.setHold(1, ['b']);
+      l.purge('nope');
+      expect(l.effective()).toEqual(['a', 'b']);
+    });
   });
 });

@@ -90,7 +90,6 @@ function installOkwork(remoteHostList: () => Promise<RemoteHostConfig[]> = async
       openExternal: vi.fn(),
       openPath: vi.fn(),
       showItemInFolder: vi.fn(),
-      openInBrowser: vi.fn(),
       onViewerAddTab: vi.fn(() => () => undefined),
       remoteHost: {
         list: vi.fn(remoteHostList),

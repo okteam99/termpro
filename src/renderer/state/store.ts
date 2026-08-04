@@ -141,8 +141,10 @@ export interface PersistedTab {
   filePanel?: TabFilePanelState;
   /** 该 tab 的浏览器窗格(只存 {id,url,netHostId};title 视图态);空/未开 → 不写盘。
    *  preview 字段仅在**内存态**投影(snapshotRemoteLayout/壳窗种子回流)间透传,供下游
-   *  choke point(persistence.serializeTab / hydrateBrowserPane)识别并剥离——真正落盘前
-   *  必须已被过滤掉(预览标签绝不写盘)。 */
+   *  choke point 识别并剥离——真正落盘前必须已被过滤掉(预览标签绝不写盘):磁盘序列化边界
+   *  是 persistence.serializeTab / serializeRemoteTabs;磁盘 hydrate 回读边界是
+   *  hydrateBrowserPane(source='disk')。source='memory'(断线重连收养,同进程内存快照
+   *  非磁盘)不剥,原样保留 preview——评审 P1-2。 */
   browser?: {
     tabs: { id: string; url: string; netHostId?: string; preview?: true }[];
     activeTabId: string | null;
@@ -407,22 +409,32 @@ function makeTab(cwd: string): TabState {
   return { id: crypto.randomUUID(), title: basename(cwd), cwd };
 }
 
-function hydrateTab(t: PersistedTab): TabState {
+/** hydrateTab 的数据来源:'disk' = 磁盘存档(v1/v2 hydrate,冷启动读取);'memory' =
+ *  内存态快照恢复(restoreWorkspaceTabs 消费 remoteTabLayouts,断线重连收养)。
+ *  两者对 preview 标志的处理不同,见 hydrateBrowserPane 头注(评审 P1-2)。 */
+type HydrateSource = 'disk' | 'memory';
+
+function hydrateTab(t: PersistedTab, source: HydrateSource): TabState {
   return {
     id: t.id,
     title: basename(t.cwd),
     cwd: t.cwd,
     customName: t.customName,
     filePanel: t.filePanel,
-    browser: hydrateBrowserPane(t.browser),
+    browser: hydrateBrowserPane(t.browser, source),
   };
 }
 
 /** 持久化浏览器窗格 → 运行时 BrowserPaneState;空/缺省 → undefined(tab 未开过浏览器)。
  *  activeTabId 失效(指向已不存在的标签)时回落首个标签。
- *  🔴 choke point:剥掉 preview——存档本不该有(persistence 序列化已过滤,预览标签不落盘),
- *  防手改注入伪装预览标签绕过「出口钉死」保护;远程 tab 布局恢复(restoreWorkspaceTabs →
- *  hydrateTab)同样经此函数,同一次剥离覆盖两条恢复路径。 */
+ *
+ *  🔴 评审 P1-2:source==='disk' 时剥掉 preview——磁盘存档本不该有(persistence 序列化
+ *  已过滤,预览标签不落盘),防手改注入伪装预览标签绕过「出口钉死」保护。但
+ *  source==='memory'(restoreWorkspaceTabs 消费 remoteTabLayouts,断线重连收养)不剥:
+ *  这条路径的数据来自同一次进程内 snapshotRemoteLayout 的内存快照(非用户可篡改的磁盘
+ *  文件),剥掉会让重连恢复后预览标签退化成普通标签,连带出口解禁(可落盘、可切出口)——
+ *  两条路径共用同一函数,过去统一剥离是把「防手改」的保护错套到了「同进程内存快照」上,
+ *  此次按来源分流。 */
 function hydrateBrowserPane(
   p:
     | {
@@ -430,6 +442,7 @@ function hydrateBrowserPane(
         activeTabId: string | null;
       }
     | undefined,
+  source: HydrateSource,
 ): BrowserPaneState | undefined {
   if (!p || p.tabs.length === 0) return undefined;
   const tabs: BrowserTabState[] = p.tabs.map((b) => ({
@@ -437,12 +450,39 @@ function hydrateBrowserPane(
     url: b.url,
     // netHostId 原样带回(缺省=跟随所属机器,resolveBrowserTabNet 兜底)
     ...(b.netHostId ? { netHostId: b.netHostId } : {}),
-    // preview 不带回(见函数头注)
+    // source==='memory' 才带回 preview(见函数头注);'disk' 恒剥离
+    ...(source === 'memory' && b.preview ? { preview: true as const } : {}),
   }));
   const activeTabId = tabs.some((b) => b.id === p.activeTabId)
     ? p.activeTabId
     : (tabs[0]?.id ?? null);
   return { tabs, activeTabId };
+}
+
+/**
+ * 判断导航后的新 url 是否仍落在与旧 url 相同的「预览前缀」下(评审 P2-10)。预览标签
+ * (preview===true)的 url 恒为 `http://127.0.0.1:<port>/<token>/<相对路径>`——只要
+ * origin(host:port)或路径首段(token)变了,就说明这次改写把标签导航去了预览服务器/
+ * 这份文件以外的地方,不再是「预览这份文件」,调用方(updateBrowserTab)据此把它降级
+ * 成普通标签(可落盘、出口解锁)。
+ *
+ * 简化判定,不去解析 token 是否仍对着同一个 preview.ensure 会话——origin+路径首段相同
+ * 已经覆盖了「同一次预览会话内的相对跳转」(assets/、锚点、同目录下的其它文件)这个唯一
+ * 合法场景。url 解析失败一律按「已离开」处理:清掉 preview 只是把标签降级成普通标签,
+ * 不是安全隐患;误保留 preview 才会让已经跑去别处的标签继续顶着「出口钉死+不落盘」的
+ * 保护语义,不确定时选更宽松的一侧。
+ */
+export function isSamePreviewPrefix(oldUrl: string, newUrl: string): boolean {
+  try {
+    const a = new URL(oldUrl);
+    const b = new URL(newUrl);
+    if (a.origin !== b.origin) return false;
+    const aToken = a.pathname.split('/').filter(Boolean)[0];
+    const bToken = b.pathname.split('/').filter(Boolean)[0];
+    return aToken !== undefined && aToken === bToken;
+  } catch {
+    return false;
+  }
 }
 
 /** 终端 tab 所属 workspace 的 hostId;找不到归属(竞态)按本机。新建浏览器标签的默认出口。 */
@@ -518,8 +558,9 @@ function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemot
       // 浏览器窗格与落盘同投影(只 {id,url,netHostId}),否则断线重连恢复的 tab 丢浏览器
       // 标签,而整机重启(serializeTab 路径)却能恢复——两条恢复路径必须行为一致。
       // 🔴 preview 原样透传(不在此过滤):这里只是内存态快照(进 remoteTabLayouts,可能被
-      // 重连消费 → restoreWorkspaceTabs → hydrateBrowserPane 剥离),真正的「不落盘」过滤
-      // 在磁盘序列化边界(persistence.serializeTab / serializeRemoteTabs)统一把关。
+      // 重连消费 → restoreWorkspaceTabs → hydrateBrowserPane(source='memory')保留),
+      // 真正的「不落盘」过滤在磁盘序列化边界(persistence.serializeTab / serializeRemoteTabs)
+      // 统一把关(评审 P1-2:hydrateBrowserPane 按来源分流,memory 路径不再剥离)。
       ...(t.browser && t.browser.tabs.length > 0
         ? {
             browser: {
@@ -701,7 +742,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // v1 fallback:从存档直接构建(自带 name/root),忽略注册表(全功能)
     if (archive && archive.version === 1) {
       const built: WorkspaceState[] = archive.workspaces.map((w) => {
-        const tabs = w.tabs.map(hydrateTab);
+        const tabs = w.tabs.map((t) => hydrateTab(t, 'disk'));
         return {
           id: w.id,
           name: w.name,
@@ -734,7 +775,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const entry = regById.get(pw.workspaceId);
         if (!entry) continue; // 孤儿外键 → 静默丢弃(AC-5)
         seen.add(entry.id);
-        const tabs = pw.tabs.map(hydrateTab);
+        const tabs = pw.tabs.map((t) => hydrateTab(t, 'disk'));
         workspaces.push({
           id: entry.id,
           name: entry.name,
@@ -988,7 +1029,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!ws || ws.hostId === LOCAL_HOST_ID || ws.tabs.length > 0 || tabs.length === 0) {
       return false;
     }
-    const restored = tabs.map(hydrateTab);
+    // 🔴 评审 P1-2:source='memory'——这批 tabs 来自内存态 remoteTabLayouts(断线重连
+    // 收养,snapshotRemoteLayout 同进程产出),保留 preview 标志;与磁盘 hydrate 的两条
+    // v1/v2 分支('disk')行为分流,见 hydrateBrowserPane 头注。
+    const restored = tabs.map((t) => hydrateTab(t, 'memory'));
     const nextActive = resolveActiveTab(restored, activeTabId);
     // profile 绑定随布局恢复;失效绑定由 setBrowserProfiles 对账剥离(与 hydrate 同策)
     const profilePatch =
@@ -1347,7 +1391,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
         ...pane,
-        tabs: pane.tabs.map((b) => (b.id === browserTabId ? { ...b, ...patch } : b)),
+        tabs: pane.tabs.map((b) => {
+          if (b.id !== browserTabId) return b;
+          // 🔴 评审 P2-10:预览标签被导航离开原预览前缀(见 isSamePreviewPrefix)→ 连带
+          // 清掉 preview 标志,退化成普通标签(可落盘、出口解锁)——预览标签的钉死出口/
+          // 不落盘保护本就只该覆盖「正在预览那份文件」这一段时间,导航走了还继续钉着没意义,
+          // 也会让用户以为「出口还锁着」但其实已经在浏览别的站点。
+          if (b.preview && typeof patch.url === 'string' && !isSamePreviewPrefix(b.url, patch.url)) {
+            const { preview: _droppedPreview, ...rest } = b;
+            return { ...rest, ...patch };
+          }
+          return { ...b, ...patch };
+        }),
       })),
     }));
   },

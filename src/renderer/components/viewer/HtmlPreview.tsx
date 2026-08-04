@@ -10,12 +10,19 @@
 // 远程时序红线:isRemote(hostId) 时必须先 browserNet.hold([hostId]) 再设 webview src——
 // 该 hostId 的出口未进 main 的在用集合时,对应分区只挂了黑洞代理,首帧必败且现象跟
 // 错误文案对不上号,难从表象倒推根因(preload browserNet.hold 头注同一红线)。
+//
+// 🔴 hold 走 exitHoldCounter(评审 P1-1),不直接调 window.okwork.browserNet.hold:
+// 同一查看器窗口(同 webContents)可能同时开多个远程 html 预览 tab,hold() 对 main 是
+// 【整集覆盖】语义——若各 tab 直接 hold([hostId])/hold([]),后卸载的 tab 会用空集把
+// 前一个仍在用的 hostId 也覆盖掉,拆掉其它 tab 的 SOCKS 代理。exitHoldCounter 按
+// hostId 记引用计数,每次变更后上报全集,同窗多 tab 互不拆台。
 
 import { useEffect, useRef, useState } from 'react';
 import { hostClient } from '../../services/hostClient';
 import { buildPreviewUrl } from '../../services/previewUrl';
 import { browserPartition, DEFAULT_PROFILE_ID } from '../../../shared/browserProfile';
 import { isRemoteHost } from './viewerHost';
+import { acquire, release } from './exitHoldCounter';
 import { t } from '../../../shared/i18n';
 
 // webview 是 Electron 专属标签;@types/react 内置的全局 HTMLWebViewElement 是空壳,
@@ -80,9 +87,12 @@ export function HtmlPreview({
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [retrySeq, setRetrySeq] = useState(0);
   const webviewRef = useRef<WebviewElement | null>(null);
-  // 首次挂载时的 reloadSeq 不该触发 reload(webview 首帧本就是最新内容);只有挂载后
-  // reloadSeq 变化(保存触发)才需要显式 reload。
-  const skipNextReloadRef = useRef(true);
+  // 上次已记账的 reloadSeq;null = 尚未记过账(真正的首帧)。🔴 评审 P2-7:此前用一个
+  // 「skipNextReload」布尔位,且在 retry(preview.ensure 重跑,不改 reloadSeq)时也重置为
+  // true——retry 成功后 webview 已是全新 src(自带最新内容),但下一次 reloadSeq 变化
+  // (保存触发)会被误判成「首帧」而跳过 reload,导致 retry 后的第一次保存不刷新。改成
+  // 记基线:reloadSeq effect 只在「与上次记账值不同」时才触发 reload,retry 不碰这个基线。
+  const lastHandledSeqRef = useRef<number | null>(null);
 
   const remote = isRemoteHost(hostId);
   const partition = browserPartition(DEFAULT_PROFILE_ID, hostId ?? 'local');
@@ -90,7 +100,6 @@ export function HtmlPreview({
   useEffect(() => {
     let cancelled = false;
     setState({ phase: 'loading' });
-    skipNextReloadRef.current = true;
 
     async function resolveRoot(): Promise<string> {
       if (previewRoot) return previewRoot;
@@ -110,7 +119,7 @@ export function HtmlPreview({
         // 🔴 远程时序红线:出口必须先进 main 的在用集合,SOCKS 代理才会真的转发这个
         // 分区的流量——否则首帧对着黑洞代理必败,且现象跟错误文案对不上号。
         if (remote && hostId) {
-          await window.okwork.browserNet.hold([hostId]);
+          await acquire(hostId);
           if (cancelled) return;
         }
         const root = await resolveRoot();
@@ -138,19 +147,19 @@ export function HtmlPreview({
     void run();
     return () => {
       cancelled = true;
-      if (remote) void window.okwork.browserNet.hold([]);
+      if (remote && hostId) void release(hostId);
     };
     // previewRoot/hostId 随 tab 固定不变,随 path 一起判定是否需要重跑；retrySeq 是
     // 「重试」按钮的重跑信号。
   }, [path, hostId, previewRoot, retrySeq, remote]);
 
-  // reloadSeq 变化(非首帧)→ 显式 reload。<webview> dom-ready 之前调用会 throw
-  // (真实 Electron 语义),jsdom 下则压根没有该方法——一律存在性判断 + try/catch。
+  // reloadSeq 变化 → 显式 reload,但首次记账(lastHandled 尚为 null)不算变化,不 reload
+  // (webview 首帧本就是最新内容)。<webview> dom-ready 之前调用会 throw(真实 Electron
+  // 语义),jsdom 下则压根没有该方法——一律存在性判断 + try/catch。
   useEffect(() => {
-    if (skipNextReloadRef.current) {
-      skipNextReloadRef.current = false;
-      return;
-    }
+    const last = lastHandledSeqRef.current;
+    lastHandledSeqRef.current = reloadSeq;
+    if (last === null || last === reloadSeq) return;
     const el = webviewRef.current;
     if (!el) return;
     try {

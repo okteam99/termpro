@@ -47,7 +47,6 @@ function mockOkwork(overrides: { version?: string; devChannel?: boolean } = {}) 
       openExternal: vi.fn(),
       openPath: vi.fn(),
       showItemInFolder: vi.fn(),
-      openInBrowser: vi.fn(),
       onViewerAddTab: vi.fn(noop),
       // BL-003:RemoteHostsPage 挂载时读取(list/onEvent),其余方法按需 mock
       remoteHost: {

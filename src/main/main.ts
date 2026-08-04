@@ -17,7 +17,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import { readPersistedLocalePref, registerAppStore } from './appStore';
 import { buildAdditionalArguments } from './buildAdditionalArguments';
@@ -45,7 +44,7 @@ import { CredentialStore, HostConfigStore } from './remote/credentialStore';
 import { resolveBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
 import { BrowserNetworkController } from './browserNetwork';
-import { ExitHoldLedger } from './exitHolds';
+import { ExitHoldLedger, filterHoldRequest } from './exitHolds';
 import { BrowserProfileStore } from './browserProfileStore';
 import { createBrowserPartitionPolicy } from './browserPartitionPolicy';
 import { JsonFileSettingsStore } from './settingsStore';
@@ -231,8 +230,16 @@ registerRemoteHostIpc(
     if (win === fileWins.get(configId)) return true;
     return win === diffWin && configId === diffWinHostId;
   },
-  // 删除远程机(显式意图):若它是当前浏览器出口 → 回 local(断线本身不再自动回退)
-  (configId) => browserNetwork.onHostRemoved(configId),
+  // 删除远程机(显式意图):若它是当前浏览器出口 → 回 local(断线本身不再自动回退)。
+  // 🔴 评审 P2-5:同时把它从 exitLedger 摘除(主窗声明式集合 + 所有查看器 hold 集合)
+  // 并重推 syncExits——否则某查看器窗口此前 hold 过这台已删除的机器,ledger 里仍留着
+  // 它的 hostId,effective() 继续把它算进「在用出口」,导致 syncExits 为一台不存在的
+  // 机器保活 SOCKS 代理/隧道(exitLedger.purge 见 exitHolds.ts)。
+  (configId) => {
+    browserNetwork.onHostRemoved(configId);
+    exitLedger.purge(configId);
+    void browserNetwork.syncExits(exitLedger.effective());
+  },
   // 新增远程机:黑洞预封其浏览器分区(评审 P1-1,消灭首个 guest fail-open 窗口)
   (configId) => browserNetwork.preseal([configId]),
 );
@@ -301,11 +308,15 @@ ipcMain.handle(BROWSER_NET_CHANNELS.syncExits, (event, payload: { hostIds: strin
 });
 ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.snapshot());
 
-// browserNet:hold(阶段3):非主窗(目前仅查看器窗口)持有出口存活。三道闸:
+// browserNet:hold(阶段3):非主窗(目前仅查看器窗口)持有出口存活。四道闸:
 // ① sender 所属窗口必须在 fileWins(查看器窗口集合)——否则任意渲染进程都能
 //   驱动 main 建 SSH 隧道/开代理,直接返回当前快照,不落 hold;
-// ② hostIds 逐个校验在远程配置存在(不存在的丢弃,防拼造 configId 探测);
-// ③ 落账后与主窗集合取并集,重推 syncExits,返回权威快照(与 browserNet.get 同形)。
+// ② hostIds 收紧到 ⊆ {该窗口自己的 hostId}(filterHoldRequest,评审 P2-6)——反查
+//   fileWins(hostId→窗口)找到 sender 所属窗口注册时用的 hostId,窗口 A(host cfg-a)
+//   不许声称持有窗口 B(host cfg-b)的出口,纵深防御(当前 UI 本就没有触发这个的入口,
+//   但 IPC handler 不该只靠"UI 不这么调"来兜底);
+// ③ 剩下的 hostId 逐个校验在远程配置存在(不存在的丢弃,防拼造 configId 探测);
+// ④ 落账后与主窗集合取并集,重推 syncExits,返回权威快照(与 browserNet.get 同形)。
 // 释放走双保险(sender 'destroyed' + 所属窗口 'closed'),用 heldSenders 防重复挂钩。
 const heldSenders = new Set<number>();
 function ensureHoldRelease(win: BrowserWindow, sender: Electron.WebContents): void {
@@ -326,9 +337,10 @@ ipcMain.handle(BROWSER_NET_CHANNELS.hold, (event, payload: { hostIds: string[] }
   if (!isViewerWindow) {
     return browserNetwork.snapshot();
   }
+  const ownHostId = [...fileWins.entries()].find(([, w]) => w === win)?.[0] ?? null;
   const requested = Array.isArray(payload?.hostIds) ? payload.hostIds : [];
-  const validated = requested.filter(
-    (id) => typeof id === 'string' && id && remoteHostConfigStore.get(id) !== null,
+  const validated = filterHoldRequest(requested, ownHostId).filter(
+    (id) => remoteHostConfigStore.get(id) !== null,
   );
   ensureHoldRelease(win, event.sender);
   exitLedger.setHold(event.sender.id, validated);
@@ -816,13 +828,6 @@ ipcMain.on('shell:show-item-in-folder', (_event, p: string) => {
     shell.showItemInFolder(p);
   }
 });
-// 本地 HTML 用系统默认浏览器打开(仅 .html/.htm,经 file:// URL)
-ipcMain.on('shell:open-in-browser', (_event, p: string) => {
-  if (typeof p === 'string' && path.isAbsolute(p) && /\.html?$/i.test(p)) {
-    void shell.openExternal(pathToFileURL(p).href);
-  }
-});
-
 // 原生拖出:文件面板把本地文件/目录拖到 Finder 等(OS 默认=复制)。
 // startDrag 要求非空 icon 且须在拖拽手势期间同步调用,故用缓存图标。
 let cachedDragIcon: Electron.NativeImage | null = null;
@@ -1176,13 +1181,19 @@ function buildMenu(): void {
    * click 只在聚焦窗口是查看器(fileWins 值集合)时才转发 'menu' 'save';主窗/浏览器
    * 壳窗/diff 模态收不到这个动作也无妨——它们的 onMenu 对未知 action 一律忽略,不是
    * 只对 'save' 特殊放行,双保险。
+   *
+   * 🔴 评审 P2-12:accelerator 仅 darwin 设(Cmd+S)。非 darwin 上 CmdOrCtrl+S 是
+   * Ctrl+S——同时是终端的 XOFF 流控字符(暂停输出),原生菜单 accelerator 会在终端
+   * 聚焦时把这个按键截走,吞掉终端本该收到的 XOFF。本项目只出 darwin 包(与上面
+   * editMenu 的 Cmd+C/SIGINT 同一先例,理由见其头注),非 darwin 不设 accelerator,
+   * 菜单项本身仍在(只是没有全局快捷键)。
    */
   const fileMenu = (): Electron.MenuItemConstructorOptions => ({
     label: t('File'),
     submenu: [
       {
         label: t('Save'),
-        accelerator: 'CmdOrCtrl+S',
+        ...(process.platform === 'darwin' ? { accelerator: 'Cmd+S' } : {}),
         click: () => {
           const win = BrowserWindow.getFocusedWindow();
           if (win && [...fileWins.values()].includes(win)) {

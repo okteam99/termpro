@@ -29,7 +29,7 @@ function fakeView(html = '<html><body>hi</body></html>') {
 }
 
 function seed(browser?: {
-  tabs: { id: string; url: string; title?: string }[];
+  tabs: { id: string; url: string; title?: string; preview?: true }[];
   activeTabId: string | null;
   poppedOut?: boolean;
 }) {
@@ -94,6 +94,21 @@ describe('控制原语', () => {
     expect((v.loadURL as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('https://new.dev');
     expect(useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url).toBe(
       'https://new.dev',
+    );
+  });
+
+  it('评审 P2-9:navigate 拒绝预览标签(preview===true,出口钉死 + URL 含一次性 token)', async () => {
+    seed({
+      tabs: [{ id: 'a', url: 'http://127.0.0.1:4123/tok/index.html', preview: true }],
+      activeTabId: 'a',
+    });
+    const v = fakeView();
+    registerBrowserView('a', v);
+    await expect(bc.navigate(TERM, 'https://elsewhere.dev', 'a')).rejects.toThrow(/preview tab/);
+    expect((v.loadURL as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    // store 镜像未被改写(拒绝发生在写 store 之前)
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url).toBe(
+      'http://127.0.0.1:4123/tok/index.html',
     );
   });
 
@@ -162,6 +177,34 @@ describe('标签管理', () => {
       { id: 'a', url: 'https://a.dev', title: 'A', active: true, net: 'cfg-1' },
       { id: 'b', url: '', title: undefined, active: false, net: 'cfg-1' },
     ]);
+  });
+
+  it('评审 P2-9:listTabs 对预览标签脱敏 url 为 preview://<文件名>,title 照常保留', () => {
+    seed({
+      tabs: [
+        {
+          id: 'a',
+          url: 'http://127.0.0.1:4123/8f2a1c/dir/index.html',
+          title: 'index.html',
+          preview: true,
+        },
+        { id: 'b', url: 'https://kept.example.com', title: 'B' }, // 非预览标签不受影响
+      ],
+      activeTabId: 'a',
+    });
+    const list = bc.listTabs(TERM);
+    expect(list).toEqual([
+      { id: 'a', url: 'preview://index.html', title: 'index.html', active: true, net: 'cfg-1' },
+      { id: 'b', url: 'https://kept.example.com', title: 'B', active: false, net: 'cfg-1' },
+    ]);
+  });
+
+  it('评审 P2-9:预览标签 url 解析失败(极端情形)→ 退化成裸 preview://', () => {
+    seed({
+      tabs: [{ id: 'a', url: 'not-a-valid-url', preview: true }],
+      activeTabId: 'a',
+    });
+    expect(bc.listTabs(TERM)[0].url).toBe('preview://');
   });
 
   it('openTab / activateTab / closeTab', () => {

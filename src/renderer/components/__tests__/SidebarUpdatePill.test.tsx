@@ -53,7 +53,6 @@ function mockOkworkUpdateEvent(event: {
       openExternal: vi.fn(),
       openPath: vi.fn(),
       showItemInFolder: vi.fn(),
-      openInBrowser: vi.fn(),
       onViewerAddTab: vi.fn(noop),
       // BL-004:Sidebar 挂载即拉机器列表 + 订阅连接事件(机器分组 AC-1/AC-8),
       // 本测试只关心升级胶囊文案,机器组恒 M=0(不影响原断言)。

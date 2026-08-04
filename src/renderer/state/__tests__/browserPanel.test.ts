@@ -2,7 +2,13 @@
 // 内置浏览器窗格已 per-tab(绑定终端 tab · TabState.browser)。本测覆盖:per-tab action
 // 语义、旧版全局标签 → 活跃 tab 的一次性迁移、per-tab 序列化。
 import { beforeEach, describe, expect, it } from 'vitest';
-import { type PersistedStateV1, type WorkspaceState, resolveBrowserTabNet, useAppStore } from '../store';
+import {
+  type PersistedStateV1,
+  type WorkspaceState,
+  isSamePreviewPrefix,
+  resolveBrowserTabNet,
+  useAppStore,
+} from '../store';
 import { serialize } from '../persistence';
 
 const TERM = 'term1';
@@ -384,5 +390,99 @@ describe('预览标签(preview · 项目内 HTML 预览 · openHtmlPreview 开�
     const br = useAppStore.getState().workspaces[0].tabs[0].browser;
     expect(br?.tabs).toHaveLength(1);
     expect(br?.tabs[0]).not.toHaveProperty('preview');
+  });
+
+  describe('isSamePreviewPrefix(评审 P2-10:纯函数)', () => {
+    it('同 origin + 同路径首段(token)→ true(同一预览会话内的相对跳转,如 assets/)', () => {
+      expect(
+        isSamePreviewPrefix(
+          'http://127.0.0.1:4123/tok/index.html',
+          'http://127.0.0.1:4123/tok/assets/app.css',
+        ),
+      ).toBe(true);
+    });
+
+    it('origin 不同(端口变了,preview.ensure 换了个 server)→ false', () => {
+      expect(
+        isSamePreviewPrefix(
+          'http://127.0.0.1:4123/tok/index.html',
+          'http://127.0.0.1:9999/tok/index.html',
+        ),
+      ).toBe(false);
+    });
+
+    it('路径首段(token)不同 → false', () => {
+      expect(
+        isSamePreviewPrefix(
+          'http://127.0.0.1:4123/tok-a/index.html',
+          'http://127.0.0.1:4123/tok-b/index.html',
+        ),
+      ).toBe(false);
+    });
+
+    it('导航去了完全不相关的站点 → false', () => {
+      expect(
+        isSamePreviewPrefix('http://127.0.0.1:4123/tok/index.html', 'https://example.com/'),
+      ).toBe(false);
+    });
+
+    it('url 解析失败 → false(保守默认:清掉 preview 只是降级,不是安全隐患)', () => {
+      expect(isSamePreviewPrefix('http://127.0.0.1:4123/tok/index.html', 'not-a-url')).toBe(
+        false,
+      );
+      expect(isSamePreviewPrefix('not-a-url', 'http://127.0.0.1:4123/tok/index.html')).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('updateBrowserTab 对预览标签的 preview 剥离(评审 P2-10)', () => {
+    function seedPreviewTab(url = 'http://127.0.0.1:4123/tok/index.html'): string {
+      useAppStore.getState().addBrowserTab(TERM, url, { netHostId: 'cfg-9', preview: true });
+      return pane()!.tabs[0].id;
+    }
+
+    it('导航离开预览前缀(不同 origin)→ 连带清掉 preview,url 正常更新', () => {
+      const id = seedPreviewTab();
+      useAppStore.getState().updateBrowserTab(TERM, id, { url: 'https://elsewhere.dev' });
+      const tab = pane()!.tabs[0];
+      expect(tab.url).toBe('https://elsewhere.dev');
+      expect(tab.preview).toBeUndefined();
+    });
+
+    it('导航离开预览前缀(同 origin 不同 token)→ 同样清掉 preview', () => {
+      const id = seedPreviewTab('http://127.0.0.1:4123/tok-a/index.html');
+      useAppStore.getState().updateBrowserTab(TERM, id, {
+        url: 'http://127.0.0.1:4123/tok-b/index.html',
+      });
+      expect(pane()!.tabs[0].preview).toBeUndefined();
+    });
+
+    it('仍在同一预览前缀内跳转(相对资源)→ preview 保留', () => {
+      const id = seedPreviewTab();
+      useAppStore.getState().updateBrowserTab(TERM, id, {
+        url: 'http://127.0.0.1:4123/tok/assets/app.css',
+      });
+      const tab = pane()!.tabs[0];
+      expect(tab.url).toBe('http://127.0.0.1:4123/tok/assets/app.css');
+      expect(tab.preview).toBe(true);
+    });
+
+    it('patch 无 url(只改 title)→ 不动 preview,不误判', () => {
+      const id = seedPreviewTab();
+      useAppStore.getState().updateBrowserTab(TERM, id, { title: '新标题' });
+      const tab = pane()!.tabs[0];
+      expect(tab.title).toBe('新标题');
+      expect(tab.preview).toBe(true);
+    });
+
+    it('非预览标签的 url 更新零回归(不受本次改动影响)', () => {
+      useAppStore.getState().addBrowserTab(TERM, 'https://a.dev');
+      const id = pane()!.tabs[0].id;
+      useAppStore.getState().updateBrowserTab(TERM, id, { url: 'https://b.dev' });
+      const tab = pane()!.tabs[0];
+      expect(tab.url).toBe('https://b.dev');
+      expect(tab).not.toHaveProperty('preview');
+    });
   });
 });

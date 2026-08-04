@@ -10,6 +10,7 @@ vi.mock('../../../services/hostClient', () => ({
 }));
 
 import { HtmlPreview, resolvePreviewRoot, dirnameOf } from '../HtmlPreview';
+import { __resetExitHoldCounterForTest } from '../exitHoldCounter';
 
 const hold = vi.fn().mockResolvedValue({ local: true, exits: [] });
 function mockOkwork() {
@@ -25,6 +26,7 @@ afterEach(() => {
   rpc.mockReset();
   hold.mockReset();
   hold.mockResolvedValue({ local: true, exits: [] });
+  __resetExitHoldCounterForTest();
   delete (window as unknown as Record<string, unknown>).okwork;
 });
 
@@ -131,6 +133,46 @@ describe('HtmlPreview', () => {
     expect(hold).toHaveBeenLastCalledWith([]);
   });
 
+  it('同窗两个远程 html tab 共用 hostId(评审 P1-1):任一卸载不拆另一个的 hold', async () => {
+    mockOkwork();
+    rpc.mockImplementation((method: string) => {
+      if (method === 'preview.ensure') {
+        return Promise.resolve({ root: '/ws', port: 5000, token: 'tk' });
+      }
+      return Promise.reject(new Error(`unexpected rpc ${method}`));
+    });
+    const first = render(
+      <HtmlPreview
+        path="/ws/a.html"
+        hostId="cfg-1"
+        previewRoot="/ws"
+        reloadSeq={0}
+        dirty={false}
+        onRequestSave={() => {}}
+      />,
+    );
+    await waitFor(() => expect(document.querySelectorAll('webview').length).toBe(1));
+    const second = render(
+      <HtmlPreview
+        path="/ws/b.html"
+        hostId="cfg-1"
+        previewRoot="/ws"
+        reloadSeq={0}
+        dirty={false}
+        onRequestSave={() => {}}
+      />,
+    );
+    await waitFor(() => expect(document.querySelectorAll('webview').length).toBe(2));
+    expect(hold).toHaveBeenLastCalledWith(['cfg-1']);
+
+    first.unmount();
+    // 第二个 tab 仍在用同一 hostId——不能被第一个卸载拆台
+    expect(hold).toHaveBeenLastCalledWith(['cfg-1']);
+
+    second.unmount();
+    expect(hold).toHaveBeenLastCalledWith([]);
+  });
+
   it('无 previewRoot → git.info(cwd=dirname(path)) 的 toplevel 起 server', async () => {
     rpc.mockImplementation((method: string, params: unknown) => {
       if (method === 'git.info') {
@@ -204,6 +246,44 @@ describe('HtmlPreview', () => {
       />,
     );
     expect(el.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('评审 P2-7:Retry 成功后的首次保存(reloadSeq+1)仍触发 reload(此前被误判成首帧跳过)', async () => {
+    rpc.mockRejectedValue(new Error('boom'));
+    const { rerender } = render(
+      <HtmlPreview
+        path="/repo/index.html"
+        previewRoot="/repo"
+        reloadSeq={0}
+        dirty={false}
+        onRequestSave={() => {}}
+      />,
+    );
+    await screen.findByText('Failed to start the preview server: boom');
+
+    rpc.mockReset();
+    rpc.mockImplementation((method: string) => {
+      if (method === 'preview.ensure') {
+        return Promise.resolve({ root: '/repo', port: 4123, token: 'tok' });
+      }
+      return Promise.reject(new Error(`unexpected rpc ${method}`));
+    });
+    fireEvent.click(screen.getByText('Retry'));
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy());
+    const el = webviewEl() as HTMLElement & { reload: () => void };
+    el.reload = vi.fn();
+
+    // 保存触发 reloadSeq 0→1(reloadSeq 本身从未变化过——retry 走的是 retrySeq,不碰它)
+    rerender(
+      <HtmlPreview
+        path="/repo/index.html"
+        previewRoot="/repo"
+        reloadSeq={1}
+        dirty={false}
+        onRequestSave={() => {}}
+      />,
+    );
+    await waitFor(() => expect(el.reload).toHaveBeenCalledTimes(1));
   });
 
   it('preview.ensure 报 unknown rpc method → host 过旧文案 + 重试按钮重跑成功', async () => {

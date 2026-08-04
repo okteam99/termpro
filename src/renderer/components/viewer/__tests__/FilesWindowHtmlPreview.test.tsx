@@ -4,7 +4,7 @@
 // FilesWindow 自己的编排:viewMode/previewKind 初值、Preview↔Edit 切换不卸载
 // FileView(保未保存内容)、保存后 reloadSeq+1 传给 HtmlPreview。
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('../../../services/hostClient', () => ({
   hostClient: { info: { homedir: '/Users/test' }, rpc: vi.fn() },
@@ -42,10 +42,16 @@ vi.mock('../HtmlPreview', () => ({
 
 import { FilesWindow } from '../FilesWindow';
 
-function mockOkwork() {
+type AddTabCallback = (t: { path: string; kind: 'file' | 'dir'; previewRoot?: string }) => void;
+
+/** onAddTab 可选:捕获 FilesWindow 订阅的 add-tab 回调,供用例手动触发「窗口复用追加 tab」。 */
+function mockOkwork(onAddTab?: (cb: AddTabCallback) => void) {
   Object.defineProperty(window, 'okwork', {
     value: {
-      onViewerAddTab: () => () => {},
+      onViewerAddTab: (cb: AddTabCallback) => {
+        onAddTab?.(cb);
+        return () => {};
+      },
       onMenu: () => () => {},
     },
     writable: true,
@@ -112,5 +118,42 @@ describe('FilesWindow · html 默认预览(阶段4)', () => {
     expect(screen.queryByText('Edit')).toBeNull();
     expect(screen.queryByTestId('html-preview')).toBeNull();
     expect(screen.queryByTestId('md-preview')).toBeNull();
+  });
+
+  it('评审 P2-14:关闭 tab 后 reloadSeqs 清掉对应键(即便 id 被复用,新 tab 的 reloadSeq 仍从 0 起)', () => {
+    let addTab: AddTabCallback | null = null;
+    mockOkwork((cb) => {
+      addTab = cb;
+    });
+    // jsdom 的 window.close() 会真的拆掉 document(不是 Electron 里「关掉这个查看器窗口」
+    // 那种无害 no-op),桩掉避免测试环境本身被销毁——closeTab 在最后一个 tab 关闭时会调它。
+    const closeSpy = vi.spyOn(window, 'close').mockImplementation(() => {});
+    const uuidSpy = vi.spyOn(globalThis.crypto, 'randomUUID');
+    uuidSpy.mockReturnValueOnce(
+      'id-1' as unknown as `${string}-${string}-${string}-${string}-${string}`,
+    );
+
+    render(<FilesWindow initialPath="/repo/a.html" />);
+    expect(screen.getByTestId('html-preview').getAttribute('data-reload-seq')).toBe('0');
+    fireEvent.click(screen.getByTestId('fileview-save'));
+    expect(screen.getByTestId('html-preview').getAttribute('data-reload-seq')).toBe('1');
+
+    // 关掉这个(唯一)tab:closeTab 触发 window.close()(jsdom 下安全 no-op),
+    // reloadSeqs 里 'id-1' 这条也该被一并删除(评审 P2-14 的修复点)。
+    fireEvent.click(screen.getByTitle('Close (⌘W)'));
+
+    // 新开一个 tab,mock id 复用同一个 'id-1' ——只是为了在测试里让「reloadSeqs 是否还
+    // 留着旧键」变得可观察:若 closeTab 没清 reloadSeqs,这个新 tab 会错误地继承
+    // reloadSeq=1(误判成「已经保存过一次」),而不是一个全新 tab 该有的 0。
+    uuidSpy.mockReturnValueOnce(
+      'id-1' as unknown as `${string}-${string}-${string}-${string}-${string}`,
+    );
+    act(() => {
+      addTab!({ path: '/repo/b.html', kind: 'file' });
+    });
+
+    expect(screen.getByTestId('html-preview').getAttribute('data-reload-seq')).toBe('0');
+    uuidSpy.mockRestore();
+    closeSpy.mockRestore();
   });
 });

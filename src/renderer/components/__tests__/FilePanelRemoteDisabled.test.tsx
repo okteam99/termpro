@@ -112,7 +112,6 @@ function mockOkwork() {
       getPathForFile: vi.fn(),
       startFileDrag: vi.fn(),
       openPath: vi.fn(),
-      openInBrowser: vi.fn(),
       showItemInFolder: vi.fn(),
     },
     writable: true,

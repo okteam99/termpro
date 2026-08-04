@@ -184,6 +184,40 @@ describe('restoreWorkspaceTabs(布局恢复)', () => {
     expect(useAppStore.getState().workspaces[0].activeTabId).toBe('t1');
   });
 
+  it('评审 P1-2:snapshotRemoteLayout→restoreWorkspaceTabs 往返后 preview 保留,出口仍钉死', () => {
+    const withPreview: TabState = {
+      ...tab('t1', '/a/x'),
+      browser: {
+        tabs: [
+          { id: 'b1', url: 'http://127.0.0.1:4123/tok/index.html', netHostId: 'cfg-a', preview: true },
+        ],
+        activeTabId: 'b1',
+      },
+    };
+    useAppStore.setState({ workspaces: [remoteWs('rw1', 'cfg-a', [withPreview])] });
+
+    useAppStore.getState().dropHostWorkspaces('cfg-a');
+    const snap = useAppStore.getState().remoteTabLayouts['rw1'];
+    // 内存态快照原样透传 preview(不在 snapshotRemoteLayout 剥离)
+    expect(snap.tabs[0].browser?.tabs[0].preview).toBe(true);
+
+    useAppStore.setState({ workspaces: [remoteWs('rw1', 'cfg-a', [])] });
+    const applied = useAppStore
+      .getState()
+      .restoreWorkspaceTabs('rw1', snap.tabs, snap.activeTabId);
+    expect(applied).toBe(true);
+
+    const restored = useAppStore.getState().workspaces[0].tabs[0];
+    // source='memory' 路径不剥 preview(与磁盘 hydrate 分流,评审 P1-2)
+    expect(restored.browser?.tabs[0]).toMatchObject({ id: 'b1', preview: true });
+
+    // 出口仍钉死:setBrowserTabNet 对 preview 标签是 no-op(store 层权威守卫)
+    useAppStore.getState().setBrowserTabNet('t1', 'b1', 'cfg-b');
+    const afterNetChange = useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0];
+    expect(afterNetChange.netHostId).toBe('cfg-a'); // 未被改成 cfg-b
+    expect(afterNetChange.preview).toBe(true);
+  });
+
   it('守卫:ws 不存在 / 本机 ws / 已有 tab / 空布局 → 不应用', () => {
     const local = { ...remoteWs('lw', 'local', []) };
     const withTabs = remoteWs('rw2', 'cfg-a', [tab('live', '/live')]);
@@ -234,6 +268,74 @@ describe('serialize v2 · remoteTabs 合并写盘', () => {
     if (archive.version !== 2) throw new Error('expected v2');
     expect(archive.remoteTabs).toHaveLength(1);
     expect(archive.remoteTabs![0].tabs[0].id).toBe('tNew');
+  });
+
+  it('评审盲区2:serializeRemoteTabs 的 stored 路径过滤 preview 标签(断线未重连即退出场景)', () => {
+    // rw1 不在 workspaces 里(已 drop,不在店)→ 走 stored 路径而非 live 路径
+    useAppStore.setState({
+      workspaces: [],
+      remoteTabLayouts: {
+        rw1: {
+          hostId: 'cfg-a',
+          workspaceId: 'rw1',
+          activeTabId: 't1',
+          tabs: [
+            {
+              id: 't1',
+              cwd: '/a/x',
+              browser: {
+                tabs: [
+                  {
+                    id: 'b1',
+                    url: 'http://127.0.0.1:4123/tok/index.html',
+                    netHostId: 'cfg-a',
+                    preview: true,
+                  },
+                ],
+                activeTabId: 'b1',
+              },
+            },
+          ],
+        },
+      },
+    });
+    const archive = serialize(useAppStore.getState());
+    if (archive.version !== 2) throw new Error('expected v2');
+    expect(archive.remoteTabs).toHaveLength(1);
+    // 预览标签(URL 含一次性 token)不落盘;该 tab 唯一的浏览器标签被过滤 → 窗格字段整体消失
+    expect(archive.remoteTabs![0].tabs[0].browser).toBeUndefined();
+  });
+
+  it('评审盲区2:stored 路径里非预览标签正常保留,只过滤 preview 那部分', () => {
+    useAppStore.setState({
+      workspaces: [],
+      remoteTabLayouts: {
+        rw1: {
+          hostId: 'cfg-a',
+          workspaceId: 'rw1',
+          activeTabId: 't1',
+          tabs: [
+            {
+              id: 't1',
+              cwd: '/a/x',
+              browser: {
+                tabs: [
+                  { id: 'b1', url: 'https://kept.example.com' },
+                  { id: 'b2', url: 'http://127.0.0.1:4123/tok/index.html', preview: true },
+                ],
+                activeTabId: 'b2',
+              },
+            },
+          ],
+        },
+      },
+    });
+    const archive = serialize(useAppStore.getState());
+    if (archive.version !== 2) throw new Error('expected v2');
+    const browser = archive.remoteTabs![0].tabs[0].browser;
+    expect(browser?.tabs).toEqual([{ id: 'b1', url: 'https://kept.example.com' }]);
+    // 原 activeTabId(b2)被过滤 → 回落剩余首个标签
+    expect(browser?.activeTabId).toBe('b1');
   });
 
   it('无远程布局 → 不写 remoteTabs 字段;v1 模式恒不写', () => {

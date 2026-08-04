@@ -261,10 +261,6 @@ contextBridge.exposeInMainWorld('okwork', {
   showItemInFolder(path: string): void {
     ipcRenderer.send('shell:show-item-in-folder', path);
   },
-  /** 本地 HTML 用系统默认浏览器打开 */
-  openInBrowser(path: string): void {
-    ipcRenderer.send('shell:open-in-browser', path);
-  },
   /** 在独立窗口打开查看器(file/diff),不占用主视图 */
   openViewerWindow(payload: unknown): void {
     ipcRenderer.send('viewer:open-window', payload);

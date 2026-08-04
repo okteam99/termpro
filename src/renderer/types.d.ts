@@ -122,7 +122,6 @@ declare global {
       ): () => void;
       openPath(path: string): void;
       showItemInFolder(path: string): void;
-      openInBrowser(path: string): void;
       onViewerAddTab(
         callback: (tab: { path: string; kind: 'file' | 'dir'; previewRoot?: string }) => void,
       ): () => void;
