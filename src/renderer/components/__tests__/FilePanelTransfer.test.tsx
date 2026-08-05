@@ -171,28 +171,33 @@ describe('FilePanel: 远程文件传输行内按钮(阶段3)', () => {
     expect(uploadBtn).not.toHaveAttribute('aria-disabled');
   });
 
-  it('无能力位(supportsTransfer=false):aria-disabled + 点击弹确定性提示,不调用 transferManager', () => {
+  it('无能力位(supportsTransfer=false):aria-disabled + 点击弹确定性提示,不调用 transferManager,且引导打开远程机设置页', () => {
     seedWorkspace('cfg-1');
     remoteClient.supportsTransfer.mockReturnValue(false);
+    const nonceBefore = useAppStore.getState().remoteHostsPageNonce;
     render(<FilePanel />);
     const fileRow = screen.getByText('plain.txt').closest('.file-panel__row') as HTMLElement;
     const btn = within(fileRow).getByTitle(
-      'Remote host is too old — upgrade the server to transfer files',
+      'Remote host is too old — click to open Remote Hosts and update it',
     );
     expect(btn).toHaveAttribute('aria-disabled', 'true');
 
     fireEvent.click(btn);
 
     expect(
-      screen.getByText('Remote host is too old — upgrade the server to transfer files'),
+      screen.getByText('Remote host is too old — click to open Remote Hosts and update it'),
     ).toBeInTheDocument();
     expect(transferManagerMock.download).not.toHaveBeenCalled();
     expect(remoteClient.rpc).not.toHaveBeenCalled();
+    // host 过旧这一支额外触发 openRemoteHostsPage(nonce 自增),引导用户去升级入口——
+    // 其它禁用分支(未连接/传输中)不应触发,见下面两条用例。
+    expect(useAppStore.getState().remoteHostsPageNonce).toBe(nonceBefore + 1);
   });
 
-  it('未连接(client.info 为空):aria-disabled + 提示「远程机未连接」', () => {
+  it('未连接(client.info 为空):aria-disabled + 提示「远程机未连接」,不引导打开远程机设置页', () => {
     seedWorkspace('cfg-1');
     remoteClient.info = null;
+    const nonceBefore = useAppStore.getState().remoteHostsPageNonce;
     render(<FilePanel />);
     const fileRow = screen.getByText('plain.txt').closest('.file-panel__row') as HTMLElement;
     const btn = within(fileRow).getByTitle('Remote machine is not connected');
@@ -202,11 +207,13 @@ describe('FilePanel: 远程文件传输行内按钮(阶段3)', () => {
 
     expect(screen.getByText('Remote machine is not connected')).toBeInTheDocument();
     expect(transferManagerMock.download).not.toHaveBeenCalled();
+    expect(useAppStore.getState().remoteHostsPageNonce).toBe(nonceBefore);
   });
 
-  it('isBusy=true:aria-disabled + 提示「该项正在传输中」', () => {
+  it('isBusy=true:aria-disabled + 提示「该项正在传输中」,不引导打开远程机设置页', () => {
     seedWorkspace('cfg-1');
     transferManagerMock.isBusy.mockReturnValue(true);
+    const nonceBefore = useAppStore.getState().remoteHostsPageNonce;
     render(<FilePanel />);
     const dirRow = screen.getByText('src').closest('.file-panel__row') as HTMLElement;
     const btn = within(dirRow).getByTitle('Transfer already in progress');
@@ -216,6 +223,7 @@ describe('FilePanel: 远程文件传输行内按钮(阶段3)', () => {
 
     expect(screen.getByText('Transfer already in progress')).toBeInTheDocument();
     expect(transferManagerMock.upload).not.toHaveBeenCalled();
+    expect(useAppStore.getState().remoteHostsPageNonce).toBe(nonceBefore);
   });
 
   it('点击下载按钮(启用态):stopPropagation 不开查看器;fs.stat 后调用 transferManager.download', async () => {

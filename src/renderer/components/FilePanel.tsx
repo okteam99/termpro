@@ -382,16 +382,21 @@ export function FilePanel() {
     });
   }, [workspaceId, showHint]);
 
-  /** 下载/上传行动作按钮的三态门(未连接 / host 版本过旧 / 该路径已在传输中)。 */
+  /** 下载/上传行动作按钮的三态门(未连接 / host 版本过旧 / 该路径已在传输中)。
+   *  oldHost 标记「host 版本过旧」这一支——点击处据此额外引导去远程机设置页升级。 */
   const transferGate = useCallback(
-    (direction: 'download' | 'upload', absPath: string): { disabled: boolean; title: string } => {
+    (
+      direction: 'download' | 'upload',
+      absPath: string,
+    ): { disabled: boolean; title: string; oldHost?: boolean } => {
       if (!wsClient.info) {
         return { disabled: true, title: t('Remote machine is not connected') };
       }
       if (!wsClient.supportsTransfer()) {
         return {
           disabled: true,
-          title: t('Remote host is too old — upgrade the server to transfer files'),
+          title: t('Remote host is too old — click to open Remote Hosts and update it'),
+          oldHost: true,
         };
       }
       if (workspace && transferManager.isBusy(workspace.hostId, absPath, direction)) {
@@ -411,6 +416,7 @@ export function FilePanel() {
       const gate = transferGate('download', absPath);
       if (gate.disabled) {
         showHint(gate.title);
+        if (gate.oldHost) useAppStore.getState().openRemoteHostsPage();
         return;
       }
       wsClient
@@ -446,6 +452,7 @@ export function FilePanel() {
       const gate = transferGate('upload', destDir);
       if (gate.disabled) {
         showHint(gate.title);
+        if (gate.oldHost) useAppStore.getState().openRemoteHostsPage();
         return;
       }
       transferManager

@@ -297,7 +297,9 @@ describe('HtmlPreview', () => {
         onRequestSave={() => {}}
       />,
     );
-    await screen.findByText("This machine's host is too old for preview — upgrade it");
+    await screen.findByText(
+      "This machine's host is too old for preview — update it from Settings → Remote Hosts",
+    );
     rpc.mockReset();
     rpc.mockImplementation((method: string) => {
       if (method === 'preview.ensure') return Promise.resolve({ root: '/repo', port: 1, token: 't' });

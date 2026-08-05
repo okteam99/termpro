@@ -86,8 +86,8 @@ export const zh: Record<string, string> = {
   // --- FilePanel:远程文件传输(阶段3)---
   'Download to local': '下载到本机',
   'Upload to this folder': '上传到此目录',
-  'Remote host is too old — upgrade the server to transfer files':
-    '远程服务端版本过旧,升级后可传输文件',
+  'Remote host is too old — click to open Remote Hosts and update it':
+    '远程服务端版本过旧——点击打开「远程机」页升级',
   'Transfer already in progress': '该项正在传输中',
   'File is too large (limit {limit})': '文件过大(上限 {limit})',
   'Saved to {path}': '已保存到 {path}',
@@ -100,7 +100,8 @@ export const zh: Record<string, string> = {
   // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
   'This file is outside the project — cannot start a preview':
     '该文件不在当前项目内,无法启动预览',
-  "This machine's host is too old for preview — upgrade it": '该机器的 host 版本过旧,升级后可用预览',
+  "This machine's host is too old for preview — update it from Settings → Remote Hosts":
+    '该机器的 host 版本过旧,到 设置 → 远程机 点「升级」后可用预览',
   'Failed to start the preview server: {error}': '预览服务器启动失败:{error}',
   'Failed to build the preview URL': '预览地址生成失败',
 
@@ -396,8 +397,8 @@ export const zh: Record<string, string> = {
   'The local clipboard has no image or text to paste': '本机剪贴板中没有可粘贴的图片或文本',
   'Could not paste the clipboard into the remote terminal: {message}':
     '无法把剪贴板内容粘贴到远程终端：{message}',
-  'The Remote Host is running an older version; reconnect the remote host to upgrade it and enable image paste':
-    '远程 Host 正在运行旧版本；重新连接该远程 Host 即可升级并启用图片粘贴',
+  'The Remote Host is running an older version; update it from Settings → Remote Hosts to enable image paste':
+    '远程 Host 版本过旧;到 设置 → 远程机 点「升级」后即可粘贴图片',
 
   // --- main/remote 凭据与编排 ---
   'Local credential encryption is unavailable — cannot store the password safely':

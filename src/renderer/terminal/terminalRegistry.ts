@@ -317,7 +317,7 @@ export function getOrCreateTerminal(tabId: string): TermInstance {
       if (!client.supportsTempPng()) {
         throw new Error(
           t(
-            'The Remote Host is running an older version; reconnect the remote host to upgrade it and enable image paste',
+            'The Remote Host is running an older version; update it from Settings → Remote Hosts to enable image paste',
           ),
         );
       }

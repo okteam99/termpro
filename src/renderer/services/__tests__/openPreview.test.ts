@@ -51,7 +51,7 @@ describe('openHtmlPreview', () => {
     const res = await openHtmlPreview(BASE_ARGS);
     expect(res).toEqual({
       ok: false,
-      message: "This machine's host is too old for preview — upgrade it",
+      message: "This machine's host is too old for preview — update it from Settings → Remote Hosts",
     });
   });
 

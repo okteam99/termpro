@@ -402,6 +402,12 @@ export interface AppState {
   localePref: LocalePref;
   /** 切换语言:即时生效(renderer + main 原生菜单)并随存档持久化 */
   setLocalePref(pref: LocalePref): void;
+  /** 「远程机」设置页深链打开信号:nonce 而非布尔——「host 过旧」死胡同提示等入口连点
+   *  两次也要能重新触发打开(布尔值在页面已开着时二次置 true 是 no-op)。SettingsEntry
+   *  订阅本字段,变化(非初值)时打开该页,不写盘(纯视图态触发信号)。 */
+  remoteHostsPageNonce: number;
+  /** 打开「远程机」设置页(nonce 自增触发 SettingsEntry 侧 useEffect) */
+  openRemoteHostsPage(): void;
 }
 
 
@@ -683,6 +689,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   remoteTabLayouts: {},
   browserProfiles: [],
   browserProfilesLoaded: false,
+  remoteHostsPageNonce: 0,
 
   hydrate(registry, archive) {
     // 🔴 旧版全局浏览器标签(面板级)→ per-tab 迁移(一次性):新存档不再写 ui.browserTabs,
@@ -1442,6 +1449,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     // main 同步生效(原生菜单/dialog);bridge 缺失(测试)静默跳过
     window.okwork?.setAppLocale?.(pref);
     set({ localePref: pref });
+  },
+
+  openRemoteHostsPage() {
+    set((s) => ({ remoteHostsPageNonce: s.remoteHostsPageNonce + 1 }));
   },
 
   notifications: [],

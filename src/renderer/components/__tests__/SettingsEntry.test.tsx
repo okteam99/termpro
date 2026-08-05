@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /// <reference types="@testing-library/jest-dom" />
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import React from 'react';
 
@@ -451,6 +451,48 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     expect(document.activeElement).toBe(entryBtn);
 
     unmount();
+  });
+});
+
+// --- 远程机页深链:store.openRemoteHostsPage()(nonce 自增)由「host 过旧」死胡同提示等
+// 入口触发,复用菜单项同一条 openPage 路径(焦点捕获 + 关菜单),连点两次也能重新打开 ---
+describe('settingsEntry_remote_hosts_page_deep_link_via_store_nonce', () => {
+  it('nonce 自增打开远程机页并关掉已开着的菜单;关闭后再次自增可重新打开', () => {
+    mockOkwork();
+    useAppStore.setState({ remoteHostsPageNonce: 0 });
+    render(<SettingsEntry />);
+    const entryBtn = screen.getByTitle('Settings');
+
+    // 菜单先开着,验证深链触发会顺手关掉它(而不是与页面共存)
+    fireEvent.click(entryBtn);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    act(() => {
+      useAppStore.getState().openRemoteHostsPage();
+    });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('Close'));
+    expect(screen.queryByText('Remote Hosts')).toBeNull();
+
+    // 连点两次场景:再次自增(即使菜单当前未开)必须重新触发打开
+    act(() => {
+      useAppStore.getState().openRemoteHostsPage();
+    });
+    expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
+
+    // 复位共享单例,避免污染其它用例
+    useAppStore.setState({ remoteHostsPageNonce: 0 });
+  });
+
+  it('挂载时读到的初始 nonce 不触发打开(只有后续变化才算)', () => {
+    mockOkwork();
+    useAppStore.setState({ remoteHostsPageNonce: 3 }); // 非零初值,模拟已有历史触发次数
+    render(<SettingsEntry />);
+    expect(screen.queryByText('Remote Hosts')).toBeNull();
+
+    useAppStore.setState({ remoteHostsPageNonce: 0 });
   });
 });
 

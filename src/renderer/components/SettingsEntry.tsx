@@ -207,6 +207,10 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const pinBottomBar = useAppStore((s) => s.pinBottomBar);
   const setPinBottomBar = useAppStore((s) => s.setPinBottomBar);
   const localePref = useAppStore((s) => s.localePref);
+  const remoteHostsPageNonce = useAppStore((s) => s.remoteHostsPageNonce);
+  // 首次挂载读到的 nonce 是「初值」,不算触发——只有后续自增(store.openRemoteHostsPage,
+  // 如「host 过旧」死胡同提示引导)才应该弹开该页
+  const prevRemoteHostsPageNonceRef = useRef(remoteHostsPageNonce);
 
   // 安全读 version:bridge 缺失或 version 空都回退 ""
   const version = window.okwork?.version ?? '';
@@ -242,6 +246,15 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
     prevFocusRef.current?.focus();
     prevFocusRef.current = null;
   }
+
+  // 远程机页深链打开信号(store.openRemoteHostsPage,如 FilePanel/terminalRegistry 里
+  // 「host 过旧」死胡同提示的引导入口):nonce 变化(非初值)→ 复用 openPage,走同一套
+  // 焦点捕获/菜单收起路径,不绕过焦点归还机制。
+  useEffect(() => {
+    if (remoteHostsPageNonce === prevRemoteHostsPageNonceRef.current) return;
+    prevRemoteHostsPageNonceRef.current = remoteHostsPageNonce;
+    openPage('remoteHosts');
+  }, [remoteHostsPageNonce]);
 
   return (
     <div className="settings-anchor" ref={anchorRef}>

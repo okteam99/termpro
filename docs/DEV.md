@@ -293,7 +293,8 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
   **严格顺序 offset**(per-transfer 串行链,并发 chunk 排队)、commit 时校验
   `received === size`,落地用 `link+unlink`(重名加后缀,恒不覆盖,与 fs.copy 同口径);
   断连由 per-client `disposeAll` 删 `.part`,陈旧残留 24h 清扫兜底。
-  能力位 `'fs.transfer'`,旧 host → 按钮禁用 + 升级提示,不上调 HOST_MIN_APP_VERSION。
+  能力位 `'fs.transfer'`,旧 host → 按钮禁用 + 升级提示(点击直达 §4.12 升级入口),
+  不上调 HOST_MIN_APP_VERSION。
 - **本机侧(main `localTransfer.ts` 票据通道)**:🔴 红线——本机盘读写的路径**永不来自
   renderer**:写落点只能由 `transfer:begin-save` 的保存对话框产生、读来源只能由
   `transfer:begin-open` 的打开对话框产生,renderer 只持不透明 ticket(sender 绑定、
@@ -305,6 +306,25 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
 - **已知边界**:单文件 2 GiB 上限(确定性拒绝);不支持断点续传(offset 协议已预留,
   v2);目录整体上传/下载不支持(多选文件覆盖主场景);app 崩溃可能在本机留下
   `.{name}.okwork-part-*` 残件(点前缀不可见,不做本机全盘清扫)。
+
+### 4.12 服务端(远程 host)升级入口(forceRedeploy)
+
+背景:连接时收养门闸只比对 `HOST_MIN_APP_VERSION`(硬编码最低依赖,不为小版本差
+杀 session),而 fs.transfer / fs.temp-png / preview 等新能力走能力位探测、有意不上调
+门闸——于是「host ≥ 门闸但缺新能力位」的存量 host 会被无限收养,升级提示无路可走。
+
+- **编排(main)**:`REMOTE_HOST_CHANNELS.upgrade` → `orchestrator.connect(id,
+  { forceRedeploy: true })`。residency 侧 `forceRedeploy` 置位 = 认领候选资格整体作废
+  (claim 与 abortLiveUnreachable 皆不可达,且跳过建隧道+probe 的候选探测段),活 host
+  属本 tag 走既有 reapThenDeploy 重部署当前 app 版本 bundle。🔴 kill 守门②③
+  (cmdline `--host-tag` 全等)不放宽:force 只放宽「要不要换」,从不放宽「能不能杀」。
+  与 2026-07-15 保护规则不冲突——那条防自动重连路径的误杀,本通道仅由用户显式点击触达
+  (用户规则 2026-07-13「升级服务端,在跑任务可以被关闭」的授权场景)。
+- **UI(RemoteHostsPage)**:ready 徽标旁显示远端 host 版本(`forHostId` 只读路由),
+  低于客户端版本亮「升级」+ 确认行(明示该机所有在跑会话含后台 agent 将被终止);
+  确认后 cancel 重连编排 + drop 旧 client + 发 upgrade,进度复用连接生命周期呈现。
+- **引导接线**:文件传输/图片粘贴/HTML 预览的「host 过旧」提示指向本入口
+  (FilePanel 点击直达:store `openRemoteHostsPage()` nonce → SettingsEntry 打开远程机页)。
 
 ---
 

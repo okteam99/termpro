@@ -138,7 +138,7 @@ export function HtmlPreview({
         setState({
           phase: 'error',
           message: msg.includes('unknown rpc method')
-            ? t("This machine's host is too old for preview — upgrade it")
+            ? t("This machine's host is too old for preview — update it from Settings → Remote Hosts")
             : t('Failed to start the preview server: {error}', { error: msg }),
         });
       }
