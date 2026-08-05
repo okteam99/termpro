@@ -8,6 +8,29 @@
 
 ---
 
+## 🛡️ 复发防御清单(dev 起草前必读 · shift-left)
+
+> **不是通用最佳实践,是本项目 code review 反复抓到的同几类**。写代码时**主动规避**,不是写完等 review 抓 ——
+> 被预防掉的 finding 永远不需要多轮收敛。
+> 本清单起于 `OKWORK-F260805033051`(一轮 review 出 1 BLOCKER + 3 MAJOR,**全部集中在异步编排的收口**)。
+> 本项目大量代码是 renderer ↔ main ↔ 远程 host 的跨进程异步编排,下面每一条都在这个语境下反复咬人。
+
+| # | 写的时候问自己 | 反例(真出过) |
+|---|---|---|
+| RD-1 | **跨 await 边界排队时,"意图"和"闸门"是同一个变量吗?** 是 → 拆开。一个布尔同时扛「拒收上一代残余」和「接受下一代意图」必然出错 | `resume` 放在排队**前**,闸全开而 IPC 还没发 → 被取消那次编排的残余事件把连接真做成,组头变绿(AC-6 逐字失败) |
+| RD-2 | **in-flight 去重槽(Set/Map)在"取消/作废"路径上有出口吗?** 只有 `.finally` 一个出口 = 那条 promise 永不落定时槽位永久泄漏 | 握手去重槽只在 `.finally` 释放;ws 卡在 upgrade → 新隧道的握手被自己的去重挡在门外,组头绿灯而终端全哑 |
+| RD-3 | **promise 闭包里 `new` 出来的资源(ws / timer / 子进程),实例上持引用了吗?** teardown 够不着闭包里的东西 | `connectViaWebSocket` 的 ws 只活在闭包,`this.transport` 要到 `onopen` 才设 → dispose 落在「已 new 未 open」窗口时关不掉它 → 孤儿 ws + 心跳 |
+| RD-4 | **teardown 是"按 key 查表"还是"对捕获到的那个实例"?** 按 key 有两种失灵:key 已被更早的清理删掉(no-op,该关的没人关)、表里已换新一代实例(误杀) | 闸③收尾 `hostRegistry.drop(configId)`,而该 id 早被 `stopRemoteWorkspaceSync` 删了 → no-op |
+| RD-5 | **这个不变式是 machine/session 级的,却放进了组件私有 `useRef` 吗?** 多入口(侧栏 + 设置页可同时挂载)时,一个入口建立的不变式对另一个入口**不存在** | 断开在途表放在 Sidebar 的 ref 里,设置页看不见 → 直接发 connect 撞主进程在途去重 =「点了没反应」换个入口原样复现 |
+| RD-6 | **存进共享表、会被别人 `race`/`await` 的 promise,是已 `.catch` 的那条吗?** 裸 promise 一旦 reject,下游的 `.then` 整条不执行 | `pendingDisconnects` 存了裸 promise → reject 时排队的连接意图永久卡死 + 未处理 rejection |
+| RD-7 | **"有反馈"是给眼睛的还是只给读屏的?** `aria-busy` / `aria-live` 不产生任何像素 | 忙碌态只写 `aria-busy`,截图与常态**像素级相同** —— 用户点了 5 秒看不到任何变化,正是该 AC 明令禁止的症状 |
+| RD-8 | **同构分支复制了几份?** 每多一份,下一个新增的不变式就要记得在每一处各写一遍 —— 本 Feature 因此栽了**两次**(握手实现两份 / 三个只差 label 的按钮分支) | 设置页有独立的一份 `beginHandshake`,只给侧栏设闸 → 设置页留一条无人管理的活连接 |
+
+📌 **判据来源**:上述每条都对应 `docs/features/OKWORK-F260805033051-*/REVIEW.md` 里一条 confirmed finding(含失败时序与实证)。
+📌 **清单会长**:同类第 2 次被抓即入;**已在清单里还复发 = 规避法不够硬,该强化那一条**,而不是再记一遍。
+
+---
+
 ## 🔀 Flagged Ambiguities(已澄清的歧义)
 
 > 评审循环中暴露"用户用 X 词同时指 A 和 B"时,澄清完后**实时**记录到此。

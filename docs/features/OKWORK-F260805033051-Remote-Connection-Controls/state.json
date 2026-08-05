@@ -307,9 +307,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T14:33:18Z",
-  "updated_by": "stage-cost",
-  "_state_checksum": "sha256:fae8b9af55d791d1c1cb7ad4174180cee2cd3f5d0f053208de63b7c262212876",
+  "updated_at": "2026-08-05T14:52:12Z",
+  "updated_by": "review-preventability",
+  "_state_checksum": "sha256:8aa0dff6f87a1e225ad61ce76ca09a9f33543bca8cd321982ac3c7f901fcf0d2",
   "legal_next_stages": [
     "test",
     "dev"
@@ -381,6 +381,21 @@
       ],
       "note": "",
       "at": "2026-08-05T05:30:29Z"
+    },
+    {
+      "stage": "review",
+      "preventable": 6,
+      "total": 12,
+      "missing": [
+        "跨 await 边界排队时「意图」与「闸门」必须拆成两个变量",
+        "in-flight 去重槽在取消路径上要有出口(不能只靠 .finally)",
+        "promise 闭包里 new 的资源要在实例上持引用否则 teardown 够不着",
+        "machine 级不变式不放组件私有 ref(多入口时另一入口看不见)",
+        "存进共享表被 race 的 promise 必须是已 catch 的",
+        "a11y 属性不产生像素——「有反馈」要分清给眼睛还是给读屏"
+      ],
+      "note": "",
+      "at": "2026-08-05T14:52:12Z"
     }
   ]
 }

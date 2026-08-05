@@ -51,14 +51,13 @@ describe('连接编排闸门与排队逻辑(remoteHostStore abandon/resume)', ()
       expect(fire).not.toHaveBeenCalled();
       expect(useRemoteHostRuntimeStore.getState().isAbandoned(c1)).toBe(true);
 
-      // 4. resolve 断开，flush 微任务（multiple flushes to ensure async chain completes）
+      // 4. resolve 断开
       resolveDisconnect!();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
 
-      // 5. 兑现后：fire 被调用1次，isAbandoned 变假(resume 在兑现点发生)
-      expect(fire).toHaveBeenCalledTimes(1);
+      // 5. 轮询等待 fire 被调用（微任务链深度不固定，不能硬数 await 次数）
+      await vi.waitFor(() => {
+        expect(fire).toHaveBeenCalledTimes(1);
+      });
       expect(useRemoteHostRuntimeStore.getState().isAbandoned(c1)).toBe(false);
     });
   });
@@ -193,9 +192,9 @@ describe('连接编排闸门与排队逻辑(remoteHostStore abandon/resume)', ()
 
       // 4. resolve p2 → p2 的 finally 发现 `pendingDisconnects.get(c1) === p2`,清忙碌态
       resolveP2!();
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(useRemoteHostRuntimeStore.getState().settling[c1]).toBeUndefined();
+      await vi.waitFor(() => {
+        expect(useRemoteHostRuntimeStore.getState().settling[c1]).toBeUndefined();
+      });
     });
   });
 
@@ -262,17 +261,11 @@ describe('连接编排闸门与排队逻辑(remoteHostStore abandon/resume)', ()
 
       // 4. 拒绝断开 promise
       rejectIt(new Error('boom'));
-      // flush 微任务：原 promise reject → .catch 处理 → .finally 兑现
-      // → `settled` promise resolve(undefined) → race 赢 → requestConnect 的 .then 执行
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
 
-      // 5. 🔴 灵魂：即便拒绝也要放行（若 trackDisconnect 存的是裸 promise，
-      //    race reject → fulfill 永不执行 → fire 不调 → 连接意图卡死）
-      expect(fire).toHaveBeenCalledTimes(1);
+      // 5. 轮询等待 fire 被调用（微任务链：p reject → .catch → .finally → settled resolve → race resolve → .then → fulfill）
+      await vi.waitFor(() => {
+        expect(fire).toHaveBeenCalledTimes(1);
+      });
 
       // 6. isAbandoned 被 resume 清掉
       expect(useRemoteHostRuntimeStore.getState().isAbandoned(c1)).toBe(false);
