@@ -325,10 +325,26 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     probeResult.hostOutdated !== true;
 
   if (!claimWouldSucceed && portRaw?.pid != null) {
-    const aliveRes = await ctx.ssh.exec(`kill -0 "${portRaw.pid}" 2>/dev/null && echo Y || echo N`);
-    killAliveResult = aliveRes.stdout.trim() === 'Y';
-    if (killAliveResult) {
-      cmdlineResult = await readRemoteCmdline(ctx.ssh, portRaw.pid);
+    // 🔴 隧道泄漏兜底(评审 P2):候选隧道已建、决策未出——此段 SSH exec 抛出
+    // (断线/连接被作废)会让 resolveResidency 直接 reject,下方「未认领关隧道」
+    // 永不执行,调用方只 close ssh → 本机监听口常驻。兜底关掉再抛。
+    try {
+      const aliveRes = await ctx.ssh.exec(
+        `kill -0 "${portRaw.pid}" 2>/dev/null && echo Y || echo N`,
+      );
+      killAliveResult = aliveRes.stdout.trim() === 'Y';
+      if (killAliveResult) {
+        cmdlineResult = await readRemoteCmdline(ctx.ssh, portRaw.pid);
+      }
+    } catch (err) {
+      if (candidateTunnel) {
+        try {
+          candidateTunnel.server.close();
+        } catch {
+          /* 已关 */
+        }
+      }
+      throw err;
     }
   }
 

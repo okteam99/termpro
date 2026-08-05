@@ -230,19 +230,67 @@ describe('E8 remoteHost:event 只推给 getMainWindow() 返回的窗口', () => 
 });
 
 describe('remoteHost:upgrade 用户显式升级服务端(forceRedeploy · Remote Hosts「Update」按钮)', () => {
-  it('upgrade 通道触发 orchestrator.connect(id, { forceRedeploy: true })(确认交互在 renderer 侧,main 不二次拦截)', () => {
+  // 🔴 评审 P2 纵深防御后:upgrade 是 remoteHost 通道里唯一会终止用户远端在跑进程的
+  // 指令,而 preload 四窗共用——只信主窗口 sender(与 tunnel 通道的归属校验同族)。
+  // webContents 用一个独立引用对象充当「身份」,与 event.sender 做 === 比对。
+  function makeMainWin() {
+    const webContents = {};
+    const win = { isDestroyed: () => false, webContents };
+    return { win, webContents };
+  }
+
+  function setup(getMainWindow: () => unknown) {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
     const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
     const orchestrator = makeOrchestrator(credentials, configStore);
     const connectSpy = vi.spyOn(orchestrator, 'connect').mockResolvedValue(undefined);
-    registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
-
+    registerRemoteHostIpc(orchestrator, credentials, configStore, getMainWindow as never);
     const fake = ipcMain as unknown as FakeIpcMain;
     const upgradeListeners = fake.__onListeners.get(REMOTE_HOST_CHANNELS.upgrade) ?? [];
     expect(upgradeListeners).toHaveLength(1);
-    upgradeListeners[0]({}, { id: 'vps-hk' });
+    return { connectSpy, upgrade: upgradeListeners[0] };
+  }
+
+  it('主窗口 sender + 合法 payload → orchestrator.connect(id, { forceRedeploy: true }) 被调(确认交互在 renderer 侧,main 不二次拦截)', () => {
+    const { win, webContents } = makeMainWin();
+    const { connectSpy, upgrade } = setup(() => win);
+
+    upgrade({ sender: webContents }, { id: 'vps-hk' });
 
     expect(connectSpy).toHaveBeenCalledWith('vps-hk', { forceRedeploy: true });
+  });
+
+  it('sender 非主窗口 webContents → 不被调(纵深防御,与 tunnel 通道归属校验同族)', () => {
+    const { win } = makeMainWin();
+    const { connectSpy, upgrade } = setup(() => win);
+
+    upgrade({ sender: {} }, { id: 'vps-hk' }); // 非主窗口的 webContents 引用
+
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it('getMainWindow() 返回 null → 不被调', () => {
+    const { connectSpy, upgrade } = setup(() => null);
+    upgrade({ sender: {} }, { id: 'vps-hk' });
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it('主窗口已销毁(isDestroyed() 为 true)→ 不被调', () => {
+    const destroyedWin = { isDestroyed: () => true, webContents: {} };
+    const { connectSpy, upgrade } = setup(() => destroyedWin);
+    upgrade({ sender: destroyedWin.webContents }, { id: 'vps-hk' });
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it('payload 非法(undefined / id 非 string)→ 不被调', () => {
+    const { win, webContents } = makeMainWin();
+    const { connectSpy, upgrade } = setup(() => win);
+
+    upgrade({ sender: webContents }, undefined);
+    upgrade({ sender: webContents }, { id: 42 });
+    upgrade({ sender: webContents }, {});
+
+    expect(connectSpy).not.toHaveBeenCalled();
   });
 
   it('dispose 后 upgrade listener 被移除(照 connect/disconnect 同族反注册)', () => {

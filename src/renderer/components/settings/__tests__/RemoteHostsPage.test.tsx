@@ -511,7 +511,7 @@ describe('host_version_and_upgrade', () => {
 
     expect(
       screen.getByText(
-        'Upgrade host on gpu-box to v0.3.100? All running sessions on that machine (including background agents) will be terminated',
+        'Upgrade host on gpu-box to v0.3.100? All running sessions on that machine (including background agents and sessions from other devices) will be terminated',
       ),
     ).toBeInTheDocument();
 
@@ -541,6 +541,71 @@ describe('host_version_and_upgrade', () => {
 
     expect(screen.getByText('v0.3.100')).toBeInTheDocument();
     expect(screen.queryByText('Update host')).toBeNull();
+  });
+
+  // --- 评审 P2:紧凑区(最近使用)ready+过旧时不渲染 Update——确认行只在完整区("手动添加")
+  // 渲染,紧凑区若也给按钮,点击后确认行出现在视口外的另一区,当场表现为"点了没反应"。 ---
+  it('recent (compact) row hides the Update button even when ready+outdated; the full row for the same host still shows it', async () => {
+    const config = makeConfig({
+      id: 'gpu-box',
+      alias: 'gpu-box',
+      lastUsed: Date.now() - 1000, // 落入「最近使用」紧凑区
+    });
+    const { emit, container } = await renderPage([config], { version: '0.3.100' });
+    fakeRemoteClient.info = {
+      hostId: 'local',
+      protocolVersion: 1,
+      minCompatible: 1,
+      platform: 'linux',
+      homedir: '/root',
+      shell: '/bin/bash',
+      appVersion: '0.3.90',
+    };
+
+    emit({ configId: 'gpu-box', stage: 'ready' });
+    // 同一台机器在「最近使用」与「手动添加」各渲染一行,两处徽标都会落地
+    await waitFor(() => expect(screen.getAllByText('✓ Connected')).toHaveLength(2));
+
+    const sections = container.querySelectorAll('.remote-hosts__section');
+    const recentSection = sections[0] as HTMLElement;
+    const manualSection = sections[1] as HTMLElement;
+
+    // 紧凑区:版本小字仍显示,但没有 Update 按钮
+    expect(within(recentSection).getByText('v0.3.90')).toBeInTheDocument();
+    expect(within(recentSection).queryByText('Update host')).toBeNull();
+    // 完整区:同一台机器正常给 Update
+    expect(within(manualSection).getByText('Update host')).toBeInTheDocument();
+  });
+
+  // --- 评审 P2:确认行打开后机器状态可能变化(断线等)——此时"在跑会话将被终止"的承诺
+  // 已不成立,必须回落普通行,不能再放行升级(点不到 Yes)。残留的 upgradeConfirmId 无害,
+  // 用户重新点 Update 会重置。 ---
+  it('confirm row falls back to the normal row when the host leaves ready while confirming (e.g. goes disconnected)', async () => {
+    const config = makeConfig({ id: 'gpu-box', alias: 'gpu-box' });
+    const { emit } = await renderPage([config], { version: '0.3.100' });
+    fakeRemoteClient.info = {
+      hostId: 'local',
+      protocolVersion: 1,
+      minCompatible: 1,
+      platform: 'linux',
+      homedir: '/root',
+      shell: '/bin/bash',
+      appVersion: '0.3.90',
+    };
+
+    emit({ configId: 'gpu-box', stage: 'ready' });
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('Update host'));
+    expect(screen.getByText(/^Upgrade host on gpu-box/)).toBeInTheDocument();
+
+    // 确认行开着的时候机器断线
+    emit({ configId: 'gpu-box', stage: 'disconnected' });
+
+    await waitFor(() => expect(screen.queryByText(/^Upgrade host on gpu-box/)).toBeNull());
+    expect(screen.queryByText('Yes')).toBeNull();
+    // 回落普通行:断线徽标可见,行为等价"确认从未发生过"
+    expect(screen.getByText('⚠ Connection lost')).toBeInTheDocument();
   });
 });
 

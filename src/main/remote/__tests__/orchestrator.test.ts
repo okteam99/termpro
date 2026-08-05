@@ -1008,6 +1008,289 @@ describe('ARCH-B3 in-flight guard', () => {
   });
 });
 
+describe('🔴 closeSessionTransport 先摘引用再 close(评审修复:forwardServer 同步再入回归)', () => {
+  it('陈旧 ready 自愈重建触发 wireDisconnectWatcher 的同步 close 事件时,forwardServer.close() 只被调用一次(不再靠栈溢出兜底终止)', async () => {
+    // 🔴 旧序(先 close 后置 null):wireDisconnectWatcher 挂在 forwardServer 上的 'close'
+    // 监听器在 close() 仍未返回、字段仍非 null 时被同步触发,经 handleTransportDown 同步
+    // 再入 closeSessionTransport → 再次 close() 同一台 server → 再次同步触发……复现脚本
+    // 实测递归约 1500 层,靠 V8 RangeError 被 try/catch 兜住才终止(4ms 内完成,巧合能工作)。
+    // 新序先摘引用(session.forwardServer = null)再 close(),第二次进入时身份校验
+    // (`session.forwardServer === server`)必失配,递归结构上不可能发生。
+    const routed = createFreshDeploySsh('vps-hk');
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+    expect(h.events.at(-1)?.stage).toBe('ready');
+
+    const forwardResults = (routed.forwardOut as ReturnType<typeof vi.fn>).mock.results;
+    const lastServer = forwardResults.at(-1)?.value as unknown as { close: (cb?: () => void) => void };
+    const closeSpy = vi.spyOn(lastServer, 'close');
+
+    const routed2 = createFreshDeploySsh('vps-hk');
+    h.connectSsh.mockImplementationOnce(async () => routed2);
+    await h.orchestrator.connect('vps-hk'); // 触发陈旧 ready 自愈 → closeSessionTransport(旧 session)
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(h.events.at(-1)?.stage).toBe('ready'); // 重建成功,行为不变
+  });
+});
+
+describe('🔴 force 升级「先传后杀」(评审 P1):部署确认在先,reap 在后', () => {
+  it('bundle 完整上传(sftpWriteDir)与 .ready 落地先于 kill,顺序不可颠倒;二次 deployBundle 命中 .ready 快路径不重复上传', async () => {
+    const configId = 'vps-hk';
+    const callOrder: string[] = [];
+    let bundleReady = false;
+    let killed = false;
+    let started = false;
+    const routed = createRoutedSsh({
+      execHandlers: [
+        ...healthyDefaults(),
+        (cmd) => {
+          if (cmd.startsWith('touch') && cmd.includes('.ready')) {
+            bundleReady = true;
+            callOrder.push('touch-ready');
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) => {
+          if (cmd.startsWith('kill "777"')) {
+            killed = true;
+            callOrder.push('kill');
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) =>
+          cmd.startsWith('kill -0 "777"')
+            ? { code: 0, stdout: killed ? 'N\n' : 'Y\n', stderr: '' }
+            : null,
+        (cmd) =>
+          cmd.includes('/proc/777/cmdline') || cmd.includes('-p "777"')
+            ? { code: 0, stdout: `node host.js --host-tag ${configId}`, stderr: '' }
+            : null,
+      ],
+      sftpReadFile: (p) => {
+        if (p.endsWith('.ready')) return bundleReady ? bufferOf('ok') : null;
+        if (p.endsWith('host.port')) {
+          if (started) return bufferOf({ port: 6100, pid: 888, hostTag: configId });
+          return killed ? null : bufferOf({ port: 6000, pid: 777, hostTag: configId });
+        }
+        return null;
+      },
+      sftpWriteDir: (_localDir, _remoteDir, onProgress) => {
+        callOrder.push('sftpWriteDir');
+        onProgress(100);
+      },
+    });
+    const originalExecDetached = routed.execDetached;
+    routed.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+      started = true;
+      return originalExecDetached(cmd, stdin);
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore, configId);
+
+    await h.orchestrator.connect(configId, { forceRedeploy: true });
+
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    expect(callOrder.indexOf('sftpWriteDir')).toBeGreaterThanOrEqual(0);
+    expect(callOrder.indexOf('touch-ready')).toBeGreaterThan(callOrder.indexOf('sftpWriteDir'));
+    expect(callOrder.indexOf('kill')).toBeGreaterThan(callOrder.indexOf('touch-ready'));
+    // 二次 deployBundle(reap 后的常规部署调用)命中 .ready 快路径,零重复上传
+    expect(routed.sftpWriteDir).toHaveBeenCalledTimes(1);
+  });
+
+  it('预部署失败(如 deployBlockedByNewerVersion 版本单调闸)→ failSession(deployFailed),旧 host 毫发无损(resolveResidency 从未跑,不 kill)', async () => {
+    const configId = 'vps-hk';
+    const routed = createRoutedSsh({
+      execHandlers: [
+        ...healthyDefaults(),
+        (cmd) =>
+          cmd.includes('while read -r v') ? { code: 0, stdout: '2.0.0\n', stderr: '' } : null, // 远端已有更高版本
+      ],
+      sftpReadFile: (p) => {
+        if (p.endsWith('.ready')) return null;
+        if (p.endsWith('host.port')) return bufferOf({ port: 6000, pid: 777, hostTag: configId });
+        return null;
+      },
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed }); // appVersion 默认 1.0.0 < 远端 2.0.0
+    saveConfig(h.configStore, configId);
+
+    await h.orchestrator.connect(configId, { forceRedeploy: true });
+
+    const failEvent = h.events.at(-1);
+    expect(failEvent?.stage).toBe('failed');
+    expect(failEvent?.reason).toBe('deployFailed');
+    expect(failEvent?.detail).toContain('deployBlockedByNewerVersion');
+    expect(routed.sftpWriteDir).not.toHaveBeenCalled();
+    expect(routed.execCalls.some((c) => c.startsWith('kill "777"'))).toBe(false); // 旧 host 未被触碰
+  });
+});
+
+describe('🔴 force + 排队 connect 作废(评审 P2-1)', () => {
+  it('Test 在途 → Connect 排队 → Update(force):不产生 main 未处理拒绝,force 编排最终执行到 ready,排队的旧 connect 自弃', async () => {
+    const configId = 'vps-hk';
+    let resolveTestSsh!: (ssh: RoutedSsh) => void;
+    const testSshPromise = new Promise<RoutedSsh>((r) => {
+      resolveTestSsh = r;
+    });
+    const staleConnectSsh = createRoutedSsh({ execHandlers: healthyDefaults() });
+
+    let killed = false;
+    let started = false;
+    const forceSsh = createRoutedSsh({
+      execHandlers: [
+        ...healthyDefaults(),
+        (cmd) => {
+          if (cmd.startsWith('kill "777"')) {
+            killed = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) =>
+          cmd.startsWith('kill -0 "777"')
+            ? { code: 0, stdout: killed ? 'N\n' : 'Y\n', stderr: '' }
+            : null,
+        (cmd) =>
+          cmd.includes('/proc/777/cmdline') || cmd.includes('-p "777"')
+            ? { code: 0, stdout: `node host.js --host-tag ${configId}`, stderr: '' }
+            : null,
+      ],
+      sftpReadFile: (p) => {
+        if (p.endsWith('.ready')) return bufferOf('ok');
+        if (p.endsWith('host.port')) {
+          if (started) return bufferOf({ port: 6100, pid: 888, hostTag: configId });
+          return killed ? null : bufferOf({ port: 6000, pid: 777, hostTag: configId });
+        }
+        return null;
+      },
+    });
+    const originalExecDetached = forceSsh.execDetached;
+    forceSsh.execDetached = vi.fn(async (cmd: string, stdin: string) => {
+      started = true;
+      return originalExecDetached(cmd, stdin);
+    });
+
+    let callCount = 0;
+    const h = makeHarness({
+      connectSshImpl: async () => {
+        callCount++;
+        if (callCount === 1) return testSshPromise; // test() 的调用,先挂起(占 mutex)
+        if (callCount === 2) return staleConnectSsh; // 排队的常规 connect() 的调用
+        return forceSsh; // force connect 的调用
+      },
+    });
+    saveConfig(h.configStore, configId);
+
+    const testPromise = h.orchestrator.test(configId);
+    await flushMicrotasks(); // 让 test() 真正卡在 connectSsh
+    expect(callCount).toBe(1);
+
+    const connectPromise = h.orchestrator.connect(configId); // 排队于 test() 之后
+    const forcePromise = h.orchestrator.connect(configId, { forceRedeploy: true }); // 应作废排队的 connect
+
+    resolveTestSsh(createRoutedSsh({ execHandlers: healthyDefaults() }));
+
+    await expect(testPromise).resolves.toEqual({ ok: true });
+    // 排队的旧常规 connect 发现自己已作废(session 被替换)→ 静默自弃,不抛错
+    await expect(connectPromise).resolves.toBeUndefined();
+    // force 编排真正执行到底,不因「撞见非法状态转移」而拒绝
+    await expect(forcePromise).resolves.toBeUndefined();
+
+    expect(h.orchestrator.stages()[configId]).toBe('ready');
+    expect(killed).toBe(true); // 证明确实走了 force 的 reapThenDeploy(而非常规 connect 的 claim)
+    expect(staleConnectSsh.close).toHaveBeenCalled(); // 排队的旧 connect 关掉了自己那条连接
+  });
+});
+
+describe('🔴 隧道泄漏兜底(评审 P2):orchestrator 侧会话作废时不留监听口', () => {
+  it('claim 候选探测中会话被 disconnect() 作废,emit(claiming) 撞非法转移 → 候选隧道仍被关闭', async () => {
+    const configId = 'vps-hk';
+    const routed = createRoutedSsh({
+      execHandlers: healthyDefaults(),
+      sftpReadFile: (p) => {
+        if (p.endsWith('.ready')) return bufferOf('ok');
+        if (p.endsWith('host.port')) return bufferOf({ port: 6500, pid: 321, hostTag: configId });
+        return null;
+      },
+    });
+    let resolveProbe!: (r: {
+      ok: boolean;
+      compatible?: boolean;
+      hostInfo?: { appVersion?: string };
+    }) => void;
+    const hungProbe = new Promise<{
+      ok: boolean;
+      compatible?: boolean;
+      hostInfo?: { appVersion?: string };
+    }>((r) => {
+      resolveProbe = r;
+    });
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      probeImpl: async () => hungProbe, // 候选探测卡住(claim 判定尚未落地)
+    });
+    saveConfig(h.configStore, configId);
+    h.credentials.setSecret(`hosttoken:${configId}`, 'preexisting-token');
+
+    const connectPromise = h.orchestrator.connect(configId);
+    await flushMicrotasks(15); // 走到「候选隧道已建,卡在候选探测」
+    expect(h.orchestrator.stages()[configId]).toBe('connecting'); // 尚未 claiming(探测未落地)
+
+    await h.orchestrator.disconnect(configId); // 作废这次尝试(harness sleep 打桩瞬时,不真等 5s)
+    expect(h.orchestrator.stages()[configId]).toBe('disconnected');
+
+    resolveProbe({ ok: true, compatible: true, hostInfo: { appVersion: '1.0.0' } }); // 放行,claim 判定落地
+    await connectPromise; // 僵尸尝试自弃,不抛非法转移错误(main 未处理拒绝)
+
+    const candidateServer = (routed.forwardOut as ReturnType<typeof vi.fn>).mock.results.at(-1)
+      ?.value as unknown as { closed: boolean };
+    expect(candidateServer.closed).toBe(true); // 候选隧道被关闭,不泄漏监听口
+    expect(h.orchestrator.stages()[configId]).toBe('disconnected'); // 未被僵尸尝试污染
+  });
+
+  it('部署/启动路径最终探测中会话被 disconnect() 作废,emit(verifying) 撞非法转移 → 隧道仍被关闭', async () => {
+    const configId = 'vps-hk';
+    const routed = createFreshDeploySsh(configId);
+    let resolveProbe!: (r: {
+      ok: boolean;
+      compatible?: boolean;
+      hostInfo?: { appVersion?: string };
+    }) => void;
+    const hungProbe = new Promise<{
+      ok: boolean;
+      compatible?: boolean;
+      hostInfo?: { appVersion?: string };
+    }>((r) => {
+      resolveProbe = r;
+    });
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      probeImpl: async () => hungProbe, // 首装场景唯一的探测调用就是最终 verifying 探测
+    });
+    saveConfig(h.configStore, configId);
+
+    const connectPromise = h.orchestrator.connect(configId);
+    await flushMicrotasks(30); // 走到「host 已启动,隧道已建,卡在最终探测」
+    expect(h.orchestrator.stages()[configId]).toBe('starting'); // 尚未 verifying(探测未落地)
+
+    await h.orchestrator.disconnect(configId);
+    expect(h.orchestrator.stages()[configId]).toBe('disconnected');
+
+    resolveProbe({ ok: true, compatible: true, hostInfo: { appVersion: '1.0.0' } });
+    await connectPromise;
+
+    const forwardResults = (routed.forwardOut as ReturnType<typeof vi.fn>).mock.results;
+    const lastServer = forwardResults.at(-1)?.value as unknown as { closed: boolean };
+    expect(lastServer.closed).toBe(true);
+    expect(h.orchestrator.stages()[configId]).toBe('disconnected');
+  });
+});
+
 describe('AC-6 版本不兼容 → failed·incompatible + 断开(main 前移探测 · Q1/A14)', () => {
   it('probe 探测跑通但 compatible:false(真·版本不符)→ 状态落 failed·incompatible,tunnel/ssh 均已关闭', async () => {
     const routed = createFreshDeploySsh('vps-hk');

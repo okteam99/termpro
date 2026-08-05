@@ -325,6 +325,13 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
   确认后 cancel 重连编排 + drop 旧 client + 发 upgrade,进度复用连接生命周期呈现。
 - **引导接线**:文件传输/图片粘贴/HTML 预览的「host 过旧」提示指向本入口
   (FilePanel 点击直达:store `openRemoteHostsPage()` nonce → SettingsEntry 打开远程机页)。
+- **评审修复(2026-08)**:force 先传后杀(预部署 `.ready` 幂等,单调闸/SFTP 失败都在
+  reap 前拦截);force 遇在途/排队 connect 一并作废会话;隧道句柄 try/catch 兜底
+  (orchestrator claim/启动路径 + residency 候选段);upgrade 通道限主窗口 sender +
+  payload 校验;closeSessionTransport 先摘引用再 close(消 watcher 同步再入递归)。
+- **backlog**:① runConnect 十余处 failSession 依赖「非法转移抛出 + 外层 catch」兜僵尸,
+  宜统一显式 isCurrent 门(转移表一旦扩边保护即失效);② reap 的 cmdline 读→kill 间
+  TOCTOU(pid 复用窗口极窄但存在),宜 kill 前复验 cmdline。
 
 ---
 
