@@ -14,7 +14,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "7d2dc6cc95ece197192818e77a6a0c240982661e",
   "worktree": {
@@ -128,12 +128,11 @@
       "input_satisfied": true,
       "process_satisfied": true,
       "output_satisfied": true,
-      "started_at": "2026-08-05T10:17:23Z",
+      "started_at": "2026-08-05T14:59:19Z",
       "evidence": {
-        "verdict": "NEEDS_REVISION"
+        "verdict": "APPROVE"
       },
-      "completed_at": "2026-08-05T10:41:14Z",
-      "auto_commit": "d51c1a4",
+      "auto_commit": "08e9349",
       "artifacts": [
         "REVIEW.md"
       ],
@@ -160,98 +159,118 @@
             "F9",
             "F10"
           ]
+        },
+        {
+          "round": 2,
+          "review_commit": "08e9349",
+          "fix_commit": null,
+          "started_at": "2026-08-05T14:59:19Z",
+          "verdict": "APPROVE",
+          "completed_at": "2026-08-05T14:59:24Z",
+          "new_findings_count": 1,
+          "carried_open_count": 0
         }
       ],
       "findings_ledger": [
         {
           "id": "F1",
           "severity": "BLOCKER",
-          "status": "open",
+          "status": "fixed",
           "title": "resume 在排队之前就开闸,被取消的编排残余事件把连接真做成(AC-6 逐字失败)",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F2",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "handshakingRef 去重槽不被 abandon/drop 作废,握手不落定则新隧道永远开不了 ws",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F3",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "dispose 关不掉未 open 的 ws · 闸③的 hostRegistry.drop 可能是 no-op(孤儿 ws+心跳)",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F4",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "设置页无排队保护,跨入口复现 AC-13「点了没反应」",
           "source": "external",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F5",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "第二次断开在途时,前一次的 finally 无条件清掉 settling",
           "source": "external",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F6",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "forget 扩成删五张表后,紧邻的 clear(id) 冗余(两次 set = 两次渲染)",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F7",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "TC.md 仍写「覆盖率 15/15 · 测试总数 38」,未标注 0 条已实现",
           "source": "external",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F8",
           "severity": "NIT",
-          "status": "open",
+          "status": "fixed",
           "title": "TECH §完工自查 C/D/E 行号漂移 + 「TC-029 已同步加断言防回归」表述失真",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F9",
           "severity": "NIT",
-          "status": "open",
+          "status": "fixed",
           "title": ".sidebar-machine-connecting 已成死 CSS 却被新加进 :is() 选择器",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F10",
           "severity": "NIT",
-          "status": "open",
+          "status": "fixed",
           "title": "8s race 的 setTimeout 在 pending 先赢时不清 · 三个连接钮分支同构可收敛",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F11",
@@ -260,18 +279,37 @@
           "title": "busy 态无 aria-live 包裹",
           "source": "external",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
+        },
+        {
+          "id": "NF1",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "pendingDisconnects 存了裸 promise · reject 时排队的连接意图永久卡死(验证轮发现 · 本轮修复引入的回归)",
+          "source": "external",
+          "deferred_reason": "",
+          "round_opened": 2
         }
       ],
-      "duration_minutes": 23,
-      "active_minutes": 23
+      "await_minutes": 0,
+      "completed_at": "2026-08-05T14:59:24Z",
+      "duration_minutes": 0,
+      "active_minutes": 0
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-05T14:59:24Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-08-05T03:31:00Z",
   "stage_review_roles": {
@@ -307,12 +345,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T14:52:12Z",
-  "updated_by": "review-preventability",
-  "_state_checksum": "sha256:8aa0dff6f87a1e225ad61ce76ca09a9f33543bca8cd321982ac3c7f901fcf0d2",
+  "updated_at": "2026-08-05T14:59:42Z",
+  "updated_by": "stage-cost",
+  "_state_checksum": "sha256:38f04fe31f7eff5246d7099f65dbfe70ff82f7e2df21db10b371d2e7f386c577",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": true,
@@ -366,6 +404,18 @@
       ],
       "note": "最大一笔:两路核验(截图核对 + 逐行核对)都在实现 commit 之后才跑,各抓出一条真问题(AC-13 忙碌无视觉 / 排队 connect 不复查弃用),导致全量 vitest 跑了两遍、TECH/TC 改了两轮。这是评审起效不是浪费,但若把「第三方核验」并入实现阶段的收尾自查(而非 commit 后另起一轮)可省掉第二次全量跑。其次:①子代理三次只发 idle 通知不发正文,每次都要追问一轮才拿到报告;②state.json 是 tracked 文件而 test_evidence_fresh 的指纹含未提交 diff —— add-concern 一写就打乱指纹,来回 commit/amend 两次才对齐;③browse 是单实例共享,与子代理互踩掉页面,只能串行等",
       "at": "2026-08-05T10:17:44Z"
+    },
+    {
+      "stage": "review",
+      "rounds": 26,
+      "overhead_rounds": 7,
+      "kinds": [
+        "工具不稳",
+        "门禁重试",
+        "返工重写"
+      ],
+      "note": "最大一笔:门禁全量跑了 5 轮(每轮约 20 分钟墙钟)。前两轮是 dev 期的,后三轮是 review 修复引起的——其中第 4 轮红的两条是我自己新加的测试:NF-1 修复把表里存的 promise 从裸 p 换成 .catch().finally() 之后的链,microtask 链多了几跳,原来靠数 await Promise.resolve() 次数的测试写法失效。根因是测试一开始就用了「数 flush 次数」这种依赖实现细节的写法,改成 vi.waitFor 后稳定。若起草测试时就用轮询而非数 flush,可省掉整整一轮全量门禁。次要开销:子代理全程只发 idle 通知不发正文(5 个 agent 无一例外),每次都要我追问一轮或自己去读它落盘的产物/日志才拿得到结论——这部分不是流程设计问题而是宿主消息通道问题,但实际吃掉了 7 轮里的 3 轮。另:state.json 是 tracked 文件而 test_evidence_fresh 的指纹含未提交 diff,add-concern 一写就打乱指纹,来回 commit/amend 两次才对齐。",
+      "at": "2026-08-05T14:59:42Z"
     }
   ],
   "authoring_preventability": [
