@@ -1,0 +1,93 @@
+{
+  "feature_id": "OKWORK-F260805033051-Remote-Connection-Controls",
+  "bl": null,
+  "clarity": "explicit",
+  "preset": "full",
+  "sub_project": "",
+  "flow_type": "Feature",
+  "artifact_root": "docs/features/OKWORK-F260805033051-Remote-Connection-Controls",
+  "host": "claude-code",
+  "host_history": [
+    {
+      "host": "claude-code",
+      "at": "2026-08-05T03:31:00Z",
+      "source": "init-feature"
+    }
+  ],
+  "current_stage": "goal",
+  "merge_target": "main",
+  "review_base_commit": null,
+  "worktree": {
+    "strategy": "auto",
+    "branch": "feature/okwork-f260805033051-remote-connection-controls",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260805033051-Remote-Connection-Controls",
+    "base_branch": "origin/main",
+    "created_at": "2026-08-05T03:31:00Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "feature/okwork-f260805033051-remote-connection-controls",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-08-05T03:31:00Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [],
+  "review_round": 0,
+  "stage_contracts": {
+    "goal": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-05T03:31:07Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-08-05T03:31:00Z",
+  "stage_review_roles": {
+    "goal": [
+      "pl",
+      "external"
+    ],
+    "ui_design": [
+      "designer",
+      "pm"
+    ],
+    "panorama_sync": [
+      "pm",
+      "architect"
+    ],
+    "blueprint": [
+      "architect",
+      "external"
+    ],
+    "review": [
+      "architect",
+      "external"
+    ],
+    "test": [
+      "qa"
+    ],
+    "browser_e2e": [
+      "qa",
+      "designer"
+    ],
+    "pm_acceptance": [
+      "pm"
+    ]
+  },
+  "stage_review_roles_adjustments": [],
+  "updated_at": "2026-08-05T04:12:10Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:e5dcafa768ccb3da3a11922a4d76cd604eb0da1e4c3a28570575419af7f0eead",
+  "legal_next_stages": [
+    "ui_design",
+    "blueprint"
+  ],
+  "open_pause": {
+    "stage": "goal",
+    "label": "goal PRD 最终确认",
+    "started_at": "2026-08-05T04:12:10Z"
+  }
+}
