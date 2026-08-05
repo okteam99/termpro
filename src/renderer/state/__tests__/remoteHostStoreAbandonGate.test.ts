@@ -274,4 +274,29 @@ describe('连接编排闸门与排队逻辑(remoteHostStore abandon/resume)', ()
       expect(useRemoteHostRuntimeStore.getState().settling[c1]).toBeUndefined();
     });
   });
+
+  describe('T-037｜setReconnecting 写入闸:只挡置真·清假恒放行', () => {
+    it('弃用后 setReconnecting(id, true) 被挡，setReconnecting(id, false) 恒放行', () => {
+      const c1 = 'c1';
+
+      // 1. 首先 abandon 该机
+      useRemoteHostRuntimeStore.getState().abandon(c1);
+      expect(useRemoteHostRuntimeStore.getState().isAbandoned(c1)).toBe(true);
+
+      // 2. 尝试置真 → 被闸挡住
+      useRemoteHostRuntimeStore.getState().setReconnecting(c1, true);
+      expect(useRemoteHostRuntimeStore.getState().isReconnecting(c1)).toBe(false);
+
+      // 3. 清假恒放行（即便已弃用，也能清掉 reconnecting 标记）
+      // 构造一个"清理前"的既有状态：直接写入 reconnecting 表（不经由 setReconnecting）
+      useRemoteHostRuntimeStore.setState({
+        reconnecting: { [c1]: true },
+      });
+      expect(useRemoteHostRuntimeStore.getState().isReconnecting(c1)).toBe(true);
+
+      // 现在清假 → 应该成功清掉
+      useRemoteHostRuntimeStore.getState().setReconnecting(c1, false);
+      expect(useRemoteHostRuntimeStore.getState().isReconnecting(c1)).toBe(false);
+    });
+  });
 });

@@ -507,3 +507,33 @@ describe('readopt path② onUnadopted 策略钩子(评审 P2-2 渲染半侧)', (
     });
   });
 });
+
+describe('readopt_noop_when_default_getclient_returns_null (T-014)', () => {
+  it('getClient 返回 null 时,readoptHost 早期 return,不调任何钩子', async () => {
+    const listInstances = vi.fn(() => []);
+    const rebuildTab = vi.fn();
+    const getOrCreateInst = vi.fn();
+    const spawnNew = vi.fn();
+    const wireLiveSession = vi.fn();
+    const onAdoptFailed = vi.fn();
+
+    // getClient 返回 null(模拟 hostRegistry.forHostId('cfg-1') 无该 host)
+    await readoptHost('cfg-1', {
+      getClient: () => null,
+      listInstances,
+      rebuildTab,
+      getOrCreateInst,
+      spawnNew,
+      wireLiveSession,
+      onAdoptFailed,
+    } as ReadoptHooks);
+
+    // 早期 return,任何钩子都不被调用
+    expect(listInstances).not.toHaveBeenCalled();
+    expect(rebuildTab).not.toHaveBeenCalled();
+    expect(getOrCreateInst).not.toHaveBeenCalled();
+    expect(spawnNew).not.toHaveBeenCalled();
+    expect(wireLiveSession).not.toHaveBeenCalled();
+    expect(onAdoptFailed).not.toHaveBeenCalled();
+  });
+});

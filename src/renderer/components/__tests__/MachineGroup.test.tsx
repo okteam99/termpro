@@ -8,6 +8,7 @@ import * as matchers from '@testing-library/jest-dom/matchers';
 expect.extend(matchers);
 
 import { MachineGroup, type MachineInfo } from '../MachineGroup';
+import type { RemoteStage } from '../../../shared/remoteHost';
 
 afterEach(cleanup);
 
@@ -294,7 +295,9 @@ describe('MachineGroup · 展开/折叠(用户需求 2026-07-13)', () => {
 
   it('collapsed:隐藏全部 workspace 行,组头显聚合徽标(tab 求和 · running 求和)', () => {
     render(
-      <MachineGroup machine={connected()} collapsed onToggleCollapse={() => {}} />,
+      <MachineGroup machine={connected()} collapsed onToggleCollapse={() => {
+        /* no-op */
+      }} />,
     );
     expect(screen.queryByText('aon-main')).not.toBeInTheDocument();
     expect(screen.queryByText('okok')).not.toBeInTheDocument();
@@ -311,7 +314,9 @@ describe('MachineGroup · 展开/折叠(用户需求 2026-07-13)', () => {
       ],
     };
     const { container } = render(
-      <MachineGroup machine={machine} collapsed onToggleCollapse={() => {}} />,
+      <MachineGroup machine={machine} collapsed onToggleCollapse={() => {
+        /* no-op */
+      }} />,
     );
     const pill = container.querySelector('.sidebar-machine-header .sidebar-attention-pill');
     expect(pill).toBeInTheDocument();
@@ -355,7 +360,9 @@ describe('MachineGroup · 组头 + 添加项目入口(用户需求 2026-08-03,�
   });
 
   it('未连接(workspaces=null)不渲染 + 钮;齿轮设置入口已移除', () => {
-    render(<MachineGroup machine={remoteMachine()} onAddWorkspace={() => {}} />);
+    render(<MachineGroup machine={remoteMachine()} onAddWorkspace={() => {
+      /* no-op */
+    }} />);
     expect(
       screen.queryByRole('button', { name: 'Add Project' }),
     ).not.toBeInTheDocument();
@@ -369,5 +376,468 @@ describe('MachineGroup · 组头 + 添加项目入口(用户需求 2026-08-03,�
     expect(
       screen.queryByRole('button', { name: 'Add Project' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('MachineGroup · AC-1 连接控件图标化', () => {
+  it('test_AC1_connected_shows_disconnect_icon_button', () => {
+    const { container } = render(
+      <MachineGroup
+        machine={remoteMachine({ status: 'connected', rttMs: 50, workspaces: [] })}
+        onAddWorkspace={() => {
+          /* no-op */
+        }}
+      />,
+    );
+    const disconnectBtn = screen.getByRole('button', { name: 'Disconnect' });
+    expect(disconnectBtn).toBeInTheDocument();
+    // 图标钮：无可见文本 "Disconnect"
+    expect(disconnectBtn.textContent).toBe('');
+    // 存在于 + 钮左侧
+    const header = container.querySelector('.sidebar-machine-header');
+    expect(header).toBeTruthy();
+    if (header) {
+      const addBtn = header.querySelector('.sidebar-machine-add');
+      const disconnectIdx = Array.from(header.children).indexOf(disconnectBtn);
+      const addIdx = addBtn ? Array.from(header.children).indexOf(addBtn) : -1;
+      expect(disconnectIdx).toBeGreaterThanOrEqual(0);
+      expect(addIdx).toBeGreaterThan(disconnectIdx);
+    }
+  });
+
+  it('test_AC1_disconnect_icon_click_calls_ondisconnect', () => {
+    const onDisconnect = vi.fn();
+    const { unmount } = render(
+      <MachineGroup
+        machine={remoteMachine({ status: 'connected', rttMs: 50, workspaces: [] })}
+        onDisconnect={onDisconnect}
+      />,
+    );
+    const disconnectBtn = screen.getByRole('button', { name: 'Disconnect' });
+    fireEvent.click(disconnectBtn);
+    expect(onDisconnect).toHaveBeenCalledWith('cfg-1');
+    unmount();
+    // 验证 stopPropagation：组头本身有折叠点击，不应触发
+    const onToggle = vi.fn();
+    render(
+      <MachineGroup
+        machine={remoteMachine({ status: 'connected', rttMs: 50, workspaces: [] })}
+        onDisconnect={onDisconnect}
+        onToggleCollapse={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+});
+
+describe('MachineGroup · AC-3 Connect/Reconnect 图标化', () => {
+  it('test_AC3_never_connected_shows_connect_icon_no_visible_text', () => {
+    render(
+      <MachineGroup
+        machine={remoteMachine({ status: 'disconnected', foldedLost: false, workspaces: null })}
+      />,
+    );
+    const connectBtn = screen.getByRole('button', { name: 'Connect' });
+    expect(connectBtn).toBeInTheDocument();
+    // 图标钮：无可见文本
+    expect(connectBtn.textContent).toBe('');
+  });
+
+  it('test_AC3_folded_lost_shows_reconnect_icon_no_visible_text', () => {
+    render(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'lost',
+          foldedLost: true,
+          workspaces: null,
+        })}
+      />,
+    );
+    const reconnectBtn = screen.getByRole('button', { name: 'Reconnect' });
+    expect(reconnectBtn).toBeInTheDocument();
+    // 图标钮：无可见文本
+    expect(reconnectBtn.textContent).toBe('');
+  });
+});
+
+describe('MachineGroup · AC-4 连接中显示取消图标钮', () => {
+  it('test_AC4_active_stages_show_spinner_label_and_cancel_icon', () => {
+    const stages: RemoteStage[] = ['connecting', 'deploying', 'starting', 'claiming', 'verifying'];
+    for (const stage of stages) {
+      const { unmount } = render(
+        <MachineGroup
+          machine={remoteMachine({
+            runtime: { configId: 'cfg-1', stage, percent: stage === 'deploying' ? 50 : undefined },
+          })}
+        />,
+      );
+      // 断言阶段文案存在
+      const stageLabels: Record<string, string> = {
+        connecting: 'Connecting…',
+        deploying: 'Deploying…',
+        starting: 'Starting host…',
+        claiming: 'Claiming…',
+        verifying: 'Verifying handshake…',
+      };
+      expect(screen.getByText(new RegExp(stageLabels[stage]))).toBeInTheDocument();
+      // 断言 spinner 存在
+      expect(document.querySelector('.add-ws__spinner--sm')).toBeInTheDocument();
+      // 断言 Cancel 按钮存在且可访问
+      const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+      expect(cancelBtn).toBeInTheDocument();
+      expect(cancelBtn.textContent).toBe('');
+      unmount();
+    }
+  });
+});
+
+describe('MachineGroup · AC-7 失败态移出组头', () => {
+  it('test_AC7_failed_runtime_no_longer_renders_reason_or_retry_button', () => {
+    const onConnect = vi.fn();
+    render(
+      <MachineGroup
+        machine={remoteMachine({
+          runtime: { configId: 'cfg-1', stage: 'failed', reason: 'unreachable' },
+        })}
+        onConnect={onConnect}
+      />,
+    );
+    // 不出现失败文案
+    expect(screen.queryByText(/Unreachable/)).not.toBeInTheDocument();
+    // 不存在 Retry 按钮
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    // 存在 Connect 按钮
+    const connectBtn = screen.getByRole('button', { name: 'Connect' });
+    expect(connectBtn).toBeInTheDocument();
+    // 点击 Connect 回调
+    fireEvent.click(connectBtn);
+    expect(onConnect).toHaveBeenCalledWith('cfg-1');
+  });
+});
+
+describe('MachineGroup · AC-10 重连中显示重试与断开图标钮', () => {
+  it('test_AC10_reconnecting_shows_retry_now_icon_and_disconnect_icon', () => {
+    render(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'reconnecting',
+          rttMs: 80,
+          workspaces: [],
+        })}
+      />,
+    );
+    // 存在 Retry now 图标钮
+    const retryBtn = screen.getByRole('button', { name: 'Retry now' });
+    expect(retryBtn).toBeInTheDocument();
+    expect(retryBtn.textContent).toBe('');
+    // 存在 Disconnect 图标钮且未被禁用
+    const disconnectBtn = screen.getByRole('button', { name: 'Disconnect' });
+    expect(disconnectBtn).toBeInTheDocument();
+    expect(disconnectBtn).not.toHaveAttribute('disabled');
+    expect(disconnectBtn.textContent).toBe('');
+    // 验证两者都存在（显示阶段文案）
+    expect(screen.getByText(/Reconnecting…/)).toBeInTheDocument();
+  });
+});
+
+describe('MachineGroup · AC-11 图标钮可访问性', () => {
+  it('test_AC11_new_connection_icon_buttons_are_tab_focusable', () => {
+    const { rerender } = render(
+      <MachineGroup
+        machine={remoteMachine({ status: 'disconnected', workspaces: null })}
+      />,
+    );
+    // Connect
+    const connectBtn = screen.getByRole('button', { name: 'Connect' });
+    connectBtn.focus();
+    expect(document.activeElement).toBe(connectBtn);
+
+    // Reconnect
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({ status: 'lost', foldedLost: true, workspaces: null })}
+      />,
+    );
+    const reconnectBtn = screen.getByRole('button', { name: 'Reconnect' });
+    reconnectBtn.focus();
+    expect(document.activeElement).toBe(reconnectBtn);
+
+    // Disconnect (connected)
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({ status: 'connected', rttMs: 50, workspaces: [] })}
+      />,
+    );
+    const disconnectBtn = screen.getByRole('button', { name: 'Disconnect' });
+    disconnectBtn.focus();
+    expect(document.activeElement).toBe(disconnectBtn);
+
+    // Cancel (connecting)
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          runtime: { configId: 'cfg-1', stage: 'connecting' },
+        })}
+      />,
+    );
+    const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+    cancelBtn.focus();
+    expect(document.activeElement).toBe(cancelBtn);
+
+    // Retry now (reconnecting)
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({ status: 'reconnecting', workspaces: [] })}
+      />,
+    );
+    const retryBtn = screen.getByRole('button', { name: 'Retry now' });
+    retryBtn.focus();
+    expect(document.activeElement).toBe(retryBtn);
+  });
+
+  it('test_AC11_local_group_never_renders_connection_icons', () => {
+    render(
+      <MachineGroup
+        machine={{ id: 'local', kind: 'local', label: 'Local', workspaces: [] }}
+        onConnect={() => {
+          /* no-op for local machine */
+        }}
+        onDisconnect={() => {
+          /* no-op for local machine */
+        }}
+        onCancel={() => {
+          /* no-op for local machine */
+        }}
+        onRetry={() => {
+          /* no-op for local machine */
+        }}
+        onManualRetry={() => {
+          /* no-op for local machine */
+        }}
+      />,
+    );
+    // 均不存在
+    expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument();
+  });
+});
+
+describe('MachineGroup · AC-15 控件槽位与重渲染稳定性', () => {
+  it('test_AC15_six_states_plus_stays_rightmost_no_gap_no_overlap', () => {
+    const { rerender, container } = render(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'disconnected',
+          foldedLost: false,
+          workspaces: null,
+        })}
+      />,
+    );
+    let headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    let header = headerElem as HTMLElement;
+    let lastChild = header.children[header.children.length - 1];
+    expect(lastChild).toHaveAttribute('aria-label', 'Connect');
+
+    // 连接中 → status-active span 最后，其中含 Cancel 按钮
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          runtime: { configId: 'cfg-1', stage: 'connecting' },
+        })}
+      />,
+    );
+    headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    header = headerElem as HTMLElement;
+    lastChild = header.children[header.children.length - 1];
+    const cancelBtn = (lastChild as HTMLElement).querySelector('[aria-label="Cancel"]');
+    expect(cancelBtn).toBeTruthy();
+
+    // 已连接 → RTT、Disconnect、+ 三元素连排
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'connected',
+          rttMs: 50,
+          workspaces: [],
+        })}
+        onAddWorkspace={() => {
+          /* no-op */
+        }}
+      />,
+    );
+    headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    header = headerElem as HTMLElement;
+    const children = Array.from(header.children);
+    const rttIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-rtt'));
+    const disconnectIdx = children.findIndex((el) =>
+      (el as HTMLButtonElement).getAttribute('aria-label') === 'Disconnect'
+    );
+    const addIdx = children.findIndex((el) => el.classList.contains('sidebar-machine-add'));
+    expect(rttIdx).toBeGreaterThanOrEqual(0);
+    expect(disconnectIdx).toBe(rttIdx + 1);
+    expect(addIdx).toBe(disconnectIdx + 1);
+
+    // 断线过渡（lost，foldedLost=false）→ Connect 与 +
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'lost',
+          foldedLost: false,
+          workspaces: [],
+        })}
+        onAddWorkspace={() => {
+          /* no-op */
+        }}
+      />,
+    );
+    headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    header = headerElem as HTMLElement;
+    const lastIdx = header.children.length - 1;
+    const secondLastIdx = lastIdx - 1;
+    const lastElem = header.children[lastIdx];
+    const secondLastElem = header.children[secondLastIdx];
+    expect(lastElem).toHaveClass('sidebar-machine-add');
+    expect(secondLastElem).toHaveAttribute('aria-label', 'Connect');
+
+    // 重连中 → status-active span 最后，其中含 Retry、Disconnect 两按钮、无 +
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'reconnecting',
+          workspaces: [],
+        })}
+      />,
+    );
+    headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    header = headerElem as HTMLElement;
+    const statusSpan = header.querySelector('.sidebar-machine-status--active');
+    expect(statusSpan).toBeTruthy();
+    if (statusSpan) {
+      const retryBtn = (statusSpan as HTMLElement).querySelector('[aria-label="Retry now"]');
+      const disconnectBtn2 = (statusSpan as HTMLElement).querySelector('[aria-label="Disconnect"]');
+      expect(retryBtn).toBeTruthy();
+      expect(disconnectBtn2).toBeTruthy();
+    }
+    expect(header.querySelector('.sidebar-machine-add')).not.toBeInTheDocument();
+
+    // 已断开折叠 → Reconnect 最后
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'lost',
+          foldedLost: true,
+          workspaces: null,
+        })}
+      />,
+    );
+    headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    header = headerElem as HTMLElement;
+    lastChild = header.children[header.children.length - 1];
+    expect(lastChild).toHaveAttribute('aria-label', 'Reconnect');
+  });
+
+  it('test_AC15_same_state_rerender_no_jitter_in_header_child_order', () => {
+    const { rerender, container } = render(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'connected',
+          rttMs: 50,
+          workspaces: [],
+        })}
+        onAddWorkspace={() => {
+          /* no-op */
+        }}
+      />,
+    );
+    let headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    let header = headerElem as HTMLElement;
+    const getChildClasses = () =>
+      Array.from(header.children).map((el) => Array.from(el.classList).join(' '));
+    const firstRender = getChildClasses();
+
+    // 用相同 props 重渲染
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'connected',
+          rttMs: 50,
+          workspaces: [],
+        })}
+        onAddWorkspace={() => {
+          /* no-op */
+        }}
+      />,
+    );
+    headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    header = headerElem as HTMLElement;
+    const secondRender = getChildClasses();
+
+    expect(secondRender).toEqual(firstRender);
+  });
+
+  it('test_AC15_state_transition_no_duplicate_or_orphan_control_nodes', () => {
+    const { rerender, container } = render(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'lost',
+          foldedLost: false,
+          workspaces: [],
+        })}
+        onAddWorkspace={() => {
+          /* no-op */
+        }}
+      />,
+    );
+    // 初始：Connect + +（断线过渡）
+    const headerElem = container.querySelector('.sidebar-machine-header');
+    expect(headerElem).toBeTruthy();
+    const header = headerElem as HTMLElement;
+    const initialConnectCount = Array.from(
+      header.querySelectorAll('[aria-label="Connect"]')
+    ).length;
+    expect(initialConnectCount).toBe(1);
+
+    // 转到已连接
+    rerender(
+      <MachineGroup
+        machine={remoteMachine({
+          status: 'connected',
+          rttMs: 50,
+          workspaces: [],
+        })}
+        onAddWorkspace={() => {
+          /* no-op */
+        }}
+      />,
+    );
+    // 旧的 Connect 不应存在，只有 Disconnect
+    const connectCount = Array.from(
+      header.querySelectorAll('[aria-label="Connect"]')
+    ).length;
+    expect(connectCount).toBe(0);
+    const disconnectCount = Array.from(
+      header.querySelectorAll('[aria-label="Disconnect"]')
+    ).length;
+    expect(disconnectCount).toBe(1);
+    // + 仍只有一份
+    const addCount = Array.from(header.querySelectorAll('.sidebar-machine-add')).length;
+    expect(addCount).toBe(1);
+    // 连接类按钮数 = 1（Disconnect）+ 1（Add）= 2
+    const ctlButtons = Array.from(
+      header.querySelectorAll('button[aria-label*="Connect"], button[aria-label*="Disconnect"], button[aria-label*="Cancel"], button[aria-label*="Retry"]')
+    );
+    expect(ctlButtons.length).toBe(1); // 只有 Disconnect，+ 不算连接类
   });
 });

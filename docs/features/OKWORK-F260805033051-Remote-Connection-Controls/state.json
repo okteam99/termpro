@@ -345,9 +345,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T14:59:42Z",
+  "updated_at": "2026-08-05T14:59:54Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:38f04fe31f7eff5246d7099f65dbfe70ff82f7e2df21db10b371d2e7f386c577",
+  "_state_checksum": "sha256:16275caae5798da63feacbe8d9475fc5331ddc5a815bc9e12d2321759568bf3d",
   "legal_next_stages": [
     "browser_e2e",
     "pm_acceptance"
