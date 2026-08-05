@@ -318,6 +318,11 @@ contextBridge.exposeInMainWorld('okwork', {
     disconnect(payload: { id: string }): void {
       ipcRenderer.send(REMOTE_HOST_CHANNELS.disconnect, payload);
     },
+    /** 可等待的断开(渲染层新代码用此;旧 disconnect 即发即忘,仅 reconnectController
+     *  的 disconnect-first 用)。 */
+    disconnectAwait(payload: { id: string }): Promise<void> {
+      return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.disconnectAwait, payload);
+    },
     /** 用户显式升级远端 host(强制 reap+重部署当前版本 bundle);进度经 onEvent 呈现。 */
     upgrade(payload: { id: string }): void {
       ipcRenderer.send(REMOTE_HOST_CHANNELS.upgrade, payload);

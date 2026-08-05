@@ -13,6 +13,7 @@ import { reconnectController } from '../services/reconnectWiring';
 import { scheduleDropUnlessReconnecting } from '../services/reconnectController';
 import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
 import type { RemoteHostConfig } from '../../shared/remoteHost';
+import { failReasonCopy } from '../../shared/remoteHost';
 import { ProtocolIncompatibleError } from '../../shared/versionCompat';
 import { WorkspaceEditModal } from './WorkspaceEditModal';
 import { NotificationCenter } from './NotificationCenter';
@@ -39,6 +40,10 @@ const DISCONNECT_PANEL_MS = 900;
  *  新增/删除远程机后 Sidebar 分组不会更新(新机不出现·已删机组残留)。轻量轮询兜底,不新增
  *  IPC 通道(main/preload 改动不在本 Feature write scope 内)。 */
 const REMOTE_CONFIG_POLL_MS = 5000;
+/** OKWORK-F260805033051 · AC-13:断开在途时连接点击的排队上界。
+ *  主进程 disconnect 自带 5s 内部上限,这里留出余量;超时则直接发 connect,
+ *  宁可多发一次也不让「点了连接」被永远压住。 */
+const DISCONNECT_QUEUE_TIMEOUT_MS = 8000;
 
 /** Bell icon 13×13 */
 function BellIcon() {
@@ -171,6 +176,16 @@ export function Sidebar() {
   const applyRuntimeEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
   const rttMap = useRemoteHostRuntimeStore((s) => s.rtt);
   const setRtt = useRemoteHostRuntimeStore((s) => s.setRtt);
+  // OKWORK-F260805033051:弃用闸 + 断开在途(AC-13)
+  const settlingMap = useRemoteHostRuntimeStore((s) => s.settling);
+  const abandonMachine = useRemoteHostRuntimeStore((s) => s.abandon);
+  const resumeMachine = useRemoteHostRuntimeStore((s) => s.resume);
+  const setSettlingMachine = useRemoteHostRuntimeStore((s) => s.setSettling);
+  const forgetMachine = useRemoteHostRuntimeStore((s) => s.forget);
+  const clearRuntime = useRemoteHostRuntimeStore((s) => s.clear);
+  const setTransientNotice = useAppStore((s) => s.setTransientNotice);
+  /** configId → 在途的断开 promise;连接点击据此排队(AC-13),不作「已断开」语义用。 */
+  const pendingDisconnectRef = useRef<Map<string, Promise<void>>>(new Map());
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
@@ -205,6 +220,9 @@ export function Sidebar() {
         if (!nextIds.has(id)) {
           stopRemoteWorkspaceSync(id);
           useRemoteHostRuntimeStore.getState().clear(id);
+          // 配置已删除 → 连弃用标记一并销毁(clear 刻意不动 abandoned,见 store 注释)。
+          // 不清会留一条僵尸标记吞该 id 的事件直到进程退出。
+          useRemoteHostRuntimeStore.getState().forget(id);
         }
       }
       knownIds.clear();
@@ -244,6 +262,11 @@ export function Sidebar() {
   useEffect(() => {
     function beginHandshake(configId: string, tunnel: { localPort: number; token: string }) {
       if (handshakingRef.current.has(configId)) return;
+      // 🔴 弃用闸②(OKWORK-F260805033051):用户已放弃这台机 → 绝不开新 ws。
+      // store 里的写入闸挡不住这里——握手是**副作用**,不是状态写入。放行的话
+      // getOrCreateRemote 会把 client 重新插回 registry,连「readoptHost 实时查表拿 null
+      // 就短路」那条防线也一并失效,结果就是「界面已断开、后台却把连接做完了」。
+      if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) return;
       handshakingRef.current.add(configId);
       const wsUrl = `ws://127.0.0.1:${tunnel.localPort}?token=${encodeURIComponent(tunnel.token)}`;
       const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
@@ -253,6 +276,14 @@ export function Sidebar() {
       client
         .reconnect({ wsUrl })
         .then(async () => {
+          // 🔴 弃用闸③(OKWORK-F260805033051):握手在途期间用户点了取消/断开。
+          // 这里是**本地闭包**,订阅层与 store 层的闸都够不着它——不查就会照常写 ready
+          // 并触发收养,正是「界面装作断了、后台把连接做完了」。查到弃用则收尾那条已经
+          // 打开的 ws,否则会留一条无人管理的活连接 + 心跳。
+          if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
+            hostRegistry.drop(configId);
+            return;
+          }
           try {
             await client.rpc('fs.readdir', { path: client.info?.homedir ?? '/' });
           } catch {
@@ -265,6 +296,12 @@ export function Sidebar() {
           reconnectController.onReconnected(configId);
         })
         .catch((err: unknown) => {
+          // 🔴 弃用闸③(失败侧):取消后在途握手必然 reject(drop 已 dispose client)。
+          // 不查就会写 failed → 叠加 AC-7 = 用户刚点完取消就被弹一条「连接失败」。
+          if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
+            hostRegistry.drop(configId);
+            return;
+          }
           applyRuntimeEvent({
             configId,
             stage: 'failed',
@@ -281,6 +318,10 @@ export function Sidebar() {
     }
 
     return window.okwork.remoteHost.onEvent((e) => {
+      // 🔴 弃用闸①(OKWORK-F260805033051):整条回调早退。
+      // 位置必须在**首行** —— 它同时挡住两件事:把残余事件写进 store,以及下面那个
+      // 「残余 verifying → beginHandshake」的副作用。只在 store 内设闸挡不住后者。
+      if (useRemoteHostRuntimeStore.getState().isAbandoned(e.configId)) return;
       applyRuntimeEvent(e);
       if (e.stage === 'verifying' && e.tunnel) {
         beginHandshake(e.configId, e.tunnel);
@@ -319,9 +360,15 @@ export function Sidebar() {
         // 订该 client 的「需要重连」信号(心跳判死 / transport close·每实例仅订一次)→ 启动重连编排
         const client = hostRegistry.forHostId(configId);
         if (client && !reconnectWired.current.has(client)) {
-          client.onReconnectNeeded?.(() =>
-            reconnectController.onDisconnected(configId),
-          );
+          client.onReconnectNeeded?.(() => {
+            // 🔴 弃用闸④(OKWORK-F260805033051):**这是第四条通道,完全不经 store**。
+            // onDisconnected 的真实触发源不是 main 推送的事件,而是 client 层信号
+            // (transport 关闭 / 心跳判死)。用户主动断开时,隧道被拆会让本地 ws 收到
+            // 对端关闭 → 若不挡,重连编排会被"自己"点起来:置 reconnecting=true 并
+            // 真发 disconnect+connect,组头当场显示「重连中」且后台重建隧道。
+            if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) return;
+            reconnectController.onDisconnected(configId);
+          });
           reconnectWired.current.add(client);
         }
         // 订该 client 的心跳 RTT(每实例仅订一次;实例跨瞬时重连复用,手动断开后是新实例)
@@ -389,6 +436,45 @@ export function Sidebar() {
     }
   }, [runtimeMap]);
 
+  /**
+   * AC-7:连接失败 → 全局 toast(组头不再常驻 `✗ 原因`)。
+   *
+   * 🔴 **必须用独立 ref,不能复用上面那个 `prevStages`** —— 它在**先声明**的 effect 末尾
+   * 就被更新了,React 按声明顺序跑 effect,本 effect 读到的永远是新值,边沿检测会永远不触发。
+   *
+   * 三个排除条件缺一不可:
+   *  - `prev !== 'failed'`:只在**进入**失败态时弹一次,不是每次 render;
+   *  - `!isReconnecting`:自动重连每个退避周期失败一次都会 emit failed 并落库,
+   *    不排除就变成每隔几秒弹一条;
+   *  - `!isAbandoned`:用户刚点完取消,不该再被弹一条「连接失败」。
+   */
+  const noticedFailRef = useRef<Record<string, string | undefined>>({});
+  useEffect(() => {
+    const store = useRemoteHostRuntimeStore.getState();
+    for (const [configId, evt] of Object.entries(runtimeMap)) {
+      const prev = noticedFailRef.current[configId];
+      if (
+        evt.stage === 'failed' &&
+        prev !== 'failed' &&
+        !store.isReconnecting(configId) &&
+        !store.isAbandoned(configId)
+      ) {
+        const alias =
+          remoteConfigs.find((c) => c.id === configId)?.alias ?? configId;
+        const reason = failReasonCopy(
+          'reason' in evt ? (evt.reason as string | undefined) : undefined,
+        );
+        setTransientNotice(
+          t('Failed to connect to {alias}: {reason}', {
+            alias,
+            reason: reason.label,
+          }),
+        );
+      }
+      noticedFailRef.current[configId] = evt.stage;
+    }
+  }, [runtimeMap, remoteConfigs, setTransientNotice]);
+
   // 🔴 A5(review-fix·CR-1 gate 真闭合):某 host 进入 reconnecting 的一刻,主动清掉可能已排上的 900ms
   // drop 计时器。修的是「main 的 disconnected 先于 renderer 心跳判死到达」竞态——那时 isReconnecting 仍
   // false·上面的 gate 会放行排上 drop 计时器·若随后的 connecting 事件因任何原因晚于 900ms 就会漏 drop
@@ -447,8 +533,58 @@ export function Sidebar() {
     setEditingId(null);
   }
 
+  /**
+   * 「连接」(AC-14):解除弃用是**首行**,与 handleDisconnectMachine 的 abandon 首行对称
+   * ——这对约束跨文件成对存在(设置页的 handleConnect / handleUpgrade 同理),漏了不会报错,
+   * 只会让该机后续所有事件被闸吞掉、表现为「点连接永远没反应」。
+   *
+   * AC-13:若断开 IPC 仍在途,本次连接**排队等它收尾**再发,而不是拒绝点击——
+   * 直接发会命中主进程 connect 的在途去重(返回那条正在被拆掉的 promise),
+   * 结果是无事发生、也无任何事件回来。8 秒上界防「断开永不返回」把连接永远压住。
+   */
   function handleConnectMachine(id: string) {
-    window.okwork.remoteHost.connect({ id });
+    resumeMachine(id);
+    const pending = pendingDisconnectRef.current.get(id);
+    if (!pending) {
+      window.okwork.remoteHost.connect({ id });
+      return;
+    }
+    void Promise.race([
+      pending,
+      new Promise<void>((r) => setTimeout(r, DISCONNECT_QUEUE_TIMEOUT_MS)),
+    ]).then(() => {
+      window.okwork.remoteHost.connect({ id });
+    });
+  }
+
+  /**
+   * 「断开 / 取消」(AC-2/AC-5/AC-9)—— 🔴 **步骤顺序是正确性的一部分,勿重排**:
+   *   1-4 步全部同步、同一 tick 内完成,**必须先于**任何 await。
+   *
+   * 为什么本地拆除不能等主进程:`hostRegistry.drop` 会 dispose client,而
+   * `WebSocketTransport.close()` 先摘 onclose 再关(见 hostClient.ts 注释)——只有本地先关,
+   * 迟到的 close 事件才不会误入 reconnectable 分叉去触发自动重连。若改成先 await 主进程,
+   * 主进程会先拆隧道,本地 ws 收到的是**对端**关闭(不是自己发起的),onclose 仍在,
+   * 重连编排会被自己唤醒;同时组头还要多挂 5 秒「已连接」。
+   */
+  function handleDisconnectMachine(id: string) {
+    abandonMachine(id); // 1. 置弃用 → 四道闸即刻生效
+    reconnectController.cancel(id); // 2. 终止在途重连编排(退避计时器 + reconnecting 态)
+    clearRuntime(id); // 3. 清运行态 → 组头下一次渲染即回落(不等主进程)
+    stopRemoteWorkspaceSync(id); // 4. 退订 + dropHostWorkspaces(含激活项目回落)+ hostRegistry.drop
+
+    // 5-6. 通知主进程拆隧道。**不 await** —— 只用它清忙碌态、并给排队的连接一个信号。
+    setSettlingMachine(id, true);
+    const p = window.okwork.remoteHost
+      .disconnectAwait({ id })
+      .catch(() => undefined)
+      .finally(() => {
+        setSettlingMachine(id, false);
+        if (pendingDisconnectRef.current.get(id) === p) {
+          pendingDisconnectRef.current.delete(id);
+        }
+      });
+    pendingDisconnectRef.current.set(id, p);
   }
 
   function handleSelectWorkspace(_machine: MachineInfo, ws: MachineWorkspaceRowData) {
@@ -717,6 +853,9 @@ export function Sidebar() {
               onToggleCollapse={toggleMachineCollapsed}
               onConnect={handleConnectMachine}
               onRetry={handleConnectMachine}
+              onDisconnect={handleDisconnectMachine}
+              onCancel={handleDisconnectMachine}
+              settling={!!settlingMap[machine.id]}
               onManualRetry={(id) => reconnectController.manualRetry(id)}
               onSelectWorkspace={handleSelectWorkspace}
               onRemoveWorkspace={(_m, ws) => confirmRemove(ws.id, ws.name)}

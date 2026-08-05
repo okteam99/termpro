@@ -164,6 +164,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
   const applyEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
   const clearRuntime = useRemoteHostRuntimeStore((s) => s.clear);
+  const abandon = useRemoteHostRuntimeStore((s) => s.abandon);
+  const resume = useRemoteHostRuntimeStore((s) => s.resume);
+  const forget = useRemoteHostRuntimeStore((s) => s.forget);
 
   const refreshList = useCallback(async () => {
     const list = await window.okwork.remoteHost.list();
@@ -205,10 +208,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   // 🔴 E6 修复:用户在连接在途点「断开」时,handleDisconnect 立即本地清空 + drop 客户端,
   // 但 main 侧编排(部署/启动/握手)仍在跑,沿途 deploying/starting/verifying/ready 等残余
   // 事件仍会经 onEvent 抵达——若照单全收会把已清空的 runtime 瞬时"复活"到 ready(UI 抖动),
-  // 且 verifying 事件还会对已 drop 的 client 重新触发握手。用 per-configId「已弃」标记过滤:
-  // 弃用期间只放行 disconnected/idle 终态(与本地已知状态一致,无害);其余中间态一律吞掉。
-  // 用户对该 configId 重新点「连接」时移出该集合(handleConnect)。
-  const abandonedRef = useRef<Set<string>>(new Set());
+  // 且 verifying 事件还会对已 drop 的 client 重新触发握手。用共享的 isAbandoned(store 单源,
+  // 跨订阅点共享·OKWORK-F260805033051)过滤:弃用期间整条事件一律吞掉。用户对该 configId
+  // 重新点「连接」/「升级」时经 resume() 解除(见对应 handler)。
 
   // 事件驱动(AC-5):main 经 remoteHost:event 推送生命周期态。逐条事件到达时同步:
   // ① 写入极薄运行态切片(供渲染);② 若本条事件恰是 verifying{tunnel},立即触发握手——
@@ -218,6 +220,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   useEffect(() => {
     function beginHandshake(configId: string, tunnel: { localPort: number; token: string }) {
       if (handshakingRef.current.has(configId)) return; // 去重:同 configId 握手在途不重复 connect
+      // 🔴 弃用闸②(OKWORK-F260805033051 · 与 Sidebar 同款):已放弃的机器绝不开新 ws。
+      // 本页与 Sidebar 各有一份 beginHandshake(重复实现,尚未收敛),两处都要设闸。
+      if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) return;
       handshakingRef.current.add(configId);
       const { localPort, token } = tunnel;
       const wsUrl = `ws://127.0.0.1:${localPort}?token=${encodeURIComponent(token)}`;
@@ -229,6 +234,13 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       client
         .reconnect({ wsUrl })
         .then(async (info) => {
+          // 🔴 弃用闸③(与 Sidebar 同款):握手在途期间用户点了断开/取消。
+          // store 的写入闸能挡住下面的 applyEvent,但挡不住**这条已经开出去的 ws**——
+          // 不在这里 drop 就会留一条无人管理的活连接 + 心跳。
+          if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
+            hostRegistry.drop(configId);
+            return;
+          }
           try {
             await client.rpc('fs.readdir', { path: info.homedir });
           } catch {
@@ -238,6 +250,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           refreshList();
         })
         .catch((err: unknown) => {
+          if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
+            hostRegistry.drop(configId);
+            return;
+          }
           if (err instanceof ProtocolIncompatibleError) {
             applyEvent({
               configId,
@@ -260,12 +276,8 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     }
 
     const unsubscribe = window.okwork.remoteHost.onEvent((e) => {
-      if (
-        abandonedRef.current.has(e.configId) &&
-        e.stage !== 'disconnected' &&
-        e.stage !== 'idle'
-      ) {
-        return; // E6:在途 disconnect 后忽略残余的非终态事件——不复活 UI、不重新握手
+      if (useRemoteHostRuntimeStore.getState().isAbandoned(e.configId)) {
+        return; // E6:弃用闸——整条回调早退,不写 store 也不触发握手(TECH §两道闸)
       }
       applyEvent(e);
       if (e.stage === 'verifying' && e.tunnel) {
@@ -306,7 +318,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   /** 「连接」(AC-4/AC-5/AC-13):清掉过期测试徽标,发起 IPC connect,进度经 onEvent 呈现。 */
   function handleConnect(config: RemoteHostConfig) {
-    abandonedRef.current.delete(config.id); // E6:重新发起连接,解除此前的"已弃"过滤
+    resume(config.id); // E6:重新发起连接,解除此前的弃用闸
     setTestState((prev) => omitKey(prev, config.id));
     window.okwork.remoteHost.connect({ id: config.id });
   }
@@ -320,7 +332,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
    * 否则 reconnectController 会在退避后把连接重新拉起。
    */
   function handleDisconnect(id: string) {
-    abandonedRef.current.add(id);
+    abandon(id);
     reconnectController.cancel(id);
     window.okwork.remoteHost.disconnect({ id });
     clearRuntime(id);
@@ -336,7 +348,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
    */
   function handleUpgrade(config: RemoteHostConfig) {
     setUpgradeConfirmId(null);
-    abandonedRef.current.delete(config.id);
+    resume(config.id);
     reconnectController.cancel(config.id);
     setTestState((prev) => omitKey(prev, config.id));
     hostRegistry.drop(config.id);
@@ -443,6 +455,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   async function confirmDelete(id: string) {
     await window.okwork.remoteHost.delete({ id });
     clearRuntime(id);
+    forget(id);
     hostRegistry.drop(id);
     setTestState((prev) => omitKey(prev, id));
     setTestFailReason((prev) => omitKey(prev, id));

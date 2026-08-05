@@ -168,7 +168,15 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  useRemoteHostRuntimeStore.setState({ runtime: {} });
+  useRemoteHostRuntimeStore.setState({
+    runtime: {},
+    reconnecting: {},
+    rtt: {},
+    // OKWORK-F260805033051:弃用/断开在途标记搬到了模块级 store(原来是组件内 useRef,
+    // 每次挂载天然干净)。不在此重置会跨用例残留,让后续用例的事件被弃用闸吞掉。
+    abandoned: {},
+    settling: {},
+  });
   delete (window as unknown as { okwork?: unknown }).okwork;
 });
 

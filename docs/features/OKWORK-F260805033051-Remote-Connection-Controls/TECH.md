@@ -167,13 +167,22 @@ setReconnecting(id, on)   { if (on && get().abandoned[id]) return; ... }   // �
 
 `clear(id)` 扩展为一并删 `settling`,**但不删 `abandoned`**(弃用标记的生命周期由上表显式管理,被 `clear` 顺手抹掉会让残余事件立刻写穿)。
 
-### 四个副作用闸的接线点
+### 副作用闸的接线点(**6 处 · 跨两个文件**)
+
+> ⚠️ **v0.2 曾写成「四处」,是漏的** —— dev 期实现时发现 `RemoteHostsPage.tsx` **自己也有一份独立的
+> `beginHandshake` + 握手续体**(`:221-262`,与 Sidebar 的是两份重复实现、非共享代码)。
+> 只给 Sidebar 设闸的话,设置页在「abandon 时已有握手在途」这个窄窗口下:写入会被 store 闸挡住
+> (UI 安全),但 `getOrCreateRemote` 开出去的那条 ws **没人 drop**,留一条无人管理的活连接 + 心跳。
+> 已补齐。这也再次说明 `Sidebar.tsx:239-241` 那条「把握手编排收敛进单源」的 TODO 值得单独立项 ——
+> 重复实现意味着每个新增的不变式都要记得在两个地方各写一遍。
 
 | # | 位置 | 加什么 |
 |---|---|---|
 | 1 | `Sidebar.tsx:283` 订阅回调**首行** | `if (isAbandoned(e.configId)) return;` —— 整条回调早退(同时挡住写入与 `beginHandshake`) |
 | 2 | `beginHandshake` 入口(`Sidebar.tsx:245`)| 同款守卫(防其它调用路径) |
 | 3 | 握手续体 `.then`/`.catch`(`Sidebar.tsx:259-276`)| 写入与 `onReconnected` **之前**再查一次;弃用则跳过并 `hostRegistry.drop(configId)` 收尾那条已开的 ws(否则留一条无人管理的活连接 + 心跳) |
+| 5 | **`RemoteHostsPage` 的 `beginHandshake` 入口**(`:221`)| 同闸 2(该页有独立的一份握手实现) |
+| 6 | **`RemoteHostsPage` 的握手续体 `.then`/`.catch`**(`:232-262`)| 同闸 3(写入前查 + drop 已开 ws) |
 | 4 | `onReconnectNeeded` 接线(`Sidebar.tsx:321-325`)| `if (isAbandoned(configId)) return;` —— 🔴 **这是第四条通道**:`onDisconnected` 的真实触发源是 client 层信号(transport 关闭/心跳判死),**完全不经 main 事件、不经 store**。v0.1 的 AC-9 机理描述("abandon 保证残余 disconnected 不会被 onDisconnected 拉起")**是错的** |
 
 ### 各 AC 落法(仅列与 v0.1 有变化或需强调的)

@@ -209,19 +209,24 @@ describe('MachineGroup · 连接生命周期(AC-8)', () => {
     expect(screen.getByText(/47%/)).toBeInTheDocument();
   });
 
-  it('failed → 失败原因(FAIL_REASON_COPY 单源)+ 重试按钮', () => {
-    const onRetry = vi.fn();
+  // T-016(AC-7):failed 不再进组头。原用例断言的是「✗ 原因 + Retry 按钮」常驻组头,
+  // 该呈现已整体改道为全局 toast(见 SidebarMachineGroups 的 T-014),组头回落成
+  // 「未连接」外观。这里反向断言:失败原因文案与 Retry 钮都**不得**出现,取而代之
+  // 的是可再连的连接图标钮。
+  it('failed → 组头不留失败痕迹,回落成连接图标钮(AC-7)', () => {
+    const onConnect = vi.fn();
     render(
       <MachineGroup
         machine={remoteMachine({
           runtime: { configId: 'cfg-1', stage: 'failed', reason: 'unreachable' },
         })}
-        onRetry={onRetry}
+        onConnect={onConnect}
       />,
     );
-    expect(screen.getByText(/Unreachable/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(onRetry).toHaveBeenCalledWith('cfg-1');
+    expect(screen.queryByText(/Unreachable/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(onConnect).toHaveBeenCalledWith('cfg-1');
   });
 });
 

@@ -142,7 +142,12 @@ declare global {
         delete(payload: { id: string }): Promise<void>;
         test(payload: { id: string }): Promise<TestResult>;
         connect(payload: { id: string }): void;
+        /** ⚠️ 即发即忘 · 仅 reconnectController 的 disconnect-first 用;渲染层新代码用 `disconnectAwait` */
         disconnect(payload: { id: string }): void;
+        /** 可等待的断开(渲染层新代码用此;旧 `disconnect` 即发即忘,仅 reconnectController
+         *  的 disconnect-first 用)。resolve ≠ "已断开"语义(TECH R4)——本方案只用它做
+         *  排队排序,真正的本地拆除须在调用方 await 之前已同步完成。 */
+        disconnectAwait(payload: { id: string }): Promise<void>;
         /** 用户显式升级远端 host(强制 reap+重部署当前版本 bundle);进度经 onEvent 呈现 */
         upgrade(payload: { id: string }): void;
         /** 已就绪会话的本地转发隧道(查看器窗口直连远程 host 用);未连接 → null */

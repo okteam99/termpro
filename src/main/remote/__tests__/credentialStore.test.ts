@@ -88,6 +88,10 @@ describe('AC-3 CredentialStore', () => {
         'test',
         'connect',
         'disconnect',
+        // disconnectAwait 是 disconnect 的可等待孪生(invoke 而非 send),payload 同为 {id}、
+        // 返回 void——渲染层据此给「断开在途」的连接点击排队(OKWORK-F260805033051 AC-13)。
+        // 零敏感值,不违背 AC-3。
+        'disconnectAwait',
         'upgrade',
         'event',
         'tunnel',

@@ -130,7 +130,15 @@ function remoteWs(id: string, name: string, hostId: string, tabCount = 0) {
 
 beforeEach(() => {
   useAppStore.setState({ workspaces: [], activeWorkspaceId: null });
-  useRemoteHostRuntimeStore.setState({ runtime: {} });
+  useRemoteHostRuntimeStore.setState({
+    runtime: {},
+    reconnecting: {},
+    rtt: {},
+    // OKWORK-F260805033051:弃用/断开在途标记搬到了模块级 store(原来是组件内 useRef,
+    // 每次挂载天然干净)。不在此重置会跨用例残留,让后续用例的事件被弃用闸吞掉。
+    abandoned: {},
+    settling: {},
+  });
 });
 
 afterEach(() => {
@@ -204,8 +212,9 @@ describe('AC-2 · 连接后展开 workspace + 会话徽标(含 0)', () => {
 });
 
 describe('AC-8 · 组头连接生命周期', () => {
-  it('connecting/deploying → CONNECT_STAGE_LABEL 文案;failed → 失败原因 + 重试', async () => {
-    useAppStore.setState({ workspaces: [], activeWorkspaceId: null });
+  // T-014(AC-7):失败的呈现从「组头常驻 ✗ 原因 + Retry」改道为「全局 toast + 组头回落待连接」。
+  it('connecting/deploying → CONNECT_STAGE_LABEL 文案;failed → 全局 toast + 组头回落(AC-7)', async () => {
+    useAppStore.setState({ workspaces: [], activeWorkspaceId: null, transientNotice: null });
     installOkwork(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
 
     render(<Sidebar />);
@@ -220,8 +229,16 @@ describe('AC-8 · 组头连接生命周期', () => {
     act(() => {
       useRemoteHostRuntimeStore.getState().applyEvent({ configId: 'cfg-1', stage: 'failed', reason: 'unreachable' });
     });
-    expect(screen.getByText(/Unreachable/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    // 组头:失败痕迹不留,回落成可再连的连接图标钮
+    expect(screen.queryByText(/Unreachable/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+    // 呈现出口改为全局 toast(文案取 failReasonCopy 单源 · 带别名)
+    await waitFor(() => {
+      const notice = useAppStore.getState().transientNotice;
+      expect(notice).toContain('mini-pc');
+      expect(notice).toContain('Unreachable');
+    });
   });
 });
 

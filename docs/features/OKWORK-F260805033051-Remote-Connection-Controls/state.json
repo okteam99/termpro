@@ -14,9 +14,9 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "blueprint",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "7d2dc6cc95ece197192818e77a6a0c240982661e",
   "worktree": {
     "strategy": "auto",
     "branch": "feature/okwork-f260805033051-remote-connection-controls",
@@ -71,15 +71,33 @@
       "active_minutes": 0
     },
     "blueprint": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-05T07:35:52Z",
+      "await_minutes": 61,
+      "evidence": {},
+      "completed_at": "2026-08-05T09:12:28Z",
+      "auto_commit": "7d2dc6cc95ece197192818e77a6a0c240982661e",
+      "artifacts": [
+        "TECH.md",
+        "TC.md",
+        "TECH-REVIEW.md"
+      ],
+      "duration_minutes": 96,
+      "active_minutes": 39
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-05T07:35:52Z"
+      "started_at": "2026-08-05T09:12:28Z"
     }
   },
   "completed_stages": [
     "goal",
-    "ui_design"
+    "ui_design",
+    "blueprint"
   ],
   "created_at": "2026-08-05T03:31:00Z",
   "stage_review_roles": {
@@ -115,11 +133,11 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T08:11:25Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:67f6a45ec5a1e69bf4d4d58a3108be2e4748b08c5c5d9dd0ace3c030308482d0",
+  "updated_at": "2026-08-05T09:12:57Z",
+  "updated_by": "stage-cost",
+  "_state_checksum": "sha256:eb116c08734d8add5e395b9e5d4c45b45a306a8d4093404001e6caa71f31d1a1",
   "legal_next_stages": [
-    "dev"
+    "review"
   ],
   "execution_hints": {
     "ui_design_needed": true,
@@ -150,6 +168,17 @@
       ],
       "note": "最大一笔:派 subagent 前没先查项目是否已有全景工程,按静态 HTML 下发了指令,查到同栈全景后全量重定向(agent 同时也自己发现了该冲突并停下来问);其次是我与 subagent 并发编辑 styles.css 撞车,以及我照措辞 approximate toast CSS 未读真实文件导致位置写反",
       "at": "2026-08-05T07:36:07Z"
+    },
+    {
+      "stage": "blueprint",
+      "rounds": 10,
+      "overhead_rounds": 2,
+      "kinds": [
+        "门禁重试",
+        "跨档同步"
+      ],
+      "note": "两路冷审 19 条 finding 全采纳导致 TECH 全量重写一次(这是评审起效、非浪费);真开销是 blueprint-complete 门禁要求 external-cross-review 产物文件而我的外审虽真跑但没落成该格式,补写一轮;另有一次对 TC 状态的过期读导致误催",
+      "at": "2026-08-05T09:12:57Z"
     }
   ],
   "authoring_preventability": [
@@ -166,10 +195,5 @@
       "note": "",
       "at": "2026-08-05T05:30:29Z"
     }
-  ],
-  "open_pause": {
-    "stage": "blueprint",
-    "label": "blueprint 方案要素确认",
-    "started_at": "2026-08-05T08:11:25Z"
-  }
+  ]
 }

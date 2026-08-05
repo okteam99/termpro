@@ -1,15 +1,17 @@
 // 机器分组头(BL-004 · AC-1/AC-2/AC-8/AC-10/AC-11)。移植自设计预览
 // docs/design/preview-project/src/main.jsx L199-279(MachineGroup)。
-// 与预览的关键差异:runtime 直接吃真实 useRemoteHostRuntimeStore.runtime[configId](BL-003 事件面),
-// 失败文案改用 shared/remoteHost.ts 的 failReasonCopy 单源(而非预览本地字面量)。
+// 与预览的关键差异:runtime 直接吃真实 useRemoteHostRuntimeStore.runtime[configId](BL-003 事件面)。
+// 组头连接控件图标化(OKWORK-F260805033051)后,failed 运行态不再在此渲染——改由全局 toast 一次性
+// 呈现(文案取 shared/remoteHost.ts 的 failReasonCopy 单源,在 toast 侧调用,不在本组件)。
 
+import type { ReactNode } from 'react';
 import './Sidebar.css';
 import {
   MachineWorkspaceRow,
   SessionBadge,
   type MachineWorkspaceRowData,
 } from './MachineWorkspaceRow';
-import { failReasonCopy, type RemoteEvent } from '../../shared/remoteHost';
+import type { RemoteEvent } from '../../shared/remoteHost';
 import { t } from '../../shared/i18n';
 
 /**
@@ -116,6 +118,124 @@ export function RemoteMachineIcon() {
   );
 }
 
+// ---- 组头连接控件图标化(OKWORK-F260805033051):文字按钮(连接/重连/重试/连接中…)→ 纯图标钮,
+// 新增断开钮与取消钮。语义:连接=相连的链环、断开=断裂的同一链环(互为反义,一眼看懂是同一件事的两个
+// 方向)、取消=×、立即重试=循环箭头。视觉上向既有 .sidebar-machine-add(+)的「安静图标钮」看齐,
+// 用 hover 语义色补偿去文字后的可发现性下降(见 Sidebar.css .sidebar-machine-ctl--*)。
+// 移植自设计预览 docs/design/preview-project/src/main.jsx(MachineConnectIcon 起)。----
+
+function MachineConnectIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 7h3a5 5 0 0 1 0 10h-3m-6 0H6a5 5 0 0 1 0-10h3" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+
+function MachineDisconnectIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 7h3a5 5 0 0 1 3.9 8.1M9 17H6a5 5 0 0 1-3.9-8.1" />
+      <line x1="2" y1="2" x2="22" y2="22" />
+    </svg>
+  );
+}
+
+function MachineCancelIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function MachineRetryIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
+  );
+}
+
+/**
+ * 组头连接控件统一图标钮:variant 只管 hover 语义色(见 Sidebar.css),title/aria-label 双写。
+ * onClick 内部统一 stopPropagation —— 组头本身可能挂了折叠点击(onToggleCollapse),控件点击
+ * 不该顺带触发折叠。
+ * busy(AC-13):断开 IPC 在途时连接钮的忙碌指示。🔴 用 `aria-busy`,不用 `disabled`/`aria-disabled`
+ * ——按钮必须仍可点击(点击由 Sidebar 排队兑现,不拒绝)。
+ */
+function MachineCtlButton({
+  variant,
+  icon,
+  label,
+  onClick,
+  busy,
+}: {
+  variant: 'connect' | 'disconnect' | 'cancel' | 'retry';
+  icon: ReactNode;
+  label: string;
+  onClick?: () => void;
+  busy?: boolean;
+}) {
+  return (
+    <button
+      className={`sidebar-machine-ctl sidebar-machine-ctl--${variant}`}
+      title={label}
+      aria-label={label}
+      aria-busy={busy || undefined}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+    >
+      {icon}
+    </button>
+  );
+}
+
 export interface MachineInfo {
   /** 'local' | RemoteHostConfig.id */
   id: string;
@@ -143,7 +263,13 @@ export interface MachineInfo {
 export interface MachineGroupProps {
   machine: MachineInfo;
   onConnect?: (machineId: string) => void;
+  /** 断开图标钮(已连接态 · 自动重连中态均可用) */
+  onDisconnect?: (machineId: string) => void;
+  /** 取消图标钮(连接中态) */
+  onCancel?: (machineId: string) => void;
   onRetry?: (machineId: string) => void;
+  /** 断开 IPC 在途:连接图标钮显示忙碌态(aria-busy),但仍可点(点击被 Sidebar 排队兑现,AC-13) */
+  settling?: boolean;
   onSelectWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
   /** 行级 × 删除钮(与本机行同款);缺省不渲染 */
   onRemoveWorkspace?: (machine: MachineInfo, ws: MachineWorkspaceRowData) => void;
@@ -162,7 +288,10 @@ export interface MachineGroupProps {
 export function MachineGroup({
   machine,
   onConnect,
+  onDisconnect,
+  onCancel,
   onRetry,
+  settling,
   onSelectWorkspace,
   onRemoveWorkspace,
   onRenameWorkspace,
@@ -172,7 +301,9 @@ export function MachineGroup({
   onToggleCollapse,
 }: MachineGroupProps) {
   const isRemote = machine.kind === 'remote';
-  const runtime = machine.runtime;
+  // 🔴 AC-7:failed 运行态不再进组头渲染——它改由全局 toast 一次性呈现,组头回落「未连接」外观。
+  // 过滤成 null 后,下方 `!runtime && status === 'disconnected'` 分支自然接管,渲染连接图标钮。
+  const runtime = machine.runtime && machine.runtime.stage !== 'failed' ? machine.runtime : null;
   const groupClasses = [
     'sidebar-machine-group',
     machine.status === 'lost' ? 'sidebar-machine-group--lost' : '',
@@ -180,24 +311,10 @@ export function MachineGroup({
     .filter(Boolean)
     .join(' ');
 
+  // 🔴 AC-7:failed 不再进组头(此前是常驻 `✗ 原因` + 重试钮)。失败改由全局 toast 一次性呈现,
+  // 组头回落到「未连接」外观(连接图标钮)。故上方 runtime 已把 failed 过滤成 null,本函数不会再
+  // 收到 failed 态 —— 这里不留分支,免得日后有人以为组头还该显示失败。
   function renderRuntimeStatus(rt: RemoteEvent) {
-    if (rt.stage === 'failed') {
-      const reason = failReasonCopy(rt.reason);
-      return (
-        <span
-          className="sidebar-machine-status sidebar-machine-status--fail"
-          title={reason.detail}
-        >
-          <span className="sidebar-machine-status-text">✗ {reason.label}</span>
-          <button
-            className="sidebar-machine-connect"
-            onClick={(e) => { e.stopPropagation(); onRetry?.(machine.id); }}
-          >
-            {t('Retry')}
-          </button>
-        </span>
-      );
-    }
     const label = connectStageLabel(rt.stage);
     const pct =
       rt.stage === 'deploying' && typeof rt.percent === 'number' ? ` ${rt.percent}%` : '';
@@ -206,6 +323,12 @@ export function MachineGroup({
         <span className="add-ws__spinner add-ws__spinner--sm" />
         {label}
         {pct}
+        <MachineCtlButton
+          variant="cancel"
+          icon={<MachineCancelIcon />}
+          label={t('Cancel')}
+          onClick={() => onCancel?.(machine.id)}
+        />
       </span>
     );
   }
@@ -252,39 +375,63 @@ export function MachineGroup({
             <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status ?? 'disconnected'}`} />
           )
         )}
-        {/* BL-005:重连中——琥珀脉冲 + 「重连中…」文案(区别于确定断线的 lost·保活不折叠·AC-6/15) */}
+        {/* BL-005:重连中——琥珀脉冲 + 「重连中…」文案(区别于确定断线的 lost·保活不折叠·AC-6/15)。
+            断开钮在此态可用 = 终止自动重连(D-4) */}
         {isRemote && machine.status === 'reconnecting' && (
           <span className="sidebar-machine-status sidebar-machine-status--active">
             <span className="add-ws__spinner add-ws__spinner--sm" />
             {t('Reconnecting…')}
-            <button
-              className="sidebar-machine-connect"
-              title={t('Retry now (reset backoff and reconnect immediately)')}
-              onClick={(e) => { e.stopPropagation(); onManualRetry?.(machine.id); }}
-            >
-              {t('Retry now')}
-            </button>
+            <MachineCtlButton
+              variant="retry"
+              icon={<MachineRetryIcon />}
+              label={t('Retry now')}
+              onClick={() => onManualRetry?.(machine.id)}
+            />
+            <MachineCtlButton
+              variant="disconnect"
+              icon={<MachineDisconnectIcon />}
+              label={t('Disconnect')}
+              onClick={() => onDisconnect?.(machine.id)}
+            />
           </span>
         )}
         {isRemote && machine.status !== 'reconnecting' && runtime && renderRuntimeStatus(runtime)}
         {isRemote && !runtime && machine.foldedLost && (
-          <button
-            className="sidebar-machine-connect"
-            onClick={(e) => { e.stopPropagation(); onConnect?.(machine.id); }}
-          >
-            {t('Reconnect')}
-          </button>
+          <MachineCtlButton
+            variant="connect"
+            icon={<MachineConnectIcon />}
+            label={t('Reconnect')}
+            busy={settling}
+            onClick={() => onConnect?.(machine.id)}
+          />
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'disconnected' && (
-          <button
-            className="sidebar-machine-connect"
-            onClick={(e) => { e.stopPropagation(); onConnect?.(machine.id); }}
-          >
-            {t('Connect')}
-          </button>
+          <MachineCtlButton
+            variant="connect"
+            icon={<MachineConnectIcon />}
+            label={t('Connect')}
+            busy={settling}
+            onClick={() => onConnect?.(machine.id)}
+          />
         )}
-        {isRemote && !runtime && !machine.foldedLost && machine.status === 'connecting' && (
-          <span className="sidebar-machine-connecting">{t('Connecting…')}</span>
+        {/* 断线过渡(0–900ms · 行仍保活 · AC-15):此前该态组头不出任何控件,补一个连接钮,
+            用户不必等 900ms 折叠才能重连 */}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'lost' && (
+          <MachineCtlButton
+            variant="connect"
+            icon={<MachineConnectIcon />}
+            label={t('Connect')}
+            busy={settling}
+            onClick={() => onConnect?.(machine.id)}
+          />
+        )}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'connected' && (
+          <MachineCtlButton
+            variant="disconnect"
+            icon={<MachineDisconnectIcon />}
+            label={t('Disconnect')}
+            onClick={() => onDisconnect?.(machine.id)}
+          />
         )}
         {/* 组头 + :在该机添加项目(已连接才有意义——目录浏览/对话框都需要活的 host) */}
         {onAddWorkspace && machine.workspaces !== null && (
