@@ -14,7 +14,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "7d2dc6cc95ece197192818e77a6a0c240982661e",
   "worktree": {
@@ -91,16 +91,51 @@
       "active_minutes": 39
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-05T09:12:28Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "/private/tmp/teamwork/OKWORK-F260805033051-Remote-Connection-Controls/vitest2.log"
+      },
+      "completed_at": "2026-08-05T10:17:23Z",
+      "auto_commit": "d1d75d9",
+      "artifacts": [
+        "src/renderer/components/MachineGroup.tsx",
+        "src/renderer/components/Sidebar.tsx",
+        "src/renderer/components/Sidebar.css",
+        "src/renderer/components/settings/RemoteHostsPage.tsx",
+        "src/renderer/state/remoteHostStore.ts",
+        "src/renderer/types.d.ts",
+        "src/shared/remoteHost.ts",
+        "src/shared/i18n.zh.ts",
+        "src/main/remote/remoteHostIpc.ts",
+        "src/preload/preload.ts",
+        "src/renderer/components/__tests__/MachineGroup.test.tsx",
+        "src/renderer/components/__tests__/SidebarMachineGroups.test.tsx",
+        "src/renderer/components/settings/__tests__/RemoteHostsPage.test.tsx",
+        "src/main/remote/__tests__/credentialStore.test.ts",
+        "docs/features/OKWORK-F260805033051-Remote-Connection-Controls/TECH.md",
+        "docs/features/OKWORK-F260805033051-Remote-Connection-Controls/TC.md",
+        "project-specs/KNOWLEDGE.md",
+        "project-specs/test-baseline.md"
+      ],
+      "duration_minutes": 64,
+      "active_minutes": 32
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-05T09:12:28Z"
+      "started_at": "2026-08-05T10:17:23Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-08-05T03:31:00Z",
   "stage_review_roles": {
@@ -136,11 +171,12 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T10:16:15Z",
-  "updated_by": "add-concern",
-  "_state_checksum": "sha256:4c973916f7b77bca84cfaa89890de121fc16d14c7da3f91646de9a55cf18cb20",
+  "updated_at": "2026-08-05T10:17:48Z",
+  "updated_by": "stage-cost",
+  "_state_checksum": "sha256:fe10884cde3360f7b1b3d48eb4f71902f88c5c3234aaff10799d07a94f6c3bb4",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
@@ -182,6 +218,18 @@
       ],
       "note": "两路冷审 19 条 finding 全采纳导致 TECH 全量重写一次(这是评审起效、非浪费);真开销是 blueprint-complete 门禁要求 external-cross-review 产物文件而我的外审虽真跑但没落成该格式,补写一轮;另有一次对 TC 状态的过期读导致误催",
       "at": "2026-08-05T09:12:57Z"
+    },
+    {
+      "stage": "dev",
+      "rounds": 30,
+      "overhead_rounds": 8,
+      "kinds": [
+        "工具不稳",
+        "门禁重试",
+        "返工重写"
+      ],
+      "note": "最大一笔:两路核验(截图核对 + 逐行核对)都在实现 commit 之后才跑,各抓出一条真问题(AC-13 忙碌无视觉 / 排队 connect 不复查弃用),导致全量 vitest 跑了两遍、TECH/TC 改了两轮。这是评审起效不是浪费,但若把「第三方核验」并入实现阶段的收尾自查(而非 commit 后另起一轮)可省掉第二次全量跑。其次:①子代理三次只发 idle 通知不发正文,每次都要追问一轮才拿到报告;②state.json 是 tracked 文件而 test_evidence_fresh 的指纹含未提交 diff —— add-concern 一写就打乱指纹,来回 commit/amend 两次才对齐;③browse 是单实例共享,与子代理互踩掉页面,只能串行等",
+      "at": "2026-08-05T10:17:44Z"
     }
   ],
   "authoring_preventability": [
