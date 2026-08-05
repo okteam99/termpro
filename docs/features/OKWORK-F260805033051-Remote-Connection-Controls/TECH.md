@@ -1,0 +1,249 @@
+# 远程机组头连接控件重构 - 技术方案
+
+## 状态
+
+已确认(v0.2 · 两路冷审收敛 · 用户 2026-08-05 拍板方案要素:保留 8 秒排队上界兜底)
+
+> 🔴 **代码基线**:worktree HEAD(本地 `main` = `0fa8e29` 之后;`git diff 0fa8e29..HEAD -- src/` 为空,三个新 commit 全在 `docs/`)。
+> 🔴 **v0.1 的核心论断已被推翻**:v0.1 声称「一道 gate 放在 `applyEvent` 就覆盖三条通道」。两路冷审独立证伪 —— 那道 gate 只挡**状态写入**,挡不住**副作用**;而 AC-6 要防的最危险那半(残余 `verifying` 触发真握手)恰恰是副作用。详见 §架构。
+
+## 复杂度评估
+
+- 修改文件数:**9 个**(renderer 6 · main 2 · preload 1)
+- 涉及多模块:**是**(renderer 状态层 / 组件层 / main IPC 层)
+- 数据库变更:**否**
+- 影响现有功能:**是**(设置页弃用过滤换单源;失败态呈现改道)
+- 新技术栈/依赖:**否**
+
+**结论**:复杂方案。复杂度不在改动量,在**四条异步通道的收口**。
+
+### 简洁性自查
+
+**最简方案吗?** 是,但**不是 v0.1 以为的那个最简**。真正的最省修法是两路冷审共同指出的:
+
+> **把本地拆除(`clear` + `stopRemoteWorkspaceSync`)提到 `await` 之前**,镜像设置页今天已有的同步顺序;再给两个副作用点各补一行 `isAbandoned` 守卫。**不需要新机制。**
+
+v0.1 把 `await disconnectAwait` 排在本地拆除**之前**,这一个顺序错误同时制造了三个缺陷(UI 复位延迟 5 秒 / 打开 ws 远端关闭的竞态窗口 / 让自动重连被自己唤醒)。改序即消解。
+
+**想过但拒绝的更复杂方案**:
+
+1. **把整套握手编排收敛进 `remoteWorkspaceSync.ts`**(`Sidebar.tsx:239-241` 的 TODO)—— 拒绝:跨模块重构,风险收益不匹配。**该 TODO 依然成立,建议单独立项**。
+2. **每个订阅点各持一份 abandoned 集合** —— 拒绝:两处订阅写同一 store,各持各的集合互不知晓(现存缺陷)。
+3. **主进程侧让 `disconnect` 抢占式作废在途 `connect`** —— 拒绝:改 `orchestrator` 去重/让路语义(Out of Scope 明禁),且那是 2026-07-20 事故的修复产物。
+
+**⚖️ 两路评审在此处分歧,我的裁决**:Architect 主张**砍掉 `settling`**(点击排队等待,不禁用);external 主张**保留**(否则等待期零反馈)。裁决 = **各取一半**:
+
+- 采纳 Architect 的「**点击恒被兑现,不拒绝**」—— 因此**不用禁用态**,`aria-disabled` 的「不阻止 click」争议随之消失(ARCH-6/EXT-7 两条一起解决);
+- 采纳 external 的「**必须有反馈 + 必须有时间上界**」—— 因此保留 `settling` 作为**忙碌指示**(spinner + `aria-busy`,按钮仍可点),保留 8 秒 `Promise.race` 作为**排队上界**(超时则直接发 connect,不无限等)。
+
+理由:纯 (A) 拒绝点击 = 用户点了被拒,体验差且要多一条 i18n;纯 (B) 排队但无反馈 = 用户点了看不到任何变化最长 5 秒,**正是 AC-13 明令禁止的症状**。合起来才两全。
+
+### 🛡️ 兜底清单
+
+| 兜底 | 💬 大白话 | 保护什么失败场景 | 概率×后果 | ROI 结论 |
+|------|----------|----------------|----------|-------------------|
+| 排队等待的 8 秒上界(`Promise.race`) | 断开如果卡住了,你点的"连接"最多 8 秒后一定会真的发出去,不会无限等 | `disconnectAwait` 因主进程异常永不 resolve → 排队中的连接永不发起 → 「点了没反应」 | 概率低(`orchestrator.disconnect` 自带 5 秒内部上限 + 全程 try/catch,近必 resolve)× 后果中(该机无法再连,须重启 app) | **保留** —— 一行 `Promise.race`,换掉一个"控件永久失效"的死角 |
+
+其余不加:不做重试、不做熔断、不做降级。取消/断开失败的语义就是"状态不变",再点一次即可。
+
+## 现状基线(grounded 真实代码)
+
+### 已有什么(可复用,不新造)
+
+| 能力 | 位置 | 复用方式 |
+|---|---|---|
+| 作废在途连接编排 | `orchestrator.disconnect()` `orchestrator.ts:414` | 等在途编排 ≤5s(`:46`)后强制关传输、清 `connectInflight`/mutex |
+| 终止自动重连编排 | `reconnectController.cancel()` `reconnectController.ts:159-161` | 直接调 |
+| 断开的完整收尾 | `stopRemoteWorkspaceSync()` `remoteWorkspaceSync.ts:106-110` | 退订 → `dropHostWorkspaces` → `hostRegistry.drop` |
+| 激活项目回落 + tab 布局快照 | `dropHostWorkspaces()` `store.ts:999-1019` | 由上一条带出(`:1002-1007` 快照先于 dispose · `:1010-1016` 回落本机首个 `?? null`) |
+| 全局 toast | `store.ts:250/307/1092-1094` + `App.tsx:299` | 直接调 setter |
+| 失败文案单源 | `failReasonCopy(reason, fallback)` `shared/remoteHost.ts:240-246` | toast 文案取它 |
+| i18n 词条 | `Disconnect`/`Cancel`/`Connect`/`Reconnect`/`Retry now`(`i18n.zh.ts:120/58/34/33/32`) | 直接 `t()` |
+
+### 真缺口
+
+1. 渲染层没有「这台机已被用户放弃」的共享概念(只有设置页局部 `abandonedRef`,`RemoteHostsPage.tsx:211`)。
+2. 侧栏没有断开/取消入口(`Sidebar.tsx:450-452` 只有一行 connect IPC)。
+3. `disconnect` IPC 不可等待(`remoteHostIpc.ts:106` 是 `ipcMain.on`;`types.d.ts:145` 返回 `void`)。
+
+### decisive 前提核验(逐条读过 · 两路冷审复核确认属实)
+
+| 前提 | 成立? | 证据 |
+|---|---|---|
+| 写 `runtime` 的四条路径全经 `applyEvent` | ✅ | `Sidebar.tsx:171` 绑定 · `:261`/`:268-273` 续体 · `:284` 订阅;`RemoteHostsPage.tsx:165` 绑定 · `:237`/`:242` |
+| 🔴 但「运行态」不止 `runtime` 一张表 | ⚠️ **v0.1 漏了** | `setRtt`(`rtt` 表)与 `setReconnecting`(`reconnecting` 表)是**另两条独立 `set(`**,不经 `applyEvent`(`remoteHostStore.ts:56-68`)。且 `reconnecting` 在组头派生里**优先级最高**(`Sidebar.tsx:521` 排在 ready `:532` / disconnected `:544` 之前) |
+| 🔴 store gate 挡不住订阅回调里的副作用 | ⚠️ **v0.1 漏了** | `Sidebar.tsx:283-287`:`applyRuntimeEvent(e)` 之后是**无条件**的 `if (e.stage==='verifying' && e.tunnel) beginHandshake(...)` |
+| 🔴 `getOrCreateRemote` 会把 client 塞回注册表 | ⚠️ **v0.1 的不变式被击穿** | `hostRegistry.ts:24-34` `this.clients.set(configId, client)` —— 所以「`readoptHost` 实时查表拿 null 短路」这条防线在残余握手路径上**不成立** |
+| 🔴 主动关闭必须先摘 onclose | ✅ 且**决定了顺序** | `hostClient.ts:99-106` `close()` 先 `this.ws.onclose = null` 再 `close()`,注释写明:不摘则迟到 onclose 误入 reconnectable 分叉 → 自动重连 → 违背保持断开。**因此本地 drop 必须先于 await** |
+| 自动重连的 disconnect-first 不会误触发弃用 | ✅ | `reconnectWiring.ts:24` 注入的是裸 IPC(`window.okwork.remoteHost.disconnect`),不经 UI handler。**无死锁**(两路冷审独立确认) |
+| 取消后立刻重连会静默失效 | ✅ | `orchestrator.ts:376-377` 去重直接 return;`:425-426` 让路判据为假 → 照常拆除 |
+
+## 技术方案
+
+### 架构:**两道闸** —— 状态写入闸 + 副作用闸
+
+```mermaid
+flowchart TD
+    E[main 推送事件] --> S1{"订阅首行<br/>isAbandoned?"}
+    S1 -->|是| DROP1[整条回调早退<br/>不写 store · 不触发握手]
+    S1 -->|否| W1["applyEvent(e)"]
+    W1 --> SE{"e.stage===verifying?"}
+    SE -->|是| BH["beginHandshake<br/>入口再查 isAbandoned"]
+    H[握手续体 .then/.catch] --> S2{"写入前<br/>isAbandoned?"}
+    S2 -->|是| DROP2[跳过写入与收养<br/>并 drop 已开的 ws]
+    S2 -->|否| W2[写 ready/failed]
+    RN["client.onReconnectNeeded<br/>(心跳判死/transport close)"] --> S3{"isAbandoned?"}
+    S3 -->|是| DROP3[不进重连编排]
+    S3 -->|否| OD["reconnectController.onDisconnected"]
+    W1 --> G{"applyEvent 内<br/>store 边界闸<br/>(纵深防御)"}
+```
+
+**为什么必须两道**:
+
+- **状态写入闸**(`applyEvent` / `setRtt` / `setReconnecting`)—— 纵深防御,兜住任何我们没枚举到的写入路径。
+- **副作用闸**(订阅首行 / `beginHandshake` 入口 / 握手续体 / `onReconnectNeeded` 接线)—— **不可省**。store 闸拦不住 `beginHandshake` 真去开 ws,也拦不住 `onReconnectNeeded` 把重连编排点起来。这两条是两路冷审各自独立发现的 high。
+
+> 🔴 **给实现者的话**:不要只做一道。v0.1 就是只写了一道,并声称"覆盖三通道"——那句话是错的。
+
+### 断开/取消流程(顺序是正确性的一部分)
+
+```
+handleDisconnect(id):
+  1. abandon(id)                        // 置弃用 · 后续所有闸生效
+  2. reconnectController.cancel(id)     // 终止在途重连编排
+  3. clear(id)                          // 清 runtime/rtt/reconnecting → 组头立即回落(AC-2/AC-5)
+  4. stopRemoteWorkspaceSync(id)        // 退订 + dropHostWorkspaces + hostRegistry.drop
+  ── 以上全部同步,同一 tick 内完成 ──   // drop 已摘 onclose,ws 竞态窗口归零
+  5. setSettling(id, true)
+  6. void disconnectAwait(id)           // 🔴 不 await,只用于清 settling
+       .finally(() => setSettling(id, false))
+```
+
+🔴 **第 3-4 步必须在 `await` 之前、且同步完成** —— 这是镜像设置页今天已有的正确顺序(`RemoteHostsPage.tsx:322-328`)。v0.1 把 await 排在前面,同时制造了:UI 复位延迟最长 5 秒(违 AC-2/AC-5)、ws 远端关闭竞态(违 AC-9)、自动重连被自己唤醒(违 AC-9)。
+
+### 连接流程
+
+```
+handleConnect(id):
+  1. resume(id)                                   // 解除弃用(AC-14)
+  2. await Promise.race([pendingDisconnect(id), sleep(8000)])   // 排队等待 · 有上界
+  3. window.okwork.remoteHost.connect({ id })
+```
+
+按钮在 `settling[id]` 期间显示**忙碌态**(spinner + `aria-busy="true"`),**但仍可点** —— 点击被排队兑现,不拒绝。
+
+### 数据结构
+
+#### `remoteHostStore` 新增(renderer 内存态 · 不持久化)
+
+| 字段 | 类型 | 语义 |
+|------|------|------|
+| `abandoned` | `Record<string, true>` | configId → 用户已主动放弃。所有闸的判据 |
+| `settling` | `Record<string, true>` | configId → 断开 IPC 在途(驱动忙碌指示 + 连接排队) |
+
+| action | 语义 |
+|---|---|
+| `abandon(id)` | 置弃用。🔴 **JSDoc 必须钉死:只允许在用户点击 handler 内调用;`reconnectController` 的 disconnect-first 绝不能走这里**(否则自动重连自锁) |
+| `resume(id)` | 解除弃用 |
+| `isAbandoned(id)` | 查询(供非 React 上下文用:订阅回调 / 握手续体 / `onReconnectNeeded` 接线) |
+| `setSettling(id, on)` | 置/清断开在途 |
+| `forget(id)` | 销毁全部痕迹(含 `abandoned`)· **仅配置被删除时调** |
+
+#### `abandoned` 生命周期(三行说清,免得散落正文漏掉)
+
+| 时机 | 动作 | 调用点 |
+|---|---|---|
+| 置 | `abandon` | 侧栏断开/取消 handler · 设置页 `handleDisconnect` |
+| 解除 | `resume` | 侧栏 `handleConnectMachine` · 设置页 `handleConnect` · **设置页 `handleUpgrade`**(`RemoteHostsPage.tsx:339` · v0.1 漏了这个第三入口) |
+| 销毁 | `forget` | 配置删除两处:`Sidebar.tsx:204-208` 轮询清理 · `RemoteHostsPage.tsx:443-451` `confirmDelete` |
+
+#### 三个写入闸
+
+```ts
+applyEvent(e)             { if (get().abandoned[e.configId]) return; ... }
+setRtt(configId, ms)      { if (get().abandoned[configId]) return; ... }
+setReconnecting(id, on)   { if (on && get().abandoned[id]) return; ... }   // 🔴 只挡置真 · 清假恒放行(否则清不掉)
+```
+
+`clear(id)` 扩展为一并删 `settling`,**但不删 `abandoned`**(弃用标记的生命周期由上表显式管理,被 `clear` 顺手抹掉会让残余事件立刻写穿)。
+
+### 四个副作用闸的接线点
+
+| # | 位置 | 加什么 |
+|---|---|---|
+| 1 | `Sidebar.tsx:283` 订阅回调**首行** | `if (isAbandoned(e.configId)) return;` —— 整条回调早退(同时挡住写入与 `beginHandshake`) |
+| 2 | `beginHandshake` 入口(`Sidebar.tsx:245`)| 同款守卫(防其它调用路径) |
+| 3 | 握手续体 `.then`/`.catch`(`Sidebar.tsx:259-276`)| 写入与 `onReconnected` **之前**再查一次;弃用则跳过并 `hostRegistry.drop(configId)` 收尾那条已开的 ws(否则留一条无人管理的活连接 + 心跳) |
+| 4 | `onReconnectNeeded` 接线(`Sidebar.tsx:321-325`)| `if (isAbandoned(configId)) return;` —— 🔴 **这是第四条通道**:`onDisconnected` 的真实触发源是 client 层信号(transport 关闭/心跳判死),**完全不经 main 事件、不经 store**。v0.1 的 AC-9 机理描述("abandon 保证残余 disconnected 不会被 onDisconnected 拉起")**是错的** |
+
+### 各 AC 落法(仅列与 v0.1 有变化或需强调的)
+
+| AC | 落法 |
+|---|---|
+| AC-2 / AC-5 | 按上方断开流程:第 3-4 步同步清理 → 组头下一次渲染即回落。`abandon` 先行使迟到 `disconnected` 被闸吞,不触发 900ms panel |
+| AC-6 | **(a) 残余事件** → 闸 1;**(b) 在途握手续体** → 闸 3;**(c) 残余 `verifying` 不得建成连接** → 闸 1 + 闸 2(store 闸做不到) |
+| AC-7 | toast effect 判据**三合一**:`stage==='failed' && prev!=='failed' && !isReconnecting(id) && !isAbandoned(id)`。🔴 **必须用独立 ref**(如 `noticedFailRef`),**不得复用 `prevStages`** —— 后者在先声明的 panel effect 末尾(`Sidebar.tsx:388`)已被更新,后声明的 effect 永远读到新值、边沿检测失效。文案取 `failReasonCopy` 单源 |
+| AC-9 | 机理更正:靠**闸 4**(拦 client 层 `onReconnectNeeded`)+ `reconnectController.cancel()`,**不是**靠拦 main 的 disconnected 事件 |
+| AC-13 | 忙碌态 + 排队(见连接流程)。**不用禁用态**,故无 `aria-disabled` 不阻止 click 的问题 |
+| AC-14 | `resume` 有**三个**调用点(见生命周期表),不是两个 |
+| AC-15 | CSS:**只让最靠左的右推候选拿 `margin-left:auto`**。现有 `Sidebar.css:643-646` 的 auto 三件套不含 `-rtt`;若把 `-rtt` 与 `-ctl` 都加 auto,connected 态会出现**两个 auto margin 均分空隙**(`:678-682` 的注释正是防这个)。改法:`-rtt`/`-ctl` 加进 auto 组,同时补 `.sidebar-machine-header > :is(-rtt,-status,-connecting,-ctl) ~ :is(-ctl,-add) { margin-left: 0 }`。判据按「connected 态 = RTT + 断开钮 + `+` 三元素连排无间隙」验,只测一个元素测不出这个 bug |
+
+### 设置页的收敛(D-1 选 B 的连带 · **改写而非删除**)
+
+🔴 v0.1 说「订阅内的过滤整段删除」—— **错,那是功能回退**。现有过滤(`RemoteHostsPage.tsx:263-268`)位置在 `applyEvent` **和** `beginHandshake` 之前,今天恰好挡住"残余 verifying 重新握手";删掉后设置页在这一点上净回归。
+
+正确改法:**位置不动,只换判据来源**
+
+| 位置 | 改法 |
+|---|---|
+| `:211` 声明 `abandonedRef` | 删(改用 store) |
+| `:263-268` 订阅内过滤 | **保留位置**,判据换成 `if (isAbandoned(e.configId)) return;` |
+| `:309` `handleConnect` | `resume(config.id)` |
+| `:323` `handleDisconnect` | `abandon(id)` |
+| `:339` `handleUpgrade` | `resume(config.id)` ← v0.1 漏 |
+| `:443-451` `confirmDelete` | 补 `forget(id)` |
+
+**语义变化(有意为之,须记录)**:现有过滤刻意放行 `disconnected`/`idle`,收敛后一律吞掉 —— 因为断开流程已同步 `clear`,不需要这两个事件落库。
+
+## 影响面清单
+
+| 文件 | 改动 |
+|---|---|
+| `src/renderer/state/remoteHostStore.ts` | 新增 `abandoned`/`settling` + 5 action;三个写入闸;`clear` 扩展 |
+| `src/renderer/components/Sidebar.tsx` | 断开/取消/连接 handler;**四个副作用闸接线**;failed → toast effect(独立 ref);配置删除处补 `forget` |
+| `src/renderer/components/MachineGroup.tsx` | 组头控件重构;failed 不进组头;顺手清死分支 `:286-288`(`status==='connecting'` 从不被 Sidebar 派生) |
+| `src/renderer/components/Sidebar.css` | `.sidebar-machine-ctl` 系列 + `:focus-visible` + 位置不变式(按 AC-15 行的 auto margin 修法) |
+| `src/renderer/components/settings/RemoteHostsPage.tsx` | 6 处(见收敛表) |
+| `src/renderer/types.d.ts` | `disconnectAwait` 声明 + 注释标注「新代码用此,旧 `disconnect` 仅 reconnectController 用」 |
+| `src/shared/remoteHost.ts` | `REMOTE_HOST_CHANNELS.disconnectAwait` |
+| `src/main/remote/remoteHostIpc.ts` | 新增 `ipcMain.handle(disconnectAwait)` **并在 teardown 闭包补 `removeHandler`**(`:131-144` 现有 7 handle + 3 on 全在列,漏登记会在重复注册时抛 `Attempted to register a second handler`) |
+| `src/preload/preload.ts` | 暴露 `disconnectAwait` |
+
+**i18n**:新增「正在断开…」(忙碌 tooltip)+ 失败 toast 模板。其余复用既有词条。
+
+## 测试策略
+
+详见 `TC.md`。技术侧关键 seam(已按冷审修正):
+
+1. **store 三闸**:纯 zustand,直接单测。
+2. **握手续体(AC-6(b))**:让 `client.reconnect()` 返回手动可控 pending promise → 触发取消 → resolve 它 → 断言 store 未写 ready。🔴 **断言措辞更正**:不能断言「`readoptHost` 未被调用」——它**会**被调用然后早退;应断言 **`session.list`/`session.attach` 未发出**。
+3. **残余 `verifying` 不得触发新握手(AC-6(c))**:v0.1 的四个 seam **没有一个覆盖它**,而它是 AC-6 最尖的一颗牙。必须补:弃用后推一个 `verifying{tunnel}` 事件,断言 `getOrCreateRemote` 未被调用、无新 ws。
+4. **闸 4(AC-9)**:弃用后触发 `onReconnectNeeded`,断言 `reconnectController.onDisconnected` 未被调用、`reconnecting` 未被置真。
+5. **AC-13**:mock `disconnectAwait` 返回可控 promise,断言 settling 期按钮 `aria-busy` 且点击被排队(resolve 后 connect 才发出)。
+
+## 风险
+
+| # | 风险 | 缓解 |
+|---|---|---|
+| R1 | `abandon` 被误接给 `reconnectController` 的 disconnect-first → 自动重连自锁 | `abandon` JSDoc 钉死约束;`reconnectWiring` 的 `deps.disconnect` 保持裸 IPC 不变 |
+| R2 | 漏 `resume` → 该机事件永久被吞,表现为"点连接永远没反应"(2026-07-20 同款症状) | AC-14 覆盖;`resume` **三个**调用点写进生命周期表 |
+| R3 | 新旧两个 disconnect 通道并存被误用 | `types.d.ts` 注释标注;可选:整体迁 invoke(全仓仅 3 处调用点),成本相当,本次不做 |
+| R4 | `disconnectAwait` resolve ≠ 已断开(`orchestrator.disconnect` 有两条提前返回:超 5 秒放弃等待、等待期来了新 connect 则原样 return) | 本方案只用它做**排队排序**,不承载"已断开"语义;真正的本地拆除在 await 之前已同步完成 |
+| R5 | `deploying` 取消可能留远端锁,下次重连最长等 120s(`deploy.ts:37`) | 用户 D-7 已拍板接受;dev 须实测并记回 KNOWLEDGE |
+
+## 变更记录
+
+| 日期 | 变更 |
+|------|------|
+| 2026-08-05 | v0.1 首版 |
+| 2026-08-05 | v0.2 冷审收敛:**架构由一道闸改为两道闸**(状态写入 + 副作用);断开流程改序(本地拆除先于 await);补第四通道(client 层 `onReconnectNeeded`)与第六写入路径(`setReconnecting`);设置页过滤改为改写而非删除;`resume` 补第三入口 `handleUpgrade`;AC-7 toast 补 `!isReconnecting` 与独立 ref;AC-15 CSS auto-margin 修法;补 teardown removeHandler、`forget`、AC-6(c) 测试 seam;裁决 `settling` 去留(忙碌指示 + 排队,不禁用) |

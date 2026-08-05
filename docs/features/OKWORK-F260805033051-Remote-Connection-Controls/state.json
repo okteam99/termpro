@@ -14,7 +14,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "ui_design",
+  "current_stage": "blueprint",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -53,14 +53,33 @@
       "active_minutes": 42
     },
     "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-05T05:29:55Z",
+      "await_minutes": 81,
+      "evidence": {
+        "panorama_changed": "false",
+        "needs_browser_e2e": "false"
+      },
+      "completed_at": "2026-08-05T07:35:52Z",
+      "auto_commit": "ea166dc77b660b301091cebf58f7e1dc6c701a80",
+      "artifacts": [
+        "UI.md"
+      ],
+      "duration_minutes": 125,
+      "active_minutes": 0
+    },
+    "blueprint": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-05T05:29:55Z"
+      "started_at": "2026-08-05T07:35:52Z"
     }
   },
   "completed_stages": [
-    "goal"
+    "goal",
+    "ui_design"
   ],
   "created_at": "2026-08-05T03:31:00Z",
   "stage_review_roles": {
@@ -96,15 +115,16 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T06:14:19Z",
+  "updated_at": "2026-08-05T08:11:25Z",
   "updated_by": "pause-mark",
-  "_state_checksum": "sha256:8901c639aaf3ca0404bbad4f7c469fe60c39de997f82a81771721c04e8e21afb",
+  "_state_checksum": "sha256:67f6a45ec5a1e69bf4d4d58a3108be2e4748b08c5c5d9dd0ace3c030308482d0",
   "legal_next_stages": [
-    "panorama_sync",
-    "blueprint"
+    "dev"
   ],
   "execution_hints": {
-    "ui_design_needed": true
+    "ui_design_needed": true,
+    "browser_e2e_needed": false,
+    "panorama_changed": false
   },
   "stage_cost": [
     {
@@ -118,6 +138,18 @@
       ],
       "note": "最大一笔:worktree 建于 origin/main,而 ship 目标 main 领先 3 个未推送 commit 且恰好改了本 Feature 核心文件(orchestrator/RemoteHostsPage/store/i18n)——PRD 与两路冷审全部基于旧代码,发现后需快进基线 + 重核替换全部行号 + 重跑 typecheck/单测基线",
       "at": "2026-08-05T05:30:29Z"
+    },
+    {
+      "stage": "ui_design",
+      "rounds": 12,
+      "overhead_rounds": 5,
+      "kinds": [
+        "返工重写",
+        "跨档同步",
+        "工具不稳"
+      ],
+      "note": "最大一笔:派 subagent 前没先查项目是否已有全景工程,按静态 HTML 下发了指令,查到同栈全景后全量重定向(agent 同时也自己发现了该冲突并停下来问);其次是我与 subagent 并发编辑 styles.css 撞车,以及我照措辞 approximate toast CSS 未读真实文件导致位置写反",
+      "at": "2026-08-05T07:36:07Z"
     }
   ],
   "authoring_preventability": [
@@ -136,8 +168,8 @@
     }
   ],
   "open_pause": {
-    "stage": "ui_design",
-    "label": "ui_design 预览确认",
-    "started_at": "2026-08-05T06:14:19Z"
+    "stage": "blueprint",
+    "label": "blueprint 方案要素确认",
+    "started_at": "2026-08-05T08:11:25Z"
   }
 }
