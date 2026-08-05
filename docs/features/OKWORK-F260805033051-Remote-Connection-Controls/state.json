@@ -14,7 +14,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "ui_design",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -37,13 +37,31 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-05T03:31:07Z",
+      "await_minutes": 77,
+      "evidence": {},
+      "completed_at": "2026-08-05T05:29:55Z",
+      "auto_commit": "4395f759346a740db8a7f4d45a6d8f98266bcb7c",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "duration_minutes": 118,
+      "active_minutes": 42
+    },
+    "ui_design": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-05T03:31:07Z"
+      "started_at": "2026-08-05T05:29:55Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal"
+  ],
   "created_at": "2026-08-05T03:31:00Z",
   "stage_review_roles": {
     "goal": [
@@ -78,16 +96,43 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T04:12:10Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:e5dcafa768ccb3da3a11922a4d76cd604eb0da1e4c3a28570575419af7f0eead",
+  "updated_at": "2026-08-05T05:30:33Z",
+  "updated_by": "review-preventability",
+  "_state_checksum": "sha256:4512be4d69391f9101bf8a25d40c033a9e41da7ebebe0f3554fb977066739090",
   "legal_next_stages": [
-    "ui_design",
+    "panorama_sync",
     "blueprint"
   ],
-  "open_pause": {
-    "stage": "goal",
-    "label": "goal PRD 最终确认",
-    "started_at": "2026-08-05T04:12:10Z"
-  }
+  "execution_hints": {
+    "ui_design_needed": true
+  },
+  "stage_cost": [
+    {
+      "stage": "goal",
+      "rounds": 14,
+      "overhead_rounds": 4,
+      "kinds": [
+        "返工重写",
+        "门禁重试",
+        "格式修"
+      ],
+      "note": "最大一笔:worktree 建于 origin/main,而 ship 目标 main 领先 3 个未推送 commit 且恰好改了本 Feature 核心文件(orchestrator/RemoteHostsPage/store/i18n)——PRD 与两路冷审全部基于旧代码,发现后需快进基线 + 重核替换全部行号 + 重跑 typecheck/单测基线",
+      "at": "2026-08-05T05:30:29Z"
+    }
+  ],
+  "authoring_preventability": [
+    {
+      "stage": "goal",
+      "preventable": 12,
+      "total": 23,
+      "missing": [
+        "状态枚举完整性(遍历全部 UI 状态含 900ms 过渡态)",
+        "AC Given 的通道完整性(同一状态有几条独立写入路径)",
+        "文档内部一致性自查(Out of Scope vs 待决策项互斥)",
+        "计数类断言先 grep 再落笔"
+      ],
+      "note": "",
+      "at": "2026-08-05T05:30:29Z"
+    }
+  ]
 }

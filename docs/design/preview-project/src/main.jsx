@@ -154,7 +154,12 @@ function Sidebar({
   workspaces = DEFAULT_WORKSPACES,
   machines,
   onConnectMachine,
+  onDisconnectMachine,
+  onCancelMachine,
   onRetryMachine,
+  onAddWorkspaceMachine,
+  collapsedIds,
+  onToggleCollapseMachine,
   onSelectWorkspace,
   onAddWorkspace,
   onOpenRemoteHosts,
@@ -173,8 +178,13 @@ function Sidebar({
               key={m.id}
               machine={m}
               onConnect={onConnectMachine}
+              onDisconnect={onDisconnectMachine}
+              onCancel={onCancelMachine}
               onRetry={onRetryMachine}
               onSelectWorkspace={onSelectWorkspace}
+              onAddWorkspace={onAddWorkspaceMachine}
+              collapsed={collapsedIds ? collapsedIds.has(m.id) : false}
+              onToggleCollapse={onToggleCollapseMachine}
             />
           ))
         ) : (
@@ -216,64 +226,229 @@ function Sidebar({
  * BL-004 full drop 边界)。组头黄点脉冲 + 「重连中…」而非红点/「已断开」·workspace 列表**照常展开**
  * (非 foldedLost·会话仍在远端跑·非消失)。
  */
-function MachineGroup({ machine, onConnect, onRetry, onSelectWorkspace }) {
+
+// ---- 组头连接控件图标化(OKWORK-F260805033051):文字按钮(连接/重连/重试/连接中…)→ 纯图标钮,
+// 新增断开钮与取消钮。语义:连接=相连的链环、断开=断裂的同一链环(互为反义,一眼看懂是同一件事的两个
+// 方向)、取消=×、立即重试=循环箭头。视觉上向既有 .sidebar-machine-add(+)的「安静图标钮」看齐,
+// 用 hover 语义色补偿去文字后的可发现性下降(见 styles.css .sidebar-machine-ctl--*)。----
+
+function MachineConnectIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 7h3a5 5 0 0 1 0 10h-3m-6 0H6a5 5 0 0 1 0-10h3" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+
+function MachineDisconnectIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 7h3a5 5 0 0 1 3.9 8.1M9 17H6a5 5 0 0 1-3.9-8.1" />
+      <line x1="2" y1="2" x2="22" y2="22" />
+    </svg>
+  );
+}
+
+function MachineCancelIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function MachineRetryIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
+  );
+}
+
+/** 组头连接控件统一图标钮:variant 只管 hover 语义色(见 styles.css),title/aria-label 双写。
+ *  onClick 内部统一 stopPropagation —— 组头本身现在可能挂了折叠点击(onToggleCollapse),控件点击
+ *  不该顺带触发折叠。 */
+function MachineCtlButton({ variant, icon, label, onClick }) {
+  return (
+    <button
+      className={`sidebar-machine-ctl sidebar-machine-ctl--${variant}`}
+      title={label}
+      aria-label={label}
+      onClick={(e) => { e.stopPropagation(); onClick && onClick(); }}
+    >
+      {icon}
+    </button>
+  );
+}
+
+// ---- 复现门补齐(OKWORK-F260805033051):这个全景的 MachineGroup 停在 BL-004 形态,缺折叠三角 /
+// 机器类别图标 / RTT 读数 / 组头「+」—— 真实 src/renderer/components/MachineGroup.tsx 早就有。
+// 位置不变式是围绕「+」定义的,不补齐这几样就没有东西可以「贴最右」,所以一并照真实组件的图形补上。----
+
+/** 组头折叠三角(disclosure):展开=向下,折叠=向右(CSS rotate)。只有 onToggleCollapse 传入时才
+ *  渲染(与真实组件一致)—— 没接线的页面(A/E/G)不会平白多出一个点了没反应的三角。 */
+function MachineChevron({ collapsed }) {
+  return (
+    <svg
+      className={`sidebar-machine-chevron${collapsed ? ' sidebar-machine-chevron--collapsed' : ''}`}
+      width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+/** 组头机器类别图标:本机=显示器 / 远程=云。照抄真实 MachineGroup.tsx 的图形(与本文件另一个
+ *  用途不同的 LocalMachineIcon/RemoteIcon 是两回事——那两个是 About/RemoteHosts 页用的独立风格)。 */
+function MachineGroupLocalIcon() {
+  return (
+    <svg className="sidebar-machine-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  );
+}
+
+function MachineGroupRemoteIcon() {
+  return (
+    <svg className="sidebar-machine-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+    </svg>
+  );
+}
+
+/** 连接延迟分级(与真实组件一致):<200ms 绿 · 200-499ms 琥珀 · ≥500ms 红 */
+function rttTier(ms) {
+  if (ms < 200) return 'good';
+  if (ms < 500) return 'fair';
+  return 'poor';
+}
+
+/** 折叠态组头的聚合会话徽标(仅 collapsed 且该机有 workspace 时用):对全组 workspace 的
+ *  tabCount/tabRunning 求和,复用既有 formatTabBadge 的文案口径(定义在 MachineWorkspaceRow 上方)。 */
+function aggregateTabs(workspaces) {
+  let tabCount = 0;
+  let tabRunning = 0;
+  for (const ws of workspaces) {
+    tabCount += typeof ws.tabCount === 'number' ? ws.tabCount : 0;
+    tabRunning += ws.tabRunning || 0;
+  }
+  return { tabCount, tabRunning };
+}
+
+function MachineGroup({
+  machine, onConnect, onDisconnect, onCancel, onRetry, onSelectWorkspace,
+  onAddWorkspace, collapsed = false, onToggleCollapse,
+}) {
   const isRemote = machine.kind === 'remote';
-  const runtime = machine.runtime;
+  // 🔴 AC-7:failed 运行态**不进组头渲染**——它改由全局 toast 一次性呈现,组头回落「未连接」外观。
+  // 过滤成 null 后,下方 `!runtime && status === 'disconnected'` 分支自然接管,渲染连接图标钮。
+  const runtime = machine.runtime && machine.runtime.stage !== 'failed' ? machine.runtime : null;
   const groupClasses = [
     'sidebar-machine-group',
     machine.status === 'lost' ? 'sidebar-machine-group--lost' : '',
   ].filter(Boolean).join(' ');
 
   function renderRuntimeStatus() {
-    if (runtime.stage === 'failed') {
-      const reason = FAIL_REASONS[runtime.reason] || FAIL_REASONS.unreachable;
-      return (
-        <span className="sidebar-machine-status sidebar-machine-status--fail" title={reason.detail}>
-          <span className="sidebar-machine-status-text">✗ {reason.label}</span>
-          <button className="sidebar-machine-connect" onClick={() => onRetry && onRetry(machine.id)}>重试</button>
-        </span>
-      );
-    }
+    // 🔴 AC-7:failed 不再进组头(此前是常驻 `✗ 原因` + 重试钮)。失败改由全局 toast 一次性呈现,
+    // 组头回落到「未连接」外观(连接图标钮)。故上方 runtime 已把 failed 过滤成 null,
+    // 本函数不会再收到 failed —— 这里不留分支,免得日后有人以为组头还该显示失败。
     const label = CONNECT_STAGE_LABEL[runtime.stage] || '连接中…';
     const pct = runtime.stage === 'deploying' && typeof runtime.percent === 'number' ? ` ${runtime.percent}%` : '';
     return (
       <span className="sidebar-machine-status sidebar-machine-status--active">
         <span className="add-ws__spinner add-ws__spinner--sm" />
         {label}{pct}
+        <MachineCtlButton variant="cancel" icon={<MachineCancelIcon />} label="取消" onClick={() => onCancel && onCancel(machine.id)} />
       </span>
     );
   }
 
   const showWorkspaces = machine.workspaces && !machine.foldedLost;
+  const agg = collapsed && machine.workspaces && machine.workspaces.length > 0
+    ? aggregateTabs(machine.workspaces)
+    : null;
+  const aggBadge = agg ? formatTabBadge(agg) : null;
 
   return (
     <div className={groupClasses}>
-      <div className="sidebar-machine-header" title={isRemote ? machine.addr : undefined}>
-        {isRemote && <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status}`} />}
+      <div
+        className={`sidebar-machine-header${onToggleCollapse ? ' sidebar-machine-header--clickable' : ''}`}
+        title={isRemote ? machine.addr : undefined}
+        onClick={onToggleCollapse ? () => onToggleCollapse(machine.id) : undefined}
+      >
+        {onToggleCollapse && <MachineChevron collapsed={collapsed} />}
+        {isRemote ? <MachineGroupRemoteIcon /> : <MachineGroupLocalIcon />}
         <span className="sidebar-machine-label">{isRemote ? machine.alias : machine.label}</span>
+        {aggBadge && (
+          <span className={`sidebar-machine-sessions${aggBadge.zero ? ' sidebar-machine-sessions--zero' : ''}`}>
+            {aggBadge.text}
+          </span>
+        )}
+        {/* connected 且有 RTT:单一小圆点并入延迟单元(圆点=毫秒数同色,按分级上色);其余状态维持
+            原语义状态圆点(与真实 MachineGroup.tsx 的三元逻辑一致)。 */}
+        {isRemote && machine.status === 'connected' && machine.rttMs !== undefined ? (
+          <span className={`sidebar-machine-rtt sidebar-machine-rtt--${rttTier(machine.rttMs)}`}>
+            <span className="sidebar-machine-rtt-dot" />
+            {Math.round(machine.rttMs)}ms
+          </span>
+        ) : (
+          isRemote && <span className={`sidebar-machine-dot sidebar-machine-dot--${machine.status}`} />
+        )}
         {isRemote && runtime && renderRuntimeStatus()}
         {isRemote && !runtime && machine.foldedLost && (
-          <button className="sidebar-machine-connect" onClick={() => onConnect && onConnect(machine.id)}>重连</button>
+          <MachineCtlButton variant="connect" icon={<MachineConnectIcon />} label="连接" onClick={() => onConnect && onConnect(machine.id)} />
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'disconnected' && (
-          <button
-            className="sidebar-machine-connect"
-            onClick={() => onConnect && onConnect(machine.id)}
-          >
-            连接
-          </button>
+          <MachineCtlButton variant="connect" icon={<MachineConnectIcon />} label="连接" onClick={() => onConnect && onConnect(machine.id)} />
+        )}
+        {/* 断线过渡(0–900ms · AC-15):此前该态组头不出任何控件,补齐一个连接钮,让用户不必等 900ms 折叠 */}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'lost' && (
+          <MachineCtlButton variant="connect" icon={<MachineConnectIcon />} label="连接" onClick={() => onConnect && onConnect(machine.id)} />
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'connecting' && (
-          <span className="sidebar-machine-connecting">连接中…</span>
+          <span className="sidebar-machine-connecting">
+            连接中…
+            <MachineCtlButton variant="cancel" icon={<MachineCancelIcon />} label="取消" onClick={() => onCancel && onCancel(machine.id)} />
+          </span>
+        )}
+        {isRemote && !runtime && !machine.foldedLost && machine.status === 'connected' && (
+          <MachineCtlButton variant="disconnect" icon={<MachineDisconnectIcon />} label="断开" onClick={() => onDisconnect && onDisconnect(machine.id)} />
         )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'reconnecting' && (
           <span className="sidebar-machine-status sidebar-machine-status--active">
             <span className="add-ws__spinner add-ws__spinner--sm" />
             重连中…
+            <MachineCtlButton variant="retry" icon={<MachineRetryIcon />} label="立即重试" onClick={() => onRetry && onRetry(machine.id)} />
+            <MachineCtlButton variant="disconnect" icon={<MachineDisconnectIcon />} label="断开" onClick={() => onDisconnect && onDisconnect(machine.id)} />
           </span>
         )}
+        {/* 组头「+」:在该机添加项目(已连接才有意义——本机恒有 workspaces,远程仅连接后有)。
+            恒为组头 DOM 最后一个元素,只在 onAddWorkspace 传入时渲染(与真实组件一致,A/E/G 三页
+            未接线故不出现,零回归)。 */}
+        {onAddWorkspace && machine.workspaces !== null && (
+          <button
+            className="sidebar-machine-add"
+            title="添加项目"
+            aria-label="添加项目"
+            onClick={(e) => { e.stopPropagation(); onAddWorkspace(machine.id); }}
+          >
+            +
+          </button>
+        )}
       </div>
-      {showWorkspaces ? (
+      {!collapsed && (showWorkspaces ? (
         machine.workspaces.map((ws, i) => (
           <MachineWorkspaceRow
             key={`${ws.name}-${i}`}
@@ -285,7 +460,7 @@ function MachineGroup({ machine, onConnect, onRetry, onSelectWorkspace }) {
         <div className="sidebar-machine-empty">
           {machine.emptyLabel || '未连接 · 连接后显示该机上的 workspace'}
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -918,12 +1093,14 @@ function startMachineConnect(setConnState, id) {
   }, 600);
 }
 
-/** 按连接模拟状态解析 machines:connecting 盖状态;connected 盖状态并注入发现的 workspace。 */
+/** 按连接模拟状态解析 machines:connecting 盖状态;connected 盖状态并注入发现的 workspace;
+ *  disconnected(AC-2 · 手动断开钮)立即回未连接态、workspace 清空,不经 900ms 过渡态。 */
 function applyConnectionSim(machines, connState) {
   return machines.map((m) => {
     const st = connState[m.id];
     if (!st) return m;
     if (st === 'connecting') return { ...m, status: 'connecting' };
+    if (st === 'disconnected') return { ...m, status: 'disconnected', workspaces: null };
     return { ...m, status: 'connected', workspaces: m.workspaces || DISCOVERED_WORKSPACES };
   });
 }
@@ -2015,6 +2192,8 @@ const SIDEBAR_MG_STATE_PRESETS = [
   { key: 'idle', label: '默认交互' },
   { key: 'm0', label: 'M=0 · 纯本机' },
   { key: 'deploying', label: '部署中快照 · 47%' },
+  { key: 'lost', label: '断线过渡(0–900ms)' },
+  { key: 'reconnecting', label: '自动重连中' },
   { key: 'failed', label: '连接失败' },
   { key: 'disconnected', label: '断线回落(AC-11)' },
 ];
@@ -2042,6 +2221,7 @@ function buildSidebarMgMachines() {
     { id: 'local', kind: 'local', label: '本机', workspaces: SIDEBAR_MG_LOCAL_WORKSPACES.map((w) => ({ ...w })) },
     {
       id: 'mini-pc', kind: 'remote', alias: 'mini-pc', addr: 'liam@192.168.1.40', status: 'connected',
+      rttMs: 87,
       workspaces: SIDEBAR_MG_MINIPC_WORKSPACES.map((w) => ({ ...w })),
     },
     { id: 'dev-server', kind: 'remote', alias: 'dev-server', addr: 'liam@10.0.0.8', status: 'disconnected', workspaces: null },
@@ -2068,15 +2248,53 @@ function MachineGroupsTabBar({ activeWs, activeMachine }) {
   );
 }
 
+/**
+ * 全局一次性轻量提示(AC-7 · 镜像真实 `src/renderer/components/TransientToast.tsx` 的语义):
+ * 单槽字符串(后写覆盖前写)· 5000ms 自动消失 · role=status + aria-live=polite。
+ * 这是真实产品里就有的组件,不是预览专属控件 —— 不违反 UI-RULES「页面内禁内嵌预览控件」那条
+ * (那条禁的是状态切换器一类真实 app 没有的东西)。
+ */
+const TOAST_AUTO_DISMISS_MS = 5000;
+function PreviewTransientToast({ notice, onDismiss }) {
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(onDismiss, TOAST_AUTO_DISMISS_MS);
+    return () => clearTimeout(t);
+  }, [notice, onDismiss]);
+  if (!notice) return null;
+  return <div className="transient-toast" role="status" aria-live="polite">{notice}</div>;
+}
+
 function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
   const [devState, setDevState] = useState('idle');
+  // AC-7:连接失败的呈现出口(组头不再常驻失败文案)
+  const [toast, setToast] = useState(null);
   const [connState, setConnState] = useState({});
   const [active, setActive] = useState({ machineId: 'mini-pc', name: 'aon-edge' });
   const [lostPhase, setLostPhase] = useState(null); // null | 'panel' | 'folded'(D-8 两段式回落)
   const lostTimer = useRef(null);
+  // 连接钮点击后的 600ms 模拟连接定时器,按 machine.id 存放(取消钮/切 preset 需能中止,AC-6)。
+  const connectTimerRef = useRef({});
+  // devState 切回 'idle' 时这条 effect 会把 connState 重置为 {}(见下)——但「自动重连中」态点断开
+  // 需要落到「未连接」而非 mini-pc 默认的「已连接」,故用这个 ref 把目标 connState 带过重置。
+  const pendingConnRef = useRef(null);
+  // 组头折叠(chevron · 复现门补齐):按 machine.id 记哪些组被用户折叠;与 devState/connState 无关,
+  // 切预设不重置——用户手动折叠的意图应该跨预设保留。
+  const [collapsedIds, setCollapsedIds] = useState(() => new Set());
+
+  function toggleCollapse(id) {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
-    setConnState({});
+    Object.values(connectTimerRef.current).forEach((t) => clearTimeout(t));
+    connectTimerRef.current = {};
+    setConnState(pendingConnRef.current || {});
+    pendingConnRef.current = null;
     setLostPhase(null);
     if (lostTimer.current) { clearTimeout(lostTimer.current); lostTimer.current = null; }
 
@@ -2088,7 +2306,7 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
         setLostPhase('folded');
         setActive({ machineId: 'local', name: 'OkWork' });
       }, 900);
-    } else if (devState === 'idle') {
+    } else if (devState === 'idle' || devState === 'reconnecting' || devState === 'lost') {
       setActive({ machineId: 'mini-pc', name: 'aon-edge' });
     } else {
       setActive({ machineId: 'local', name: 'OkWork' });
@@ -2099,6 +2317,15 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
 
   const baseMachines = useMemo(() => buildSidebarMgMachines(), []);
 
+  // AC-7:任一远程机进入 failed → 弹一条全局 toast(文案取 FAIL_REASONS 单源,不另写字面量)。
+  // 单槽语义:多机近同时失败只留最近一条(PRD D-2 已由用户显式接受)。
+  useEffect(() => {
+    if (devState !== 'failed') return;
+    const failed = buildSidebarMgMachines().find((m) => m.id === 'dev-server');
+    const reason = FAIL_REASONS.unreachable;
+    setToast(`连接 ${failed ? failed.alias : 'dev-server'} 失败:${reason.label}`);
+  }, [devState]);
+
   const machines = useMemo(() => {
     if (devState === 'm0') {
       return [{ id: 'local', kind: 'local', label: '本机', workspaces: SIDEBAR_MG_LOCAL_WORKSPACES.map((w) => ({ ...w, active: true })) }];
@@ -2108,7 +2335,32 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
 
     if (devState === 'deploying') {
       list = list.map((m) => (m.id === 'dev-server' ? { ...m, runtime: { stage: 'deploying', percent: 47, arch: 'linux-x64', fast: false } } : m));
+    } else if (devState === 'lost') {
+      // 断线过渡快照(0–900ms · AC-15):与 devState='disconnected' 的 panel 阶段视觉一致(status=lost ·
+      // foldedLost=false · workspace 保活),但这里是静止不动的独立预设——不会 900ms 后自动折叠,
+      // 方便走查这个此前组头完全空白的态(现在补了连接图标)。
+      list = list.map((m) => {
+        if (m.id !== 'mini-pc') return m;
+        return {
+          ...m,
+          status: 'lost',
+          workspaces: m.workspaces.map((ws) => (ws.name === 'aon-edge' ? { ...ws, disconnectedPanel: true } : ws)),
+        };
+      });
+    } else if (devState === 'reconnecting') {
+      // 自动重连中(BL-005 AC-15):黄点脉冲 + 「重连中…」,workspace 列表照常展开(会话仍在远端跑 ·
+      // 非 foldedLost),活跃 workspace 打「重连中」态标签(视觉家族同 disconnectedPanel,标签色区分)。
+      list = list.map((m) => {
+        if (m.id !== 'mini-pc') return m;
+        return {
+          ...m,
+          status: 'reconnecting',
+          workspaces: m.workspaces.map((ws) => (ws.name === 'aon-edge' ? { ...ws, reconnectingPanel: true } : ws)),
+        };
+      });
     } else if (devState === 'failed') {
+      // runtime 仍写 failed(数据面保留),但 MachineGroup 不再把它渲染进组头(AC-7);
+      // 呈现出口 = 下方 effect 触发的全局 toast,组头则回落成连接图标钮。
       list = list.map((m) => (m.id === 'dev-server' ? { ...m, runtime: { stage: 'failed', reason: 'unreachable' } } : m));
     } else if (devState === 'disconnected') {
       list = list.map((m) => {
@@ -2138,8 +2390,58 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
   }
 
   function retryMachine() {
-    // 失败态重试:退出快照 preset,回到可真实交互的默认态(点「连接」走完整编排)
+    // 失败态「重试」/ 自动重连中「立即重试」共用同一处理:退出快照 preset,回到可真实交互的默认态。
+    // mini-pc 基础态本就是已连接、dev-server 基础态本就是未连接,退出后天然回落到位——不需要像
+    // handleDisconnectClick 那样借 pendingConnRef 显式覆盖 connState。
     setDevState('idle');
+  }
+
+  /** 连接图标钮(未连接 / 断线过渡 / 已断开折叠三态共用):idle 态走 600ms 模拟连接编排;
+   *  预设快照态(断线过渡/已断开折叠)先退出 preset —— mini-pc 基础态本就是「已连接」,天然回落。 */
+  function handleConnectClick(id) {
+    if (devState !== 'idle') {
+      setDevState('idle');
+      return;
+    }
+    setConnState((prev) => ({ ...prev, [id]: 'connecting' }));
+    connectTimerRef.current[id] = window.setTimeout(() => {
+      setConnState((prev) => ({ ...prev, [id]: 'connected' }));
+      delete connectTimerRef.current[id];
+    }, 600);
+  }
+
+  /** 取消图标钮(连接中 / 部署中% 两态共用,AC-4/AC-5):立即回未连接态,且中止残余定时器/事件写入
+   *  (AC-6 —— 取消后不得静默「复活」成已连接)。 */
+  function handleCancelClick(id) {
+    if (connectTimerRef.current[id]) {
+      clearTimeout(connectTimerRef.current[id]);
+      delete connectTimerRef.current[id];
+    }
+    if (devState !== 'idle') {
+      setDevState('idle');
+      return;
+    }
+    setConnState((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  /** 断开图标钮(已连接 / 自动重连中两态共用):AC-2 立即回未连接态、不经 900ms 过渡;
+   *  在自动重连中点断开 = 终止自动重连(D-4),借 pendingConnRef 让退出 preset 落到「未连接」
+   *  而不是 mini-pc 默认的「已连接」。 */
+  function handleDisconnectClick(id) {
+    if (connectTimerRef.current[id]) {
+      clearTimeout(connectTimerRef.current[id]);
+      delete connectTimerRef.current[id];
+    }
+    if (devState !== 'idle') {
+      pendingConnRef.current = { [id]: 'disconnected' };
+      setDevState('idle');
+      return;
+    }
+    setConnState((prev) => ({ ...prev, [id]: 'disconnected' }));
   }
 
   const activeMachine = machines.find((m) => m.id === active.machineId);
@@ -2162,11 +2464,17 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
       activeStateKey={devState}
       onSelectState={setDevState}
     >
+      <PreviewTransientToast notice={toast} onDismiss={() => setToast(null)} />
       <div className="app-shell">
         <Sidebar
           machines={machines}
-          onConnectMachine={(id) => startMachineConnect(setConnState, id)}
+          onConnectMachine={handleConnectClick}
+          onDisconnectMachine={handleDisconnectClick}
+          onCancelMachine={handleCancelClick}
           onRetryMachine={retryMachine}
+          onAddWorkspaceMachine={() => onNavigate('/workspace/add-workspace')}
+          collapsedIds={collapsedIds}
+          onToggleCollapseMachine={toggleCollapse}
           onSelectWorkspace={selectWorkspace}
           onAddWorkspace={() => onNavigate('/workspace/add-workspace')}
           onOpenRemoteHosts={() => onNavigate('/settings/remote-hosts')}
