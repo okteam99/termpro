@@ -2,7 +2,7 @@
 // OKWORK-F260805033051 review round 1: machine 级连接编排缺陷回归测试
 // 锁住 F1(排队期间闸门)/F2(握手去重)/F5(settling 态接替)三个核心缺陷。
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DISCONNECT_QUEUE_TIMEOUT_MS,
   __resetRemoteHostOrchestrationForTest,
@@ -22,6 +22,12 @@ beforeEach(() => {
     settling: {},
   });
   __resetRemoteHostOrchestrationForTest();
+});
+
+afterEach(() => {
+  // T-038h 里 spy 了 console.warn(reject 路径会打日志)。不 restore 会泄漏到后续用例,
+  // 把它们真实的告警一并吞掉 —— 那种污染表现为「别的用例本该报警却静默通过」。
+  vi.restoreAllMocks();
 });
 
 describe('连接编排闸门与排队逻辑(remoteHostStore abandon/resume)', () => {
@@ -224,6 +230,55 @@ describe('连接编排闸门与排队逻辑(remoteHostStore abandon/resume)', ()
       // 5. 握手槽位被清掉,能重新握手
       const canBeginAgain = tryBeginHandshake(c1);
       expect(canBeginAgain).toBe(true);
+    });
+  });
+
+  describe('T-038h｜disconnectAwait 拒绝时,排队的连接仍须兑现(NF-1)', () => {
+    it('断开 reject 时,fire 仍被调用 + settling 被清 + resumed', async () => {
+      const c1 = 'c1';
+      let rejectIt: (e: unknown) => void = () => {
+        /* 由 Promise 构造器同步赋真值 */
+      };
+      const disconnectPromise = new Promise<void>((_, r) => {
+        rejectIt = r;
+      });
+
+      // 静音 trackDisconnect 内的 console.warn,避免测试日志污染(reject 被正确处理,只是日志会打)
+      vi.spyOn(console, 'warn').mockImplementation(() => {
+        /* 静音:reject 路径本就该打这条 warn,不是失败信号 */
+      });
+
+      // 1. 进入排队态
+      useRemoteHostRuntimeStore.getState().abandon(c1);
+      trackDisconnect(c1, disconnectPromise);
+      expect(useRemoteHostRuntimeStore.getState().settling[c1]).toBe(true);
+
+      // 2. 表达连接意图
+      const fire = vi.fn();
+      requestConnect(c1, fire);
+
+      // 3. 排队期间：fire 未被调用
+      expect(fire).not.toHaveBeenCalled();
+
+      // 4. 拒绝断开 promise
+      rejectIt(new Error('boom'));
+      // flush 微任务：原 promise reject → .catch 处理 → .finally 兑现
+      // → `settled` promise resolve(undefined) → race 赢 → requestConnect 的 .then 执行
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 5. 🔴 灵魂：即便拒绝也要放行（若 trackDisconnect 存的是裸 promise，
+      //    race reject → fulfill 永不执行 → fire 不调 → 连接意图卡死）
+      expect(fire).toHaveBeenCalledTimes(1);
+
+      // 6. isAbandoned 被 resume 清掉
+      expect(useRemoteHostRuntimeStore.getState().isAbandoned(c1)).toBe(false);
+
+      // 7. settling 被 finally 清掉
+      expect(useRemoteHostRuntimeStore.getState().settling[c1]).toBeUndefined();
     });
   });
 });

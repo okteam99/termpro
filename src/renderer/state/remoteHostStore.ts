@@ -212,19 +212,26 @@ export const DISCONNECT_QUEUE_TIMEOUT_MS = 8000;
  * 不能只护住 map 的删除 —— 否则第二次断开在途时,前一次的 finally 会把忙碌指示提前抹掉。
  */
 export function trackDisconnect(configId: string, p: Promise<unknown>): void {
-  pendingDisconnects.set(configId, p);
-  useRemoteHostRuntimeStore.getState().setSettling(configId, true);
-  void p
+  // 🔴 **存进表里的必须是已 catch 的那条链,不是裸 promise**(REVIEW NF-1)。
+  // `requestConnect` 会 `Promise.race` 表里这条:裸 promise 一旦 reject,race 跟着 reject →
+  // `.then` 里的 `fulfill()` 永不执行 → `connectIntent` 永久卡住一条(该机此后点连接全被
+  // 「意图已存在」逻辑外的路径绕过)+ 一条未处理的 rejection。
+  // 重构前的 Sidebar 存的正是 `.catch().finally()` **之后**的链,所以没这个问题 ——
+  // 这是本轮把编排搬进 store 时把「存哪条」搞错了,属新引入,不是历史遗留。
+  const settled: Promise<unknown> = p
     .catch((err: unknown) => {
       // REVIEW CR-4:此前两端都零日志。当前 orchestrator.disconnect 内部各 await 都有
       // .catch 包裹、基本不会真 reject,但静默吞掉意味着日后重构把它变成会 reject 时无迹可循。
       console.warn(`[remoteHost] disconnectAwait rejected for ${configId}:`, err);
     })
     .finally(() => {
-      if (pendingDisconnects.get(configId) !== p) return; // 已被更晚的一次断开取代 → 不动它的态
+      // 已被更晚的一次断开取代 → 不动它的态(REVIEW F5:这条守卫必须同时护住 map 删除与 settling 清除)
+      if (pendingDisconnects.get(configId) !== settled) return;
       pendingDisconnects.delete(configId);
       useRemoteHostRuntimeStore.getState().setSettling(configId, false);
     });
+  pendingDisconnects.set(configId, settled);
+  useRemoteHostRuntimeStore.getState().setSettling(configId, true);
 }
 
 /**

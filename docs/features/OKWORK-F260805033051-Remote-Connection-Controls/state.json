@@ -133,7 +133,7 @@
         "verdict": "NEEDS_REVISION"
       },
       "completed_at": "2026-08-05T10:41:14Z",
-      "auto_commit": "9245ddb",
+      "auto_commit": "d51c1a4",
       "artifacts": [
         "REVIEW.md"
       ],
@@ -145,7 +145,21 @@
           "review_commit": "9245ddb",
           "verdict": "NEEDS_REVISION",
           "new_findings_count": 11,
-          "carried_open_count": 0
+          "carried_open_count": 0,
+          "fix_commit": "d51c1a4",
+          "fix_at": "2026-08-05T14:33:18Z",
+          "addresses_findings": [
+            "F1",
+            "F2",
+            "F3",
+            "F4",
+            "F5",
+            "F6",
+            "F7",
+            "F8",
+            "F9",
+            "F10"
+          ]
         }
       ],
       "findings_ledger": [
@@ -293,9 +307,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T10:41:15Z",
+  "updated_at": "2026-08-05T14:33:18Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:be1576f02e5888dbb5aac6ef9ae356ffda56fcedcce162395db77442ba0c3ce9",
+  "_state_checksum": "sha256:fae8b9af55d791d1c1cb7ad4174180cee2cd3f5d0f053208de63b7c262212876",
   "legal_next_stages": [
     "test",
     "dev"

@@ -1,20 +1,21 @@
 ---
 reviewers: [architect, external]
-verdict: NEEDS_REVISION
+verdict: APPROVE
 coverage:
   architect: "实现↔设计一致性(抽查 §完工自查 A1–J3 逐条打开对应行核对 · ✅ 实质名副其实 · 仅行号漂移与一处表述失真 → F8)/ 简洁性 counter-lens(认真找过两道闸+七接线点能否收敛 —— **不能**,非过度设计;真正可删的是 F6/F9/F10)/ 并发竞态(五条已枚举通道逐条走完 + 另查 syncedHosts/rttWired/reconnectWired/panelTimers/退避计时器/manualRetry 绕闸 —— 各有守卫查过无发现;**找到第八条通道 → F1**,外加不在闸单里的状态 → F2)/ 资源泄漏(IPC handler 闭合、订阅按 client 实例 WeakSet 键控 —— 查过无发现;**ws+心跳有真泄漏路径 → F3**;8s race 计时器未清 → F10)/ 状态机不变式(abandoned 2 置/3 解/2 销与生命周期表一致 · settling finally 恒清 —— 均闭合查过无发现;唯一「进得去出不来」是 handshakingRef → F2)"
 findings:
-  - {id: F1, severity: BLOCKER, status: open, title: "resume 在排队之前就开闸,被取消的编排残余事件把连接真做成(AC-6 逐字失败)", source: arch}
-  - {id: F2, severity: MAJOR, status: open, title: "handshakingRef 去重槽不被 abandon/drop 作废,握手不落定则新隧道永远开不了 ws", source: arch}
-  - {id: F3, severity: MAJOR, status: open, title: "dispose 关不掉未 open 的 ws · 闸③的 hostRegistry.drop 可能是 no-op(孤儿 ws+心跳)", source: arch}
-  - {id: F4, severity: MAJOR, status: open, title: "设置页无排队保护,跨入口复现 AC-13「点了没反应」", source: external}
-  - {id: F5, severity: MINOR, status: open, title: "第二次断开在途时,前一次的 finally 无条件清掉 settling", source: external}
-  - {id: F6, severity: MINOR, status: open, title: "forget 扩成删五张表后,紧邻的 clear(id) 冗余(两次 set = 两次渲染)", source: arch}
-  - {id: F7, severity: MINOR, status: open, title: "TC.md 仍写「覆盖率 15/15 · 测试总数 38」,未标注 0 条已实现", source: external}
-  - {id: F8, severity: NIT, status: open, title: "TECH §完工自查 C/D/E 行号漂移 + 「TC-029 已同步加断言防回归」表述失真", source: arch}
-  - {id: F9, severity: NIT, status: open, title: ".sidebar-machine-connecting 已成死 CSS 却被新加进 :is() 选择器", source: arch}
-  - {id: F10, severity: NIT, status: open, title: "8s race 的 setTimeout 在 pending 先赢时不清 · 三个连接钮分支同构可收敛", source: arch}
+  - {id: F1, severity: BLOCKER, status: fixed, title: "resume 在排队之前就开闸,被取消的编排残余事件把连接真做成(AC-6 逐字失败)", source: arch}
+  - {id: F2, severity: MAJOR, status: fixed, title: "handshakingRef 去重槽不被 abandon/drop 作废,握手不落定则新隧道永远开不了 ws", source: arch}
+  - {id: F3, severity: MAJOR, status: fixed, title: "dispose 关不掉未 open 的 ws · 闸③的 hostRegistry.drop 可能是 no-op(孤儿 ws+心跳)", source: arch}
+  - {id: F4, severity: MAJOR, status: fixed, title: "设置页无排队保护,跨入口复现 AC-13「点了没反应」", source: external}
+  - {id: F5, severity: MINOR, status: fixed, title: "第二次断开在途时,前一次的 finally 无条件清掉 settling", source: external}
+  - {id: F6, severity: MINOR, status: fixed, title: "forget 扩成删五张表后,紧邻的 clear(id) 冗余(两次 set = 两次渲染)", source: arch}
+  - {id: F7, severity: MINOR, status: fixed, title: "TC.md 仍写「覆盖率 15/15 · 测试总数 38」,未标注 0 条已实现", source: external}
+  - {id: F8, severity: NIT, status: fixed, title: "TECH §完工自查 C/D/E 行号漂移 + 「TC-029 已同步加断言防回归」表述失真", source: arch}
+  - {id: F9, severity: NIT, status: fixed, title: ".sidebar-machine-connecting 已成死 CSS 却被新加进 :is() 选择器", source: arch}
+  - {id: F10, severity: NIT, status: fixed, title: "8s race 的 setTimeout 在 pending 先赢时不清 · 三个连接钮分支同构可收敛", source: arch}
   - {id: F11, severity: NIT, status: rejected, title: "busy 态无 aria-live 包裹", source: external}
+  - {id: NF1, severity: MINOR, status: fixed, title: "pendingDisconnects 存了裸 promise · reject 时排队的连接意图永久卡死(验证轮发现 · 本轮修复引入的回归)", source: external}
 ---
 
 # Code Review — 远程机组头连接控件重构
@@ -113,9 +114,29 @@ F1/F2/F4/F5 根因同一件事:**machine 级的连接编排状态散在两个组
 
 **修完补三条针对性单测**(arch 建议,采纳):① settling 期点连接后推残余 `verifying{tunnel}`,断言 `getOrCreateRemote` 未被调用;② 握手 promise 手动 pending → 取消 → 再连 → 推新 verifying,断言新 `beginHandshake` **未**被去重槽挡住;③ 残余 `ready` 在 settling 期不得把组头写绿。
 
+## §round 2 · 验证轮(fix 后增量重验)
+
+- 修复 commit:`66ddeb2`(主修复)+ `d51c1a4`(红基线登记)
+- 验证轮冷审:sonnet subagent(与主审路 Opus 5 错开 · 产物 `external-cross-review/review-sonnet-fixverify.md`)· **范围锁定**:只裁决上轮 open findings + 审查修复 diff,不全量重扫
+- 结论:**F1–F10 全部 fixed**(逐条打开代码核实,非「看起来合理就判 fixed」);新增的 7 条测试逐条做过「拆掉对应生产守卫会不会变红」的反证,**7 条全会红,不是假绿**
+
+### NF-1(验证轮新发现 · MINOR · fixed)—— 采纳其结论,**驳回其归因**
+
+**它说的**:`requestConnect` 里 `Promise.race([pending, timeout])` 的 `pending` 是裸 `disconnectAwait()`,没加 `.catch`。若真 reject → race 跟着 reject → `fulfill()` 不执行 → `connectIntent` 永久卡死一条 + 未处理 rejection。并判定「这个写法在 round 1 修复**之前**的 Sidebar.tsx 里就已经这样,非本轮回归」。
+
+**缺陷本身**:回读确认属实,已修(把 `.catch().finally()` **之后**的那条链存进 `pendingDisconnects`,`=== settled` 守卫同步跟进)。
+
+**🔴 但归因是错的,这条是本轮引入的回归**:
+`git show bb6a2c3:src/renderer/components/Sidebar.tsx` 里 `const p = disconnectAwait({id}).catch(() => undefined).finally(...)` —— 存进 `pendingDisconnectRef` 的是**已 catch 的那条链**,race 它永远不会 reject。本轮把编排搬进 store 时,`.catch` 链变成了旁挂的一条(`void p.catch()...`),而表里存的是裸 `p`。**是我搬家时把「存哪条」搞错了。**
+
+**为什么要纠这个归因而不是照单收下**:若接受「历史遗留 · 不阻塞」,这条会以既存债的名义留在代码里,而它实际上是本轮回归 —— 回归必须修,既存债才可以议。**采纳结论、驳回归因**,两件事分开裁决。
+
+已补回归用例 **T-038h**(disconnectAwait reject 时排队的连接仍须兑现),并要求做反证自检:把存表那行改回裸 promise,该用例必须变红。
+
 ## §verdict
 
-**NEEDS_REVISION** —— 1 条 open BLOCKER(F1,AC-6 逐字失败)+ 3 条 open MAJOR(F2/F3/F4)。
+**round 1: NEEDS_REVISION** —— 1 条 open BLOCKER(F1,AC-6 逐字失败)+ 3 条 open MAJOR(F2/F3/F4)。
+**round 2(验证轮后): APPROVE** —— 无 open BLOCKER/MAJOR;F1–F10 + NF-1 全部 fixed,F11 rejected(驳回实证见上)。
 
 两路评审的价值在此轮体现得很直接:**两条最重的 finding(F1 BLOCKER、F3 MAJOR)只有 architect 路发现,F4 只有 external 路把它定到 high**;若走单路评审,按哪一路都会漏掉另一路的核心发现。
 
