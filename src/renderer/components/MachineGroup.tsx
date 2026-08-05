@@ -401,35 +401,25 @@ export function MachineGroup({
           </span>
         )}
         {isRemote && machine.status !== 'reconnecting' && runtime && renderRuntimeStatus(runtime)}
-        {isRemote && !runtime && machine.foldedLost && (
-          <MachineCtlButton
-            variant="connect"
-            icon={<MachineConnectIcon />}
-            label={t('Reconnect')}
-            busy={settling}
-            onClick={() => onConnect?.(machine.id)}
-          />
-        )}
-        {isRemote && !runtime && !machine.foldedLost && machine.status === 'disconnected' && (
-          <MachineCtlButton
-            variant="connect"
-            icon={<MachineConnectIcon />}
-            label={t('Connect')}
-            busy={settling}
-            onClick={() => onConnect?.(machine.id)}
-          />
-        )}
-        {/* 断线过渡(0–900ms · 行仍保活 · AC-15):此前该态组头不出任何控件,补一个连接钮,
-            用户不必等 900ms 折叠才能重连 */}
-        {isRemote && !runtime && !machine.foldedLost && machine.status === 'lost' && (
-          <MachineCtlButton
-            variant="connect"
-            icon={<MachineConnectIcon />}
-            label={t('Connect')}
-            busy={settling}
-            onClick={() => onConnect?.(machine.id)}
-          />
-        )}
+        {/* 三态共用一个连接钮(REVIEW F10:原先是三个只差 label 的同构分支 —— 29 行重复,
+            而「每个新增不变式要记得在每个分支各写一遍」正是本 Feature 已经踩过两次的坑):
+            · foldedLost = 断线后已折叠 → 文案「重连」
+            · disconnected = 从未连接 → 文案「连接」
+            · lost = 断线过渡(0–900ms · 行仍保活 · AC-15)→ 文案「连接」;此前该态组头不出
+              任何控件,补一个连接钮,用户不必等 900ms 折叠才能重连 */}
+        {isRemote &&
+          !runtime &&
+          (machine.foldedLost ||
+            machine.status === 'disconnected' ||
+            machine.status === 'lost') && (
+            <MachineCtlButton
+              variant="connect"
+              icon={<MachineConnectIcon />}
+              label={machine.foldedLost ? t('Reconnect') : t('Connect')}
+              busy={settling}
+              onClick={() => onConnect?.(machine.id)}
+            />
+          )}
         {isRemote && !runtime && !machine.foldedLost && machine.status === 'connected' && (
           <MachineCtlButton
             variant="disconnect"

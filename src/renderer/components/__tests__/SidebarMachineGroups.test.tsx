@@ -50,7 +50,10 @@ vi.mock('../../services/remoteWorkspaceSync', () => ({
 
 import { Sidebar } from '../Sidebar';
 import { useAppStore } from '../../state/store';
-import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
+import {
+  useRemoteHostRuntimeStore,
+  __resetRemoteHostOrchestrationForTest,
+} from '../../state/remoteHostStore';
 
 function makeConfig(overrides: Partial<RemoteHostConfig> = {}): RemoteHostConfig {
   return {
@@ -139,6 +142,7 @@ beforeEach(() => {
     abandoned: {},
     settling: {},
   });
+  __resetRemoteHostOrchestrationForTest();
 });
 
 afterEach(() => {

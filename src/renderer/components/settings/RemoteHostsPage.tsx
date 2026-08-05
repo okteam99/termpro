@@ -12,7 +12,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -29,7 +28,13 @@ import {
 import { compareAppVersions, ProtocolIncompatibleError } from '../../../shared/versionCompat';
 import { hostRegistry } from '../../services/hostRegistry';
 import { reconnectController } from '../../services/reconnectWiring';
-import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
+import {
+  useRemoteHostRuntimeStore,
+  trackDisconnect,
+  requestConnect,
+  tryBeginHandshake,
+  endHandshake,
+} from '../../state/remoteHostStore';
 import { t } from '../../../shared/i18n';
 
 /**
@@ -204,7 +209,6 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   // React 会把这两次 setState 批处理成一次渲染,被动 effect 只看得到"最终落地"的 ready,
   // 中间的 verifying 从未被观测到 → renderer 从不 connect({wsUrl})、从不冒烟、per-host
   // client 从未建立。改为在 onEvent 回调内逐条事件同步判定,不经渲染采样。
-  const handshakingRef = useRef<Set<string>>(new Set());
   // 🔴 E6 修复:用户在连接在途点「断开」时,handleDisconnect 立即本地清空 + drop 客户端,
   // 但 main 侧编排(部署/启动/握手)仍在跑,沿途 deploying/starting/verifying/ready 等残余
   // 事件仍会经 onEvent 抵达——若照单全收会把已清空的 runtime 瞬时"复活"到 ready(UI 抖动),
@@ -219,11 +223,13 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   // 不存在闭包过期风险,也不需要额外的 exhaustive-deps 抑制。
   useEffect(() => {
     function beginHandshake(configId: string, tunnel: { localPort: number; token: string }) {
-      if (handshakingRef.current.has(configId)) return; // 去重:同 configId 握手在途不重复 connect
       // 🔴 弃用闸②(OKWORK-F260805033051 · 与 Sidebar 同款):已放弃的机器绝不开新 ws。
       // 本页与 Sidebar 各有一份 beginHandshake(重复实现,尚未收敛),两处都要设闸。
+      // 🔴 **先查弃用、后占去重槽**(REVIEW F2):反过来这条早退会漏掉刚占上的槽位。
       if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) return;
-      handshakingRef.current.add(configId);
+      // 去重槽已收进 remoteHostStore(模块级共享)—— 组件私有 ref 时 abandon/drop 够不着它,
+      // 握手永不落定就会把槽位永久留下,新隧道的握手被自己挡在门外。
+      if (!tryBeginHandshake(configId)) return;
       const { localPort, token } = tunnel;
       const wsUrl = `ws://127.0.0.1:${localPort}?token=${encodeURIComponent(token)}`;
       const client = hostRegistry.getOrCreateRemote(configId, wsUrl);
@@ -238,7 +244,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           // store 的写入闸能挡住下面的 applyEvent,但挡不住**这条已经开出去的 ws**——
           // 不在这里 drop 就会留一条无人管理的活连接 + 心跳。
           if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
-            hostRegistry.drop(configId);
+            // 🔴 REVIEW F3:对**捕获到的这个 client** 收尾 —— 按 id 查表有两种失灵:
+            // 该 id 已被更早的 drop 删掉(no-op,该关的 ws 没人管),或表里已换新一代 client(误杀)。
+            if (hostRegistry.forHostId(configId) === client) hostRegistry.drop(configId);
+            else client.dispose();
             return;
           }
           try {
@@ -251,7 +260,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         })
         .catch((err: unknown) => {
           if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
-            hostRegistry.drop(configId);
+            // 🔴 REVIEW F3:对**捕获到的这个 client** 收尾 —— 按 id 查表有两种失灵:
+            // 该 id 已被更早的 drop 删掉(no-op,该关的 ws 没人管),或表里已换新一代 client(误杀)。
+            if (hostRegistry.forHostId(configId) === client) hostRegistry.drop(configId);
+            else client.dispose();
             return;
           }
           if (err instanceof ProtocolIncompatibleError) {
@@ -271,7 +283,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           }
         })
         .finally(() => {
-          handshakingRef.current.delete(configId);
+          endHandshake(configId);
         });
     }
 
@@ -318,9 +330,12 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   /** 「连接」(AC-4/AC-5/AC-13):清掉过期测试徽标,发起 IPC connect,进度经 onEvent 呈现。 */
   function handleConnect(config: RemoteHostConfig) {
-    resume(config.id); // E6:重新发起连接,解除此前的弃用闸
     setTestState((prev) => omitKey(prev, config.id));
-    window.okwork.remoteHost.connect({ id: config.id });
+    // 🔴 REVIEW F4:走与侧栏同一份排队原语。此前这里立即发 IPC,若某个入口刚点过断开
+    // 且 main 仍在收尾(orchestrator.disconnect 最长等 5s),这条 connect 会被在途去重
+    // 吞进那条正被拆掉的 promise —— AC-13 的「点了没反应」换个入口原样复现。
+    // resume 由 requestConnect 在兑现点执行(与发 IPC 同步紧邻,见 F1)。
+    requestConnect(config.id, () => window.okwork.remoteHost.connect({ id: config.id }));
   }
 
   /**
@@ -334,9 +349,12 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   function handleDisconnect(id: string) {
     abandon(id);
     reconnectController.cancel(id);
-    window.okwork.remoteHost.disconnect({ id });
     clearRuntime(id);
     hostRegistry.drop(id);
+    // 🔴 REVIEW F4:本地拆除全部同步先行之后再发 IPC,并**登记进共享的断开在途表** ——
+    // 不登记的话,侧栏那个入口看不见这次断开,紧接着点连接会直接发 IPC 撞上 main 的在途去重。
+    // 换 disconnectAwait 只为拿到可等待的 promise;语义仍是即发即忘(不 await,TECH R4)。
+    trackDisconnect(id, window.okwork.remoteHost.disconnectAwait({ id }));
   }
 
   /**
@@ -352,6 +370,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     reconnectController.cancel(config.id);
     setTestState((prev) => omitKey(prev, config.id));
     hostRegistry.drop(config.id);
+    // 🔴 REVIEW F2:drop 掉 client 后要等**新**隧道的握手,残留的去重槽会把它挡在门外
+    // (abandon 会清槽,但升级路径走的是 resume,清不到)。显式释放。
+    endHandshake(config.id);
     window.okwork.remoteHost.upgrade({ id: config.id });
   }
 
@@ -454,7 +475,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   /** AC-14:删机随删清凭据(main 侧执行);renderer 同步清运行态/测试态,防孤儿展示态。 */
   async function confirmDelete(id: string) {
     await window.okwork.remoteHost.delete({ id });
-    clearRuntime(id);
+    // REVIEW F6:forget 已销毁全部痕迹(五张表 + 握手槽 + 排队意图),此前紧邻的 clear 成为冗余。
     forget(id);
     hostRegistry.drop(id);
     setTestState((prev) => omitKey(prev, id));

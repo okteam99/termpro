@@ -125,10 +125,132 @@
       "active_minutes": 32
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-08-05T10:17:23Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-05T10:17:23Z",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "completed_at": "2026-08-05T10:41:14Z",
+      "auto_commit": "9245ddb",
+      "artifacts": [
+        "REVIEW.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-05T10:17:23Z",
+          "completed_at": "2026-08-05T10:41:14Z",
+          "review_commit": "9245ddb",
+          "verdict": "NEEDS_REVISION",
+          "new_findings_count": 11,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "BLOCKER",
+          "status": "open",
+          "title": "resume 在排队之前就开闸,被取消的编排残余事件把连接真做成(AC-6 逐字失败)",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F2",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "handshakingRef 去重槽不被 abandon/drop 作废,握手不落定则新隧道永远开不了 ws",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F3",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "dispose 关不掉未 open 的 ws · 闸③的 hostRegistry.drop 可能是 no-op(孤儿 ws+心跳)",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F4",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "设置页无排队保护,跨入口复现 AC-13「点了没反应」",
+          "source": "external",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F5",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "第二次断开在途时,前一次的 finally 无条件清掉 settling",
+          "source": "external",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F6",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "forget 扩成删五张表后,紧邻的 clear(id) 冗余(两次 set = 两次渲染)",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F7",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "TC.md 仍写「覆盖率 15/15 · 测试总数 38」,未标注 0 条已实现",
+          "source": "external",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F8",
+          "severity": "NIT",
+          "status": "open",
+          "title": "TECH §完工自查 C/D/E 行号漂移 + 「TC-029 已同步加断言防回归」表述失真",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F9",
+          "severity": "NIT",
+          "status": "open",
+          "title": ".sidebar-machine-connecting 已成死 CSS 却被新加进 :is() 选择器",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F10",
+          "severity": "NIT",
+          "status": "open",
+          "title": "8s race 的 setTimeout 在 pending 先赢时不清 · 三个连接钮分支同构可收敛",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F11",
+          "severity": "NIT",
+          "status": "rejected",
+          "title": "busy 态无 aria-live 包裹",
+          "source": "external",
+          "deferred_reason": "",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 23,
+      "active_minutes": 23
     }
   },
   "completed_stages": [
@@ -171,9 +293,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T10:17:48Z",
+  "updated_at": "2026-08-05T10:41:15Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:fe10884cde3360f7b1b3d48eb4f71902f88c5c3234aaff10799d07a94f6c3bb4",
+  "_state_checksum": "sha256:be1576f02e5888dbb5aac6ef9ae356ffda56fcedcce162395db77442ba0c3ce9",
   "legal_next_stages": [
     "test",
     "dev"
