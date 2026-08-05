@@ -123,6 +123,15 @@ interface RemoteHostSession {
 
 export type ProbeHostInfoLike = (localPort: number, token: string) => Promise<ProbeResult>;
 
+export interface ConnectOpts {
+  /**
+   * 用户显式发起的服务端升级(remoteHost:upgrade · Remote Hosts「Update」按钮):
+   * 跳过 claim 收养,活 host 属本 tag 则 reap 后重部署当前 app 版本 bundle
+   * (语义与安全边界见 residency.ts ResidencyDecisionInput.forceRedeploy)。
+   */
+  forceRedeploy?: boolean;
+}
+
 export interface OrchestratorDeps {
   /** 🔴 DI 接缝(ARCH-B10):生产传 SshConnection.connect,测试传桩。 */
   connectSsh: ConnectSsh;
@@ -359,9 +368,13 @@ export class RemoteHostOrchestrator {
     }
   }
 
-  connect(configId: string): Promise<void> {
+  connect(configId: string, opts?: ConnectOpts): Promise<void> {
+    // 🔴 forceRedeploy(用户显式升级)不吃 in-flight 去重:普通 connect 在途时用户点
+    // Update,若直接返回旧 promise,force 语义被静默吞掉(旧编排可能正 claim 旧 host)。
+    // 跳过去重走下方自愈块:作废在途会话(僵尸 runConnect 经 isCurrent 自弃),force
+    // 编排经 mutex 排在其后串行执行——同 id 永无并发 runConnect。
     const existingConnect = this.connectInflight.get(configId);
-    if (existingConnect) return existingConnect;
+    if (existingConnect && !opts?.forceRedeploy) return existingConnect;
 
     let session = this.ensureSession(configId);
     // 🔴 陈旧/孤儿态自愈:renderer 只在自认为「未连接」时才发 connect(Sidebar 的
@@ -388,7 +401,7 @@ export class RemoteHostOrchestrator {
     const priorMutex = this.mutex.get(configId) ?? Promise.resolve();
     const promise: Promise<void> = priorMutex
       .catch(() => undefined)
-      .then(() => this.runConnect(configId, session));
+      .then(() => this.runConnect(configId, session, opts));
     const tracked = promise.finally(() => {
       if (this.connectInflight.get(configId) === tracked) this.connectInflight.delete(configId);
       if (this.mutex.get(configId) === tracked) this.mutex.delete(configId);
@@ -821,7 +834,11 @@ export class RemoteHostOrchestrator {
     return { ok: true };
   }
 
-  private async runConnect(configId: string, session: RemoteHostSession): Promise<void> {
+  private async runConnect(
+    configId: string,
+    session: RemoteHostSession,
+    opts?: ConnectOpts,
+  ): Promise<void> {
     // 本次尝试是否仍当值:disconnect()/connect() 自愈会把会话对象从 map 摘除/替换,
     // 此后本(僵尸)尝试的 session 引用 !== 当前 map 里的会话。任何会改状态/发事件的
     // 动作前都据此自弃,杜绝僵尸编排污染接管的新会话(用户指令 2026-07-20 · 完整修复)。
@@ -926,6 +943,7 @@ export class RemoteHostOrchestrator {
         identityTokenPath: identityFile,
         appVersion: this.deps.appVersion,
         storedToken,
+        forceRedeploy: opts?.forceRedeploy,
         probeHostInfo: (localPort, token) => probe(localPort, token),
         buildTunnel: (remotePort) => this.buildTunnel(ssh, remotePort),
         sleep,

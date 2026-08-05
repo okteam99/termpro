@@ -158,6 +158,71 @@ describe('AC-13/AC-4/AC-8 residency 决策表(纯函数)', () => {
     expect(decision).toEqual({ action: 'reapThenDeploy', kill: true, cleanStale: true });
   });
 
+  it('🔴 T-040 forceRedeploy + 本可 claim 的完美候选(portRaw+token+probe ok+版本不过旧)+ alive + tag 匹配 → reapThenDeploy(kill=true)', () => {
+    // 用户显式升级(Remote Hosts「Update」):candidateEligible 因 forceRedeploy 整体作废,
+    // 即使换个 forceRedeploy:false 本会 claim 的完美候选,也必须落回收分支——活着且
+    // cmdline 属本 tag → reapThenDeploy,kill 安全性质②③不受影响。
+    const decision = decideResidency({
+      configId: CONFIG_ID,
+      portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
+      storedToken: 'stored-token',
+      bundleReady: true,
+      probeResult: { ok: true, compatible: true, hostOutdated: false },
+      killAliveResult: true,
+      cmdlineResult: `node host.js --listen 127.0.0.1:0 --token-stdin --host-tag ${CONFIG_ID}`,
+      forceRedeploy: true,
+    });
+    expect(decision).toEqual({ action: 'reapThenDeploy', kill: true, cleanStale: true });
+  });
+
+  it('🔴 T-041 forceRedeploy + probe 失败 + alive + tag 匹配 → reapThenDeploy(证明 abortLiveUnreachable 在 force 下不可达)', () => {
+    // 若不置 forceRedeploy,同样的输入(candidateEligible 成立 + tagMatches + probe 非 ok)
+    // 会落 T-033 的 abortLiveUnreachable(护在跑会话)。force 置位后 candidateEligible
+    // 整体作废,该分支的前置条件不再成立,直接落 2 的 reapThenDeploy——用户已明确要求
+    // 升级,愿意接受在跑任务被关闭。
+    const decision = decideResidency({
+      configId: CONFIG_ID,
+      portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
+      storedToken: 'stale-token',
+      bundleReady: true,
+      probeResult: { ok: false },
+      killAliveResult: true,
+      cmdlineResult: `node host.js --listen 127.0.0.1:0 --token-stdin --host-tag ${CONFIG_ID}`,
+      forceRedeploy: true,
+    });
+    expect(decision).toEqual({ action: 'reapThenDeploy', kill: true, cleanStale: true });
+  });
+
+  it('🔴 T-042 forceRedeploy + alive 但 cmdline 是兄弟(tag 不符)→ cleanStaleThenDeploy 且 kill=false(安全性质②在 force 下不放宽)', () => {
+    // force 只放宽「要不要换」,从不放宽「能不能杀」——兄弟/无关进程依然永不 kill,
+    // 即使用户点了「升级服务端」也一样。
+    const decision = decideResidency({
+      configId: CONFIG_ID,
+      portRaw: { port: 4123, pid: 999, hostTag: CONFIG_ID },
+      storedToken: 'stored-token',
+      bundleReady: true,
+      probeResult: null,
+      killAliveResult: true,
+      cmdlineResult: `node host.js --listen 127.0.0.1:0 --token-stdin --host-tag vps-other`,
+      forceRedeploy: true,
+    });
+    expect(decision).toEqual({ action: 'cleanStaleThenDeploy', kill: false, cleanStale: true });
+  });
+
+  it('🔴 T-043 forceRedeploy + pid 已死 → cleanStaleThenDeploy,kill=false', () => {
+    const decision = decideResidency({
+      configId: CONFIG_ID,
+      portRaw: { port: 4123, pid: 555, hostTag: CONFIG_ID },
+      storedToken: 'stored-token',
+      bundleReady: true,
+      probeResult: null,
+      killAliveResult: false,
+      cmdlineResult: null,
+      forceRedeploy: true,
+    });
+    expect(decision).toEqual({ action: 'cleanStaleThenDeploy', kill: false, cleanStale: true });
+  });
+
   it('cmdlineMatchesHostTag:darwin 空格分隔 / linux NUL 分隔均可解析', () => {
     expect(cmdlineMatchesHostTag('node host.js --host-tag abc', 'abc')).toBe(true);
     expect(cmdlineMatchesHostTag('node\0host.js\0--host-tag\0abc', 'abc')).toBe(true);
@@ -277,6 +342,65 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     expect(resolution.decision.action).toBe('reapThenDeploy');
     expect(candidateServer.closed).toBe(true);
     expect(ssh.execCalls.some((c) => c.startsWith('kill ') && c.includes('990'))).toBe(true);
+    expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
+  });
+
+  it('🔴 T-044 resolveResidency:forceRedeploy + 活体可 claim host 场景 → buildTunnel/probeHostInfo 零调用,attemptedClaim=false,reapThenDeploy 执行 kill+清端口文件', async () => {
+    // 🔴 用户显式升级(Remote Hosts「Update」按钮):即使 host.port/token 齐全、探测本会
+    // 通过——force 置位后整段候选探测(建隧道 + main 探测)必须完全不跑(省 10s 级探测
+    // 超时,决策已注定非 claim),ARCH-B1 的 claim-would-succeed 短路同样必须失效。
+    let killSent = false;
+    let tunnelCalls = 0;
+    let probeCalls = 0;
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('.ready')) return bufferOf('ok');
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 5700, pid: 991, hostTag: CONFIG_ID });
+        }
+        return null;
+      },
+      execHandlers: [
+        (cmd) => {
+          if (cmd.startsWith('kill "991"')) {
+            killSent = true;
+            return { code: 0, stdout: '', stderr: '' };
+          }
+          return null;
+        },
+        (cmd) =>
+          cmd.startsWith('kill -0 "991"')
+            ? { code: 0, stdout: killSent ? 'N\n' : 'Y\n', stderr: '' }
+            : null,
+        (cmd) =>
+          cmd.includes('/proc/991/cmdline') || cmd.includes('-p "991"')
+            ? { code: 0, stdout: `node host.js --host-tag ${CONFIG_ID}`, stderr: '' }
+            : null,
+      ],
+    });
+    const resolution = await resolveResidency({
+      ssh,
+      dataDir: '/home/tester/.termpro-host',
+      configId: CONFIG_ID,
+      appVersion: '1.0.0',
+      minHostAppVersion: '1.0.0',
+      storedToken: 'good-token',
+      forceRedeploy: true,
+      probeHostInfo: async () => {
+        probeCalls++;
+        return { ok: true, compatible: true, hostInfo: hostInfoOf('1.0.0') };
+      },
+      buildTunnel: async () => {
+        tunnelCalls++;
+        return { server: asNetServer(new FakeServer(46010)), localPort: 46010 };
+      },
+      sleep: async () => undefined,
+    });
+    expect(tunnelCalls).toBe(0); // 不建候选隧道
+    expect(probeCalls).toBe(0); // 不探测
+    expect(resolution.attemptedClaim).toBe(false);
+    expect(resolution.decision.action).toBe('reapThenDeploy');
+    expect(ssh.execCalls.some((c) => c.startsWith('kill "991"'))).toBe(true);
     expect(ssh.execCalls.some((c) => c.includes('rm -f') && c.includes('host.port'))).toBe(true);
   });
 

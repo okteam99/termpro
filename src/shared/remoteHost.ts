@@ -117,6 +117,8 @@ export const REMOTE_HOST_CHANNELS = {
   test: 'remoteHost:test',
   connect: 'remoteHost:connect',
   disconnect: 'remoteHost:disconnect',
+  /** 用户显式升级远端 host:强制 reap+重部署当前版本 bundle(forceRedeploy 连接)。 */
+  upgrade: 'remoteHost:upgrade',
   event: 'remoteHost:event',
   tunnel: 'remoteHost:tunnel',
   capabilities: 'remoteHost:capabilities',

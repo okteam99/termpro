@@ -229,6 +229,37 @@ describe('E8 remoteHost:event 只推给 getMainWindow() 返回的窗口', () => 
   });
 });
 
+describe('remoteHost:upgrade 用户显式升级服务端(forceRedeploy · Remote Hosts「Update」按钮)', () => {
+  it('upgrade 通道触发 orchestrator.connect(id, { forceRedeploy: true })(确认交互在 renderer 侧,main 不二次拦截)', () => {
+    const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
+    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const orchestrator = makeOrchestrator(credentials, configStore);
+    const connectSpy = vi.spyOn(orchestrator, 'connect').mockResolvedValue(undefined);
+    registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
+
+    const fake = ipcMain as unknown as FakeIpcMain;
+    const upgradeListeners = fake.__onListeners.get(REMOTE_HOST_CHANNELS.upgrade) ?? [];
+    expect(upgradeListeners).toHaveLength(1);
+    upgradeListeners[0]({}, { id: 'vps-hk' });
+
+    expect(connectSpy).toHaveBeenCalledWith('vps-hk', { forceRedeploy: true });
+  });
+
+  it('dispose 后 upgrade listener 被移除(照 connect/disconnect 同族反注册)', () => {
+    const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
+    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const orchestrator = makeOrchestrator(credentials, configStore);
+    const dispose = registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
+
+    const fake = ipcMain as unknown as FakeIpcMain;
+    expect(fake.__onListeners.get(REMOTE_HOST_CHANNELS.upgrade)).toHaveLength(1);
+
+    dispose();
+
+    expect(fake.__onListeners.has(REMOTE_HOST_CHANNELS.upgrade)).toBe(false);
+  });
+});
+
 describe('remoteHost:tunnel 请求方归属校验(P2-1 纵深防御)', () => {
   it('谓词拒绝的请求方拿到 null(不触达 orchestrator);放行的请求方走 tunnelFor', () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });

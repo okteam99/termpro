@@ -48,6 +48,16 @@ export interface ResidencyDecisionInput {
   killAliveResult: boolean | null;
   /** darwin `ps -o command=` 或 linux `/proc/<pid>/cmdline`(`\0` 分隔)原始输出。 */
   cmdlineResult: string | null;
+  /**
+   * 用户显式发起的服务端升级(Remote Hosts「Update」· 确认弹窗已明示在跑会话将被终止)。
+   * 置位 = 认领候选资格整体作废:claim 与 abortLiveUnreachable 两分支都被跳过(二者
+   * 皆以 candidateEligible 为前提),活着且 cmdline 属本 tag → reapThenDeploy,其余照旧。
+   * 🔴 kill 安全性质②③(cmdline --host-tag 全等比对)不受此位影响——force 只放宽
+   * 「要不要换」,从不放宽「能不能杀」;兄弟/无关进程依然永不 kill。
+   * 与 2026-07-15 保护规则不冲突:那条防的是自动重连路径上的【误杀】,本位仅由用户
+   * 显式点击触达(用户规则 2026-07-13「升级服务端,在跑任务可以被关闭」的授权场景)。
+   */
+  forceRedeploy?: boolean;
 }
 
 /**
@@ -73,6 +83,8 @@ export function cmdlineMatchesHostTag(cmdline: string | null, configId: string):
  *      允许 kill 的分支);否则(pid 死 / cmdline 不匹配即「兄弟或无关进程」)→ cleanStaleThenDeploy,
  *      绝不 kill(消 ARCH-B2 误杀)。
  *   3. 未认领且 !bundleReady → freshDeploy(首装场景 · T-037)
+ *   4. forceRedeploy(用户显式升级)→ 候选资格作废,1 的 claim 与 abortLiveUnreachable
+ *      皆不可达;活 host 属本 tag 走 2 的 reapThenDeploy,kill 守门②③不变。
  *
  * 🔴 用户规则 2026-07-13(反转旧 2026-07 规则「协议兼容就收养」):连接时服务端版本
  * 必须 ≥ 客户端声明的最低依赖版本,否则先升级服务端——在跑任务可以被关闭。协议兼容
@@ -90,7 +102,9 @@ export function decideResidency(input: ResidencyDecisionInput): ResidencyDecisio
 
   // portRaw.hostTag==configId 呼应 TECH「认领候选」条件(自证字段,非安全边界——
   // 真正的身份闸是下方 main 侧 probe 的 token 校验;此处只是廉价的宽松前置过滤)。
-  const candidateEligible = portRaw !== null && portRaw.hostTag === configId && !!storedToken;
+  // forceRedeploy(用户显式升级)= 候选资格整体作废,见 ResidencyDecisionInput 字段注释。
+  const candidateEligible =
+    !input.forceRedeploy && portRaw !== null && portRaw.hostTag === configId && !!storedToken;
   if (
     candidateEligible &&
     probeResult?.ok &&
@@ -153,6 +167,12 @@ export interface ResidencyContext {
    */
   minHostAppVersion?: string;
   storedToken: string | null;
+  /**
+   * 用户显式发起的服务端升级(见 ResidencyDecisionInput.forceRedeploy)。置位时跳过
+   * 整个候选探测段(不建隧道不 probe——决策已注定非 claim,省 10s 级探测超时),
+   * attemptedClaim 恒 false(orchestrator 不 emit 'claiming',直走 connecting→deploying)。
+   */
+  forceRedeploy?: boolean;
   probeHostInfo: (localPort: number, token: string) => Promise<ProbeResult>;
   buildTunnel: (remotePort: number) => Promise<BuiltTunnel>;
   /** kill 后轮询确认死亡的时钟(测试可注入快进)。 */
@@ -253,9 +273,10 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
   let candidateTunnel: BuiltTunnel | undefined;
   let fullProbe: ProbeResult | undefined;
   // 🔴 与 decideResidency 同口径:候选不看 bundleReady(客户端升级后新版 bundle 必缺,
-  // 版本门闸统一走 probe 的协议判定 + hostOutdated,不靠 bundle 目录有无)。
+  // 版本门闸统一走 probe 的协议判定 + hostOutdated,不靠 bundle 目录有无);
+  // forceRedeploy 作废候选资格(同口径双处门控,决策/执行不漂移)。
   const candidateEligible =
-    portRaw !== null && portRaw.hostTag === tag && !!effectiveToken;
+    !ctx.forceRedeploy && portRaw !== null && portRaw.hostTag === tag && !!effectiveToken;
 
   if (candidateEligible) {
     candidateTunnel = await ctx.buildTunnel(portRaw!.port);
@@ -322,6 +343,7 @@ export async function resolveResidency(ctx: ResidencyContext): Promise<Residency
     probeResult,
     killAliveResult,
     cmdlineResult,
+    forceRedeploy: ctx.forceRedeploy,
   });
 
   if (decision.action === 'claim') {

@@ -107,6 +107,13 @@ export function registerRemoteHostIpc(
     void orchestrator.disconnect(payload.id);
   });
 
+  // 用户显式升级服务端(Remote Hosts「Update」):forceRedeploy 连接——跳过 claim,
+  // reap 旧 host 后重部署当前 app 版本 bundle。确认交互在 renderer 侧(弹窗明示
+  // 在跑会话将被终止),main 不二次拦截。
+  ipcMain.on(REMOTE_HOST_CHANNELS.upgrade, (_event, payload: { id: string }) => {
+    void orchestrator.connect(payload.id, { forceRedeploy: true });
+  });
+
   // 查看器窗口直连远程 host 的按需隧道查询(仅 ready 会话返回 localPort+token,
   // 其余 null)。与 E8 的口径互补:token 不随事件广播落无关窗口,由确要建连的
   // 窗口主动拉取;拿到 token 也只等价于「能连本机 127.0.0.1 转发端口」这一能力。
@@ -132,5 +139,6 @@ export function registerRemoteHostIpc(
     ipcMain.removeHandler(REMOTE_HOST_CHANNELS.stages);
     ipcMain.removeAllListeners(REMOTE_HOST_CHANNELS.connect);
     ipcMain.removeAllListeners(REMOTE_HOST_CHANNELS.disconnect);
+    ipcMain.removeAllListeners(REMOTE_HOST_CHANNELS.upgrade);
   };
 }

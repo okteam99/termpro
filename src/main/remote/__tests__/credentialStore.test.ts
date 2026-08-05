@@ -78,6 +78,7 @@ describe('AC-3 CredentialStore', () => {
     // 直连 host 用),不触碰 SSH 密码/passphrase/私钥等存储凭据,不违背 AC-3。
     // capabilities 只回 { encryptionAvailable: boolean }(safeStorage 可用性,零敏感值)。
     // stages 只回 configId→RemoteStage 快照(浏览器网络选择器列出可用出口),零敏感值。
+    // upgrade 是纯指令通道(send-only,payload 仅 {id};触发 forceRedeploy 连接),零敏感值。
     const channelNames = Object.keys(REMOTE_HOST_CHANNELS);
     expect(channelNames.sort()).toEqual(
       [
@@ -87,6 +88,7 @@ describe('AC-3 CredentialStore', () => {
         'test',
         'connect',
         'disconnect',
+        'upgrade',
         'event',
         'tunnel',
         'capabilities',
