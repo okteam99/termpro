@@ -20,7 +20,7 @@ pages_changed:
 
 ## 状态
 
-待评审(等用户预览确认)
+已确认(用户 2026-08-05 实机预览后确认)
 
 ## 为什么改的是全景而不是新画一页
 
@@ -126,6 +126,10 @@ pages_changed:
 | 日期 | 变更 | 影响文件 |
 |------|------|----------------|
 | 2026-08-05 | 首版:组头连接控件图标化 + 新增断开/取消 + 六态定义 + 位置不变式 | `docs/design/preview-project/src/main.jsx`(`MachineGroup`)、`src/styles.css`、`docs/design/sitemap.md`(Sync Log) |
+| 2026-08-05 | 复现门补齐:折叠三角 / 机器图标 / RTT / 组头 `+`(全景此前停在 BL-004 形态,不补则 AC-15 无法演示) | 同上 |
+| 2026-08-05 | AC-7 落地:失败不再常驻组头,改全局 toast + 组头回落待连接;新增 `PreviewTransientToast` | 同上 |
+| 2026-08-05 | 修正:`.transient-toast` 视觉逐值对齐真实 `TransientToast.css` —— 首版是照措辞 approximate 的,**位置写反了**(真实为 `top:16px` 顶部居中,非底部),另有 z-index / max-width / border-radius / font-size / box-shadow / pointer-events / border 兜底色共 7 处偏差 | `docs/design/preview-project/src/styles.css` |
+| 2026-08-05 | ✅ 用户确认预览(六态实机走查通过) | — |
 
 ---
 

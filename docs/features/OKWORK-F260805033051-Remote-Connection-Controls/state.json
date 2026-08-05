@@ -96,9 +96,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T05:30:33Z",
-  "updated_by": "review-preventability",
-  "_state_checksum": "sha256:4512be4d69391f9101bf8a25d40c033a9e41da7ebebe0f3554fb977066739090",
+  "updated_at": "2026-08-05T06:14:19Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:8901c639aaf3ca0404bbad4f7c469fe60c39de997f82a81771721c04e8e21afb",
   "legal_next_stages": [
     "panorama_sync",
     "blueprint"
@@ -134,5 +134,10 @@
       "note": "",
       "at": "2026-08-05T05:30:29Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "ui_design",
+    "label": "ui_design 预览确认",
+    "started_at": "2026-08-05T06:14:19Z"
+  }
 }

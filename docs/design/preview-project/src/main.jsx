@@ -2390,9 +2390,10 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
   }
 
   function retryMachine() {
-    // 失败态「重试」/ 自动重连中「立即重试」共用同一处理:退出快照 preset,回到可真实交互的默认态。
-    // mini-pc 基础态本就是已连接、dev-server 基础态本就是未连接,退出后天然回落到位——不需要像
-    // handleDisconnectClick 那样借 pendingConnRef 显式覆盖 connState。
+    // 自动重连中「立即重试」:退出快照 preset,回到可真实交互的默认态——mini-pc 基础态本就是
+    // 已连接,退出后天然回落到位,不需要像 handleDisconnectClick 那样借 pendingConnRef 显式覆盖
+    // connState。(AC-7 之后失败态不再有组头内的「重试」按钮——那条已改走全局 toast + 回落连接图标钮,
+    // 见 renderRuntimeStatus 与上方 useEffect 的 AC-7 注释;此函数不再服务那条路径。)
     setDevState('idle');
   }
 
