@@ -541,6 +541,13 @@ export function Sidebar() {
    * AC-13:若断开 IPC 仍在途,本次连接**排队等它收尾**再发,而不是拒绝点击——
    * 直接发会命中主进程 connect 的在途去重(返回那条正在被拆掉的 promise),
    * 结果是无事发生、也无任何事件回来。8 秒上界防「断开永不返回」把连接永远压住。
+   *
+   * 🔴 **兑现前必须复查弃用标记**(第五个副作用闸 · TECH v0.2 的六处闸单没枚举到它):
+   * 排队跨了一个 await 边界(≤5s 或 8s 上界),这期间用户完全可能改主意再点断开。
+   * 那时 `abandon` 已置、本地已拆干净,但排到点的这条 `.then` 若无条件发 connect,
+   * **主进程照样会去建隧道、起 host** —— 四道闸只挡进来的事件与本地副作用,挡不住
+   * 这条已经出发的 IPC。结果正是本 Feature 要消灭的另一半:「界面显示已断开、后台却连上了」,
+   * 且用户再点连接会撞 orchestrator 去重 →「点了没反应」(R2 同款症状)。
    */
   function handleConnectMachine(id: string) {
     resumeMachine(id);
@@ -553,6 +560,7 @@ export function Sidebar() {
       pending,
       new Promise<void>((r) => setTimeout(r, DISCONNECT_QUEUE_TIMEOUT_MS)),
     ]).then(() => {
+      if (useRemoteHostRuntimeStore.getState().isAbandoned(id)) return;
       window.okwork.remoteHost.connect({ id });
     });
   }

@@ -140,12 +140,34 @@ export const useRemoteHostRuntimeStore = create<RemoteHostRuntimeState>((set, ge
       return { settling };
     });
   },
+  /**
+   * 🔴 名副其实地销毁**全部**五张表的痕迹 —— 不只 `abandoned`。
+   * 现有两个调用点都紧跟 `clear(id)`,只删 abandoned 也够用;但 JSDoc 与 TECH 数据结构表
+   * 承诺的是「销毁全部痕迹」,谁哪天按字面单独调它,runtime/rtt/reconnecting/settling 会全部留下。
+   * 让实现兑现契约,比让契约迁就实现安全。
+   */
   forget(configId) {
     set((s) => {
-      if (!s.abandoned[configId]) return s;
+      if (
+        !(configId in s.abandoned) &&
+        !(configId in s.runtime) &&
+        !(configId in s.rtt) &&
+        !(configId in s.reconnecting) &&
+        !(configId in s.settling)
+      ) {
+        return s;
+      }
       const abandoned = { ...s.abandoned };
+      const runtime = { ...s.runtime };
+      const rtt = { ...s.rtt };
+      const reconnecting = { ...s.reconnecting };
+      const settling = { ...s.settling };
       delete abandoned[configId];
-      return { abandoned };
+      delete runtime[configId];
+      delete rtt[configId];
+      delete reconnecting[configId];
+      delete settling[configId];
+      return { abandoned, runtime, rtt, reconnecting, settling };
     });
   },
 }));

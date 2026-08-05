@@ -224,6 +224,12 @@ tests:
     covers_ac: ["AC-2", "AC-9"]
     level: unit
     priority: P0
+  - id: T-038
+    file: src/renderer/components/__tests__/SidebarMachineGroups.test.tsx
+    function: test_AC9_queued_connect_rechecks_abandoned_before_firing_ipc
+    covers_ac: ["AC-9", "AC-13"]
+    level: integration
+    priority: P0
 ---
 
 # 远程机组头连接控件重构 - 测试用例
@@ -253,15 +259,15 @@ tests:
 | AC-6 | 取消后残余写入（残余事件 + 残余 verifying 建连 + 在途握手续体）不得复活组头/不得建连/不得弹 toast | P0 | T-005, T-010, T-011, T-012, T-013, T-014 | ✅ |
 | AC-7 | 失败弹全局 toast，组头回落待连接（不再常驻 ✗ 原因 + Retry）；自动重连退避期不重复弹 | P0 | T-015, T-016, T-017, T-018 | ✅ |
 | AC-8 | 断开重连后终端会话被收养回放 | P1 | T-019 | ✅ |
-| AC-9 | 手动断开/取消后不发生自动重连（含 client 层信号通道 + store 写入闸） | P1 | T-020, T-021, T-022, T-024, T-037 | ✅ |
+| AC-9 | 手动断开/取消后不发生自动重连（含 client 层信号通道 + store 写入闸） | P1 | T-020, T-021, T-022, T-024, T-037, T-038 | ✅ |
 | AC-10 | 自动重连中「立即重试」图标化 + 断开钮可用并终止编排 | P1 | T-023, T-024 | ✅ |
 | AC-11 | 新增连接类图标钮可 Tab 聚焦 + focus-visible；本机组无连接控件 | P2 | T-025, T-026, T-027 | ✅ |
 | AC-12 | 断开已连接/自动重连中的机器 → 激活项目回落本机 | P0 | T-024, T-028 | ✅ |
-| AC-13 | 取消后再点连接不得静默无反应；忙碌态不用禁用，点击排队兑现，8 秒上界 | P0 | T-029, T-030, T-031 | ✅ |
+| AC-13 | 取消后再点连接不得静默无反应；忙碌态不用禁用，点击排队兑现，8 秒上界 | P0 | T-029, T-030, T-031, T-038 | ✅ |
 | AC-14 | 曾取消/断开的机器再点连接，弃用标记随连接意图解除 | P0 | T-032 | ✅ |
 | AC-15 | 断线过渡态控件槽位无空洞、`+` 恒最右、同态内不抖动、connected 态三元素连排无双重间隙 | P1 | T-033, T-034, T-035, T-036 | ✅ |
 
-覆盖率: 15 / 15（100%）
+覆盖率: 15 / 15（100%）· 测试总数 38（v0.4 新增 T-038：排队中的 connect 兑现前复查弃用标记）
 
 > T-020 是**已存在**的测试（`reconnectSuppressDrop.test.ts:157-172`「用户主动断开 cancel:清退避计时器与 reconnecting 态,退避到点不再拉起(保持断开)」），本次不新增只引用；其余 36 条为本次新增（较 v0.1 的 31 条新增：新补 T-011/T-018/T-022/T-036/T-037 共 5 条，对应 TECH v0.2 点名的 3 条硬缺口 + AC-15 判据加固 + `setReconnecting` 写入闸独立单测；另有 T-012/T-014/T-024/T-029~T-031/T-033 等多条因架构改判据/流程改序而重写）。
 
@@ -740,6 +746,22 @@ When 时间推进 8000ms（Promise.race 的 sleep 分支胜出）
 Then window.okwork.remoteHost.connect 仍然被调用（排队上界生效，不会因为断开异常挂起而让连接按钮永久失效）
 ```
 
+#### Scenario: TC-038（T-038）排队中的连接在兑现前复查弃用标记 —— 用户改主意再点断开，那条排队的 connect 必须被吞掉
+**优先级**: P0 | **类型**: 异常 | **测试层级**: integration
+
+> 🔴 dev 期第三方核验补出的用例。四道副作用闸挡的都是「**进来的**事件与本地副作用」，而这条是**已经排上队、跨了 await 边界的出向 IPC**——闸一条都够不着它。不测这条，删掉 `handleConnectMachine` 里那行 `isAbandoned` 复查，其余 37 条全绿。
+
+```gherkin
+Given 用户点击断开（该机进入 settling，disconnectAwait 的 Promise 处于可控 pending 状态）
+  And 用户在 settling 期间点击了连接图标钮（resume 已清弃用标记，连接意图已排队等待）
+When 用户改主意，在该 Promise resolve **之前**再次点击断开（abandon 重新置标记 + 本地同步拆除）
+  And 随后该 disconnectAwait 的 Promise resolve（排队的 .then 到点）
+Then window.okwork.remoteHost.connect **不被调用**（排队的连接意图在兑现前被弃用标记吞掉）
+ And 组头维持未连接外观（不出现 connecting 阶段文案）
+```
+
+**为什么这条是 P0**：若漏，主进程会照常建隧道、起远端 host —— 界面显示已断开、后台却连上了，正是本 Feature 要消灭症状的另一半；且用户此后再点连接会撞 `orchestrator` 的在途去重，退化成「点了没反应」（R2 同款症状）。窗口 = 一次 `disconnectAwait` 往返（≤5s）或 8s 上界。
+
 **挂点/构造要点（TC-029~031 共用）**：这三条是同一个状态机（`settling` → 排队 → 兑现）的三个切片，必须用「测试基础设施前置说明」第 4 条新增的可控 `disconnectAwait` mock 逐条构造：TC-029 断言 resolve **之前**的中间态，TC-030 断言 resolve **之后**恰好触发一次，TC-031 断言即便**永不** resolve，8 秒上界这条兜底也会把连接意图放行。三条合起来才是 AC-13「要么真连、要么在编排彻底作废前保持忙碌，但绝不允许点了毫无反应」的完整证明；单独任何一条都只证明了状态机的一个切片。
 
 ---
@@ -842,3 +864,4 @@ Then `.sidebar-machine-rtt` 与 `.sidebar-machine-ctl` 均被纳入右推组（�
 | 2026-08-05 | v0.1 首版草稿：32 条 TC（T-018 为既有测试引用，31 条新增），覆盖全部 15 条 AC；标注测试基础设施前置改造（onEvent 回调捕获 + reconnect 可控 deferred）；列出 MachineGroup.test.tsx/SidebarMachineGroups.test.tsx 中因 failed 态移出组头而必须重写的两组现有断言 |
 | 2026-08-05 | v0.2 按 TECH v0.2（两道闸架构，两路冷审收敛后重写）对齐：① 架构从「一道闸」改叙为「状态写入闸 + 副作用闸」，各场景挂点相应更新；② 新增 4 条 TC 补齐 v0.1 完全没有 seam 覆盖的口子——T-011（AC-6(c) 残余 verifying 不得建连）、T-018（AC-7 自动重连退避期不重复弹 toast）、T-022（AC-9 闸④：`onReconnectNeeded` 被拦，真实触发源不是 main 事件）、T-036（AC-15 connected 态双重 auto-margin CSS 判据）；③ T-012（原 AC-6(b) resolve）断言措辞更正：不再断言 `readoptHost`/`onReconnected` 是否被调用（TECH 明确指出它会被调用后内部早退），改为断言 `session.list`/`session.attach` 未发出 + `hostRegistry.drop` 收尾；④ T-014（原「隐性不变式」）降级重述：不再是 AC-6(b)/(c) 的主证明（`getOrCreateRemote` 会把 client 塞回注册表，null 短路防线在残余握手路径上不成立），改为独立次级防御性单测，优先级 P0→P2；⑤ AC-2/AC-5 相关场景（T-003/T-009/T-019/T-021/T-028）补引用具体的四步同步序列 `abandon→cancel→clear→stopRemoteWorkspaceSync`；⑥ AC-13 三条（T-029~031）**全部重写**：删除原「aria-disabled 禁用态 + GO-030」的假设，改为「aria-busy 忙碌态 + 点击排队 + 8 秒上界」，三条分别覆盖排队中/结算后/上界兜底三个切片；⑦ T-033（AC-15 六态判据）connected 行加固为三元素连排整体断言（原只判两个元素）；⑧ 测试基础设施前置说明新增 2 条（`onReconnectNeeded` 捕获、`disconnectAwait` 可控 mock）；⑨ 新增 T-037：`setReconnecting` 写入闸（第六条独立写入路径）的纵深防御单测——`只挡置真·清假恒放行` 两个方向分别验证，挂靠 AC-2/AC-9，落新文件 `remoteHostStoreAbandonGate.test.ts`；⑩ 覆盖率仍 15/15，测试总数 32→37（新增 5，另有 T-011~014/024/029~031/033 等多条随架构与流程改序重写） |
 | 2026-08-05 | v0.3 dev 收尾对齐:TC-029(AC-13)补一条断言 —— 忙碌态除 `aria-busy` 外还须渲染出 `.sidebar-machine-ctl__busy`(图标换同尺寸 spinner)且 `title` 为「正在断开…」。起因:dev 期真实组件逐态截图核对发现忙碌态与常态**像素级相同**,只写 ARIA 属性等于「点了看不到任何变化」,正是 AC-13 明令禁止的症状;同步订正本节前言里「两个按钮状态的差异只是 aria-busy 有没有」的表述 |
+| 2026-08-05 | v0.4 新增 **T-038**(P0):排队中的连接在兑现前必须复查弃用标记。来源 = dev 期第三方核验发现 `handleConnectMachine` 的 `.then` 无条件发 IPC —— 四道副作用闸挡的是进来的事件,够不着这条已排队的出向 IPC;不补此用例则删掉那行守卫其余 37 条全绿。挂靠 AC-9 + AC-13 |

@@ -117,8 +117,9 @@ export const REMOTE_HOST_CHANNELS = {
   test: 'remoteHost:test',
   connect: 'remoteHost:connect',
   disconnect: 'remoteHost:disconnect',
-  /** 可等待的断开(渲染层新代码用此;旧 `disconnect` 即发即忘,仅 reconnectController 的
-   *  disconnect-first 用,不可替换——见 types.d.ts 对应字段注释)。 */
+  /** 可等待的断开(需要排队/等待语义时用此)。旧 `disconnect` 即发即忘,现有两个调用点:
+   *  reconnectController 的 disconnect-first(🔴 不可替换)与设置页同步拆除路径
+   *  ——见 types.d.ts 对应字段注释。 */
   disconnectAwait: 'remoteHost:disconnectAwait',
   /** 用户显式升级远端 host:强制 reap+重部署当前版本 bundle(forceRedeploy 连接)。 */
   upgrade: 'remoteHost:upgrade',

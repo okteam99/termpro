@@ -142,10 +142,12 @@ declare global {
         delete(payload: { id: string }): Promise<void>;
         test(payload: { id: string }): Promise<TestResult>;
         connect(payload: { id: string }): void;
-        /** ⚠️ 即发即忘 · 仅 reconnectController 的 disconnect-first 用;渲染层新代码用 `disconnectAwait` */
+        /** ⚠️ 即发即忘 · 现有两个调用点:`reconnectController` 的 disconnect-first(`reconnectWiring.ts`,
+         *  🔴 不可换成 `disconnectAwait`,换了自动重连会等自己)与设置页 `RemoteHostsPage.handleDisconnect`
+         *  的同步拆除路径(不需要排队语义)。**需要排队/等待语义的新代码用 `disconnectAwait`** */
         disconnect(payload: { id: string }): void;
-        /** 可等待的断开(渲染层新代码用此;旧 `disconnect` 即发即忘,仅 reconnectController
-         *  的 disconnect-first 用)。resolve ≠ "已断开"语义(TECH R4)——本方案只用它做
+        /** 可等待的断开(需要排队语义时用此;不需要等待的用旧 `disconnect`,见其注释的两个调用点)。
+         *  resolve ≠ "已断开"语义(TECH R4)——本方案只用它做
          *  排队排序,真正的本地拆除须在调用方 await 之前已同步完成。 */
         disconnectAwait(payload: { id: string }): Promise<void>;
         /** 用户显式升级远端 host(强制 reap+重部署当前版本 bundle);进度经 onEvent 呈现 */

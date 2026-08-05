@@ -33,7 +33,10 @@
   },
   "auto_mode": false,
   "yolo": false,
-  "concerns": [],
+  "concerns": [
+    "2026-08-05T10:04:20Z WARN 拆除语义两套(既存·非本 Feature 引入):设置页 handleDisconnect 直接 hostRegistry.drop,不走 stopRemoteWorkspaceSync → 从设置页断开时远程 workspace 残留在 store、激活项目不回落本机,AC-12 只在侧栏入口成立;且 forWorkspace 对缺失远程 client 兜底返回 local 单例,残留 workspace 若被消费会静默路由到本机。一行改法存在但会改变用户可见行为,不由 dev 自决 → 交 review/pm。详 TECH §风险 R6",
+    "2026-08-05T10:16:15Z WARN TECH R5「dev 须实测」欠账:deploying 中途取消是否真在远端留部署锁,只做了逐行代码读证(deploy.ts:37/118/213 + orchestrator.ts:419 + mkdirLock.ts:88-92,已记 KNOWLEDGE GO-037 并自标未实测),**未真连远程机实测**。原因:实测会在用户远端留一把真锁、让下一次连接卡满 120s,是对用户真实基础设施的副作用,不由 dev 自决。交 pm_acceptance 决定要不要补实测。"
+  ],
   "review_round": 0,
   "stage_contracts": {
     "goal": {
@@ -133,9 +136,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T09:12:57Z",
-  "updated_by": "stage-cost",
-  "_state_checksum": "sha256:eb116c08734d8add5e395b9e5d4c45b45a306a8d4093404001e6caa71f31d1a1",
+  "updated_at": "2026-08-05T10:16:15Z",
+  "updated_by": "add-concern",
+  "_state_checksum": "sha256:4c973916f7b77bca84cfaa89890de121fc16d14c7da3f91646de9a55cf18cb20",
   "legal_next_stages": [
     "review"
   ],
