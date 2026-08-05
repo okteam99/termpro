@@ -14,7 +14,7 @@
       "source": "init-feature"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "pm_acceptance",
   "merge_target": "main",
   "review_base_commit": "7d2dc6cc95ece197192818e77a6a0c240982661e",
   "worktree": {
@@ -298,10 +298,42 @@
       "active_minutes": 0
     },
     "test": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-05T14:59:24Z",
+      "evidence": {
+        "integration_diff_clean": true,
+        "integration_test_exit_code": 1,
+        "e2e_test_exit_code": 0,
+        "current_failures": "src/host/__tests__/wsMultiClientIsolation.test.ts,src/host/__tests__/wsRpcParity.test.ts"
+      },
+      "completed_at": "2026-08-05T16:20:39Z",
+      "auto_commit": "ccd572d",
+      "artifacts": [
+        "TEST-REPORT.md",
+        "e2e/smoke_remote_controls.py"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-05T14:59:24Z",
+          "completed_at": "2026-08-05T16:20:39Z",
+          "test_commit": "ccd572d",
+          "integration_test_exit_code": 1,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": true,
+          "current_failures": "src/host/__tests__/wsMultiClientIsolation.test.ts,src/host/__tests__/wsRpcParity.test.ts"
+        }
+      ],
+      "duration_minutes": 81,
+      "active_minutes": 1
+    },
+    "pm_acceptance": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-05T14:59:24Z"
+      "started_at": "2026-08-05T16:20:39Z"
     }
   },
   "completed_stages": [
@@ -309,7 +341,8 @@
     "ui_design",
     "blueprint",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-08-05T03:31:00Z",
   "stage_review_roles": {
@@ -345,17 +378,19 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T14:59:54Z",
+  "updated_at": "2026-08-05T16:20:59Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:16275caae5798da63feacbe8d9475fc5331ddc5a815bc9e12d2321759568bf3d",
+  "_state_checksum": "sha256:3d8b5cbf32c8094d1934872f6f9393e373d8bd15a02361dc1972b9c73ba22143",
   "legal_next_stages": [
-    "browser_e2e",
-    "pm_acceptance"
+    "ship",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
     "browser_e2e_needed": false,
-    "panorama_changed": false
+    "panorama_changed": false,
+    "integration_new_failures": [],
+    "integration_excluded_baseline": 2
   },
   "stage_cost": [
     {
@@ -416,6 +451,18 @@
       ],
       "note": "最大一笔:门禁全量跑了 5 轮(每轮约 20 分钟墙钟)。前两轮是 dev 期的,后三轮是 review 修复引起的——其中第 4 轮红的两条是我自己新加的测试:NF-1 修复把表里存的 promise 从裸 p 换成 .catch().finally() 之后的链,microtask 链多了几跳,原来靠数 await Promise.resolve() 次数的测试写法失效。根因是测试一开始就用了「数 flush 次数」这种依赖实现细节的写法,改成 vi.waitFor 后稳定。若起草测试时就用轮询而非数 flush,可省掉整整一轮全量门禁。次要开销:子代理全程只发 idle 通知不发正文(5 个 agent 无一例外),每次都要我追问一轮或自己去读它落盘的产物/日志才拿得到结论——这部分不是流程设计问题而是宿主消息通道问题,但实际吃掉了 7 轮里的 3 轮。另:state.json 是 tracked 文件而 test_evidence_fresh 的指纹含未提交 diff,add-concern 一写就打乱指纹,来回 commit/amend 两次才对齐。",
       "at": "2026-08-05T14:59:42Z"
+    },
+    {
+      "stage": "test",
+      "rounds": 34,
+      "overhead_rounds": 16,
+      "kinds": [
+        "返工重写",
+        "工具不稳",
+        "门禁重试"
+      ],
+      "note": "最大一笔:38 条新用例的**测试工装**反复不收敛,红的条数 14→12→8→5→1→1,跑了 5 轮全量+4 轮单文件。全部是用例自身问题(生产代码从 review APPROVE 起零改动),但根因高度集中在一类:测试里的时间与异步——fake timers 与 findBy*/waitFor 互锁、promise 链上 catch 挂错位置、正向断言用 waitFor 而负向断言不能用、mock 实例缓存与模块级容器跨用例存活。这类知识本项目此前没有沉淀过,派出去的验证档 agent 每轮只修掉一部分。第 4 轮后用户授权我在主循环直接修,一轮修完 5 条。**可复制的提效**:把这几条写进 KNOWLEDGE 复发防御清单(已做 RD-1..RD-8,测试工装类待补),下个 Feature 写测试时先读,能省掉大部分往返。次要开销:一次门禁在子代理仍在改文件时跑,日志跑到一半被截断作废——但也正因为没采信那份日志,才发现了 9 条「拿不到事件回调却被 if 静默跳过」的假绿。",
+      "at": "2026-08-05T16:20:58Z"
     }
   ],
   "authoring_preventability": [
