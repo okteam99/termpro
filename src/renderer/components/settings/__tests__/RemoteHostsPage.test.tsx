@@ -37,6 +37,8 @@ const { fakeRemoteClient, hostRegistryMock } = vi.hoisted(() => {
   const hostRegistryMock = {
     local: vi.fn(() => fakeRemoteClient),
     getOrCreateRemote: vi.fn(() => fakeRemoteClient),
+    // Update 按钮的版本读数走这个只读路由(hostVersionOf · 不同于 getOrCreateRemote,不新建)。
+    forHostId: vi.fn(() => fakeRemoteClient),
     drop: vi.fn(),
   };
   return { fakeRemoteClient, hostRegistryMock };
@@ -116,6 +118,7 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
     capabilities: vi.fn(async () => ({ encryptionAvailable: true })),
     connect: vi.fn(),
     disconnect: vi.fn(),
+    upgrade: vi.fn(),
     onEvent: vi.fn((cb: (e: RemoteEvent) => void) => {
       listeners.push(cb);
       return () => {
@@ -134,14 +137,15 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
 
 async function renderPage(
   initial: RemoteHostConfig[] = [],
-  opts?: { encryptionAvailable?: boolean },
+  opts?: { encryptionAvailable?: boolean; version?: string },
 ) {
   const { bridge, emit, configs } = makeRemoteHostBridge(initial);
   if (opts?.encryptionAvailable === false) {
     bridge.capabilities.mockResolvedValue({ encryptionAvailable: false });
   }
   Object.defineProperty(window, 'okwork', {
-    value: { remoteHost: bridge },
+    // version = 本机客户端版本(isHostOutdated 比较基准);默认给个固定值,按需覆盖。
+    value: { remoteHost: bridge, version: opts?.version ?? '0.3.100' },
     writable: true,
     configurable: true,
   });
@@ -156,6 +160,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   hostRegistryMock.getOrCreateRemote.mockReturnValue(fakeRemoteClient);
   hostRegistryMock.local.mockReturnValue(fakeRemoteClient);
+  hostRegistryMock.forHostId.mockReturnValue(fakeRemoteClient);
+  // clearAllMocks 只清 vi.fn() 的调用记录,不清普通字段——手动复位,防止上一条用例
+  // 设置的 appVersion 泄漏到下一条(hostVersionOf 直接读这个字段)。
+  fakeRemoteClient.info = null;
 });
 
 afterEach(() => {
@@ -475,6 +483,64 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       'ws://127.0.0.1:4321?token=fresh-tok',
     );
     await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+  });
+});
+
+// --- 远端 host 版本读数 + 过旧升级(强制 reap+重部署当前版本 bundle · orchestrator.connect
+// forceRedeploy)。版本读数走 hostRegistry.forHostId(只读路由,不新建),握手完成后 client.info
+// 才有 appVersion —— 用例直接摆 fakeRemoteClient.info 模拟"握手已完成"。 ---
+describe('host_version_and_upgrade', () => {
+  it('ready with an outdated host version shows the version tag + Update button; confirming upgrades and drops the client', async () => {
+    const config = makeConfig({ id: 'gpu-box', alias: 'gpu-box' });
+    const { bridge, emit } = await renderPage([config], { version: '0.3.100' });
+    fakeRemoteClient.info = {
+      hostId: 'local',
+      protocolVersion: 1,
+      minCompatible: 1,
+      platform: 'linux',
+      homedir: '/root',
+      shell: '/bin/bash',
+      appVersion: '0.3.90',
+    };
+
+    emit({ configId: 'gpu-box', stage: 'ready' });
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+
+    expect(screen.getByText('v0.3.90')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Update host'));
+
+    expect(
+      screen.getByText(
+        'Upgrade host on gpu-box to v0.3.100? All running sessions on that machine (including background agents) will be terminated',
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Yes'));
+
+    expect(bridge.upgrade).toHaveBeenCalledWith({ id: 'gpu-box' });
+    expect(hostRegistryMock.drop).toHaveBeenCalledWith('gpu-box');
+    // 用户意图 = 重部署:在途重连编排(退避计时器/尝试)必须一并终止,否则会与升级编排竞争重连
+    expect(reconnectControllerMock.cancel).toHaveBeenCalledWith('gpu-box');
+  });
+
+  it('ready with a host version equal to the client shows the version tag but no Update button', async () => {
+    const config = makeConfig({ id: 'gpu-box', alias: 'gpu-box' });
+    const { emit } = await renderPage([config], { version: '0.3.100' });
+    fakeRemoteClient.info = {
+      hostId: 'local',
+      protocolVersion: 1,
+      minCompatible: 1,
+      platform: 'linux',
+      homedir: '/root',
+      shell: '/bin/bash',
+      appVersion: '0.3.100',
+    };
+
+    emit({ configId: 'gpu-box', stage: 'ready' });
+    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+
+    expect(screen.getByText('v0.3.100')).toBeInTheDocument();
+    expect(screen.queryByText('Update host')).toBeNull();
   });
 });
 

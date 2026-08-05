@@ -318,6 +318,10 @@ contextBridge.exposeInMainWorld('okwork', {
     disconnect(payload: { id: string }): void {
       ipcRenderer.send(REMOTE_HOST_CHANNELS.disconnect, payload);
     },
+    /** 用户显式升级远端 host(强制 reap+重部署当前版本 bundle);进度经 onEvent 呈现。 */
+    upgrade(payload: { id: string }): void {
+      ipcRenderer.send(REMOTE_HOST_CHANNELS.upgrade, payload);
+    },
     /** 已就绪会话的本地转发隧道(查看器窗口直连远程 host 用);未连接 → null */
     getTunnel(payload: { id: string }): Promise<RemoteTunnelInfo | null> {
       return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.tunnel, payload);

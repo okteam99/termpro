@@ -143,6 +143,8 @@ declare global {
         test(payload: { id: string }): Promise<TestResult>;
         connect(payload: { id: string }): void;
         disconnect(payload: { id: string }): void;
+        /** 用户显式升级远端 host(强制 reap+重部署当前版本 bundle);进度经 onEvent 呈现 */
+        upgrade(payload: { id: string }): void;
         /** 已就绪会话的本地转发隧道(查看器窗口直连远程 host 用);未连接 → null */
         getTunnel(payload: { id: string }): Promise<RemoteTunnelInfo | null>;
         /** 全部会话阶段快照(浏览器网络选择器列出可用出口;configId→RemoteStage) */

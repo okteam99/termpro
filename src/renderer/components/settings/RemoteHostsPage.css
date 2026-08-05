@@ -268,6 +268,19 @@
   border: 1px solid rgba(224, 108, 117, 0.32);
 }
 
+/* 远端 host 版本小字(ready 徽标旁 · BL-升级);过旧时着色提醒,与 Update 按钮呼应 */
+.remote-hosts__host-version {
+  flex: none;
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.remote-hosts__host-version--outdated {
+  color: var(--amber);
+}
+
 /* 部署进度 stepper(AC-4)+ 认领单行提示(AC-13)+ 失败详情(AC-11/AC-6) —— 行内展开,缩进对齐 alias 列 */
 
 .remote-hosts__progress-arch {

@@ -26,7 +26,7 @@ import {
   type RemoteHostConfigInput,
   type RemoteStage,
 } from '../../../shared/remoteHost';
-import { ProtocolIncompatibleError } from '../../../shared/versionCompat';
+import { compareAppVersions, ProtocolIncompatibleError } from '../../../shared/versionCompat';
 import { hostRegistry } from '../../services/hostRegistry';
 import { reconnectController } from '../../services/reconnectWiring';
 import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
@@ -79,6 +79,19 @@ function hostDotModifier(
   if (isActiveStage(runtime.stage)) return 'active';
   if (runtime.stage === 'ready') return 'connected';
   return 'disconnected';
+}
+
+/** 远端 host 上报的 app 版本(ready 徽标旁小字用);握手未完成/未上报 → undefined。
+ *  forHostId 是只读路由(未命中不新建,不同于 getOrCreateRemote),纯读版本号安全。 */
+function hostVersionOf(configId: string): string | undefined {
+  return hostRegistry.forHostId(configId)?.info?.appVersion;
+}
+
+/** 远端 host 版本是否低于本机客户端版本(Update 按钮出现条件);不可比较 → 不判定为过旧。 */
+function isHostOutdated(hostVersion: string | undefined): boolean {
+  if (!hostVersion) return false;
+  const cmp = compareAppVersions(hostVersion, window.okwork.version);
+  return cmp !== null && cmp < 0;
 }
 
 /** 最近使用区的相对时间展示(AC-7);renderer 纯展示格式化,不影响持久化的 epoch ms 值。 */
@@ -139,6 +152,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   const [testState, setTestState] = useState<Record<string, TestStatus>>({});
   const [testFailReason, setTestFailReason] = useState<Record<string, FailReason>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [upgradeConfirmId, setUpgradeConfirmId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
   const [formHostId, setFormHostId] = useState<string | null>(null);
   const [formValues, setFormValues] = useState<FormValues>(EMPTY_FORM);
@@ -313,6 +327,22 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     hostRegistry.drop(id);
   }
 
+  /**
+   * 「升级」确认后执行(过旧远端 host → 强制重部署当前版本 bundle):main 侧 forceRedeploy
+   * 会先 reap 旧 host 进程,旧 client 随之作废——drop 掉(verifying 落地时 beginHandshake 会
+   * getOrCreateRemote 重建);取消在途重连编排,防止与本次升级编排竞争重连;解除"已弃"标记
+   * 保证升级沿途事件(deploying/starting/verifying…)不被 E6 过滤吞掉。
+   * 🔴 不 clearRuntime:保留运行态让进度徽标接管呈现,不闪回"闲置"态。
+   */
+  function handleUpgrade(config: RemoteHostConfig) {
+    setUpgradeConfirmId(null);
+    abandonedRef.current.delete(config.id);
+    reconnectController.cancel(config.id);
+    setTestState((prev) => omitKey(prev, config.id));
+    hostRegistry.drop(config.id);
+    window.okwork.remoteHost.upgrade({ id: config.id });
+  }
+
   function openAddForm() {
     setFormMode('add');
     setFormHostId(null);
@@ -420,7 +450,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     await refreshList();
   }
 
-  function renderStageBadge(runtime: RemoteEvent) {
+  function renderStageBadge(config: RemoteHostConfig, runtime: RemoteEvent) {
     if (runtime.stage === 'failed') {
       const reason = failReasonCopy(runtime.reason);
       return (
@@ -437,7 +467,20 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       );
     }
     if (runtime.stage === 'ready') {
-      return <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Connected')}</span>;
+      const hostVersion = hostVersionOf(config.id);
+      const outdated = isHostOutdated(hostVersion);
+      return (
+        <>
+          <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Connected')}</span>
+          {hostVersion && (
+            <span
+              className={`remote-hosts__host-version${outdated ? ' remote-hosts__host-version--outdated' : ''}`}
+            >
+              v{hostVersion}
+            </span>
+          )}
+        </>
+      );
     }
     const label = connectStageLabel(runtime.stage);
     const pct =
@@ -460,6 +503,17 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   ) {
     const buttons: ReactNode[] = [];
     if (stage === 'ready') {
+      if (isHostOutdated(hostVersionOf(config.id))) {
+        buttons.push(
+          <button
+            key="update"
+            className="remote-hosts__action remote-hosts__action--primary"
+            onClick={() => setUpgradeConfirmId(config.id)}
+          >
+            {t('Update host')}
+          </button>,
+        );
+      }
       buttons.push(
         <button
           key="disc"
@@ -558,7 +612,7 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       // badge 一并给 Cancel(renderActionButtons 的 active 分支)。
       return (
         <span className="remote-hosts__row-actions">
-          {renderStageBadge(runtime)}
+          {renderStageBadge(config, runtime)}
           {renderActionButtons(config, runtime.stage, compact)}
         </span>
       );
@@ -659,6 +713,34 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   function renderRow(config: RemoteHostConfig, compact: boolean) {
     const runtime = runtimeMap[config.id];
+    if (!compact && upgradeConfirmId === config.id) {
+      return (
+        <div key={config.id} className="remote-hosts__entry">
+          <div className="remote-hosts__row">
+            <span className="remote-hosts__confirm">
+              <span className="remote-hosts__confirm-text">
+                {t(
+                  'Upgrade host on {alias} to v{version}? All running sessions on that machine (including background agents) will be terminated',
+                  { alias: config.alias, version: window.okwork.version },
+                )}
+              </span>
+              <button
+                className="remote-hosts__action remote-hosts__action--primary"
+                onClick={() => handleUpgrade(config)}
+              >
+                {t('Yes')}
+              </button>
+              <button
+                className="remote-hosts__action"
+                onClick={() => setUpgradeConfirmId(null)}
+              >
+                {t('No')}
+              </button>
+            </span>
+          </div>
+        </div>
+      );
+    }
     if (!compact && deleteConfirmId === config.id) {
       const activeConn = !!runtime && runtime.stage !== 'idle';
       return (
