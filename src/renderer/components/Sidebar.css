@@ -736,6 +736,24 @@
   opacity: 1;
 }
 
+/* AC-13 忙碌指示:断开 IPC 在途时连接钮转圈。🔴 尺寸必须与图标同为 12px——按钮宽度是
+   AC-15 位置不变式的一部分,换个大小就是横向跳变。默认态 opacity 0.35 太弱(几乎看不见),
+   忙碌是主动反馈、不该等 hover 才现形,故单独提亮。 */
+.sidebar-machine-ctl[aria-busy='true'] {
+  opacity: 0.9;
+  cursor: progress;
+}
+
+.sidebar-machine-ctl__busy {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  animation: add-ws-spin 0.8s linear infinite;
+  flex: none;
+}
+
 .sidebar-machine-empty {
   margin: 2px 8px 4px;
   padding: 5px 10px;

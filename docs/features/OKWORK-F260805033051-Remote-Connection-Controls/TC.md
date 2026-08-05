@@ -707,7 +707,7 @@ Then stopRemoteWorkspaceSync 被以该 configId 调用（回落到本机 workspa
 
 ### AC-13：取消后再点连接不得静默无反应（v0.2：忙碌态 + 排队兑现，不用禁用态）
 
-> 🔴 **本节三条相对 v0.1 全部重写**。v0.1 假设的落法是「禁用态 + 必须 aria-disabled」，被 Architect/external 两路冷审裁定为**各取一半**：不用禁用态（点击恒被兑现，不拒绝）+ 保留忙碌指示与 8 秒排队上界（不能让用户点了看不到任何反馈）。原来那条「GO-030 硬约束：aria-disabled 而非原生 disabled」**不再适用**——因为压根没有禁用态了，两个按钮状态之间的差异只是 `aria-busy` 有没有，点击行为本身在忙碌态和空闲态下完全一致（都真实派发、都会被处理，只是忙碌态下处理逻辑是"排队"而不是"立即发 IPC"）。
+> 🔴 **本节三条相对 v0.1 全部重写**。v0.1 假设的落法是「禁用态 + 必须 aria-disabled」，被 Architect/external 两路冷审裁定为**各取一半**：不用禁用态（点击恒被兑现，不拒绝）+ 保留忙碌指示与 8 秒排队上界（不能让用户点了看不到任何反馈）。原来那条「GO-030 硬约束：aria-disabled 而非原生 disabled」**不再适用**——因为压根没有禁用态了，点击行为本身在忙碌态和空闲态下完全一致（都真实派发、都会被处理，只是忙碌态下处理逻辑是"排队"而不是"立即发 IPC"）。两个按钮状态的差异 = `aria-busy` +**可见的** spinner（图标换成同尺寸转圈 + tooltip 变「正在断开…」）。🔴 **可见那半不是装饰**：AC-13 禁的是"点了没有任何状态变化"，而用户看的是像素不是 ARIA 树——dev 期实测发现只写 `aria-busy` 时忙碌态与常态像素级相同，等同无反馈。
 
 #### Scenario: TC-029（T-029）忙碌态点击连接被排队，不立即发出 IPC
 **优先级**: P0 | **类型**: 异常 | **测试层级**: integration
@@ -716,6 +716,7 @@ Then stopRemoteWorkspaceSync 被以该 configId 调用（回落到本机 workspa
 Given 用户刚点击断开/取消（该机进入 settling，disconnectAwait 的 Promise 处于可控 pending 状态）
 When 用户在 settling 期间点击连接图标钮
 Then 连接图标钮此刻具有 aria-busy="true"
+ And 该钮内渲染出 .sidebar-machine-ctl__busy（图标被同尺寸 spinner 替换），且 title 为「正在断开…」
  And 该按钮不含原生 disabled 属性（点击必须真实派发，不能被浏览器语义拦截——否则退化回静默无反应）
  And window.okwork.remoteHost.connect 此刻**尚未**被调用（意图已被记录/排队，但要等 pendingDisconnect 结算）
 ```
@@ -840,3 +841,4 @@ Then `.sidebar-machine-rtt` 与 `.sidebar-machine-ctl` 均被纳入右推组（�
 |---|---|
 | 2026-08-05 | v0.1 首版草稿：32 条 TC（T-018 为既有测试引用，31 条新增），覆盖全部 15 条 AC；标注测试基础设施前置改造（onEvent 回调捕获 + reconnect 可控 deferred）；列出 MachineGroup.test.tsx/SidebarMachineGroups.test.tsx 中因 failed 态移出组头而必须重写的两组现有断言 |
 | 2026-08-05 | v0.2 按 TECH v0.2（两道闸架构，两路冷审收敛后重写）对齐：① 架构从「一道闸」改叙为「状态写入闸 + 副作用闸」，各场景挂点相应更新；② 新增 4 条 TC 补齐 v0.1 完全没有 seam 覆盖的口子——T-011（AC-6(c) 残余 verifying 不得建连）、T-018（AC-7 自动重连退避期不重复弹 toast）、T-022（AC-9 闸④：`onReconnectNeeded` 被拦，真实触发源不是 main 事件）、T-036（AC-15 connected 态双重 auto-margin CSS 判据）；③ T-012（原 AC-6(b) resolve）断言措辞更正：不再断言 `readoptHost`/`onReconnected` 是否被调用（TECH 明确指出它会被调用后内部早退），改为断言 `session.list`/`session.attach` 未发出 + `hostRegistry.drop` 收尾；④ T-014（原「隐性不变式」）降级重述：不再是 AC-6(b)/(c) 的主证明（`getOrCreateRemote` 会把 client 塞回注册表，null 短路防线在残余握手路径上不成立），改为独立次级防御性单测，优先级 P0→P2；⑤ AC-2/AC-5 相关场景（T-003/T-009/T-019/T-021/T-028）补引用具体的四步同步序列 `abandon→cancel→clear→stopRemoteWorkspaceSync`；⑥ AC-13 三条（T-029~031）**全部重写**：删除原「aria-disabled 禁用态 + GO-030」的假设，改为「aria-busy 忙碌态 + 点击排队 + 8 秒上界」，三条分别覆盖排队中/结算后/上界兜底三个切片；⑦ T-033（AC-15 六态判据）connected 行加固为三元素连排整体断言（原只判两个元素）；⑧ 测试基础设施前置说明新增 2 条（`onReconnectNeeded` 捕获、`disconnectAwait` 可控 mock）；⑨ 新增 T-037：`setReconnecting` 写入闸（第六条独立写入路径）的纵深防御单测——`只挡置真·清假恒放行` 两个方向分别验证，挂靠 AC-2/AC-9，落新文件 `remoteHostStoreAbandonGate.test.ts`；⑩ 覆盖率仍 15/15，测试总数 32→37（新增 5，另有 T-011~014/024/029~031/033 等多条随架构与流程改序重写） |
+| 2026-08-05 | v0.3 dev 收尾对齐:TC-029(AC-13)补一条断言 —— 忙碌态除 `aria-busy` 外还须渲染出 `.sidebar-machine-ctl__busy`(图标换同尺寸 spinner)且 `title` 为「正在断开…」。起因:dev 期真实组件逐态截图核对发现忙碌态与常态**像素级相同**,只写 ARIA 属性等于「点了看不到任何变化」,正是 AC-13 明令禁止的症状;同步订正本节前言里「两个按钮状态的差异只是 aria-busy 有没有」的表述 |

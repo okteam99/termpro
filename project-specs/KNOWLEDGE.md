@@ -61,6 +61,7 @@
 | GO-034 | remote/reconnect | **增量回放游标 renderedBytes 必须用 host 给的 bytes 字段·不是 `data.length`**:xterm write 的是字符串·CJK/emoji 一字符多字节·用 `.length`(字符数)累加 → 游标偏移错位 → 重连回放双写/错位。且游标须 **onData 同步累加**(term.write 之前)非 write 回调(异步滞后·在途 chunk 致 resumeOffset 偏小又双写) | renderedBytes 在 onData 同步 `+= pty:data.bytes`(host 算好的字节数);ack 仍留 write 回调(背压);session.attach 返 nextOffset 权威推进不自算 | 2026-07 | OKWORK-F260710042746 |
 | GO-035 | remote/reconnect | **断线期 exited 会话重连后「已完成」徽标要从 session.list 快照点亮·不能等 pty:exit**:host reattach **不重发** pty:exit(会话早退出)·而 store `tab.exited` 只由渲染进程 onExit 设 → 重连后徽标永不亮(AC-12 北极星徽标半侧失效·scrollback 回放本身通过) | reconcileBadge 据 `snapshot.status==='exited'` 落 `tab.exited+exitCode`(单调终态·不回写 live) | 2026-07 | OKWORK-F260710042746 |
 | GO-036 | test/baseline | **test-baseline `--diff` 按 test-id 字符串精确匹配·登记与 `--current` 粒度必须一致**:历史把多个失败文件登记成一条逗号合并串·而 `--current` 传单文件→ 拆分后与合并串不匹配→ 全判 NEW_FAILURES(假阳性 stale_registered) | 逐文件独立 `--add`(单文件一条)·`--current-failures` 传同粒度单文件列表;`--list`/`--diff` 带 `--feature` 定位 worktree project-specs | 2026-07 | OKWORK-F260710042746 |
+| GO-037 | remote/deploy | **`deploying` 阶段取消会把部署锁留在远端·下一次连接最长空等 120s 后 deployFailed**(代码读证 · 未实测):`deploy.ts:213` 的 `finally { releaseMkdirLock }` 本身是对的,但取消走 `orchestrator.disconnect()` —— 它等在途编排 ≤5s(`orchestrator.ts:419`)超时即强关 ssh,而真实 bundle 上传常 >5s → finally 里那条 `rm -rf` 的 ssh exec 随连接一起失败 → 锁目录 `${dataDir}/bundle/.deploying-${version}` 残留。下次连接:`acquireMkdirLock` 见锁未陈旧(age ≤ 120s,`deploy.ts:37` `DEFAULT_LOCK_STALE_MS`)→ `waitForPeer` → `waitForReady` 轮询一个永不出现的 `.ready`,超时 120s 抛 `deployFailed`(`deploy.ts:118`) | **不是死锁,是一次性延迟**:锁 age > 120s 后 `mkdirLock.ts:88-92` break-and-reacquire 自动接管 → 再点一次连接即恢复。用户 D-7 已拍板接受此代价,本次不修。若日后要修:取消路径显式发一条独立 ssh 会话 `rm -rf` 锁目录,或给 `waitForReady` 加「等待中锁已陈旧则提前 break」的复检 | 2026-08 | OKWORK-F260805033051 |
 
 ---
 
@@ -108,7 +109,7 @@
 - **lifecycle**: GO-019
 - **remote/security**: GO-025
 - **remote/concurrency**: GO-026
-- **remote/deploy**: GO-027, GO-024(build)
+- **remote/deploy**: GO-027, GO-024(build), GO-037
 - **renderer/multi-host**: GO-028
 - **build/gate**: GO-029
 - **ui/remote**: GO-030

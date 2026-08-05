@@ -206,6 +206,11 @@ function MachineRetryIcon() {
  * 不该顺带触发折叠。
  * busy(AC-13):断开 IPC 在途时连接钮的忙碌指示。🔴 用 `aria-busy`,不用 `disabled`/`aria-disabled`
  * ——按钮必须仍可点击(点击由 Sidebar 排队兑现,不拒绝)。
+ * 🔴 忙碌**必须有可见反馈**(TECH 裁决:spinner + aria-busy):只写 aria-busy 而外观不变,
+ * 用户点了排队最长 5 秒看不到任何变化,正是 AC-13 明令禁止的症状(a11y 属性不是给眼睛看的)。
+ * 图标换成同尺寸(12px)spinner —— 同尺寸是为了不让按钮宽度跳变(AC-15 位置不变式)。
+ * tooltip 同时换成「正在断开…」;aria-label **保持动作名不变**(按钮的动作仍是「连接」,
+ * 让读屏把它读成「正在断开」会误导),忙碌语义由 aria-busy 承载。
  */
 function MachineCtlButton({
   variant,
@@ -223,7 +228,7 @@ function MachineCtlButton({
   return (
     <button
       className={`sidebar-machine-ctl sidebar-machine-ctl--${variant}`}
-      title={label}
+      title={busy ? t('Disconnecting…') : label}
       aria-label={label}
       aria-busy={busy || undefined}
       onClick={(e) => {
@@ -231,7 +236,7 @@ function MachineCtlButton({
         onClick?.();
       }}
     >
-      {icon}
+      {busy ? <span className="sidebar-machine-ctl__busy" aria-hidden="true" /> : icon}
     </button>
   );
 }

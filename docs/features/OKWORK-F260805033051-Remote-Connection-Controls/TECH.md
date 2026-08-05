@@ -238,7 +238,63 @@ setReconnecting(id, on)   { if (on && get().abandoned[id]) return; ... }   // �
 2. **握手续体(AC-6(b))**:让 `client.reconnect()` 返回手动可控 pending promise → 触发取消 → resolve 它 → 断言 store 未写 ready。🔴 **断言措辞更正**:不能断言「`readoptHost` 未被调用」——它**会**被调用然后早退;应断言 **`session.list`/`session.attach` 未发出**。
 3. **残余 `verifying` 不得触发新握手(AC-6(c))**:v0.1 的四个 seam **没有一个覆盖它**,而它是 AC-6 最尖的一颗牙。必须补:弃用后推一个 `verifying{tunnel}` 事件,断言 `getOrCreateRemote` 未被调用、无新 ws。
 4. **闸 4(AC-9)**:弃用后触发 `onReconnectNeeded`,断言 `reconnectController.onDisconnected` 未被调用、`reconnecting` 未被置真。
-5. **AC-13**:mock `disconnectAwait` 返回可控 promise,断言 settling 期按钮 `aria-busy` 且点击被排队(resolve 后 connect 才发出)。
+5. **AC-13**:mock `disconnectAwait` 返回可控 promise,断言 settling 期按钮 `aria-busy` 且点击被排队(resolve 后 connect 才发出)。🔴 **还要断言忙碌是「看得见」的**——`aria-busy` 是给读屏的,单它不满足 AC-13(「不得点了毫无反应、也没有任何状态变化」指的是**用户看得到的**变化):断言忙碌期钮内出现 `.sidebar-machine-ctl__busy`(图标被同尺寸 spinner 替换)且 `title` 为「正在断开…」。dev 期实测发现只写 `aria-busy` 时忙碌态与常态**像素级相同**,故补此断言防回归。
+
+## 完工自查(dev 阶段填 · review 据此核)
+
+### 设计↔实际一致性核对(UI feature 必做 · 两边并排截图逐态核)
+
+**方法**:全景权威 `docs/design/preview-project` 起 dev server 逐态截图(设计侧)· 真实 `MachineGroup.tsx` 组件用一次性 Vite harness 逐态渲染截图(实现侧 · 零视觉 mock · 组件本身不碰 `window.okwork`)。截图落系统临时目录 `/private/tmp/teamwork/OKWORK-F260805033051-Remote-Connection-Controls/screenshots/`(一次性证据 · 不入库)。
+
+| 状态 | 布局结构 | 交互流 | 状态呈现 | 字段映射 | 结论 |
+|---|---|---|---|---|---|
+| 未连接 | 一致(chevron+云图标+别名+灰点+连接钮 · 无 `+`) | 一致 | 一致 | 一致 | ✅ |
+| 连接中(deploying) | 一致(spinner+阶段文案+百分比+取消 ×) | 一致 | 一致 | 一致 | ✅ |
+| 已连接 | 一致(绿点+RTT ms+断开钮+`+` 三元素连排贴最右) | 一致 | 一致 | 一致 | ✅ |
+| 断线过渡 | 一致(红点+连接钮+`+`) | 一致 | 一致 | 一致 | ✅ |
+| 自动重连中 | 一致(琥珀脉冲+「重连中…」+重试钮+断开钮+`+`) | 一致 | 一致 | 一致 | ✅ |
+| 本机组 | 一致(显示器图标+组名+`+` · 零连接类控件) | 一致 | 一致 | 一致 | ✅ |
+| **AC-13 忙碌态** | **背离 → 已修** | — | — | — | ⚠️→✅ |
+
+**唯一背离(已当场修掉,未静默放过)**:`settling` 忙碌态**只有 `aria-busy`、没有任何视觉差异** —— 实测截图与常态**像素级相同**(`Sidebar.css` 无任何 `[aria-busy]` 规则,`MachineCtlButton` 忙碌时仍渲染原图标),且本方案 §i18n 声明要加的「正在断开…」忙碌 tooltip 是一条**从未被引用的死词条**(全仓仅 `i18n.zh.ts:122` 一处)。
+这直接推翻本方案 §简洁性自查 的裁决前提 —— 当时采纳 external「必须有反馈」才保留 `settling`,理由原话是「排队但无反馈 = 用户点了看不到任何变化最长 5 秒,正是 AC-13 明令禁止的症状」。只写 ARIA 属性 = 反馈只给了读屏、没给眼睛,等于退回被否掉的那半。
+**修法**:忙碌时图标换成**同尺寸(12px)** spinner(同尺寸是硬要求 —— 按钮宽度是 AC-15 位置不变式的一部分)+ `[aria-busy]` 提亮到 0.9(默认 0.35 要 hover 才可见,忙碌是主动反馈不该等 hover)+ tooltip 接上「正在断开…」;`aria-label` **保持动作名不变**(按钮动作仍是「连接」,读屏读成「正在断开」会误导)。TC-029 已同步加断言防回归。
+
+### 逐项落地核对
+
+> 🔴 **证据边界**:下表每条的行号都是**本次逐行读过当前代码**得到的,不是照抄 commit message 或方案原文。凡未亲眼读到的一律不写 ✅。
+
+| # | 自查项 | 结论 | 证据 |
+|---|---|---|---|
+| A1 | 写入闸① `applyEvent` 弃用早退 | ✅ | `remoteHostStore.ts:75` `if (get().abandoned[e.configId]) return;` |
+| A2 | 写入闸② `setRtt`(独立 `set(`,不经 applyEvent) | ✅ | `remoteHostStore.ts:99` |
+| A3 | 写入闸③ `setReconnecting` **只挡置真、清假恒放行** | ✅ | `remoteHostStore.ts:108` `if (on && get().abandoned[configId]) return;` —— `on` 在前,清假不受阻 |
+| A4 | `clear` 删 `settling` 但**不删** `abandoned` | ✅ | `remoteHostStore.ts:91-95` 显式 `delete settling[configId]`;`:93` 注释钉死不清 abandoned;返回对象无 `abandoned` 键 |
+| A5 | 五个 action 齐备 | ✅ | `abandon:121` / `resume:125` / `isAbandoned:132` / `setSettling:136` / `forget:145` |
+| B1 | 副作用闸 · Sidebar 订阅回调**首行**早退 | ✅ | `Sidebar.tsx:324` |
+| B2 | 副作用闸 · Sidebar `beginHandshake` 入口 | ✅ | `Sidebar.tsx:269` |
+| B3 | 副作用闸 · Sidebar 握手续体 `.then` + `.catch` 各一道 | ✅ | `Sidebar.tsx:283` / `:301`(两处,写入前) |
+| B4 | 副作用闸 · `onReconnectNeeded` 接线(第四通道) | ✅ | `Sidebar.tsx:369` |
+| B5 | 副作用闸 · RemoteHostsPage `beginHandshake` 入口 | ✅ | `RemoteHostsPage.tsx:225` |
+| B6 | 副作用闸 · RemoteHostsPage 握手续体 + 订阅过滤 | ✅ | `:240` / `:253`(续体)· `:279`(订阅,位置未动只换判据) |
+| C | 断开四步**同步先行**、`disconnectAwait` **未被 await** | ✅ | `Sidebar.tsx:571-574` 四步无 await;`:578-587` `void` 式 `.catch().finally()`,顺序与方案逐字一致 |
+| D | 连接流程 `resume` → `Promise.race([pending, 8s])` → connect | ✅ | `Sidebar.tsx:545-558`;上界常量 `:46` `DISCONNECT_QUEUE_TIMEOUT_MS = 8000` |
+| E | `resume` **三**个调用点 | ✅ | 侧栏 `Sidebar.tsx:546` · 设置页连接 `RemoteHostsPage.tsx:321` · **设置页升级** `:351` |
+| F | `forget` 两个调用点(仅配置删除) | ✅ | `Sidebar.tsx:225`(轮询清理)· `RemoteHostsPage.tsx:458`(confirmDelete) |
+| G | AC-7 toast 判据三合一 + **独立 ref** + 文案单源 | ✅ | `Sidebar.tsx:451` `noticedFailRef`(非复用 `prevStages`)· `:456-461` 三条件 · `:464` `failReasonCopy` |
+| H1 | `disconnectAwait` 全链路(常量→handle→preload→types) | ✅ | `shared/remoteHost.ts:122` 常量 · `remoteHostIpc.ts:110-113` `ipcMain.handle` · `preload.ts:323-324` `ipcRenderer.invoke` · `types.d.ts:150` 声明 + `:145` 旧 `disconnect` 用途注释 |
+| H2 | teardown 闭包补 `removeHandler`(漏则重复注册抛错) | ✅ | `remoteHostIpc.ts:147` `ipcMain.removeHandler(REMOTE_HOST_CHANNELS.disconnectAwait)` |
+| H3 | R1:`reconnectWiring` 的 `deps.disconnect` **仍是裸 IPC** | ✅ | `services/reconnectWiring.ts:24` `window.okwork.remoteHost.disconnect(...)` —— 未被换成新通道/UI handler,自动重连不会自锁 |
+| I1 | failed 运行态不进组头(过滤成 null) | ✅ | `MachineGroup.tsx:311` `machine.runtime.stage !== 'failed' ? machine.runtime : null` |
+| I2 | 死分支 `status==='connecting'` 已清 | ✅ | diff 中该 `<span className="sidebar-machine-connecting">` 分支为删除行 |
+| J1 | AC-15:auto-margin 组含 `-rtt`/`-ctl` | ✅ | `Sidebar.css:643-648` |
+| J2 | AC-15:`~` 兄弟选择器把后续 `-ctl`/`-add` 的 auto 清零(防两 auto 均分空隙) | ✅ | `Sidebar.css:681-683`;并经「已连接」态截图实证 RTT+断开钮+`+` 三元素连排贴最右 |
+| J3 | `:focus-visible` 补给本次新增的钮 | ✅ | `Sidebar.css:733-737` |
+| AC-13 | 忙碌态**可见**反馈 | ⚠️→✅ | 初版仅 `aria-busy`(像素无差异)· 已补 spinner + 提亮 + tooltip(见上节) |
+| K | TC.md 37 条用例的 integration 实现 | **N-A(归 test stage)** | dev 交付的是单元级改动 + 既有套件保绿;`remoteHostStoreAbandonGate.test.ts` 等 TC v0.2 新增用例尚不存在,由 test stage 按 TC 逐条起 —— 🔴 **不是已完成项,是下一 stage 的欠账**,review 勿据本表判为已覆盖 |
+| L | 风险 R5 实测并记回 KNOWLEDGE | ⚠️ **代码读证已记 · 实测未做** | `KNOWLEDGE.md GO-037`(锁残留机理逐行读证:`deploy.ts:37/118/213` + `orchestrator.ts:419` + `mkdirLock.ts:88-92`)· **未真连远程机做中途取消实测** —— 实测会在用户远端留一把真锁并让下次连接卡 120s,副作用需用户授权 |
+| 通用 | typecheck | ✅ | `npm run typecheck` 干净(含本次 AC-13 修复后重跑) |
+| 通用 | 主工作区未被污染 | ✅ | worktree `git status` 仅 `?? node_modules`;主工作区那个未跟踪的 `remoteHostsPageNonce.test.ts` 经查是 `0fa8e29`(上个里程碑)的遗留,非本 Feature 产出 |
 
 ## 风险
 
@@ -255,4 +311,5 @@ setReconnecting(id, on)   { if (on && get().abandoned[id]) return; ... }   // �
 | 日期 | 变更 |
 |------|------|
 | 2026-08-05 | v0.1 首版 |
+| 2026-08-05 | v0.3 dev 收尾:补 §完工自查(逐项落地核对 + 设计↔实际七态并排截图核对);副作用闸由「四处」更正为**六处**(dev 期发现设置页有独立的一份握手实现);**AC-13 背离修复** —— 忙碌态原先只写 `aria-busy`、视觉与常态像素级相同(等于退回被否掉的「无反馈」那半),补同尺寸 12px spinner + `[aria-busy]` 提亮 + 接上「正在断开…」tooltip(该 i18n 词条此前是死条目),TC-029 同步加断言;R5 锁残留机理落 `KNOWLEDGE.md GO-037`(代码读证 · 实测未做) |
 | 2026-08-05 | v0.2 冷审收敛:**架构由一道闸改为两道闸**(状态写入 + 副作用);断开流程改序(本地拆除先于 await);补第四通道(client 层 `onReconnectNeeded`)与第六写入路径(`setReconnecting`);设置页过滤改为改写而非删除;`resume` 补第三入口 `handleUpgrade`;AC-7 toast 补 `!isReconnecting` 与独立 ref;AC-15 CSS auto-margin 修法;补 teardown removeHandler、`forget`、AC-6(c) 测试 seam;裁决 `settling` 去留(忙碌指示 + 排队,不禁用) |
