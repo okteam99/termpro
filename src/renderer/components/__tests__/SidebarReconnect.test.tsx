@@ -55,7 +55,10 @@ vi.mock('../../services/reconnectWiring', () => ({ reconnectController: reconnec
 
 import { Sidebar } from '../Sidebar';
 import { useAppStore } from '../../state/store';
-import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
+import {
+  useRemoteHostRuntimeStore,
+  __resetRemoteHostOrchestrationForTest,
+} from '../../state/remoteHostStore';
 import { stopRemoteWorkspaceSync } from '../../services/remoteWorkspaceSync';
 
 function makeConfig(overrides: Partial<RemoteHostConfig> = {}): RemoteHostConfig {
@@ -125,6 +128,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useAppStore.setState({ workspaces: [], activeWorkspaceId: null });
   useRemoteHostRuntimeStore.setState({ runtime: {}, reconnecting: {} });
+  __resetRemoteHostOrchestrationForTest();
   remoteClient.rpc.mockResolvedValue({});
   remoteClient.connect.mockResolvedValue(remoteClient.info);
   remoteClient.onReconnectNeeded.mockReturnValue(() => undefined);

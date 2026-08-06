@@ -8,6 +8,43 @@
 
 ---
 
+## 🛡️ 复发防御清单(dev 起草前必读 · shift-left)
+
+> **不是通用最佳实践,是本项目 code review 反复抓到的同几类**。写代码时**主动规避**,不是写完等 review 抓 ——
+> 被预防掉的 finding 永远不需要多轮收敛。
+> 本清单起于 `OKWORK-F260805033051`(一轮 review 出 1 BLOCKER + 3 MAJOR,**全部集中在异步编排的收口**)。
+> 本项目大量代码是 renderer ↔ main ↔ 远程 host 的跨进程异步编排,下面每一条都在这个语境下反复咬人。
+
+| # | 写的时候问自己 | 反例(真出过) |
+|---|---|---|
+| RD-1 | **跨 await 边界排队时,"意图"和"闸门"是同一个变量吗?** 是 → 拆开。一个布尔同时扛「拒收上一代残余」和「接受下一代意图」必然出错 | `resume` 放在排队**前**,闸全开而 IPC 还没发 → 被取消那次编排的残余事件把连接真做成,组头变绿(AC-6 逐字失败) |
+| RD-2 | **in-flight 去重槽(Set/Map)在"取消/作废"路径上有出口吗?** 只有 `.finally` 一个出口 = 那条 promise 永不落定时槽位永久泄漏 | 握手去重槽只在 `.finally` 释放;ws 卡在 upgrade → 新隧道的握手被自己的去重挡在门外,组头绿灯而终端全哑 |
+| RD-3 | **promise 闭包里 `new` 出来的资源(ws / timer / 子进程),实例上持引用了吗?** teardown 够不着闭包里的东西 | `connectViaWebSocket` 的 ws 只活在闭包,`this.transport` 要到 `onopen` 才设 → dispose 落在「已 new 未 open」窗口时关不掉它 → 孤儿 ws + 心跳 |
+| RD-4 | **teardown 是"按 key 查表"还是"对捕获到的那个实例"?** 按 key 有两种失灵:key 已被更早的清理删掉(no-op,该关的没人关)、表里已换新一代实例(误杀) | 闸③收尾 `hostRegistry.drop(configId)`,而该 id 早被 `stopRemoteWorkspaceSync` 删了 → no-op |
+| RD-5 | **这个不变式是 machine/session 级的,却放进了组件私有 `useRef` 吗?** 多入口(侧栏 + 设置页可同时挂载)时,一个入口建立的不变式对另一个入口**不存在** | 断开在途表放在 Sidebar 的 ref 里,设置页看不见 → 直接发 connect 撞主进程在途去重 =「点了没反应」换个入口原样复现 |
+| RD-6 | **存进共享表、会被别人 `race`/`await` 的 promise,是已 `.catch` 的那条吗?** 裸 promise 一旦 reject,下游的 `.then` 整条不执行 | `pendingDisconnects` 存了裸 promise → reject 时排队的连接意图永久卡死 + 未处理 rejection |
+| RD-7 | **"有反馈"是给眼睛的还是只给读屏的?** `aria-busy` / `aria-live` 不产生任何像素 | 忙碌态只写 `aria-busy`,截图与常态**像素级相同** —— 用户点了 5 秒看不到任何变化,正是该 AC 明令禁止的症状 |
+| RD-8 | **同构分支复制了几份?** 每多一份,下一个新增的不变式就要记得在每一处各写一遍 —— 本 Feature 因此栽了**两次**(握手实现两份 / 三个只差 label 的按钮分支) | 设置页有独立的一份 `beginHandshake`,只给侧栏设闸 → 设置页留一条无人管理的活连接 |
+
+### 🧪 测试工装类(写测试时防 · 这几条的共同特征是「长得像通过」)
+
+> 起于同一个 Feature 的 test stage:38 条新用例的红从 14→12→8→5→1,**没有一条是产品缺陷**,
+> 全是下面这几类。它们比产品 bug 更危险 —— 产品 bug 会红,这些会**绿**。
+
+| # | 写的时候问自己 | 反例(真出过) |
+|---|---|---|
+| RD-9 | **拿不到测试前置条件时,用例是失败还是静默跳过?** `if (x) { ...断言... }` 形态 = 拿不到就跳过,报绿但零验证 | 9 条用例没接住 `installOkwork()` 返回值,`emitEvent` 恒 undefined,全被 `if` 跳过 —— 它们「通过」了几轮才被发现 |
+| RD-10 | **等待写法依赖 promise 链的深度吗?** 数 `await Promise.resolve()` 次数 = 押注实现细节,生产代码加一层就红 | 生产代码把表里存的从裸 promise 换成 `.catch().finally()` 后的链,链深 +2,一批用例当场红 |
+| RD-11 | **正向断言用轮询,负向断言用固定 flush** —— `waitFor(() => expect(x).not.toHaveBeenCalled())` **第一次轮询就通过**,什么都没等到;而给「等一件事发生」用固定 flush 又会因链深变化而脆 | 断言「排队的 connect 不得发出」写进 waitFor,实际什么都没证明。正解:先等一个**正向**信号(如 settling 被清)证明链条走完,再断言「没发」 |
+| RD-12 | **fake timers 与轮询 API 不能共存**:`vi.waitFor` / `findBy*` 靠**真实定时器**轮询,假时钟一开就永远等不到 → 卡满超时。要推进时间就用 `advanceTimersByTimeAsync`(它同时 flush 微任务),且同一用例里一个 waitFor 都不留 | 9 条用例 20s 超时,症状看起来像死锁,实际是工装互锁 |
+| RD-13 | **mock 与模块级状态跨用例存活吗?** 症状极具欺骗性:看起来像**生产代码不干活** | ① `vi.mock` 工厂里的实例缓存:前一条把 `reconnect` 改成 reject,后一条的握手静默走 `.catch`,表现为「`onReconnected` 不被调用」;② 模块级容器(非 zustand state)`setState` 清不掉,表现为「事件被闸吞掉」。两者都要在 `beforeEach` 显式重置 |
+| RD-14 | **改测试让红变绿之前,先问「是不是断言编码了已被推翻的旧语义」** | AC-14 断言「点连接即解除弃用」,而那正是 review 的 BLOCKER 修掉的行为 —— 照着它「修绿」的最省事走法就是**把生产代码改回旧行为**,等于悄悄退回修复 |
+
+📌 **判据来源**:RD-1..RD-8 每条对应 `REVIEW.md` 里一条 confirmed finding;RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
+📌 **清单会长**:同类第 2 次被抓即入;**已在清单里还复发 = 规避法不够硬,该强化那一条**,而不是再记一遍。
+
+---
+
 ## 🔀 Flagged Ambiguities(已澄清的歧义)
 
 > 评审循环中暴露"用户用 X 词同时指 A 和 B"时,澄清完后**实时**记录到此。
@@ -61,6 +98,7 @@
 | GO-034 | remote/reconnect | **增量回放游标 renderedBytes 必须用 host 给的 bytes 字段·不是 `data.length`**:xterm write 的是字符串·CJK/emoji 一字符多字节·用 `.length`(字符数)累加 → 游标偏移错位 → 重连回放双写/错位。且游标须 **onData 同步累加**(term.write 之前)非 write 回调(异步滞后·在途 chunk 致 resumeOffset 偏小又双写) | renderedBytes 在 onData 同步 `+= pty:data.bytes`(host 算好的字节数);ack 仍留 write 回调(背压);session.attach 返 nextOffset 权威推进不自算 | 2026-07 | OKWORK-F260710042746 |
 | GO-035 | remote/reconnect | **断线期 exited 会话重连后「已完成」徽标要从 session.list 快照点亮·不能等 pty:exit**:host reattach **不重发** pty:exit(会话早退出)·而 store `tab.exited` 只由渲染进程 onExit 设 → 重连后徽标永不亮(AC-12 北极星徽标半侧失效·scrollback 回放本身通过) | reconcileBadge 据 `snapshot.status==='exited'` 落 `tab.exited+exitCode`(单调终态·不回写 live) | 2026-07 | OKWORK-F260710042746 |
 | GO-036 | test/baseline | **test-baseline `--diff` 按 test-id 字符串精确匹配·登记与 `--current` 粒度必须一致**:历史把多个失败文件登记成一条逗号合并串·而 `--current` 传单文件→ 拆分后与合并串不匹配→ 全判 NEW_FAILURES(假阳性 stale_registered) | 逐文件独立 `--add`(单文件一条)·`--current-failures` 传同粒度单文件列表;`--list`/`--diff` 带 `--feature` 定位 worktree project-specs | 2026-07 | OKWORK-F260710042746 |
+| GO-037 | remote/deploy | **`deploying` 阶段取消会把部署锁留在远端·下一次连接最长空等 120s 后 deployFailed**(代码读证 · 未实测):`deploy.ts:213` 的 `finally { releaseMkdirLock }` 本身是对的,但取消走 `orchestrator.disconnect()` —— 它等在途编排 ≤5s(`orchestrator.ts:419`)超时即强关 ssh,而真实 bundle 上传常 >5s → finally 里那条 `rm -rf` 的 ssh exec 随连接一起失败 → 锁目录 `${dataDir}/bundle/.deploying-${version}` 残留。下次连接:`acquireMkdirLock` 见锁未陈旧(age ≤ 120s,`deploy.ts:37` `DEFAULT_LOCK_STALE_MS`)→ `waitForPeer` → `waitForReady` 轮询一个永不出现的 `.ready`,超时 120s 抛 `deployFailed`(`deploy.ts:118`) | **不是死锁,是一次性延迟**:锁 age > 120s 后 `mkdirLock.ts:88-92` break-and-reacquire 自动接管 → 再点一次连接即恢复。用户 D-7 已拍板接受此代价,本次不修。若日后要修:取消路径显式发一条独立 ssh 会话 `rm -rf` 锁目录,或给 `waitForReady` 加「等待中锁已陈旧则提前 break」的复检 | 2026-08 | OKWORK-F260805033051 |
 
 ---
 
@@ -108,7 +146,7 @@
 - **lifecycle**: GO-019
 - **remote/security**: GO-025
 - **remote/concurrency**: GO-026
-- **remote/deploy**: GO-027, GO-024(build)
+- **remote/deploy**: GO-027, GO-024(build), GO-037
 - **renderer/multi-host**: GO-028
 - **build/gate**: GO-029
 - **ui/remote**: GO-030

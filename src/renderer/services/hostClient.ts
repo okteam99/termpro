@@ -108,6 +108,15 @@ export class WebSocketTransport implements Transport {
 
 export class HostClient {
   private transport: Transport | null = null;
+  /**
+   * 🔴 REVIEW F3:**尚未 open 的那条 ws**。
+   * `connectViaWebSocket` 里 ws 原本只活在 promise 闭包,而 `this.transport` 要到 `onopen`
+   * 才由 `attachTransport` 设上 —— dispose/reconnect 落在「已 new、未 onopen」这个窗口时
+   * `transport` 仍是 null,**没人关得掉它**:那条 ws 会照常完成 upgrade、挂到已 dispose 的实例上、
+   * 起 5 秒心跳,成为无人管理的孤儿连接。新增的「取消」按钮把这个窗口从边角变成主路径
+   * (取消最常按在「卡在 Verifying」时)。持实例引用,teardown 时一并关。
+   */
+  private connectingWs: WebSocket | null = null;
   // 连接代次:每挂上一条新 transport +1。host 侧的会话归属(client.sessions)绑在**连接**上
   // ——旧连接一死,归属随之消失,新连接必须重发 session.attach 才能收发。消费方(TermInstance)
   // 记下自己 attach 成功时的代次,与现值一比即知「这条会话在当前连接上还有没有归属」,
@@ -358,6 +367,7 @@ export class HostClient {
     // 关旧 transport 但抑制其 onClose 分叉(否则又触发一次 reconnectNeeded → loop)
     this.tearingDown = true;
     this.stopHeartbeat();
+    this.closeConnectingWs(); // REVIEW F3:上一次握手的 ws 可能还卡在 upgrade,不关就成孤儿
     try {
       this.transport?.close();
     } catch {
@@ -385,9 +395,24 @@ export class HostClient {
    * 否则同一实例(理论上)重新 connect() 后,新 transport 打通的 rpc() 仍会被旧 down 态
    * 误判为「host 已退出」而拒绝(与「dispose 后重连」的调用方期望不符)。
    */
+  /** 关掉「已 new、未 onopen」的在途 ws(REVIEW F3)· 幂等 · 任何 teardown 路径都要调。 */
+  private closeConnectingWs(): void {
+    const ws = this.connectingWs;
+    if (!ws) return;
+    this.connectingWs = null;
+    try {
+      ws.onopen = null;
+      ws.onerror = null;
+      ws.close();
+    } catch {
+      /* 已死/尚未可关 —— close() 在 CONNECTING 态是合法的,浏览器会中止握手 */
+    }
+  }
+
   dispose(): void {
     this.tearingDown = true;
     this.stopHeartbeat();
+    this.closeConnectingWs();
     this.transport?.close();
     this.transport = null;
     this.connectPromise = null;
@@ -429,20 +454,28 @@ export class HostClient {
         reject(err instanceof Error ? err : new Error(String(err)));
         return;
       }
+      // REVIEW F3:登记「在途未 open」的 ws,让 dispose/reconnect 关得掉它。
+      this.connectingWs = ws;
+      const releaseConnecting = (): void => {
+        if (this.connectingWs === ws) this.connectingWs = null;
+      };
       const timer = setTimeout(() => {
         try {
           ws.close();
         } catch {
           /* ignore */
         }
+        releaseConnecting();
         reject(new Error('host ws timeout'));
       }, 10_000);
       ws.onerror = () => {
         clearTimeout(timer);
+        releaseConnecting();
         reject(new Error('host ws connect failed'));
       };
       ws.onopen = () => {
         clearTimeout(timer);
+        releaseConnecting(); // 已 open → 归 transport 管,不再由 connectingWs 负责
         this.attachTransport(new WebSocketTransport(ws));
         // 首条 RPC 必须是 host.info(host 侧 host.info-first 门控)
         this.rpc('host.info', undefined).then((info) => {

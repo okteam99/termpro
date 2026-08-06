@@ -118,6 +118,8 @@ export const zh: Record<string, string> = {
   '⚠ Connection lost': '⚠ 连接已断开',
   '✓ Connected': '✓ 已连接',
   'Disconnect': '断开',
+  'Failed to connect to {alias}: {reason}': '连接 {alias} 失败:{reason}',
+  'Disconnecting…': '正在断开…',
   // 🔴 'Update' 字面量已被 OkworkSkillBanner 占用(→'更新',技能更新按钮);此处升级远端 host
   // 是不同语境的版本升级+强制重部署,用更具体的键名 'Update host' 防止字典重复键冲突。
   'Update host': '升级',

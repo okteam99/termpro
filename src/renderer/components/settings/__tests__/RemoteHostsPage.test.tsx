@@ -9,7 +9,10 @@ import * as matchers from '@testing-library/jest-dom/matchers';
 expect.extend(matchers);
 
 import { RemoteHostsPage } from '../RemoteHostsPage';
-import { useRemoteHostRuntimeStore } from '../../../state/remoteHostStore';
+import {
+  useRemoteHostRuntimeStore,
+  __resetRemoteHostOrchestrationForTest,
+} from '../../../state/remoteHostStore';
 import {
   buildIncompatibleDetail,
   ProtocolIncompatibleError,
@@ -118,6 +121,7 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
     capabilities: vi.fn(async () => ({ encryptionAvailable: true })),
     connect: vi.fn(),
     disconnect: vi.fn(),
+    disconnectAwait: vi.fn(() => Promise.resolve()),
     upgrade: vi.fn(),
     onEvent: vi.fn((cb: (e: RemoteEvent) => void) => {
       listeners.push(cb);
@@ -168,7 +172,16 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  useRemoteHostRuntimeStore.setState({ runtime: {} });
+  useRemoteHostRuntimeStore.setState({
+    runtime: {},
+    reconnecting: {},
+    rtt: {},
+    // OKWORK-F260805033051:弃用/断开在途标记搬到了模块级 store(原来是组件内 useRef,
+    // 每次挂载天然干净)。不在此重置会跨用例残留,让后续用例的事件被弃用闸吞掉。
+    abandoned: {},
+    settling: {},
+  });
+  __resetRemoteHostOrchestrationForTest();
   delete (window as unknown as { okwork?: unknown }).okwork;
 });
 
@@ -404,7 +417,7 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
 
     fireEvent.click(screen.getByText('Disconnect'));
 
-    expect(bridge.disconnect).toHaveBeenCalledWith({ id: 'mini-pc' });
+    expect(bridge.disconnectAwait).toHaveBeenCalledWith({ id: 'mini-pc' });
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('mini-pc');
     // 用户意图 = 保持断开:在途重连编排(退避计时器/尝试)必须一并终止,否则会被重新拉起
     expect(reconnectControllerMock.cancel).toHaveBeenCalledWith('mini-pc');
@@ -649,7 +662,7 @@ describe('failure_classification_and_retry', () => {
     expect(within(row).queryByText('Delete')).toBeNull();
 
     fireEvent.click(btns[0]);
-    expect(bridge.disconnect).toHaveBeenCalledWith({ id: 'gpu-box' });
+    expect(bridge.disconnectAwait).toHaveBeenCalledWith({ id: 'gpu-box' });
   });
 });
 

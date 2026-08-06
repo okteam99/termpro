@@ -638,11 +638,11 @@
   white-space: nowrap;
 }
 
-/* 名称不再 flex:1 撑开后,状态徽标/连接按钮改由自身推到右侧(仅组头直接子级,
-   不影响嵌在 status 内的重试按钮) */
+/* 名称不再 flex:1 撑开后,状态徽标/RTT/连接类控件改由自身推到右侧(仅组头直接子级,
+   不影响嵌在 status 内的取消/重试按钮) */
 .sidebar-machine-header > .sidebar-machine-status,
-.sidebar-machine-header > .sidebar-machine-connect,
-.sidebar-machine-header > .sidebar-machine-connecting {
+.sidebar-machine-header > .sidebar-machine-rtt,
+.sidebar-machine-header > .sidebar-machine-ctl {
   margin-left: auto;
 }
 
@@ -675,33 +675,75 @@
   opacity: 1;
 }
 
-/* 状态徽标/连接钮等右推元素在前时,+ 紧随其后即可,不再自推(防两处 auto margin 均分空隙) */
-.sidebar-machine-header > .sidebar-machine-status ~ .sidebar-machine-add,
-.sidebar-machine-header > .sidebar-machine-connect ~ .sidebar-machine-add,
-.sidebar-machine-header > .sidebar-machine-connecting ~ .sidebar-machine-add {
+/* 状态徽标/RTT/连接类控件等右推元素在前时,后面的控件与 + 紧随其后即可,不再自推
+   (防两处 auto margin 均分空隙——见上方 auto margin 组) */
+.sidebar-machine-header > :is(.sidebar-machine-rtt, .sidebar-machine-status, .sidebar-machine-ctl) ~ :is(.sidebar-machine-ctl, .sidebar-machine-add) {
   margin-left: 0;
 }
 
-.sidebar-machine-connect {
+/* 🔴 组头连接类图标钮(OKWORK-F260805033051):取代已删除的 .sidebar-machine-connect 文字胶囊。
+   视觉上向既有 .sidebar-machine-add(+)的「安静图标钮」看齐:常态弱化、组头 hover 浮现,
+   hover 语义色补偿去文字后的可发现性下降(连接=accent · 断开/取消=red · 重试=amber)。
+   移植自设计预览 docs/design/preview-project/src/styles.css 尾部同名规则。 */
+.sidebar-machine-ctl {
   flex: none;
-  padding: 1px 8px;
-  font-size: 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(208, 135, 112, 0.5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: none;
+  border-radius: 3px;
   background: transparent;
-  color: var(--fg);
+  color: inherit;
   cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.1s, color 0.1s;
 }
 
-.sidebar-machine-connect:hover {
-  background: rgba(208, 135, 112, 0.16);
+.sidebar-machine-header:hover .sidebar-machine-ctl {
+  opacity: 0.75;
 }
 
-.sidebar-machine-connecting {
-  flex: none;
-  font-size: 10px;
-  font-weight: 400;
+.sidebar-machine-ctl:hover {
+  opacity: 1;
+}
+
+.sidebar-machine-ctl--connect:hover {
+  color: var(--accent);
+}
+
+.sidebar-machine-ctl--disconnect:hover,
+.sidebar-machine-ctl--cancel:hover {
+  color: var(--red);
+}
+
+.sidebar-machine-ctl--retry:hover {
   color: var(--amber);
+}
+
+/* 项目此前侧栏零 focus-visible 规则(违 UI-RULES);本 Feature 只补本次新增的这几个钮 */
+.sidebar-machine-ctl:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+/* AC-13 忙碌指示:断开 IPC 在途时连接钮转圈。🔴 尺寸必须与图标同为 12px——按钮宽度是
+   AC-15 位置不变式的一部分,换个大小就是横向跳变。默认态 opacity 0.35 太弱(几乎看不见),
+   忙碌是主动反馈、不该等 hover 才现形,故单独提亮。 */
+.sidebar-machine-ctl[aria-busy='true'] {
+  opacity: 0.9;
+  cursor: progress;
+}
+
+.sidebar-machine-ctl__busy {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  animation: add-ws-spin 0.8s linear infinite;
+  flex: none;
 }
 
 .sidebar-machine-empty {

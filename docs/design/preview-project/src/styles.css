@@ -1246,34 +1246,38 @@ select {
 }
 
 .sidebar-machine-label {
-  flex: 1;
+  /* flex: 0 1 auto(非 flex:1):名称按内容收缩,不再自行撑开推右——右侧的 dot/RTT/状态文案/连接控件/+
+     改由 margin-left:auto 链自己推到组头最右(见文件末尾「位置不变式」那段),与真实
+     src/renderer/components/Sidebar.css 的机制对齐。 */
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar-machine-connect {
-  flex: none;
-  padding: 1px 8px;
-  font-size: 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(74, 141, 248, 0.5);
-  background: transparent;
-  color: var(--fg);
+/* 组头可点(展开/折叠):整行热区,拖选文字无意义故禁选(仅 onToggleCollapse 传入时会出现,见 main.jsx) */
+.sidebar-machine-header--clickable {
   cursor: pointer;
+  user-select: none;
 }
 
-.sidebar-machine-connect:hover {
-  background: rgba(74, 141, 248, 0.16);
+.sidebar-machine-header--clickable:hover {
+  color: var(--fg);
 }
 
 .sidebar-machine-connecting {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   font-weight: 400;
   color: var(--amber);
 }
+
+/* .sidebar-machine-ctl 及位置不变式的 margin-left 链定义在本文件末尾
+   「===== OKWORK-F260805033051 · 组头连接控件重构 =====」那段(团队协作,避免重复定义)。 */
 
 .sidebar-machine-empty {
   margin: 2px 8px 4px;
@@ -1322,10 +1326,6 @@ select {
   color: var(--amber);
 }
 
-.sidebar-machine-status--fail {
-  color: var(--red);
-  gap: 6px;
-}
 
 .sidebar-machine-status-text {
   overflow: hidden;
@@ -3218,4 +3218,94 @@ select {
   .rc-cursor {
     animation: none;
   }
+}
+
+/* ===== OKWORK-F260805033051 · 组头连接控件重构 ===== */
+
+/* 复现真实侧栏已演进出的部分(全景此前停在 BL-004 形态) */
+.sidebar-machine-chevron { flex: none; display: block; opacity: .7; transition: transform .12s ease; }
+.sidebar-machine-chevron--collapsed { transform: rotate(-90deg); }
+.sidebar-machine-icon { flex: none; display: block; opacity: .8; }
+.sidebar-machine-rtt {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-family: Menlo, Monaco, 'SF Mono', monospace;
+}
+.sidebar-machine-rtt-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.sidebar-machine-rtt--good { color: var(--green); }
+.sidebar-machine-rtt--fair { color: var(--amber); }
+.sidebar-machine-rtt--poor { color: var(--red); }
+
+/* 组头「+」:在该机添加项目(常态弱化 · 组头 hover 浮现)。
+   🔧 margin-left:auto 补回(对齐真实 src/renderer/components/Sidebar.css 的 .sidebar-machine-add
+   基线定义)——本机组头没有 dot/RTT/status/ctl 在它前面时,只有靠 + 自身的 auto margin 才能被推到
+   组头最右;有 ctl/status 在前面时,下面「位置不变式」那组 ~ 选择器会把这份 auto margin 覆盖回 0,
+   避免和前面已经推过一次的控件叠加出双重空隙。 */
+.sidebar-machine-add {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 4px; font-size: 13px; line-height: 1.2;
+  border: none; border-radius: 3px; background: transparent; color: inherit;
+  cursor: pointer; opacity: .35; transition: opacity .1s;
+  margin-left: auto;
+}
+.sidebar-machine-header:hover .sidebar-machine-add { opacity: .75; }
+.sidebar-machine-add:hover { opacity: 1; }
+
+/* 🔴 本 Feature 新增:连接类图标钮(取代 .sidebar-machine-connect 文字胶囊)
+   类名刻意不用 .sidebar-machine-conn* —— 那是既有 connect/connecting 的前缀,会让 grep 误匹配 */
+.sidebar-machine-ctl {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 4px; border: none; border-radius: 3px; background: transparent;
+  color: inherit; cursor: pointer; opacity: .35;
+  transition: opacity .1s, color .1s;
+}
+.sidebar-machine-header:hover .sidebar-machine-ctl { opacity: .75; }
+.sidebar-machine-ctl:hover { opacity: 1; }
+/* hover 语义色:不加一个字,悬停瞬间即知动作性质 */
+.sidebar-machine-ctl--connect:hover { color: var(--accent); }
+.sidebar-machine-ctl--disconnect:hover,
+.sidebar-machine-ctl--cancel:hover { color: var(--red); }
+.sidebar-machine-ctl--retry:hover { color: var(--amber); }
+/* 项目此前侧栏零 focus-visible 规则(违 UI-RULES);本 Feature 只补本次新增的钮 */
+.sidebar-machine-ctl:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: 1px; opacity: 1;
+}
+
+/* 🔴 位置不变式:+ 恒贴最右;控件紧靠其左;宽度变化只发生在更左的状态文案区
+   🔧 补了 .sidebar-machine-connecting(未接 runtime 时纯文字「连接中…」+ 取消钮那个 span)——
+   它和 .sidebar-machine-status 是同一层级的两种「连接中」呈现(有无 % 快照的区别),遗漏会导致
+   这一态的取消钮贴着 dot 不贴右,和其余态的控件对不齐。 */
+.sidebar-machine-header > .sidebar-machine-ctl,
+.sidebar-machine-header > .sidebar-machine-status,
+.sidebar-machine-header > .sidebar-machine-connecting,
+.sidebar-machine-header > .sidebar-machine-rtt { margin-left: auto; }
+.sidebar-machine-header > .sidebar-machine-status ~ .sidebar-machine-ctl,
+.sidebar-machine-header > .sidebar-machine-connecting ~ .sidebar-machine-ctl,
+.sidebar-machine-header > .sidebar-machine-rtt ~ .sidebar-machine-ctl,
+.sidebar-machine-header > .sidebar-machine-ctl ~ .sidebar-machine-ctl,
+.sidebar-machine-header > .sidebar-machine-ctl ~ .sidebar-machine-add,
+.sidebar-machine-header > .sidebar-machine-status ~ .sidebar-machine-add,
+.sidebar-machine-header > .sidebar-machine-connecting ~ .sidebar-machine-add { margin-left: 0; }
+
+/* AC-7 · 全局一次性提示。
+   🔧 逐值对照真实 src/renderer/components/TransientToast.css 改的(原来这里是 bottom:48px/
+   z-index:60/max-width:70%/border-radius:6px/font-size:12px 的近似值,不是真实文件的值)——
+   真实文件是**顶部**居中(top:16px,不是偏下),z-index:1000,max-width 定宽 480px,
+   border-radius:8px,font-size:13px,box-shadow 更浅更贴(0 4px 16px .35),且有 pointer-events:none
+   (提示是纯展示,不拦鼠标)。单槽 · 5s 自动消失的行为语义本来就对,这里只改视觉值。 */
+.transient-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: 480px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--bg-active, #2a2f37);
+  color: #fff;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
