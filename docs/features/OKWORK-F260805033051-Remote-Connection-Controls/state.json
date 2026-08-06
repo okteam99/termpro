@@ -378,9 +378,9 @@
     ]
   },
   "stage_review_roles_adjustments": [],
-  "updated_at": "2026-08-05T16:20:59Z",
-  "updated_by": "stage-cost",
-  "_state_checksum": "sha256:3d8b5cbf32c8094d1934872f6f9393e373d8bd15a02361dc1972b9c73ba22143",
+  "updated_at": "2026-08-05T16:21:52Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:0c0bb96f844608b055f97be273496bc306392b981b4fe1991a22699bc5ab5783",
   "legal_next_stages": [
     "ship",
     "dev"
@@ -494,5 +494,10 @@
       "note": "",
       "at": "2026-08-05T14:52:12Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "pm_acceptance",
+    "label": "pm_acceptance 三选项",
+    "started_at": "2026-08-05T16:21:52Z"
+  }
 }

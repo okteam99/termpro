@@ -1,9 +1,9 @@
 ---
 feature_id: "OKWORK-F260805033051-Remote-Connection-Controls"
 author: PM
-status: draft
-decision: ""
-decided_at: ""
+status: confirmed
+decision: "approved_and_ship"
+decided_at: "2026-08-05T16:25:00Z"
 prd_ref: PRD.md (v0.3)
 test_report_ref: TEST-REPORT.md
 ac_total: 15
@@ -28,7 +28,7 @@ revision_history:
 | AC 通过数 | **15 / 15**(`verify-ac.py` 通过 · 每条 AC 均有测试绑定) |
 | 测试证据 | 全量 1768 passed;红 base 差分 `new=[]`;e2e exit 0;typecheck 干净;SMOKE_OK |
 | 评审 | review 两路独立(Architect Opus 5 + external sonnet)· 1 BLOCKER + 3 MAJOR 全修 · 验证轮 APPROVE |
-| 决策 | **待用户拍板** |
+| 决策 | **approved_and_ship**(用户 2026-08-05 拍板)|
 
 ---
 
