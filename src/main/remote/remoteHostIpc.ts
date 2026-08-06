@@ -99,12 +99,21 @@ export function registerRemoteHostIpc(
     return orchestrator.test(payload.id);
   });
 
+  // 🔴 编排 promise 必须接住(评审 P2):罕见竞态下 runConnect 可能以非法转移抛出收尾
+  // (如 config 刚被删),`void` 裸放会成为 main 未处理拒绝(历史上曾触发弹窗事故,
+  // 见 ssh.test.ts 回归用例)。吞掉但留日志。
+  const swallow = (what: string) => (err: unknown) => {
+    console.warn(`[remote] ${what} orchestration rejected:`, err);
+  };
+
   ipcMain.on(REMOTE_HOST_CHANNELS.connect, (_event, payload: { id: string }) => {
-    void orchestrator.connect(payload.id);
+    if (typeof payload?.id !== 'string') return;
+    orchestrator.connect(payload.id).catch(swallow('connect'));
   });
 
   ipcMain.on(REMOTE_HOST_CHANNELS.disconnect, (_event, payload: { id: string }) => {
-    void orchestrator.disconnect(payload.id);
+    if (typeof payload?.id !== 'string') return;
+    orchestrator.disconnect(payload.id).catch(swallow('disconnect'));
   });
 
   // 可等待版本(需要排队/等待语义时用):不承载"已断开"语义(TECH R4)——
@@ -116,9 +125,15 @@ export function registerRemoteHostIpc(
 
   // 用户显式升级服务端(Remote Hosts「Update」):forceRedeploy 连接——跳过 claim,
   // reap 旧 host 后重部署当前 app 版本 bundle。确认交互在 renderer 侧(弹窗明示
-  // 在跑会话将被终止),main 不二次拦截。
-  ipcMain.on(REMOTE_HOST_CHANNELS.upgrade, (_event, payload: { id: string }) => {
-    void orchestrator.connect(payload.id, { forceRedeploy: true });
+  // 在跑会话将被终止)。
+  // 🔴 纵深防御(评审 P2):upgrade 是 remoteHost 通道里唯一会【终止用户远端在跑进程】
+  // 的指令,而 preload 四窗共用——只信主窗口 sender(与 tunnel 通道的归属校验同族);
+  // 裸 on 通道无 invoke 层校验,payload 门一并补上。
+  ipcMain.on(REMOTE_HOST_CHANNELS.upgrade, (event, payload: { id: string }) => {
+    if (typeof payload?.id !== 'string') return;
+    const win = getMainWindow();
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
+    orchestrator.connect(payload.id, { forceRedeploy: true }).catch(swallow('upgrade'));
   });
 
   // 查看器窗口直连远程 host 的按需隧道查询(仅 ready 会话返回 localPort+token,

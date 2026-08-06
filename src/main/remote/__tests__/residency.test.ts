@@ -693,4 +693,44 @@ describe('resolveResidency 执行编排(注入 ssh 桩)', () => {
     // 关键断言:候选隧道必须已关闭,不泄漏 net.Server
     expect(candidateServer.closed).toBe(true);
   });
+
+  it('🔴 评审 P2 回归:候选隧道建成后,kill-alive 探测的 ssh.exec 抛出 → resolveResidency reject 且候选隧道仍被关闭', async () => {
+    // 🔴 与 E7 同族但不同触发点:E7 是 probeHostInfo 本身违反契约抛出(已被归一吞掉,
+    // 继续走确定性回收);这里是 claim 判定已落定「非 claim」之后,下一步 kill -0 探测的
+    // ssh.exec 本身抛出(如连接在此刻被作废/断线)——此前该异常会让 resolveResidency
+    // 直接 reject,下方「未认领关隧道」永不执行,调用方只 close ssh,候选隧道监听口常驻。
+    const ssh = createRoutedSsh({
+      sftpReadFile: (path) => {
+        if (path.endsWith('.ready')) return bufferOf('ok');
+        if (path.endsWith('host.port')) {
+          return bufferOf({ port: 5800, pid: 321, hostTag: CONFIG_ID });
+        }
+        return null;
+      },
+      execHandlers: [
+        (cmd) => {
+          if (cmd.startsWith('kill -0 "321"')) {
+            throw new Error('ssh channel closed mid-probe');
+          }
+          return null;
+        },
+      ],
+    });
+    const candidateServer = new FakeServer(46020);
+    await expect(
+      resolveResidency({
+        ssh,
+        dataDir: '/home/tester/.termpro-host',
+        configId: CONFIG_ID,
+        appVersion: '1.0.0',
+        minHostAppVersion: '1.0.0',
+        storedToken: 'stale-token',
+        // probe 未通过(非 claim)→ 才会走到下方 kill -0 探测分支
+        probeHostInfo: async () => ({ ok: false, detail: 'unreachable' }),
+        buildTunnel: async () => ({ server: asNetServer(candidateServer), localPort: 46020 }),
+        sleep: async () => undefined,
+      }),
+    ).rejects.toThrow('ssh channel closed mid-probe');
+    expect(candidateServer.closed).toBe(true); // 候选隧道仍被关闭,不泄漏监听口
+  });
 });

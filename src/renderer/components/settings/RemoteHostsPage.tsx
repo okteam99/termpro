@@ -92,7 +92,12 @@ function hostVersionOf(configId: string): string | undefined {
   return hostRegistry.forHostId(configId)?.info?.appVersion;
 }
 
-/** 远端 host 版本是否低于本机客户端版本(Update 按钮出现条件);不可比较 → 不判定为过旧。 */
+/** 远端 host 版本是否低于本机客户端版本(Update 按钮出现条件);不可比较 → 不判定为过旧。
+ *  🔴 隐含不变量(评审 P2 钉死):此处 `undefined → false` 与 main 收养门闸的
+ *  `isHostAppOutdated(undefined) → true` 口径【相反】,当前成立仅因「不上报 appVersion
+ *  的 host 会在连接时被 reap 重部署,根本进不了 ready」——若未来放宽收养门闸或调整
+ *  HOST_MIN_APP_VERSION 语义,这里必须同步复核,否则「host 过旧」引导会把用户带到
+ *  一个没有升级按钮的页面。 */
 function isHostOutdated(hostVersion: string | undefined): boolean {
   if (!hostVersion) return false;
   const cmp = compareAppVersions(hostVersion, window.okwork.version);
@@ -537,7 +542,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   ) {
     const buttons: ReactNode[] = [];
     if (stage === 'ready') {
-      if (isHostOutdated(hostVersionOf(config.id))) {
+      // !compact 门(评审 P2):确认行只在「手动添加」区渲染,「最近使用」紧凑区若也给
+      // 按钮,点击后确认行出现在视口外的另一区——当场表现为「点了没反应」。与
+      // Edit/Delete/Test 同族只在完整区提供。
+      if (!compact && isHostOutdated(hostVersionOf(config.id))) {
         buttons.push(
           <button
             key="update"
@@ -747,14 +755,17 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
 
   function renderRow(config: RemoteHostConfig, compact: boolean) {
     const runtime = runtimeMap[config.id];
-    if (!compact && upgradeConfirmId === config.id) {
+    // runtime ready 前置(评审 P2):确认行打开后机器可能断线/进入其它态——此时「在跑
+    // 会话将被终止」的承诺已不成立,不能再放行升级;回落普通行(残留的 confirmId 无害,
+    // 用户重新点 Update 时会重置)。
+    if (!compact && upgradeConfirmId === config.id && runtime?.stage === 'ready') {
       return (
         <div key={config.id} className="remote-hosts__entry">
           <div className="remote-hosts__row">
             <span className="remote-hosts__confirm">
               <span className="remote-hosts__confirm-text">
                 {t(
-                  'Upgrade host on {alias} to v{version}? All running sessions on that machine (including background agents) will be terminated',
+                  'Upgrade host on {alias} to v{version}? All running sessions on that machine (including background agents and sessions from other devices) will be terminated',
                   { alias: config.alias, version: window.okwork.version },
                 )}
               </span>

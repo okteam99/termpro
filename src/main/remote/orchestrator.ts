@@ -388,7 +388,16 @@ export class RemoteHostOrchestrator {
     // 永远没反应」(2026-07-20 事故)。统一改为:作废旧会话对象(在途的僵尸 runConnect
     // 经 sessions 身份校验在下个 emit/写入点自弃),必要时广播 disconnected 让 renderer
     // 同步,再以全新会话重建。
-    if (session.stage === 'ready' || ACTIVE_STAGES.has(session.stage)) {
+    // 🔴 force + 在途 connect(评审 P2-1):A 还排在 mutex 里没跑时(典型:Test 在途 →
+    // Connect 排队 → Update),session.stage 仍是 idle,仅凭 stage 判定不会作废——A 与
+    // force B 共用同一 session 对象,A 跑到 ready 后 B 的 emit('connecting') 撞
+    // ready→connecting 非法边抛出,Update 静默失效 + main 未处理拒绝。故 force 下只要
+    // 有在途/排队 connect 就一并作废(A 经 isCurrent 自弃,B 以全新会话经 mutex 尾随)。
+    if (
+      session.stage === 'ready' ||
+      ACTIVE_STAGES.has(session.stage) ||
+      (opts?.forceRedeploy && existingConnect !== undefined)
+    ) {
       const wasConnected = session.stage === 'ready' || session.stage === 'verifying';
       this.closeSessionTransport(session);
       // ready/verifying→disconnected 是合法边,广播给 renderer;connecting/deploying/…
@@ -647,46 +656,57 @@ export class RemoteHostOrchestrator {
   }
 
   private closeSessionTransport(session: RemoteHostSession): void {
-    // 🔴 SOCKS 代理先于 ssh 关闭:createSocksProxyServer.close() 会立即销毁全部在途
+    // 🔴 全部句柄恒【先摘引用再 close】:forwardServer 的 'close'/ssh 的 onClose watcher
+    // 都以「字段 === 本句柄」做身份校验(wireDisconnectWatcher/wireSshDisconnectWatcher),
+    // 若先 close 后置 null,同步派发 close 事件的实现(测试桩;真 net.Server 为异步)会在
+    // 校验仍通过时经 handleTransportDown 同步再入本函数——旧序实测递归 ~1500 层,靠
+    // RangeError 栈溢出被 try/catch 兜住才终止(巧合能工作)。先摘引用后,第二次进入
+    // 见到的字段已是 null/新值,身份校验失配即返回,再入结构上不可能。
+    //
+    // SOCKS 代理先于 ssh 关闭:createSocksProxyServer.close() 会立即销毁全部在途
     // 浏览器连接(=断开远程机 立即断流);其底层 openOutbound channel 随下面 ssh.close()
     // 失效,残留 server 只会对新连接抛错。socksInflight 置 null 让并发在途的
     // browserProxyFor 落到「listen 后竞态守卫」分支(stage 已非 ready → 自关返回 null)。
-    if (session.socksServer) {
+    const socksServer = session.socksServer;
+    session.socksServer = null;
+    if (socksServer) {
       try {
-        session.socksServer.close();
+        socksServer.close();
       } catch {
         /* 忽略:可能已关闭 */
       }
-      session.socksServer = null;
     }
     session.socksPort = null;
     session.socksInflight = null;
     session.socksToken = null;
-    if (session.browserMcpForward) {
+    const browserMcpForward = session.browserMcpForward;
+    session.browserMcpForward = null;
+    if (browserMcpForward) {
       try {
-        session.browserMcpForward.close(); // unforwardIn + 摘 tcp 监听(底层 channel 随 ssh.close 亡)
+        browserMcpForward.close(); // unforwardIn + 摘 tcp 监听(底层 channel 随 ssh.close 亡)
       } catch {
         /* 忽略:连接可能已断 */
       }
-      session.browserMcpForward = null;
     }
     // 清建立中令牌:在途 establish 的守卫将失配 → 自弃句柄,重连后新一轮可补建
     session.browserMcpForwardToken = null;
-    if (session.forwardServer) {
+    const forwardServer = session.forwardServer;
+    session.forwardServer = null;
+    if (forwardServer) {
       try {
-        session.forwardServer.close();
+        forwardServer.close();
       } catch {
         /* 忽略:可能已关闭 */
       }
-      session.forwardServer = null;
     }
-    if (session.ssh) {
+    const ssh = session.ssh;
+    session.ssh = null;
+    if (ssh) {
       try {
-        session.ssh.close();
+        ssh.close();
       } catch {
         /* 忽略 */
       }
-      session.ssh = null;
     }
     session.localPort = null;
   }
@@ -935,6 +955,33 @@ export class RemoteHostOrchestrator {
 
       const storedToken = this.deps.credentials.getSecret(tokenKey(hostTag));
 
+      // 🔴 force 升级「先传后杀」(评审 P1):bundle 按版本目录隔离,部署不触碰在跑旧
+      // host——先把当前版本 bundle 完整传到位(.ready 已在则幂等跳过;本地 bundle 缺失/
+      // SFTP 中断/deployBlockedByNewerVersion 单调闸都在【这里】失败,旧 host 毫发无损),
+      // 确认「这台机部署得上去」才允许下方 resolveResidency 去 reap。reap 后的常规
+      // deployBundle 二次调用命中 .ready 快路径,零重复上传;kill→start 窗口从「上传
+      // 多 MB bundle」收窄到「起进程」。用户授权的是「杀会话以换取升级」,不是
+      // 「会话被杀且什么都没换到」。
+      if (opts?.forceRedeploy) {
+        this.emit(configId, { stage: 'deploying', percent: 0, arch });
+        try {
+          await deployBundle({
+            ssh,
+            dataDir,
+            appVersion: this.deps.appVersion,
+            localBundleDir: this.deps.bundleDir(arch),
+            sleep,
+            onProgress: (pct) => {
+              this.emit(configId, { stage: 'deploying', percent: pct, arch });
+            },
+          });
+        } catch (err) {
+          this.failSession(configId, 'deployFailed', sanitizeDetail(err));
+          ssh.close();
+          return;
+        }
+      }
+
       const residency = await resolveResidency({
         ssh,
         dataDir,
@@ -951,28 +998,39 @@ export class RemoteHostOrchestrator {
 
       if (residency.decision.action === 'claim') {
         const { tunnel } = residency.claimed!;
-        session.forwardServer = tunnel.server;
-        session.localPort = tunnel.localPort;
-        // 🔴 EXT-B-2/Phase 2:claim 用 residency 实际探测通过的 token(服务端身份
-        // 文件优先,回落本地缓存)——设备 B 认领设备 A 起的 host 时本地缓存为空,
-        // 服务端文件是唯一通道;认领成功即回写本地缓存(心跳/快速重连用)。
-        // 生成新 token 只发生在未认领的部署分支,claim 分支绝不换 token。
-        const claimToken = residency.effectiveToken!;
-        session.token = claimToken;
-        session.remotePid = residency.portRaw?.pid ?? null;
-        if (claimToken !== storedToken) {
-          this.deps.credentials.setSecret(tokenKey(hostTag), claimToken);
-        }
+        // 🔴 隧道泄漏兜底(评审 P2,与下方启动路径同口径):emit 在会话已被作废时撞
+        // 非法转移抛出 → 外层 catch 只 close ssh,claim 隧道监听口常驻。兜底关掉再抛。
+        try {
+          session.forwardServer = tunnel.server;
+          session.localPort = tunnel.localPort;
+          // 🔴 EXT-B-2/Phase 2:claim 用 residency 实际探测通过的 token(服务端身份
+          // 文件优先,回落本地缓存)——设备 B 认领设备 A 起的 host 时本地缓存为空,
+          // 服务端文件是唯一通道;认领成功即回写本地缓存(心跳/快速重连用)。
+          // 生成新 token 只发生在未认领的部署分支,claim 分支绝不换 token。
+          const claimToken = residency.effectiveToken!;
+          session.token = claimToken;
+          session.remotePid = residency.portRaw?.pid ?? null;
+          if (claimToken !== storedToken) {
+            this.deps.credentials.setSecret(tokenKey(hostTag), claimToken);
+          }
 
-        this.emit(configId, { stage: 'claiming', fastPath: true, arch });
-        this.wireDisconnectWatcher(configId, tunnel.server);
-        this.emit(configId, {
-          stage: 'verifying',
-          fastPath: true,
-          arch,
-          tunnel: { localPort: tunnel.localPort, token: claimToken },
-        });
-        this.emit(configId, { stage: 'ready' });
+          this.emit(configId, { stage: 'claiming', fastPath: true, arch });
+          this.wireDisconnectWatcher(configId, tunnel.server);
+          this.emit(configId, {
+            stage: 'verifying',
+            fastPath: true,
+            arch,
+            tunnel: { localPort: tunnel.localPort, token: claimToken },
+          });
+          this.emit(configId, { stage: 'ready' });
+        } catch (err) {
+          try {
+            tunnel.server.close();
+          } catch {
+            /* 已关 */
+          }
+          throw err;
+        }
         void this.establishBrowserMcpForward(configId);
         this.deps.configStore.touchLastUsed(configId);
         return;
@@ -1140,40 +1198,52 @@ export class RemoteHostOrchestrator {
       }
 
       const tunnel = await this.buildTunnel(ssh, portRaw.port);
-      session.forwardServer = tunnel.server;
-      session.localPort = tunnel.localPort;
-      session.token = sessionToken;
-      session.remotePid = portRaw.pid;
+      // 🔴 隧道泄漏兜底(评审 P2):buildTunnel 之后任何一步抛出(典型:会话已被作废,
+      // failSession/emit 撞非法转移先抛,显式 close 永不执行)都必须关掉本机监听口,
+      // 否则外层 catch 只 close ssh,监听口常驻。成功路径(ready 落地)不受影响。
+      try {
+        session.forwardServer = tunnel.server;
+        session.localPort = tunnel.localPort;
+        session.token = sessionToken;
+        session.remotePid = portRaw.pid;
 
-      const probeResult = await probe(tunnel.localPort, sessionToken);
-      // 🔴 A14 修复:此前 !probeResult.ok(隧道时序/超时/被关等瞬时传输失败)与
-      // probeResult.compatible===false(真·版本不符)被合并成同一个 incompatible——
-      // 刚部署成功的 host 一次瞬时探测失败就被报「版本不兼容·请升级」,分类/文案/
-      // 重试语义全错(incompatible 提示升级、不该重试;瞬时失败该归 startFailed,
-      // 可重试)。拆两支:探测本身没跑通(!ok)→ startFailed;探测跑通但版本判定
-      // 不兼容(ok 且 compatible===false)→ incompatible。
-      if (probeResult.ok && probeResult.compatible === false) {
-        this.failSession(configId, 'incompatible', probeResult.detail);
-        tunnel.server.close();
-        session.forwardServer = null;
-        ssh.close();
-        return;
-      }
-      if (!probeResult.ok) {
-        this.failSession(configId, 'startFailed', probeResult.detail);
-        tunnel.server.close();
-        session.forwardServer = null;
-        ssh.close();
-        return;
-      }
+        const probeResult = await probe(tunnel.localPort, sessionToken);
+        // 🔴 A14 修复:此前 !probeResult.ok(隧道时序/超时/被关等瞬时传输失败)与
+        // probeResult.compatible===false(真·版本不符)被合并成同一个 incompatible——
+        // 刚部署成功的 host 一次瞬时探测失败就被报「版本不兼容·请升级」,分类/文案/
+        // 重试语义全错(incompatible 提示升级、不该重试;瞬时失败该归 startFailed,
+        // 可重试)。拆两支:探测本身没跑通(!ok)→ startFailed;探测跑通但版本判定
+        // 不兼容(ok 且 compatible===false)→ incompatible。
+        if (probeResult.ok && probeResult.compatible === false) {
+          this.failSession(configId, 'incompatible', probeResult.detail);
+          tunnel.server.close();
+          session.forwardServer = null;
+          ssh.close();
+          return;
+        }
+        if (!probeResult.ok) {
+          this.failSession(configId, 'startFailed', probeResult.detail);
+          tunnel.server.close();
+          session.forwardServer = null;
+          ssh.close();
+          return;
+        }
 
-      this.wireDisconnectWatcher(configId, tunnel.server);
-      this.emit(configId, {
-        stage: 'verifying',
-        arch,
-        tunnel: { localPort: tunnel.localPort, token: sessionToken },
-      });
-      this.emit(configId, { stage: 'ready' });
+        this.wireDisconnectWatcher(configId, tunnel.server);
+        this.emit(configId, {
+          stage: 'verifying',
+          arch,
+          tunnel: { localPort: tunnel.localPort, token: sessionToken },
+        });
+        this.emit(configId, { stage: 'ready' });
+      } catch (err) {
+        try {
+          tunnel.server.close();
+        } catch {
+          /* 已关 */
+        }
+        throw err;
+      }
       void this.establishBrowserMcpForward(configId);
       this.deps.configStore.touchLastUsed(configId);
     } catch (err) {
