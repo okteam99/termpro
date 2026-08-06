@@ -58,6 +58,26 @@ graph TD
 
 远程 host 的连接编排**全在 main 进程**（`src/main/remote/`，UI 零 SSH）：SSH 连接/隧道（node `ssh2`）、凭据 safeStorage、首次部署（版本隔离 bundle + 部署锁）、驻留进程认领-或-确定性回收、生命周期事件推送。renderer 侧新增 **per-host `HostClient` 注册表**（`src/renderer/services/hostRegistry.ts`：`'local'` 键复用既有单例 + 远程键按 OkWork 配置 id），远程连接经 main 建的 **SSH 本地端口转发**直连 `ws://127.0.0.1:<port>?token=…`（PTY 字节流经 main ssh2 流式中继·尊重 FLOW 水位·不经 Electron IPC）。协议本身**零改动**——隧道内跑的是同一套 HostService 协议。`host.info.hostId` 恒 `'local'` 的真实化留 BL-004（BL-003 一律用配置 id 为 per-host 键）。
 
+#### renderer 侧的连接编排（OKWORK-F260805033051 起）
+
+用户主动断开/取消之后，有**四条独立异步通道**会把状态写回或把连接真做成，且 `orchestrator.disconnect()`
+**不中断**在途编排（只 best-effort 等 ≤5s）。因此 renderer 侧设了**两道闸**（状态写入闸 + 副作用闸，共 7 处接线），
+并把 machine 级编排状态（断开在途表 / 连接意图 / 握手去重槽）收进 **`remoteHostStore` 模块级容器**——
+侧栏与设置页两个入口共用同一份，不放各自的 `useRef`。
+
+🔴 **`resume()` 必须在排队兑现点执行、与发 connect IPC 同步紧邻，不能放在 handleConnect 首行**——
+这条看起来反直觉、极易被"修复"回去，理由与备选方案见 **[ADR-0001](../docs/adr/ADR-0001-remote-connection-orchestration-gates.md)**。
+
+**IPC 契约新增**：`remoteHost:disconnectAwait`（`ipcMain.handle` · 可等待版断开）。旧 `remoteHost:disconnect`
+（`ipcMain.on` · 即发即忘）保留，现有两个调用点：`reconnectController` 的 disconnect-first（🔴 不可替换，
+换成可等待版会让自动重连等自己）与设置页的同步拆除路径。
+
+### 技术设计决策（ADR）
+
+| ADR | 决策 | 状态 |
+|---|---|---|
+| [ADR-0001](../docs/adr/ADR-0001-remote-connection-orchestration-gates.md) | 远程机连接编排用「两道闸 + 意图与弃用标记分家」，状态收进 store 模块级单源 | accepted |
+
 ---
 
 ## 三、`src/` 目录布局
