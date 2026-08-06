@@ -4,9 +4,9 @@
 
 ## 产品目标
 
-以终端为主体的多工程、多并行会话工作台；M5 兑现远程 Host（模型 A · 远程机为中心）。
+以终端为主体的多工程、多并行会话工作台；M5 兑现远程 Host（模型 A · 远程机为中心），并让 Browser Profile 具备密码管理与跨设备登录连续性。
 
-📎 完整业务描述与执行线见 [product-overview/OkWork_业务架构与产品规划.md](../product-overview/OkWork_业务架构与产品规划.md) · 拆解与并行编排权威见 [product-overview/workstream/WS-01-remote-host.md](../product-overview/workstream/WS-01-remote-host.md)
+📎 完整业务描述与执行线见 [product-overview/OkWork_业务架构与产品规划.md](../product-overview/OkWork_业务架构与产品规划.md) · 拆解与并行编排权威见 [WS-01](../product-overview/workstream/WS-01-remote-host.md) / [WS-02](../product-overview/workstream/WS-02-browser-profile-login-continuity.md)
 
 ## 执行批次（Wave）
 
@@ -56,6 +56,41 @@ graph LR
 | BL-004 | BL-001 · BL-003 | 用 workspace.* 协议发现/创建；需真实远程连接联调 |
 | BL-005 | BL-002 · BL-003 | 回放/对账建立在 standalone 会话存活语义与远程连接之上 |
 
+## WS-02 · Browser Profile 密码库与登录连续性
+
+> 按依赖串行交付；BL-006 与 WS-01 的 BL-005 无代码依赖，可在 review 带宽允许时并行启动。
+
+### Wave 1
+
+| Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
+|-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
+| BL-006 | Profile 密码库与静默保存/填充 | P0 | 本机加密 Vault + main 固定可信 guest preload + 按 Profile/exact-origin 自动保存、更新、静默填充 + 多账号与密码管理 UI | ① 登录后自动保存/更新且再次访问静默填充 ② 磁盘零明文、网站与宿主 renderer 无密码读取通道 ③ 多账号/显示/复制/删除可用并常驻 Agent 可读披露 | 无 | 待开始 | - | - | WS-02 |
+
+### Wave 2（前置：BL-006）
+
+| Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
+|-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
+| BL-007 | Remote Host Profile 权威存储与迁移 | P0 | Profile 逐个选择本机/Remote Host 权威位置；配置与密码 Vault 远程加密落盘；main-only RPC；原子迁移与断线 fail-closed | ① 唯一权威位置跨重启可用且远程数据绑定 profileId ② 迁移复制校验后切换，失败不丢数据 ③ Host 断线暂停密码能力且不回退本机影子 Vault | BL-006 | 待开始 | - | - | WS-02 |
+
+### Wave 3（前置：BL-007）
+
+| Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
+|-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
+| BL-008 | Browser Profile 3A 登录连续性漫游 | P1 | 同步 Profile 配置、密码与 Electron 可表达 Cookie；revision/tombstone 多设备对账；其他网站 Storage 与 Cache 留在本机 | ① 另一设备连接同一 Host 可获得配置/密码/兼容 Cookie并延续常见站点登录 ② 多设备同步幂等且删除不复活 ③ 不兼容 Cookie 明示跳过，LocalStorage/IndexedDB/SW/Cache 不上传 | BL-007 | 待开始 | - | - | WS-02 |
+
+## WS-02 依赖关系
+
+```mermaid
+graph LR
+  BL-006 --> BL-007
+  BL-007 --> BL-008
+```
+
+| Feature | 依赖 | 原因 |
+|---------|------|------|
+| BL-007 | BL-006 | 远程 provider 复用已稳定的 Vault、guest 安全边界和 Profile 密码语义 |
+| BL-008 | BL-007 | Cookie 多设备对账复用 Profile 唯一权威位置、迁移和远程持久化协议 |
+
 ## 技术债清单
 
 | 债务 ID | 描述 | 产生原因 | 影响范围 | 严重程度 | 建议清理时间 | 来源 | 状态 |
@@ -66,4 +101,5 @@ graph LR
 
 | 日期 | 变更 |
 |------|------|
+| 2026-08-05 | WS-02 登录连续性拆出 BL-006…BL-008；用户确认 3A 范围与三阶段串行交付 |
 | 2026-07-09 | 初始规划：WS-01（M5 远程 Host · 模型 A）拆出 BL-001…BL-005 |
