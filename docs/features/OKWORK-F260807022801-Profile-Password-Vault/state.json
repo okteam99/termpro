@@ -1,0 +1,81 @@
+{
+  "feature_id": "OKWORK-F260807022801-Profile-Password-Vault",
+  "bl": "BL-006",
+  "clarity": "explicit",
+  "preset": "full",
+  "sub_project": "",
+  "flow_type": "Feature",
+  "artifact_root": "docs/features/OKWORK-F260807022801-Profile-Password-Vault",
+  "host": "codex-cli",
+  "host_history": [
+    {
+      "host": "codex-cli",
+      "at": "2026-08-09T02:35:49Z",
+      "source": "init-feature"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-09T02:35:55Z",
+      "source": "goal-start",
+      "previous": "codex-cli"
+    }
+  ],
+  "current_stage": "goal",
+  "merge_target": "main",
+  "review_base_commit": null,
+  "worktree": {
+    "strategy": "auto",
+    "branch": "feature/okwork-f260807022801-profile-password-vault",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260807022801-Profile-Password-Vault",
+    "base_branch": "origin/main",
+    "created_at": "2026-08-09T02:35:49Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "feature/okwork-f260807022801-profile-password-vault",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-08-09T02:35:49Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [
+    "[WARN] prepare-check audit 仅 prefix 命中:窗内最近 record stem='OKWORK-F260809023531' ≠ 本次 feature_id='OKWORK-F260807022801-Profile-Password-Vault' · 并行多 feature 场景请确认 prepare 确为本 feature 跑过 · 必要时重跑 prepare-check 取本 feature 的 next_available_id_stem"
+  ],
+  "review_round": 0,
+  "stage_contracts": {
+    "goal": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-09T02:35:55Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-08-09T02:35:49Z",
+  "stage_review_roles": {
+    "goal": [
+      "fast"
+    ],
+    "blueprint": [],
+    "review": [
+      "fast"
+    ]
+  },
+  "stage_review_roles_adjustments": [
+    {
+      "stage": "*",
+      "roles": [],
+      "reason": "fast_mode(localconfig)· goal/review 各留单路合并评审 · 其余评审跳",
+      "adjusted_via": "fast_mode"
+    }
+  ],
+  "fast_mode": true,
+  "updated_at": "2026-08-09T02:35:55Z",
+  "updated_by": "pmo",
+  "_state_checksum": "sha256:dc59b7bcb1ee1eca81dbc4da4fcacb24091220ce5ea6fda0b93c89c3795a44b7",
+  "legal_next_stages": [
+    "ui_design",
+    "blueprint"
+  ]
+}
