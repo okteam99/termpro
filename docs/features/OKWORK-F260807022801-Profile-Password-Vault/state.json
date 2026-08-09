@@ -162,15 +162,12 @@
       "active_minutes": 4
     },
     "review": {
-      "input_satisfied": true,
-      "process_satisfied": true,
-      "output_satisfied": true,
-      "started_at": "2026-08-09T18:17:32Z",
-      "evidence": {
-        "verdict": "NEEDS_REVISION"
-      },
-      "completed_at": "2026-08-09T18:22:54Z",
-      "auto_commit": "48bf211",
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-09T18:28:44Z",
+      "evidence": {},
+      "auto_commit": "35e26a9",
       "artifacts": [
         "REVIEW.md"
       ],
@@ -182,7 +179,21 @@
           "review_commit": "48bf211",
           "verdict": "NEEDS_REVISION",
           "new_findings_count": 3,
-          "carried_open_count": 0
+          "carried_open_count": 0,
+          "fix_commit": "35e26a9",
+          "fix_at": "2026-08-09T18:28:41Z",
+          "addresses_findings": [
+            "F1",
+            "F2",
+            "F3"
+          ]
+        },
+        {
+          "round": 2,
+          "review_commit": null,
+          "fix_commit": null,
+          "started_at": "2026-08-09T18:28:44Z",
+          "verdict": null
         }
       ],
       "findings_ledger": [
@@ -214,8 +225,7 @@
           "round_opened": 1
         }
       ],
-      "duration_minutes": 5,
-      "active_minutes": 5
+      "await_minutes": 0
     }
   },
   "completed_stages": [
@@ -244,9 +254,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T18:22:55Z",
+  "updated_at": "2026-08-09T18:28:44Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:7b6edb57df26869bd565cafb74002e15bb676ceaddd30a333d0ec73e1397eb7b",
+  "_state_checksum": "sha256:074a18d2f8711281752a8aaaf39059c1e338bd27bb35e7c629ef7022f73673e0",
   "legal_next_stages": [
     "test",
     "dev"

@@ -383,6 +383,12 @@ async function run_password_vault_browser_journeys() {
       savedPasswordsText.includes('The website and connected OkBrowser Agents can read values in the page DOM.'),
       'AC-8 management page discloses the filled-DOM exposure boundary',
     );
+    assertJourney(
+      savedPasswordsText.includes(
+        'Other apps and ordinary OkWork pages may read the exported value until it is cleared.',
+      ),
+      'AC-8 management page discloses the explicit clipboard export boundary',
+    );
 
     const trustedWindowPromise = app.waitForEvent('window');
     await mainWindow.getByRole('button', { name: 'Open trusted window…' }).click();
