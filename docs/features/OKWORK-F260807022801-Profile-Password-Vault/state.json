@@ -38,7 +38,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "e64c75d",
   "worktree": {
@@ -162,12 +162,14 @@
       "active_minutes": 4
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-08-09T18:28:44Z",
-      "evidence": {},
-      "auto_commit": "35e26a9",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "auto_commit": "d0a88d6",
       "artifacts": [
         "REVIEW.md"
       ],
@@ -190,42 +192,75 @@
         },
         {
           "round": 2,
-          "review_commit": null,
+          "review_commit": "d0a88d6",
           "fix_commit": null,
           "started_at": "2026-08-09T18:28:44Z",
-          "verdict": null
+          "verdict": "APPROVE",
+          "completed_at": "2026-08-09T18:37:35Z",
+          "new_findings_count": 2,
+          "carried_open_count": 0
         }
       ],
       "findings_ledger": [
         {
           "id": "F1",
           "severity": "BLOCKER",
-          "status": "open",
+          "status": "fixed",
           "title": "Profile 删除失败后，普通/可信 IPC 仍可显示、解密和复制该 Profile 的密码",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F2",
           "severity": "BLOCKER",
-          "status": "open",
+          "status": "fixed",
           "title": "Profile 设置和浏览器 chrome 缺少系统剪贴板导出风险的常驻披露",
           "source": "qa",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F3",
           "severity": "MINOR",
-          "status": "open",
+          "status": "fixed",
           "title": "TC 声称的 T-012 多账号、Profile 隔离、剪贴板条件清除和删除重试 Browser E2E 未实际执行",
           "source": "qa",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
+        },
+        {
+          "id": "F4",
+          "severity": "MINOR",
+          "status": "fixed",
+          "title": "External CR-1：T-012 未精确断言普通 Saved Passwords 页的 clipboard 披露",
+          "source": "external",
+          "deferred_reason": "",
+          "round_opened": 2
+        },
+        {
+          "id": "F5",
+          "severity": "MINOR",
+          "status": "rejected",
+          "title": "修订后的 TC 仍把 browser chrome 双披露列为 T-012 断言，但脚本只精确断言 DOM/Agent 文案",
+          "source": "qa",
+          "deferred_reason": "",
+          "round_opened": 2
         }
       ],
-      "await_minutes": 0
+      "await_minutes": 0,
+      "completed_at": "2026-08-09T18:37:35Z",
+      "duration_minutes": 8,
+      "active_minutes": 8
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-09T18:37:35Z"
     }
   },
   "completed_stages": [
@@ -233,7 +268,8 @@
     "ui_design",
     "panorama_sync",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
@@ -254,12 +290,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T18:28:44Z",
+  "updated_at": "2026-08-09T18:37:53Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:074a18d2f8711281752a8aaaf39059c1e338bd27bb35e7c629ef7022f73673e0",
+  "_state_checksum": "sha256:5f7705c4861e5d9cad556b4a384fefbe85baa6dfceff80b7c20477c9188b4a83",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
@@ -300,6 +336,16 @@
       ],
       "note": "最大协调开销是为满足 HEAD+diff 新鲜度门，在冻结 commit 后重启一次最终验证；其余轮次均为实现、真实 E2E 缺陷修复或全量回归修复。",
       "at": "2026-08-09T18:17:38Z"
+    },
+    {
+      "stage": "review",
+      "rounds": 2,
+      "overhead_rounds": 1,
+      "kinds": [
+        "external-evidence-scaffolding"
+      ],
+      "note": "最大协调开销是 fast 首轮无 external 产物时，fix-verify 配方需先补全量 external 锚点再生成增量证据；其余为有效安全缺陷发现与修复验证。",
+      "at": "2026-08-09T18:37:49Z"
     }
   ],
   "authoring_preventability": [
@@ -321,6 +367,18 @@
       "missing": [],
       "note": "",
       "at": "2026-08-09T17:30:56Z"
+    },
+    {
+      "stage": "review",
+      "preventable": 4,
+      "total": 4,
+      "missing": [
+        "删除状态必须统一约束 ordinary/trusted/guest 全部入口",
+        "三处安全披露逐面核对",
+        "E2E 声明与脚本精确断言逐项对账"
+      ],
+      "note": "",
+      "at": "2026-08-09T18:37:44Z"
     }
   ]
 }
