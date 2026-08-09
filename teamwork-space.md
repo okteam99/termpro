@@ -18,6 +18,9 @@
 | 工程速查(开发者手册) | [`docs/DEV.md`](docs/DEV.md) | 环境 · 命令 · 目录结构 · 架构要点 · CI/发版 · 已知约束 |
 | 工程规范(workspace) | [`project-specs/`](project-specs/) | DEV-RULES · KNOWLEDGE · GLOSSARY · TROUBLESHOOTING |
 | 系统架构(workspace) | [`project-specs/ARCHITECTURE.md`](project-specs/ARCHITECTURE.md) | UI壳↔Host 拓扑 + 依赖契约 + `src/` 目录布局 |
+| 架构决策(ADR) | [`docs/adr/INDEX.md`](docs/adr/INDEX.md) | 跨 Feature 影响 / 反悔成本高 / 选哪个不显然的决策 —— **为什么选 A 不选 B** |
+| 流程复盘 | [`docs/retros/`](docs/retros/) | 一 Feature 一份归因叙述(流程拦住了什么 · 代价花在哪);机器字段在 `project-specs/PROCESS-LEDGER.md` |
+| 交付归档(冷库) | [`docs/features/_archive/INDEX.md`](docs/features/_archive/INDEX.md) | 已交付 Feature 的过程稿 zip + 业务描述索引 · 先读描述判相关再解压 |
 | 代码(唯一真相) | `grep` + `Read` 源码 | 🔴 细节一律现查代码 · 不信文档转述 |
 
 ## 子项目清单（路由权威）
