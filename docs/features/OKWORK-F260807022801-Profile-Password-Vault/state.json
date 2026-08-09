@@ -24,9 +24,15 @@
       "at": "2026-08-09T14:50:40Z",
       "source": "panorama_sync-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-09T15:14:53Z",
+      "source": "blueprint-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "panorama_sync",
+  "current_stage": "blueprint",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -89,15 +95,32 @@
       "active_minutes": 45
     },
     "panorama_sync": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T14:50:32Z",
+      "await_minutes": 20,
+      "evidence": {},
+      "completed_at": "2026-08-09T15:14:44Z",
+      "auto_commit": "97b5b36",
+      "artifacts": [
+        "docs/features/OKWORK-F260807022801-Profile-Password-Vault/panorama-change-summary.md",
+        "docs/design/sitemap.md"
+      ],
+      "duration_minutes": 24,
+      "active_minutes": 24
+    },
+    "blueprint": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-09T14:50:32Z"
+      "started_at": "2026-08-09T15:14:44Z"
     }
   },
   "completed_stages": [
     "goal",
-    "ui_design"
+    "ui_design",
+    "panorama_sync"
   ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
@@ -118,11 +141,11 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T14:52:29Z",
-  "updated_by": "stage-cost",
-  "_state_checksum": "sha256:a51dc7c4a4f98802f777d12af0e27f517cd7e5f819d9f16a76117e44ddf8cae5",
+  "updated_at": "2026-08-09T15:14:53Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:392ea271521526f0dfc1c56eee9c4884941df4c077ed9ffcc282af2a26323d46",
   "legal_next_stages": [
-    "blueprint"
+    "dev"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
