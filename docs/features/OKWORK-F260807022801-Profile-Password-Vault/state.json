@@ -18,9 +18,15 @@
       "at": "2026-08-09T02:35:55Z",
       "source": "goal-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-09T14:50:40Z",
+      "source": "panorama_sync-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "ui_design",
+  "current_stage": "panorama_sync",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -63,14 +69,35 @@
       "active_minutes": 17
     },
     "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T14:04:47Z",
+      "await_minutes": 19,
+      "evidence": {
+        "panorama_changed": "true",
+        "needs_browser_e2e": "true"
+      },
+      "completed_at": "2026-08-09T14:50:32Z",
+      "auto_commit": "1e40dd9",
+      "artifacts": [
+        "docs/features/OKWORK-F260807022801-Profile-Password-Vault/UI.md",
+        "docs/design/preview-project/src/main.jsx",
+        "docs/design/preview-project/src/latest-ui-sync.css"
+      ],
+      "duration_minutes": 45,
+      "active_minutes": 45
+    },
+    "panorama_sync": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-09T14:04:47Z"
+      "started_at": "2026-08-09T14:50:32Z"
     }
   },
   "completed_stages": [
-    "goal"
+    "goal",
+    "ui_design"
   ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
@@ -91,16 +118,16 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T14:18:24Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:fc41191012961a589483db8ea8377c69f78da257660add531446ad868ec91706",
+  "updated_at": "2026-08-09T14:52:29Z",
+  "updated_by": "stage-cost",
+  "_state_checksum": "sha256:a51dc7c4a4f98802f777d12af0e27f517cd7e5f819d9f16a76117e44ddf8cae5",
   "legal_next_stages": [
-    "panorama_sync",
     "blueprint"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
-    "ui_design_needed": true
+    "ui_design_needed": true,
+    "panorama_changed": true
   },
   "stage_cost": [
     {
@@ -110,6 +137,14 @@
       "kinds": [],
       "note": "两轮均为实质安全评审；长墙钟主要来自用户确认等待",
       "at": "2026-08-09T14:05:00Z"
+    },
+    {
+      "stage": "ui_design",
+      "rounds": 2,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "一轮初版设计，一轮按最新版真实 UI 反向同步；均为有效设计工作",
+      "at": "2026-08-09T14:52:29Z"
     }
   ],
   "authoring_preventability": [
@@ -124,10 +159,5 @@
       "note": "",
       "at": "2026-08-09T14:05:06Z"
     }
-  ],
-  "open_pause": {
-    "stage": "ui_design",
-    "label": "UI 预览确认",
-    "started_at": "2026-08-09T14:18:24Z"
-  }
+  ]
 }
