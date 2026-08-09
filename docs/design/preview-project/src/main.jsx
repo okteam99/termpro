@@ -1590,23 +1590,22 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
   );
 }
 
-// ---- E. Browser identity / Profile login continuity ----
+// ---- E. BL-006 Browser Profile password vault (local-first) ----
 
 const BROWSER_PROFILE_STATE_PRESETS = [
-  { key: 'ready', label: '远端 · 已同步' },
-  { key: 'local', label: '仅本机' },
-  { key: 'migrating', label: '迁移中 · 68%' },
-  { key: 'offline', label: 'Host 断线' },
-  { key: 'cookie-partial', label: 'Cookie 部分跳过' },
-  { key: 'security', label: 'Host / Agent 可读' },
+  { key: 'ready', label: '正常' },
+  { key: 'loading', label: '加载中' },
+  { key: 'empty', label: '无自定义 Profile' },
+  { key: 'encryption-unavailable', label: '系统加密不可用' },
+  { key: 'delete-failed', label: '删除失败 · 可重试' },
 ];
 
 const PASSWORD_STATE_PRESETS = [
-  { key: 'ready', label: '密码列表' },
-  { key: 'revealed', label: '显示密码' },
-  { key: 'delete', label: '删除确认' },
-  { key: 'offline', label: 'Host 断线' },
+  { key: 'ready', label: '正常' },
+  { key: 'loading', label: '加载中' },
   { key: 'empty', label: '空态' },
+  { key: 'error', label: '加载失败' },
+  { key: 'encryption-unavailable', label: '系统加密不可用' },
 ];
 
 const PASSWORD_FLOW_STATE_PRESETS = [
@@ -1614,9 +1613,12 @@ const PASSWORD_FLOW_STATE_PRESETS = [
   { key: 'saved', label: '自动保存' },
   { key: 'updated', label: '自动更新' },
   { key: 'multi', label: '多账号' },
-  { key: 'offline', label: 'Host 断线' },
   { key: 'no-match', label: '无匹配' },
   { key: 'other-profile', label: 'Profile 隔离' },
+  { key: 'uncertain', label: '无法确认 · 未保存' },
+  { key: 'auth-failed', label: '登录失败 · 未覆盖' },
+  { key: 'encryption-unavailable', label: '系统加密不可用' },
+  { key: 'insecure-origin', label: '普通 HTTP · 已停用' },
 ];
 
 function BrowserIdentityWorkbench({ currentPath, onNavigate, presets, state, setState, children }) {
@@ -1647,128 +1649,153 @@ function BrowserIdentityWorkbench({ currentPath, onNavigate, presets, state, set
   );
 }
 
-function LoginContinuityScope() {
+function BrowserSettingOption({ selected, title, detail }) {
   return (
-    <div className="browser-profile__scope">
+    <div className={`browser-settings__option${selected ? ' browser-settings__option--selected' : ''}`}>
+      <span className="browser-settings__radio">{selected ? '●' : '○'}</span>
+      <span><strong>{title}</strong><small>{detail}</small></span>
+    </div>
+  );
+}
+
+function BrowserSettingGroups() {
+  return (
+    <div className="browser-settings__groups">
       <div>
-        <div className="browser-profile__scope-title">登录连续性漫游</div>
-        <div className="browser-profile__scope-copy">
-          同步 Profile 配置、已保存密码和兼容 Cookie。LocalStorage、IndexedDB、Service Worker 与 Cache 保留在各设备。
-        </div>
+        <div className="browser-profile__section-title">Open links in</div>
+        <BrowserSettingOption selected title="Built-in browser" detail="Terminal links open in OkWork’s own browser." />
+        <BrowserSettingOption title="System browser" detail="Terminal links open in your default browser." />
+        <BrowserSettingOption title="Built-in for remote terminals only" detail="Remote terminals stay reachable through OkBrowser." />
       </div>
-      <span className="browser-profile__scope-badge">登录数据</span>
+      <div>
+        <div className="browser-profile__section-title">Open the built-in browser in</div>
+        <BrowserSettingOption title="Separate window" detail="Open a dedicated OkBrowser window." />
+        <BrowserSettingOption selected title="In the app panel" detail="Open beside the active terminal." />
+      </div>
     </div>
   );
 }
 
-function BrowserProfileStatePanel({ state, onOpenPasswords, onOpenHosts }) {
-  if (state === 'local') {
-    return (
-      <div className="browser-profile__detail">
-        <span className="browser-profile__detail-dot browser-profile__detail-dot--muted" />
-        <div><strong>只保存在此 Mac</strong><span>密码由系统钥匙串保护；Cookie 不发送到远程机。</span></div>
-        <button className="remote-hosts__action remote-hosts__action--primary">移到远程机…</button>
-      </div>
-    );
-  }
-  if (state === 'migrating') {
-    return (
-      <div className="browser-profile__migration">
-        <div className="browser-profile__migration-head"><span>正在迁移登录数据到 mini-pc</span><strong>68%</strong></div>
-        <div className="browser-profile__meter"><span style={{ width: '68%' }} /></div>
-        <div className="browser-profile__migration-copy">32 条密码已写入 · 正在规范化 428 条 Cookie · 原位置会保留到校验完成</div>
-      </div>
-    );
-  }
-  if (state === 'offline') {
-    return (
-      <div className="browser-profile__detail browser-profile__detail--danger">
-        <span className="browser-profile__detail-dot browser-profile__detail-dot--danger" />
-        <div><strong>mini-pc 已断线</strong><span>已打开页面仍可使用本机 Cookie；密码自动保存与填充暂停，且不会回退为本机 Vault。</span></div>
-        <button className="remote-hosts__action" onClick={onOpenHosts}>打开 Remote Hosts</button>
-      </div>
-    );
-  }
-  if (state === 'cookie-partial') {
-    return (
-      <div className="browser-profile__detail browser-profile__detail--warn">
-        <span className="browser-profile__detail-dot browser-profile__detail-dot--warn" />
-        <div><strong>421 / 428 条 Cookie 已同步</strong><span>7 条使用 Electron 未公开的属性，已安全跳过；部分网站可能需要重新登录。</span></div>
-        <button className="remote-hosts__action">查看详情</button>
-      </div>
-    );
-  }
-  if (state === 'security') {
-    return (
-      <div className="browser-profile__security-grid">
-        <div className="browser-profile__security-card browser-profile__security-card--host">
-          <strong>Remote Host 可解密</strong>
-          <span>mini-pc 会解密此 Profile 的密码和 Cookie，用于读取、写入与迁移。Host 管理员及同 SSH 用户属于可信边界。</span>
-        </div>
-        <div className="browser-profile__security-card browser-profile__security-card--agent">
-          <strong>Agent 可读取填充值</strong>
-          <span>静默自动填充后，连接到 OkBrowser 的 Agent 可通过页面 JS 读取用户名与密码。</span>
-        </div>
-      </div>
-    );
-  }
+function BrowserPasswordScope({ unavailable = false }) {
   return (
-    <div className="browser-profile__detail">
-      <span className="browser-profile__detail-dot" />
-      <div><strong>已与 mini-pc 同步</strong><span>32 条密码 · 428 条兼容 Cookie · 2 分钟前</span></div>
-      <button className="remote-hosts__action" onClick={onOpenPasswords}>管理密码</button>
+    <div className={`browser-profile__scope${unavailable ? ' browser-profile__scope--danger' : ''}`}>
+      <div>
+        <div className="browser-profile__scope-title">{unavailable ? '密码保护暂不可用' : '本机加密密码库'}</div>
+        <div className="browser-profile__scope-copy">
+          {unavailable
+            ? '系统钥匙串未授权。OkWork 不会明文保存、填充、显示或复制密码。'
+            : '密码与 Profile、完整站点地址绑定，使用系统钥匙串加密并只保存在此设备。'}
+        </div>
+      </div>
+      <span className="browser-profile__scope-badge">{unavailable ? '已停用' : '此设备'}</span>
     </div>
   );
 }
 
-function BrowserProfilesModal({ state, onClose, onOpenPasswords, onOpenHosts }) {
-  const isRemote = state !== 'local';
+function ProfileSkeletons() {
+  return (
+    <div className="browser-profile__list browser-profile__list--loading" aria-label="Loading browser profiles">
+      {[0, 1, 2].map((i) => <div className="browser-profile__skeleton" key={i}><i /><span /><b /></div>)}
+    </div>
+  );
+}
+
+function BrowserProfilesModal({ state, onClose, onOpenPasswords }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [created, setCreated] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const showCustom = state !== 'empty';
+  const unavailable = state === 'encryption-unavailable';
+  const profiles = [
+    ...(showCustom ? [{ id: 'work', name: 'Work', meta: 'Chrome 兼容 UA · 3 个 Workspace', count: 3, active: true }] : []),
+    ...(showCustom ? [{ id: 'personal', name: 'Personal', meta: '系统默认 UA · 1 个 Workspace', count: 1 }] : []),
+    ...(created ? [{ id: 'research', name: 'Research', meta: '系统默认 UA · 尚未绑定 Workspace', count: 0 }] : []),
+  ];
+  const failedDelete = state === 'delete-failed';
+
   return (
     <div className="browser-profile__backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="browser-profile__card" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="browser-profile__card browser-profile__card--settings" onMouseDown={(e) => e.stopPropagation()}>
         <div className="browser-profile__header">
           <div>
-            <div className="browser-profile__title">Browser Profiles</div>
-            <div className="browser-profile__subtitle">Profile 隔离 Cookie、网站存储、缓存和已保存密码；Workspace 仍只绑定一个 Profile。</div>
+            <div className="browser-profile__title">Browser Settings</div>
+            <div className="browser-profile__subtitle">⌘/Ctrl+click a terminal link always opens the system browser.</div>
           </div>
-          <button className="remote-hosts__close" onClick={onClose}>×</button>
+          <button className="remote-hosts__close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="browser-profile__body">
-          <LoginContinuityScope />
+          <BrowserSettingGroups />
+          <div className="browser-settings__divider" />
+          <BrowserPasswordScope unavailable={unavailable} />
 
-          <div className="browser-profile__section-title">Profiles</div>
-          <div className="browser-profile__list">
-            <div className="browser-profile__row browser-profile__row--muted">
-              <div className="browser-profile__avatar">O</div>
-              <div className="browser-profile__identity">
-                <div><strong>OkWork</strong><span className="browser-profile__tag">Built-in</span></div>
-                <span>系统默认 UA · 此设备</span>
-              </div>
-              <span className="browser-profile__location">本机</span>
-              <span className="browser-profile__count">0 个密码</span>
-            </div>
-
-            <div className="browser-profile__row browser-profile__row--active">
-              <div className="browser-profile__avatar browser-profile__avatar--work">W</div>
-              <div className="browser-profile__identity">
-                <div><strong>Work</strong><span className="browser-profile__tag browser-profile__tag--active">当前</span></div>
-                <span>Chrome 兼容 UA · 3 个 Workspace</span>
-              </div>
-              <span className={`browser-profile__location${isRemote ? ' browser-profile__location--remote' : ''}`}>
-                {isRemote ? 'mini-pc' : '本机'}
-              </span>
-              <span className="browser-profile__count">32 个密码</span>
-              <button className="remote-hosts__action">编辑</button>
-            </div>
-            <BrowserProfileStatePanel state={state} onOpenPasswords={onOpenPasswords} onOpenHosts={onOpenHosts} />
+          <div className="browser-profile__section-head">
+            <div><div className="browser-profile__section-title">Browser profiles</div><p>每个 Profile 隔离 Cookie、网站存储、缓存和已保存密码。</p></div>
+            <button className="remote-hosts__action" onClick={onOpenPasswords}>管理已保存密码</button>
           </div>
 
-          <div className="browser-profile__notice-row">
-            <span>静默自动保存与填充已开启</span>
-            <span className="browser-profile__notice-chip browser-profile__notice-chip--host">Host 可解密</span>
+          {state === 'loading' ? <ProfileSkeletons /> : (
+            <div className="browser-profile__list">
+              <div className="browser-profile__row browser-profile__row--muted">
+                <div className="browser-profile__avatar">O</div>
+                <div className="browser-profile__identity">
+                  <div><strong>OkWork</strong><span className="browser-profile__tag">Built-in</span></div>
+                  <span>系统默认 UA · 默认 Profile</span>
+                </div>
+                <span className="browser-profile__location">此设备</span>
+                <span className="browser-profile__count">0 个密码</span>
+              </div>
+              {profiles.map((profile) => (
+                <div key={profile.id}>
+                  <div className={`browser-profile__row${profile.active ? ' browser-profile__row--active' : ''}${failedDelete && profile.id === 'work' ? ' browser-profile__row--disabled' : ''}`}>
+                    <div className={`browser-profile__avatar${profile.active ? ' browser-profile__avatar--work' : ''}`}>{profile.name[0]}</div>
+                    <div className="browser-profile__identity">
+                      <div><strong>{profile.name}</strong>{profile.active && <span className="browser-profile__tag browser-profile__tag--active">当前</span>}</div>
+                      <span>{profile.meta}</span>
+                    </div>
+                    <span className="browser-profile__location">此设备</span>
+                    <span className="browser-profile__count">{profile.count} 个密码</span>
+                    <span className="browser-profile__row-actions">
+                      <button>编辑</button>
+                      <button onClick={() => setDeleteTarget(profile.id)}>删除</button>
+                    </span>
+                  </div>
+                  {deleteTarget === profile.id && (
+                    <div className="browser-profile__inline-confirm">
+                      <span>删除 {profile.name}？密码、Cookie、站点存储和缓存全部清理完成后才会移除。</span>
+                      <button className="browser-profile__danger-btn" onClick={() => setDeleteTarget(null)}>确认删除</button>
+                      <button onClick={() => setDeleteTarget(null)}>取消</button>
+                    </div>
+                  )}
+                  {failedDelete && profile.id === 'work' && (
+                    <div className="browser-profile__detail browser-profile__detail--danger browser-profile__delete-failed">
+                      <span className="browser-profile__detail-dot browser-profile__detail-dot--danger" />
+                      <div><strong>删除未完成 · Profile 已停用</strong><span>缓存清理失败。密码不会再保存、填充、显示或复制；重启后仍可继续重试。</span></div>
+                      <button className="remote-hosts__action">重试清理</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!profiles.length && (
+                <div className="browser-profile__empty-row"><strong>还没有自定义 Profile</strong><span>新建 Profile，为不同工程隔离登录身份。</span></div>
+              )}
+            </div>
+          )}
+
+          {formOpen ? (
+            <div className="browser-profile__new-form">
+              <input autoFocus defaultValue="Research" aria-label="Profile name" />
+              <input placeholder="System default User-Agent" aria-label="User agent" />
+              <button onClick={() => { setCreated(true); setFormOpen(false); }}>保存</button>
+              <button onClick={() => setFormOpen(false)}>取消</button>
+            </div>
+          ) : (
+            <button className="remote-hosts__btn remote-hosts__btn--primary browser-profile__add" onClick={() => setFormOpen(true)}>新建 Profile</button>
+          )}
+
+          <div className="browser-profile__notice-row browser-profile__notice-row--disclosure">
+            <span>静默自动保存与填充已开启。密码填入网页后，网站与连接 OkBrowser 的 Agent 都可能读取。</span>
             <span className="browser-profile__notice-chip browser-profile__notice-chip--agent">Agent 可读填充值</span>
           </div>
-          <button className="remote-hosts__btn remote-hosts__btn--primary browser-profile__add">新建 Profile</button>
         </div>
       </div>
     </div>
@@ -1781,71 +1808,113 @@ function BrowserProfilesPage({ currentPath, onNavigate }) {
   useEffect(() => setOpen(true), [state]);
   return (
     <BrowserIdentityWorkbench currentPath={currentPath} onNavigate={onNavigate} presets={BROWSER_PROFILE_STATE_PRESETS} state={state} setState={setState}>
-      {open && (
-        <BrowserProfilesModal
-          state={state}
-          onClose={() => setOpen(false)}
-          onOpenPasswords={() => onNavigate('/settings/browser-passwords')}
-          onOpenHosts={() => onNavigate('/settings/remote-hosts')}
-        />
-      )}
+      {open && <BrowserProfilesModal state={state} onClose={() => setOpen(false)} onOpenPasswords={() => onNavigate('/settings/browser-passwords')} />}
     </BrowserIdentityWorkbench>
   );
 }
 
 const PASSWORD_ROWS = [
-  { origin: 'github.com', username: 'liam@example.com', changed: '今天', initial: 'G' },
-  { origin: 'console.aws.amazon.com', username: 'liam@okteam99.com', changed: '昨天', initial: 'A' },
-  { origin: 'linear.app', username: 'liam@okteam99.com', changed: '7 月 29 日', initial: 'L' },
+  { id: 'github-primary', origin: 'https://github.com', username: 'liam@example.com', profile: 'Work', changed: '今天', initial: 'G', secret: 'orange-harbor-42' },
+  { id: 'github-work', origin: 'https://github.com', username: 'liam@okteam99.com', profile: 'Work', changed: '昨天', initial: 'G', secret: 'misty-forest-17' },
+  { id: 'aws', origin: 'https://console.aws.amazon.com', username: 'liam@okteam99.com', profile: 'Work', changed: '7 月 29 日', initial: 'A', secret: 'amber-cloud-88' },
 ];
 
-function PasswordsModal({ state, onClose, onBack, onOpenHosts }) {
-  const rows = state === 'empty' ? [] : PASSWORD_ROWS;
+function TrustedPasswordSurface({ row, mode, onClose }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="trusted-password__backdrop">
+      <div className="trusted-password__window" role="dialog" aria-modal="true" aria-label="Trusted password window">
+        <div className="trusted-password__titlebar"><span>受信任密码窗口</span><button onClick={onClose}>×</button></div>
+        <div className="trusted-password__seal">隔离呈现 · 普通 OkWork 页面无法读取或触发解密</div>
+        <div className="trusted-password__meta"><strong>{row.origin}</strong><span>{row.username} · {row.profile}</span></div>
+        {mode === 'reveal' ? (
+          <>
+            <div className="trusted-password__secret">{revealed ? row.secret : '••••••••••••••••'}</div>
+            <p>密码仅在此窗口短时显示，10 秒后自动重新遮罩。</p>
+            <button className="trusted-password__primary" onClick={() => setRevealed(true)}>{revealed ? '已显示 · 10 秒' : '显示密码'}</button>
+          </>
+        ) : (
+          <>
+            <div className="trusted-password__warning">复制后，密码会进入系统剪贴板，本机其他应用和 OkWork 页面可能读取。</div>
+            <p>{copied ? '已复制 · 若内容未变化，将在 60 秒后自动清除。' : '只有你在此窗口中的明确操作会解密并复制这一条密码。'}</p>
+            <button className="trusted-password__primary" onClick={() => setCopied(true)}>{copied ? '✓ 已复制 · 60 秒' : '仍要复制'}</button>
+          </>
+        )}
+        <button className="trusted-password__cancel" onClick={onClose}>完成</button>
+      </div>
+    </div>
+  );
+}
+
+function PasswordListSkeleton() {
+  return <div className="browser-passwords__list browser-passwords__list--loading">{[0, 1, 2].map((i) => <div className="browser-passwords__skeleton" key={i}><i /><span /><b /></div>)}</div>;
+}
+
+function PasswordsModal({ state, onClose, onBack }) {
+  const [query, setQuery] = useState('');
+  const [rows, setRows] = useState(() => state === 'empty' ? [] : PASSWORD_ROWS);
+  const [deleteId, setDeleteId] = useState(null);
+  const [trustedAction, setTrustedAction] = useState(null);
+  useEffect(() => setRows(state === 'empty' ? [] : PASSWORD_ROWS), [state]);
+  const unavailable = state === 'encryption-unavailable';
+  const normalized = query.trim().toLowerCase();
+  const filtered = rows.filter((row) => !normalized || `${row.origin} ${row.username} ${row.profile}`.toLowerCase().includes(normalized));
+
   return (
     <div className="browser-profile__backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="browser-profile__card browser-passwords__card" onMouseDown={(e) => e.stopPropagation()}>
         <div className="browser-profile__header">
           <div>
-            <button className="browser-passwords__back" onClick={onBack}>‹ Browser Profiles</button>
-            <div className="browser-profile__title">Saved Passwords · Work</div>
-            <div className="browser-profile__subtitle">权威位置 mini-pc · 仅显示站点和用户名，密码默认遮罩。</div>
+            <button className="browser-passwords__back" onClick={onBack}>‹ Browser Settings</button>
+            <div className="browser-profile__title">Saved Passwords</div>
+            <div className="browser-profile__subtitle">列表只显示脱敏元数据。密码与 Profile、scheme、host、port 精确绑定并保存在此设备。</div>
           </div>
-          <button className="remote-hosts__close" onClick={onClose}>×</button>
+          <button className="remote-hosts__close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="browser-profile__body">
-          <div className="browser-passwords__toolbar">
-            <input aria-label="Search passwords" placeholder="搜索站点或用户名" disabled={state === 'offline'} />
-            <span className="browser-profile__notice-chip browser-profile__notice-chip--host">Host 可解密</span>
-          </div>
-          {state === 'offline' && (
-            <div className="browser-profile__detail browser-profile__detail--danger browser-passwords__offline">
-              <span className="browser-profile__detail-dot browser-profile__detail-dot--danger" />
-              <div><strong>mini-pc 已断线</strong><span>下方仅为上次同步的站点与用户名；密码显示、复制和修改已暂停。</span></div>
-              <button className="remote-hosts__action" onClick={onOpenHosts}>重连</button>
-            </div>
+          {unavailable && <BrowserPasswordScope unavailable />}
+          {state === 'error' && (
+            <div className="browser-passwords__status browser-passwords__status--danger"><strong>无法读取密码列表</strong><span>本机 Vault 暂时不可用。没有密码被返回或修改。</span><button>重试</button></div>
           )}
-          {rows.length ? (
-            <div className={`browser-passwords__list${state === 'offline' ? ' browser-passwords__list--disabled' : ''}`}>
-              {rows.map((row, index) => (
-                <div className="browser-passwords__row" key={row.origin}>
+          <div className="browser-passwords__toolbar">
+            <input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search passwords" placeholder="搜索站点、用户名或 Profile" disabled={state === 'loading' || state === 'error'} />
+            <select aria-label="Profile filter"><option>全部 Profile</option><option>Work</option><option>Personal</option></select>
+            <span className="browser-profile__notice-chip">本机加密</span>
+          </div>
+
+          {state === 'loading' ? <PasswordListSkeleton /> : filtered.length ? (
+            <div className={`browser-passwords__list${state === 'error' ? ' browser-passwords__list--disabled' : ''}`}>
+              {filtered.map((row) => (
+                <div className="browser-passwords__row" key={row.id}>
                   <span className="browser-passwords__site-icon">{row.initial}</span>
                   <span className="browser-passwords__origin"><strong>{row.origin}</strong><span>{row.username}</span></span>
-                  <span className="browser-passwords__secret">{state === 'revealed' && index === 0 ? 'orange-harbor-42' : '••••••••••••••'}</span>
+                  <span className="browser-passwords__profile">{row.profile}</span>
+                  <span className="browser-passwords__secret">已保存</span>
                   <span className="browser-passwords__changed">{row.changed}</span>
-                  {state === 'delete' && index === 0 ? (
-                    <span className="browser-passwords__confirm"><span>删除?</span><button>删除</button><button>取消</button></span>
+                  {deleteId === row.id ? (
+                    <span className="browser-passwords__confirm"><span>删除这一条？</span><button onClick={() => { setRows((items) => items.filter((item) => item.id !== row.id)); setDeleteId(null); }}>删除</button><button onClick={() => setDeleteId(null)}>取消</button></span>
                   ) : (
-                    <span className="browser-passwords__actions"><button disabled={state === 'offline'}>{state === 'revealed' && index === 0 ? '隐藏' : '显示'}</button><button disabled={state === 'offline'}>复制</button><button disabled={state === 'offline'}>删除</button></span>
+                    <span className="browser-passwords__actions">
+                      <button disabled={unavailable} onClick={() => setTrustedAction({ row, mode: 'reveal' })}>显示…</button>
+                      <button disabled={unavailable} onClick={() => setTrustedAction({ row, mode: 'copy' })}>复制…</button>
+                      <button onClick={() => setDeleteId(row.id)}>删除</button>
+                    </span>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <div className="browser-passwords__empty"><BrowserIdentityIcon /><strong>Work 还没有已保存密码</strong><span>登录网站后，OkBrowser 会自动保存到此 Profile。</span></div>
+            <div className="browser-passwords__empty"><BrowserIdentityIcon /><strong>{rows.length ? '没有匹配结果' : '还没有已保存密码'}</strong><span>{rows.length ? '尝试搜索其他站点、用户名或 Profile。' : '在 OkBrowser 成功登录后，密码会自动保存到当前 Profile。'}</span></div>
           )}
-          <div className="browser-passwords__footnote">连接到 OkBrowser 的 Agent 可以读取已自动填入页面的密码；设置页不会把密码发送给 renderer 页面。</div>
+
+          <div className="browser-passwords__disclosures">
+            <div><strong>填入网页后</strong><span>网站与连接 OkBrowser 的 Agent 可以读取页面中的用户名和密码。</span></div>
+            <div><strong>复制到剪贴板后</strong><span>本机应用可能读取；若内容未变化，OkWork 会在 60 秒后清除。</span></div>
+          </div>
         </div>
       </div>
+      {trustedAction && <TrustedPasswordSurface row={trustedAction.row} mode={trustedAction.mode} onClose={() => setTrustedAction(null)} />}
     </div>
   );
 }
@@ -1856,42 +1925,49 @@ function BrowserPasswordsPage({ currentPath, onNavigate }) {
   useEffect(() => setOpen(true), [state]);
   return (
     <BrowserIdentityWorkbench currentPath={currentPath} onNavigate={onNavigate} presets={PASSWORD_STATE_PRESETS} state={state} setState={setState}>
-      {open && (
-        <PasswordsModal
-          state={state}
-          onClose={() => setOpen(false)}
-          onBack={() => onNavigate('/settings/browser-profiles')}
-          onOpenHosts={() => onNavigate('/settings/remote-hosts')}
-        />
-      )}
+      {open && <PasswordsModal state={state} onClose={() => setOpen(false)} onBack={() => onNavigate('/settings/browser-profiles')} />}
     </BrowserIdentityWorkbench>
   );
 }
 
-function PasswordFlowNotice({ state }) {
+function PasswordFlowNotice({ state, onOpenAccounts }) {
   const notices = {
-    autofilled: ['✓', '已从 Work 静默填充', 'liam@example.com · mini-pc'],
-    saved: ['✓', '新密码已自动保存', 'github.com · Work · mini-pc'],
-    updated: ['✓', '密码已自动更新', 'github.com · Work · mini-pc'],
-    multi: ['2', '已填充最近使用的账号', 'liam@example.com · 此站点共 2 个账号'],
-    offline: ['!', 'mini-pc 已断线', '密码已暂停；已打开页面仍可使用本机 Cookie，不回退本机 Vault'],
-    'no-match': ['–', 'Work 中没有匹配密码', '登录后会自动保存'],
+    autofilled: ['✓', '已从 Work 静默填充', 'liam@example.com · 最近成功使用'],
+    saved: ['✓', '新密码已自动保存', 'https://github.com · Work · 此设备'],
+    updated: ['✓', '密码已自动更新', '旧密码已替换 · Work · 此设备'],
+    multi: ['2', '已填充最近成功使用的账号', 'liam@example.com · 此站点共 2 个账号'],
+    'no-match': ['–', 'Work 中没有匹配密码', '成功登录后会自动保存'],
     'other-profile': ['↔', 'Profile 隔离生效', 'Personal 中有密码；当前 Work 不会读取'],
+    uncertain: ['?', '无法确认登录结果 · 未保存', '现有密码保持不变'],
+    'auth-failed': ['!', '登录失败 · 未覆盖旧密码', '修正密码后可再次尝试'],
+    'encryption-unavailable': ['!', '密码保护暂不可用', '系统钥匙串未授权；不会保存或填充'],
+    'insecure-origin': ['!', '普通 HTTP 页面已停用密码功能', '仅 HTTPS 与本机 loopback HTTP 可保存和填充'],
   };
   const [icon, title, detail] = notices[state];
+  const danger = ['auth-failed', 'encryption-unavailable', 'insecure-origin'].includes(state);
   return (
-    <div className={`password-flow__notice password-flow__notice--${state}`}>
+    <div className={`password-flow__notice password-flow__notice--${danger ? 'danger' : state}`}>
       <span className="password-flow__notice-icon">{icon}</span>
       <span><strong>{title}</strong><small>{detail}</small></span>
-      {state === 'multi' && <button>切换账号</button>}
-      {state === 'offline' && <button>重连 Host</button>}
+      {state === 'multi' && <button onClick={onOpenAccounts}>切换账号</button>}
     </div>
   );
 }
 
 function PasswordFlowPage({ currentPath, onNavigate }) {
   const [state, setState] = useState('autofilled');
-  const filled = !['offline', 'no-match', 'other-profile'].includes(state);
+  const [accountsOpen, setAccountsOpen] = useState(false);
+  const [username, setUsername] = useState('liam@example.com');
+  const [password, setPassword] = useState('orange-harbor-42');
+  const noFillStates = ['no-match', 'other-profile', 'uncertain', 'auth-failed', 'encryption-unavailable', 'insecure-origin'];
+  const filled = !noFillStates.includes(state);
+  useEffect(() => {
+    setAccountsOpen(false);
+    setUsername(filled ? 'liam@example.com' : '');
+    setPassword(filled ? 'orange-harbor-42' : '');
+  }, [state, filled]);
+  const insecure = state === 'insecure-origin';
+
   return (
     <PreviewPage currentPath={currentPath} onNavigate={onNavigate} statePresets={PASSWORD_FLOW_STATE_PRESETS} activeStateKey={state} onSelectState={setState}>
       <div className="password-flow__stage">
@@ -1899,29 +1975,36 @@ function PasswordFlowPage({ currentPath, onNavigate }) {
           <div className="password-flow__titlebar">
             <span className="password-flow__lights"><i /><i /><i /></span>
             <strong>OkBrowser · Work</strong>
-            <span className="password-flow__profile">Profile: Work · mini-pc</span>
+            <span className="password-flow__profile">Profile: Work · 此设备</span>
           </div>
           <div className="password-flow__tabs"><span className="password-flow__tab">Sign in to GitHub <b>×</b></span><button>+</button></div>
           <div className="password-flow__toolbar">
             <button>‹</button><button>›</button><button>↻</button>
-            <div className="password-flow__address">🔒 github.com/login</div>
+            <div className={`password-flow__address${insecure ? ' password-flow__address--insecure' : ''}`}>{insecure ? 'ⓘ http://example.test/login' : '🔒 https://github.com/login'}</div>
             <span className="browser-profile__notice-chip browser-profile__notice-chip--agent">Agent 可读填充值</span>
           </div>
-          <PasswordFlowNotice state={state} />
+          <PasswordFlowNotice state={state} onOpenAccounts={() => setAccountsOpen((value) => !value)} />
+          {accountsOpen && (
+            <div className="password-flow__accounts">
+              <button onClick={() => { setUsername('liam@example.com'); setPassword('orange-harbor-42'); setAccountsOpen(false); }}><strong>liam@example.com</strong><span>最近成功使用</span></button>
+              <button onClick={() => { setUsername('liam@okteam99.com'); setPassword('misty-forest-17'); setAccountsOpen(false); }}><strong>liam@okteam99.com</strong><span>昨天使用</span></button>
+              <button onClick={() => onNavigate('/settings/browser-passwords')}>管理已保存密码…</button>
+            </div>
+          )}
           <div className="password-flow__page">
             <div className="password-flow__login-card">
               <div className="password-flow__github-mark">◉</div>
               <h2>Sign in to GitHub</h2>
-              <label>Username or email address<input readOnly value={filled ? 'liam@example.com' : ''} /></label>
-              <label>Password<input readOnly type="password" value={filled ? 'orange-harbor-42' : ''} /></label>
-              <button className="password-flow__signin">Sign in</button>
+              <label>Username or email address<input value={username} onChange={(e) => setUsername(e.target.value)} /></label>
+              <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+              <button className="password-flow__signin" onClick={() => setState(state === 'autofilled' ? 'updated' : 'saved')}>Sign in</button>
               <div className="password-flow__page-foot">{filled ? 'Filled by OkWork · Work profile' : 'No saved password used'}</div>
             </div>
           </div>
           <div className="password-flow__statusbar">
-            <span>登录数据: mini-pc</span>
+            <span>密码库: 此设备</span>
             <span>静默自动保存 / 填充</span>
-            <span>网站 Storage 与 Cache: 此设备</span>
+            <span>仅 HTTPS 与本机 loopback HTTP</span>
           </div>
         </div>
       </div>

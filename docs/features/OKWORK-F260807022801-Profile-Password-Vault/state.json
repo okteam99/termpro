@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "ui_design",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -45,13 +45,33 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T02:35:55Z",
+      "await_minutes": 672,
+      "evidence": {
+        "needs_browser_e2e": "true"
+      },
+      "completed_at": "2026-08-09T14:04:47Z",
+      "auto_commit": "d4b8683",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "duration_minutes": 688,
+      "active_minutes": 17
+    },
+    "ui_design": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-09T02:35:55Z"
+      "started_at": "2026-08-09T14:04:47Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal"
+  ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
     "goal": [
@@ -71,16 +91,38 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T02:52:38Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:b1ff4a973da62916d0b3136cd9f7c688008f2d792d9ef50ba896acfdfd6f59fa",
+  "updated_at": "2026-08-09T14:05:10Z",
+  "updated_by": "review-preventability",
+  "_state_checksum": "sha256:7a68ff6a6db3a222524459d1fc56d5841893999aaf7f25702adf0944f7fc2ad7",
   "legal_next_stages": [
-    "ui_design",
+    "panorama_sync",
     "blueprint"
   ],
-  "open_pause": {
-    "stage": "goal",
-    "label": "PRD v0.3 与 D-1/D-2/D-3 推荐项确认",
-    "started_at": "2026-08-09T02:52:38Z"
-  }
+  "execution_hints": {
+    "browser_e2e_needed": true,
+    "ui_design_needed": true
+  },
+  "stage_cost": [
+    {
+      "stage": "goal",
+      "rounds": 2,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "两轮均为实质安全评审；长墙钟主要来自用户确认等待",
+      "at": "2026-08-09T14:05:00Z"
+    }
+  ],
+  "authoring_preventability": [
+    {
+      "stage": "goal",
+      "preventable": 2,
+      "total": 2,
+      "missing": [
+        "显式显示与复制的端到端明文流",
+        "不可逆删除的失败与重试语义"
+      ],
+      "note": "",
+      "at": "2026-08-09T14:05:06Z"
+    }
+  ]
 }
