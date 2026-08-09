@@ -36,9 +36,15 @@
       "at": "2026-08-09T17:31:00Z",
       "source": "dev-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-09T18:44:57Z",
+      "source": "browser_e2e-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "browser_e2e",
   "merge_target": "main",
   "review_base_commit": "e64c75d",
   "worktree": {
@@ -260,13 +266,12 @@
       "input_satisfied": true,
       "process_satisfied": true,
       "output_satisfied": true,
-      "started_at": "2026-08-09T18:37:35Z",
+      "started_at": "2026-08-09T18:43:19Z",
       "evidence": {
-        "integration_test_exit_code": 2,
+        "integration_test_exit_code": 0,
         "e2e_test_exit_code": 0
       },
-      "completed_at": "2026-08-09T18:42:18Z",
-      "auto_commit": "53db5ab",
+      "auto_commit": "5f6887d",
       "artifacts": [
         "TEST-REPORT.md",
         "e2e/"
@@ -280,11 +285,32 @@
           "integration_test_exit_code": 2,
           "e2e_test_exit_code": 0,
           "integration_diff_clean": null,
-          "current_failures": ""
+          "current_failures": "",
+          "fix_commit": "5f6887d",
+          "fix_at": "2026-08-09T18:43:19Z"
+        },
+        {
+          "round": 2,
+          "test_commit": "5f6887d",
+          "fix_commit": null,
+          "started_at": "2026-08-09T18:43:19Z",
+          "integration_test_exit_code": 0,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": null,
+          "current_failures": "",
+          "completed_at": "2026-08-09T18:44:29Z"
         }
       ],
-      "duration_minutes": 4,
-      "active_minutes": 4
+      "await_minutes": 0,
+      "completed_at": "2026-08-09T18:44:29Z",
+      "duration_minutes": 1,
+      "active_minutes": 1
+    },
+    "browser_e2e": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-09T18:44:29Z"
     }
   },
   "completed_stages": [
@@ -293,7 +319,8 @@
     "panorama_sync",
     "blueprint",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
@@ -314,11 +341,10 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T18:42:18Z",
+  "updated_at": "2026-08-09T18:44:57Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:a4d90e0b1d98fed2a87e0e2af41cd46544550e8a50fa2689050f33665d17dae1",
+  "_state_checksum": "sha256:254b6085f736559da924f260c791ebbd3fcc1928157655a140d53cbe3fe67fab",
   "legal_next_stages": [
-    "browser_e2e",
     "pm_acceptance"
   ],
   "execution_hints": {

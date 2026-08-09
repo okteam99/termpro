@@ -20,6 +20,22 @@ const buildDir = path.join(root, '.vite', 'build');
 const rendererDir = path.join(root, '.vite', 'renderer');
 const skipBuild = process.argv.includes('--skip-build');
 const builtAtArg = process.argv.find((argument) => argument.startsWith('--built-at='));
+const screenshotsDirArg = process.argv.find((argument) => argument.startsWith('--screenshots-dir='));
+const screenshotsDir = screenshotsDirArg
+  ? path.resolve(process.cwd(), screenshotsDirArg.slice('--screenshots-dir='.length))
+  : path.join(root, 'docs', 'features', 'OKWORK-F260807022801-Profile-Password-Vault', 'screenshots');
+const screenshotNames = [
+  '01-browser-saved-status.png',
+  '02-browser-auto-fill.png',
+  '03-browser-prefilled-protection.png',
+  '04-saved-passwords-metadata-disclosures.png',
+  '05-trusted-initial-masked.png',
+  '06-trusted-auto-remasked.png',
+  '07-trusted-copy-disclosure.png',
+  '08-browser-auth-failed-unchanged.png',
+  '09-saved-password-delete-confirm.png',
+  '10-saved-password-delete-empty.png',
+];
 let buildStartedAt = builtAtArg ? Number(builtAtArg.slice('--built-at='.length)) : 0;
 
 let failures = 0;
@@ -84,7 +100,7 @@ if (!skipBuild) {
   // handles or environment. The timestamp keeps the artifact check strict.
   const rerun = spawnSync(
     process.execPath,
-    [__filename, '--skip-build', `--built-at=${buildStartedAt}`],
+    [__filename, '--skip-build', `--built-at=${buildStartedAt}`, `--screenshots-dir=${screenshotsDir}`],
     { cwd: root, stdio: 'inherit' },
   );
   process.exitCode = rerun.status ?? 1;
@@ -165,13 +181,14 @@ function startLoginFixture() {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
     response.setHeader('cache-control', 'no-store');
     response.setHeader('content-type', 'text/html; charset=utf-8');
-    if (url.pathname === '/login' || url.pathname === '/pre-filled') {
+    if (url.pathname === '/login' || url.pathname === '/pre-filled' || url.pathname === '/failed') {
       const prefilled = url.pathname === '/pre-filled';
+      const failed = url.pathname === '/failed';
       response.end(`<!doctype html>
         <title>Password vault fixture</title>
         <main>
           <h1>Sign in</h1>
-          <form method="get" action="/signed-in">
+          <form method="post" action="/signed-in">
             <label>Username <input autocomplete="username" name="username" value="${
               prefilled ? 'manual-user' : ''
             }"></label>
@@ -180,6 +197,15 @@ function startLoginFixture() {
             }"></label>
             <button type="submit">Sign in</button>
           </form>
+          ${failed ? `<script>
+            document.querySelector('form').addEventListener('submit', (event) => {
+              event.preventDefault();
+              const alert = document.createElement('p');
+              alert.setAttribute('role', 'alert');
+              alert.textContent = 'Sign-in failed';
+              document.querySelector('main').append(alert);
+            });
+          </script>` : ''}
         </main>`);
       return;
     }
@@ -229,6 +255,22 @@ async function eventually(action, description, timeoutMs = 10_000) {
   throw new Error(`${description}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
+function prepareScreenshots() {
+  fs.mkdirSync(screenshotsDir, { recursive: true });
+  for (const name of screenshotNames) {
+    const target = path.join(screenshotsDir, name);
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+  }
+}
+
+async function captureWindow(page, name) {
+  const target = path.join(screenshotsDir, name);
+  // A page screenshot without a clip is the full visible Electron window
+  // content (including OkBrowser chrome), not an element crop.
+  await page.screenshot({ path: target });
+  console.log(`SCREENSHOT ${target}`);
+}
+
 /** Real Electron Browser journey required by TC.md T-012. */
 async function run_password_vault_browser_journeys() {
   let electron;
@@ -250,7 +292,9 @@ async function run_password_vault_browser_journeys() {
   let cleanupFailure = null;
   // Never log this value: it proves ordinary pages do not obtain plaintext.
   const password = `pw-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const failedPassword = `failed-pw-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   try {
+    prepareScreenshots();
     fixture = await startLoginFixture();
     app = await electron.launch({
       executablePath: require('electron'),
@@ -336,6 +380,7 @@ async function run_password_vault_browser_journeys() {
       },
       'AC-1 saves only after observable success and reports non-secret chrome status',
     );
+    await captureWindow(browserWindow, '01-browser-saved-status.png');
 
     await navigate('/login');
     await eventually(
@@ -355,6 +400,7 @@ async function run_password_vault_browser_journeys() {
       (await browserWindow.locator('.browser-panel').innerText()).includes('Password filled from'),
       'filled chrome status is visible without exposing the password',
     );
+    await captureWindow(browserWindow, '02-browser-auto-fill.png');
 
     await navigate('/pre-filled');
     await eventually(
@@ -366,6 +412,36 @@ async function run_password_vault_browser_journeys() {
       },
       'AC-3 preserves pre-existing username and password field values',
     );
+    await captureWindow(browserWindow, '03-browser-prefilled-protection.png');
+
+    await navigate('/failed');
+    await eventually(
+      async () => {
+        const ready = await guestEvaluate("Boolean(document.querySelector('form'))");
+        if (!ready) throw new Error('failed-login fixture has not loaded');
+      },
+      'loopback failed-login form loads in the fixed guest preload',
+    );
+    await guestEvaluate(
+      `(() => {
+        const username = document.querySelector('[name=username]');
+        const secret = document.querySelector('[name=password]');
+        username.value = 'alice';
+        secret.value = ${JSON.stringify(failedPassword)};
+        document.querySelector('form').requestSubmit();
+        return Boolean(document.querySelector('[role=alert]'));
+      })()`,
+    );
+    await eventually(
+      async () => {
+        const text = await browserWindow.locator('.browser-panel').innerText();
+        if (!text.includes('Sign-in failed · saved password unchanged')) {
+          throw new Error('failed-login unchanged-password status absent');
+        }
+      },
+      'AC-1 reports failed sign-in without changing the saved password',
+    );
+    await captureWindow(browserWindow, '08-browser-auth-failed-unchanged.png');
 
     await mainWindow.getByTitle('Settings').click();
     await mainWindow.getByRole('menuitem', { name: 'Saved Passwords' }).click();
@@ -389,6 +465,7 @@ async function run_password_vault_browser_journeys() {
       ),
       'AC-8 management page discloses the explicit clipboard export boundary',
     );
+    await captureWindow(mainWindow, '04-saved-passwords-metadata-disclosures.png');
 
     const trustedWindowPromise = app.waitForEvent('window');
     await mainWindow.getByRole('button', { name: 'Open trusted window…' }).click();
@@ -400,6 +477,7 @@ async function run_password_vault_browser_journeys() {
         'Password masked',
       'trusted window starts with the password masked',
     );
+    await captureWindow(trustedWindow, '05-trusted-initial-masked.png');
     await trustedWindow.locator('[data-password-action="reveal"]').click();
     await eventually(
       async () => {
@@ -423,6 +501,17 @@ async function run_password_vault_browser_journeys() {
       !(await mainWindow.locator('.saved-passwords').innerText()).includes(password),
       'reveal leaves the ordinary management renderer without plaintext',
     );
+    await eventually(
+      async () => {
+        const label = await trustedWindow
+          .locator('.trusted-password-window__secret')
+          .getAttribute('aria-label');
+        if (label !== 'Password masked') throw new Error(`password remains visible (${label})`);
+      },
+      'AC-6 trusted reveal automatically returns to the masked state',
+      12_000,
+    );
+    await captureWindow(trustedWindow, '06-trusted-auto-remasked.png');
     await trustedWindow.locator('[data-password-action="copy"]').click();
     await eventually(
       async () => {
@@ -441,16 +530,15 @@ async function run_password_vault_browser_journeys() {
       ),
       'trusted copy UI discloses the explicit clipboard export boundary',
     );
-    await eventually(
-      async () => {
-        const label = await trustedWindow
-          .locator('.trusted-password-window__secret')
-          .getAttribute('aria-label');
-        if (label !== 'Password masked') throw new Error(`password remains visible (${label})`);
-      },
-      'AC-6 trusted reveal automatically returns to the masked state',
-      12_000,
-    );
+    await captureWindow(trustedWindow, '07-trusted-copy-disclosure.png');
+    await trustedWindow.close();
+    const passwordRow = mainWindow.locator('.saved-passwords__row');
+    await passwordRow.getByRole('button', { name: 'Delete', exact: true }).click();
+    await passwordRow.getByText('Delete this saved password?').waitFor({ state: 'visible' });
+    await captureWindow(mainWindow, '09-saved-password-delete-confirm.png');
+    await passwordRow.getByRole('button', { name: 'Delete', exact: true }).click();
+    await mainWindow.getByRole('status').getByText('No saved passwords yet').waitFor({ state: 'visible' });
+    await captureWindow(mainWindow, '10-saved-password-delete-empty.png');
     journeyCompleted = true;
   } finally {
     // Clipboard is global OS state. Restore before closing Electron because the
