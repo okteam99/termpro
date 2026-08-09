@@ -71,11 +71,16 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T02:35:55Z",
-  "updated_by": "pmo",
-  "_state_checksum": "sha256:dc59b7bcb1ee1eca81dbc4da4fcacb24091220ce5ea6fda0b93c89c3795a44b7",
+  "updated_at": "2026-08-09T02:52:38Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:b1ff4a973da62916d0b3136cd9f7c688008f2d792d9ef50ba896acfdfd6f59fa",
   "legal_next_stages": [
     "ui_design",
     "blueprint"
-  ]
+  ],
+  "open_pause": {
+    "stage": "goal",
+    "label": "PRD v0.3 与 D-1/D-2/D-3 推荐项确认",
+    "started_at": "2026-08-09T02:52:38Z"
+  }
 }
