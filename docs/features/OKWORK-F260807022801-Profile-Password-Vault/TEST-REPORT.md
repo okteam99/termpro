@@ -153,7 +153,13 @@ AC 覆盖校验通过（9 条 AC 均有测试覆盖）
 
 ## §6 Test-stage 修正记录
 
-在正式收集证据前，初次验证命令误把 canonical Node runner 写成 Feature 目录内的 `.cjs` 路径，得到 `MODULE_NOT_FOUND`。该问题属于测试入口映射，不是产品断言失败；新增并修正 Python 入口后，以同一入口完成 fresh package 与 Electron 旅程并取得 exit code 0。未进入 `test-complete` 的 fix-retry 轮次。
+| Round | test_commit | integration_exit | e2e_exit | 修正 | 备注 |
+|---|---|---:|---:|---|---|
+| preflight | `53db5ab` 前 | 0 | 1 | 新增 Python 入口并映射到根目录 canonical Node runner | 初次人工验证把 `.cjs` 误写到 Feature 目录，得到 `MODULE_NOT_FOUND`；产品断言未启动 |
+| 1 | `53db5ab` | 2 | 0（传入值） | 最终门禁改用绝对 Python 入口 | Teamwork 从 Feature 目录启动 test command，相对路径被重复拼接；全量 Vitest/typecheck 通过，但 E2E 未启动。工具表面 verdict 为 PASS，但真实合并 exit code 2，故本报告按失败处理并进入 fix/retry |
+| 2 | 见 `state.json.stage_contracts.test.rounds` | 0 | 0 | - | 使用绝对入口重跑全量 Vitest、typecheck、fresh package 与 Electron journey |
+
+Round 1 的 `e2e_exit=0` 是命令行预先传入的字段，不代表 E2E 实际运行；真实合并 exit code 与 `test-stdout.log` 明确显示 Python 启动失败。本轮没有篡改产品代码，也没有把工具的矛盾 verdict 当成通过证据。
 
 ---
 
@@ -170,4 +176,3 @@ AC 覆盖校验通过（9 条 AC 均有测试覆盖）
 | 日期 | 评审人 | 结论 | 备注 |
 |---|---|---|---|
 | 2026-08-10 | QA validation tier (`gpt-5.6-terra`) | ✅ pass | 全量 integration、typecheck、fresh Electron e2e 与 AC 覆盖均通过 |
-

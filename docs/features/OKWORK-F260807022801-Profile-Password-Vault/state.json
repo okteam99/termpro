@@ -257,10 +257,34 @@
       "active_minutes": 8
     },
     "test": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-08-09T18:37:35Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T18:37:35Z",
+      "evidence": {
+        "integration_test_exit_code": 2,
+        "e2e_test_exit_code": 0
+      },
+      "completed_at": "2026-08-09T18:42:18Z",
+      "auto_commit": "53db5ab",
+      "artifacts": [
+        "TEST-REPORT.md",
+        "e2e/"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-09T18:37:35Z",
+          "completed_at": "2026-08-09T18:42:18Z",
+          "test_commit": "53db5ab",
+          "integration_test_exit_code": 2,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": null,
+          "current_failures": ""
+        }
+      ],
+      "duration_minutes": 4,
+      "active_minutes": 4
     }
   },
   "completed_stages": [
@@ -290,9 +314,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T18:37:53Z",
+  "updated_at": "2026-08-09T18:42:18Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:5f7705c4861e5d9cad556b4a384fefbe85baa6dfceff80b7c20477c9188b4a83",
+  "_state_checksum": "sha256:a4d90e0b1d98fed2a87e0e2af41cd46544550e8a50fa2689050f33665d17dae1",
   "legal_next_stages": [
     "browser_e2e",
     "pm_acceptance"
