@@ -1,12 +1,14 @@
 ---
 reviewers: [fast]
-verdict: NEEDS_REVISION
+verdict: APPROVE
 coverage:
-  fast: "Architect 实现↔设计/简洁性 + QA 测试真实性/边界/错误日志并发 + 自主方向：审过三类 IPC、Profile/origin 隔离、原子 Vault、删除状态机、生命周期、UI 三页接线、T-001..T-012 与实跑证据；见 F1-F3，并对其余方向查过无同级发现"
+  fast: "Architect 实现↔设计/简洁性 + QA 测试真实性/边界/错误日志并发 + 自主方向：Round 2 严格复核 F1-F3 与 external CR-1 的修复 diff；F1-F4 已 fixed，F5 已 rejected；无 open findings"
 findings:
-  - {id: F1, severity: BLOCKER, status: open, title: "Profile 删除失败后，普通/可信 IPC 仍可显示、解密和复制该 Profile 的密码", source: arch}
-  - {id: F2, severity: BLOCKER, status: open, title: "Profile 设置和浏览器 chrome 缺少系统剪贴板导出风险的常驻披露", source: qa}
-  - {id: F3, severity: MINOR, status: open, title: "TC 声称的 T-012 多账号、Profile 隔离、剪贴板条件清除和删除重试 Browser E2E 未实际执行", source: qa}
+  - {id: F1, severity: BLOCKER, status: fixed, title: "Profile 删除失败后，普通/可信 IPC 仍可显示、解密和复制该 Profile 的密码", source: arch}
+  - {id: F2, severity: BLOCKER, status: fixed, title: "Profile 设置和浏览器 chrome 缺少系统剪贴板导出风险的常驻披露", source: qa}
+  - {id: F3, severity: MINOR, status: fixed, title: "TC 声称的 T-012 多账号、Profile 隔离、剪贴板条件清除和删除重试 Browser E2E 未实际执行", source: qa}
+  - {id: F4, severity: MINOR, status: fixed, title: "External CR-1：T-012 未精确断言普通 Saved Passwords 页的 clipboard 披露", source: external}
+  - {id: F5, severity: MINOR, status: rejected, title: "修订后的 TC 仍把 browser chrome 双披露列为 T-012 断言，但脚本只精确断言 DOM/Agent 文案", source: qa}
 ---
 
 # BL-006 Review Round 1（fast：Architect + QA）
@@ -68,3 +70,53 @@ findings:
 ## 最终 verdict
 
 **NEEDS_REVISION**。F1、F2 均是确定性 P0 AC/安全违约；修复并补相应组合测试后再进入验证轮。F3 可同轮修复或作为随行 MINOR，但不能用来替代 F1/F2 的安全收口。
+
+## Round 2 验证（48bf211..39ebb7e）
+
+本轮严格限于 F1-F3、修复 diff、Round 2 state brief 与 external `review-gpt-5.6-terra*.md`；未重跑测试。已有 dev 验证证据为定向 20/20、typecheck 0、fresh Forge + Electron E2E 0，以及 CR-1 的普通 Saved Passwords clipboard 精确断言已单独 fresh E2E 0。
+
+### F1 — fixed
+
+**质疑。** 只过滤普通 metadata 不足以保护已经打开的可信窗、已签发 proof 或删除与 reveal/copy 的交错；若任一入口仍只按 entryId，则原 BLOCKER 未关闭。
+
+**代码实证。** `passwordVaultIpc` 新增 fail-closed 的 `profileIsActive()`，普通列表按 `entry.profileId` 过滤（`src/main/passwordVaultIpc.ts:63-75,107-123`）；`openTrustedWindow()` 在创建/复用前校验 metadata 的 Profile（`:142-160`）。可信 context、grant、reveal、copy 都经 `trustedEntry()` 的实时 profile 判定；`consumeTrustedAction()` 先经过该判定才消费 proof（`:71-96,231-283`）。窗口 sender 同时绑定 Profile，`closeProfileTrustedWindows()` 会先删 entry/profile/proof 映射再关闭该 Profile 的所有可信窗（`:177-189,285-307`）。
+
+main 删除接线在状态已持久化后关闭 guest、撤销可信窗并广播 metadata（`src/main/main.ts:255-264`）。新增 IPC 组合测试先签发 reveal proof，再把 Profile 置 inactive，断言 metadata 空、不能新开、context/grant/reveal 均拒绝、copy 未调用，且窗口被关闭（`src/main/__tests__/browserPasswordIpc.test.ts:205-243`）；删除协调器也直接注入 Vault clear 失败并断言 `delete_failed` 持久 inactive（`browserProfileDeletion.test.ts:148-180`）。单线程 handler 在 active 判定后至 decrypt/copy 前没有 `await`，因此没有可实证的 TOCTOU 交错。
+
+**裁决。** fixed。F1 的 AC-7 fail-closed 不变式现在覆盖删除前 proof、已打开可信窗、普通 metadata 与 Vault 清理失败分支；未发现引入 provider/renderer ACL 等过度设计。
+
+### F2 — fixed
+
+**质疑。** 把 clipboard 文案只加到可信 Copy 按钮或 Saved Passwords，仍不能满足 AC-8/UI.md 的三处常驻披露。
+
+**代码实证。** Browser Profiles 在既有 DOM/Agent 提示旁新增“explicit copy 后，local apps/ordinary OkWork pages 可读 clipboard，60 秒仅未改写时清除”（`BrowserProfilesSection.tsx:143-154`）；`PasswordStatusBar` 也在始终挂载的 disclosure 区新增同一事实（`PasswordStatusBar.tsx:122-132`），Saved Passwords 的 DOM 与 clipboard 两栏仍在（`SavedPasswordsPage.tsx:397-412`）。安全测试同时检查 Profile、Saved Passwords、chrome 和 main 接线的关键文本（`browserPasswordSecurity.test.ts:60-73`），Profile 组件测试验证真实渲染。
+
+**裁决。** fixed。三面均明确 DOM/Agent 与 clipboard 导出边界，且没有扩大明文 API 或改变 60 秒条件清理语义。
+
+### F3 — fixed
+
+**质疑。** 仅删掉 E2E 段落而未交代原场景归属，会把多账号/隔离/删除等 P0 回归变成无主覆盖。
+
+**代码实证。** `TC.md` 将 T-012 收窄为脚本实际运行的 fresh-build 单一纵向旅程：保存、重访、非空保护、脱敏普通页、可信 reveal/copy、自动重遮和 finally clipboard 恢复；原多账号/Profile 隔离、60 秒两分支、删除失败重试分别明确归 T-001～004、T-007、T-008 + inactive IPC integration（`TC.md` 的“Browser E2E Scenarios”及“不由 T-012 重复承担的确定性覆盖”）。脚本确实执行上述纵向步骤并已有自动重遮断言（`e2e/password-vault.e2e.cjs:301-454`）。
+
+**裁决。** fixed。原先“把未执行的 FE-E2E-001..003 当作 T-012 已跑”的追溯错误已消除；故障/时钟敏感行为归可注入 integration 是更简洁且可重复的分层，不是覆盖降级。
+
+### F4 — fixed（external CR-1）
+
+**质疑。** 编译产物含有 clipboard 字符串，或可信窗口含该字符串，均不能证明普通 Saved Passwords 容器实际可见。
+
+**代码实证。** `39ebb7e` 在 heading 已可见后读取真实 `.saved-passwords` 容器，并精确断言普通页 clipboard 文案（`e2e/password-vault.e2e.cjs:370-391`）。external fix verification 也确认该断言不可能被 browser-status/trusted-window 文案误满足。
+
+**裁决。** fixed；无新增权限、资源或控制流。
+
+### F5 — MINOR：修订后的 TC 仍把 browser chrome 双披露列为 T-012 断言，但脚本只精确断言 DOM/Agent 文案
+
+**质疑。** F5 的前提是 T-012 在 chrome 容器只精确断言 DOM/Agent 文案；必须回读相邻代码，不能以先前截断输出推断。
+
+**代码实证。** 同一 `.password-status__disclosure` 容器紧邻 DOM/Agent 断言（`e2e/password-vault.e2e.cjs:280-285`）后，立即精确断言 `other local apps and ordinary OkWork pages may read the password from the system clipboard`，并命名为 `OkBrowser chrome continuously discloses the explicit clipboard export boundary`（`:286-291`）。因此 T-012 已实际验证 chrome 的两类常驻披露；`:370-391` 的 Saved Passwords 专属断言则独立关闭 F4。
+
+**裁决。** rejected。F5 来自遗漏相邻断言的 false positive；无需代码或测试改动。
+
+## Round 2 最终 verdict
+
+**APPROVE**。F1/F2 两项 BLOCKER、F3 和 external CR-1 均有确定性修复与相称测试；F5 经回读相邻精确断言后 rejected。无 open findings。
