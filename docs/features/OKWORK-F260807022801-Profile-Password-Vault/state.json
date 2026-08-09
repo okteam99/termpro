@@ -38,7 +38,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "e64c75d",
   "worktree": {
@@ -133,17 +133,47 @@
       "active_minutes": 10
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T17:30:48Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "npm test: 1739 passed, 87 skipped, exit 0; npm run typecheck: exit 0; node e2e/password-vault.e2e.cjs: fresh arm64 Forge package and T-012 Electron journeys PASS, exit 0"
+      },
+      "completed_at": "2026-08-09T18:17:32Z",
+      "auto_commit": "a4ffb74e5c46c881c9dcba0466b499abe1890598",
+      "artifacts": [
+        "docs/features/OKWORK-F260807022801-Profile-Password-Vault/TECH.md",
+        "src/shared/passwordVault.ts",
+        "src/main/localPasswordVault.ts",
+        "src/main/passwordVaultController.ts",
+        "src/main/passwordVaultIpc.ts",
+        "src/main/browserProfileDeletion.ts",
+        "src/main/clipboardSecretLease.ts",
+        "src/preload/browserGuestPreload.ts",
+        "src/preload/passwordTrustedPreload.ts",
+        "src/renderer/components/settings/SavedPasswordsPage.tsx",
+        "src/renderer/components/passwords/TrustedPasswordWindow.tsx",
+        "src/renderer/components/browser/PasswordStatusBar.tsx",
+        "e2e/password-vault.e2e.cjs"
+      ],
+      "duration_minutes": 46,
+      "active_minutes": 4
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-09T17:30:48Z"
+      "started_at": "2026-08-09T18:17:32Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
     "panorama_sync",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
@@ -164,11 +194,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T17:31:00Z",
-  "updated_by": "review-preventability",
-  "_state_checksum": "sha256:54dfcd8ace0f615560815263de6e3e2d2831902bbeb9b60bf64eb770e301aa90",
+  "updated_at": "2026-08-09T18:17:43Z",
+  "updated_by": "stage-cost",
+  "_state_checksum": "sha256:f7362fce2b42bc7ab3c8f60005b24244f513c10552f952d07b0a78fe148e3b36",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
@@ -199,6 +230,16 @@
       "kinds": [],
       "note": "主要工作为 grounded 代码核验、安全边界设计与用户兜底确认；无纯协调返工",
       "at": "2026-08-09T17:30:53Z"
+    },
+    {
+      "stage": "dev",
+      "rounds": 5,
+      "overhead_rounds": 1,
+      "kinds": [
+        "verification-restart"
+      ],
+      "note": "最大协调开销是为满足 HEAD+diff 新鲜度门，在冻结 commit 后重启一次最终验证；其余轮次均为实现、真实 E2E 缺陷修复或全量回归修复。",
+      "at": "2026-08-09T18:17:38Z"
     }
   ],
   "authoring_preventability": [
