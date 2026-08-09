@@ -42,9 +42,15 @@
       "at": "2026-08-09T18:44:57Z",
       "source": "browser_e2e-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-09T18:53:36Z",
+      "source": "pm_acceptance-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "browser_e2e",
+  "current_stage": "pm_acceptance",
   "merge_target": "main",
   "review_base_commit": "e64c75d",
   "worktree": {
@@ -307,10 +313,25 @@
       "active_minutes": 1
     },
     "browser_e2e": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T18:44:29Z",
+      "evidence": {},
+      "completed_at": "2026-08-09T18:53:27Z",
+      "auto_commit": "db52f87",
+      "artifacts": [
+        "screenshots/",
+        "BROWSER-TEST-REPORT.md"
+      ],
+      "duration_minutes": 8,
+      "active_minutes": 8
+    },
+    "pm_acceptance": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-09T18:44:29Z"
+      "started_at": "2026-08-09T18:53:27Z"
     }
   },
   "completed_stages": [
@@ -320,7 +341,8 @@
     "blueprint",
     "dev",
     "review",
-    "test"
+    "test",
+    "browser_e2e"
   ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
@@ -341,11 +363,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T18:44:57Z",
+  "updated_at": "2026-08-09T18:53:36Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:254b6085f736559da924f260c791ebbd3fcc1928157655a140d53cbe3fe67fab",
+  "_state_checksum": "sha256:ad7b33d74da02f2872cce9f1fb74b578171ffe2cd831925198e0012461e8e3da",
   "legal_next_stages": [
-    "pm_acceptance"
+    "ship",
+    "dev"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
@@ -396,6 +419,16 @@
       ],
       "note": "最大协调开销是 fast 首轮无 external 产物时，fix-verify 配方需先补全量 external 锚点再生成增量证据；其余为有效安全缺陷发现与修复验证。",
       "at": "2026-08-09T18:37:49Z"
+    },
+    {
+      "stage": "browser_e2e",
+      "rounds": 3,
+      "overhead_rounds": 1,
+      "kinds": [
+        "evidence-coverage-followup"
+      ],
+      "note": "初轮截图后补齐失败登录与删除边界截图属于一次证据覆盖返工；其余轮次为真实截图隐私缺陷修复和最终完整验证。",
+      "at": "2026-08-09T18:53:36Z"
     }
   ],
   "authoring_preventability": [
