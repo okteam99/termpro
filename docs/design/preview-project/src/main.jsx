@@ -1,6 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+// Reverse-sync the shared panorama shell from the current renderer sources.
+// These imports intentionally follow the panorama-specific stylesheet so the
+// real application remains the visual authority for shell primitives.
+import '../../../../src/renderer/index.css';
+import '../../../../src/renderer/components/Sidebar.css';
+import '../../../../src/renderer/components/TabBar.css';
+import '../../../../src/renderer/components/SideRail.css';
+import '../../../../src/renderer/components/PanelHeader.css';
+import '../../../../src/renderer/components/FilePanel.css';
+import './latest-ui-sync.css';
 
 const scenarios = {
   worktree: {
@@ -101,10 +111,14 @@ const DEVBAR_ROUTES = [
 ];
 
 function PreviewDevBar({ currentPath, onNavigate, statePresets, activeStateKey, onSelectState }) {
+  const currentRoute = DEVBAR_ROUTES.find((route) => route.path === currentPath);
   return (
-    <div className="preview-devbar">
-      <div className="preview-devbar__left">
+    <details className="preview-devbar">
+      <summary className="preview-devbar__summary">
         <span className="preview-devbar__label">DESIGN PREVIEW</span>
+        <span>{currentRoute?.label ?? currentPath}</span>
+      </summary>
+      <div className="preview-devbar__content">
         <nav className="preview-devbar__routes" aria-label="Preview routes">
           {DEVBAR_ROUTES.map((r) => (
             <a
@@ -117,19 +131,19 @@ function PreviewDevBar({ currentPath, onNavigate, statePresets, activeStateKey, 
             </a>
           ))}
         </nav>
+        <div className="preview-devbar__states" aria-label="State presets">
+          {statePresets.map((s) => (
+            <button
+              key={s.key}
+              className={`preview-devbar__state-chip${activeStateKey === s.key ? ' preview-devbar__state-chip--active' : ''}`}
+              onClick={() => onSelectState(s.key)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="preview-devbar__states" aria-label="State presets">
-        {statePresets.map((s) => (
-          <button
-            key={s.key}
-            className={`preview-devbar__state-chip${activeStateKey === s.key ? ' preview-devbar__state-chip--active' : ''}`}
-            onClick={() => onSelectState(s.key)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-    </div>
+    </details>
   );
 }
 
@@ -149,9 +163,27 @@ function PreviewPage({ currentPath, onNavigate, statePresets, activeStateKey, on
 }
 
 const DEFAULT_WORKSPACES = [
-  { id: 'okwork', name: 'OkWork', active: true, meta: 'main · ~/apps/okok/OkWork' },
-  { id: 'aon-core', name: 'aon-core', active: false, meta: 'staging · ~/apps/joli/aon' },
+  { id: 'okwork', name: 'OkWork', active: true, meta: 'main · ~/apps/okok/OkWork', tabCount: 2, tabRunning: 1 },
+  { id: 'aon-core', name: 'aon-core', active: false, meta: 'staging · ~/apps/joli/aon', tabCount: 1, tabRunning: 0 },
 ];
+
+function BellIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.2 6.7a4.8 4.8 0 0 1 9.6 0c0 4 1.5 4.3 1.5 4.3H1.7s1.5-.3 1.5-4.3Z" />
+      <path d="M6.3 13a1.9 1.9 0 0 0 3.4 0" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M6.8 1.8h2.4l.5 1.5 1.4.6 1.4-.7 1.7 1.7-.7 1.4.6 1.4 1.5.5v2.4l-1.5.5-.6 1.4.7 1.4-1.7 1.7-1.4-.7-1.4.6-.5 1.5H6.8l-.5-1.5-1.4-.6-1.4.7-1.7-1.7.7-1.4-.6-1.4-1.5-.5V8.2l1.5-.5.6-1.4-.7-1.4 1.7-1.7 1.4.7 1.4-.6.5-1.5Z" />
+    </svg>
+  );
+}
 
 function Sidebar({
   updatePillLabel = '⬆ 新版本 v0.4.0 — 点击升级',
@@ -175,8 +207,8 @@ function Sidebar({
   return (
     <aside className="sidebar" aria-label="Workspaces">
       <div className="sidebar-header">
-        <button className="icon-button" title="Notifications">◦</button>
-        <button className="icon-button" title="Add workspace" onClick={onAddWorkspace}>+</button>
+        <button className="sidebar-bell-btn" title="Notifications"><BellIcon /></button>
+        <button className="sidebar-add-btn" title="Add Project" onClick={onAddWorkspace}>+</button>
       </div>
       <div className="sidebar-list">
         {machines ? (
@@ -195,9 +227,17 @@ function Sidebar({
             />
           ))
         ) : (
-          workspaces.map((item) => (
-            <WorkspaceItem key={item.id} item={item} onReconnect={onReconnectWorkspace} />
-          ))
+          <div className="sidebar-machine-group" data-machine-id="local">
+            <div className="sidebar-machine-header sidebar-machine-header--clickable">
+              <MachineChevron collapsed={false} />
+              <MachineGroupLocalIcon />
+              <span className="sidebar-machine-label">Local</span>
+              <button className="sidebar-machine-add" title="Add Project" aria-label="Add Project" onClick={onAddWorkspace}>+</button>
+            </div>
+            {workspaces.map((item) => (
+              <WorkspaceItem key={item.id} item={item} onReconnect={onReconnectWorkspace} />
+            ))}
+          </div>
         )}
       </div>
       <SidebarFooter
@@ -529,11 +569,14 @@ function WorkspaceItem({ item, onReconnect }) {
     item.active ? 'sidebar-item--active' : '',
   ].filter(Boolean).join(' ');
   const remote = item.remote;
+  const badge = formatTabBadge(item);
 
   return (
     <div className={classes}>
       <div className="sidebar-item-name-row">
         <span className="sidebar-item-name">{item.name}</span>
+        {badge && <span className={`sidebar-machine-sessions${badge.zero ? ' sidebar-machine-sessions--zero' : ''}`}>{badge.text}</span>}
+        <button className="sidebar-edit-btn" title="Edit project"><GearIcon /></button>
       </div>
       <div className="sidebar-item-meta">
         {remote ? (
@@ -556,6 +599,7 @@ function WorkspaceItem({ item, onReconnect }) {
           item.meta
         )}
       </div>
+      <button className="sidebar-remove-btn" title="Remove project">×</button>
     </div>
   );
 }
@@ -881,6 +925,7 @@ function ConfirmationPreview() {
       </main>
       <div className="pane-handle" />
       <FilePanel scenario={scenarios.worktree} />
+      <SideRail />
     </div>
   );
 }
@@ -904,6 +949,53 @@ function TabBar() {
         <button className="tabbar-dropdown-btn" title="New tab options">▾</button>
       </div>
       <div className="tabbar-drag-strip" />
+    </div>
+  );
+}
+
+function RailGlobeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.5" />
+      <ellipse cx="8" cy="8" rx="2.9" ry="6.5" />
+      <line x1="1.5" y1="8" x2="14.5" y2="8" />
+    </svg>
+  );
+}
+
+function RailFolderIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1.5 4a1 1 0 0 1 1-1h3l1.5 1.8h6.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" />
+    </svg>
+  );
+}
+
+function SideRail({ active = 'files' }) {
+  return (
+    <div className="side-rail" aria-label="Side panel controls">
+      <button className={`side-rail-btn${active === 'browser' ? ' side-rail-btn--active' : ''}`} title="Show browser"><RailGlobeIcon /></button>
+      <button className={`side-rail-btn${active === 'files' ? ' side-rail-btn--active' : ''}`} title="Hide file panel"><RailFolderIcon /></button>
+    </div>
+  );
+}
+
+function PanelCloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+      <line x1="3.5" y1="3.5" x2="10.5" y2="10.5" />
+      <line x1="10.5" y1="3.5" x2="3.5" y2="10.5" />
+    </svg>
+  );
+}
+
+function PreviewPanelHeader({ title, icon }) {
+  return (
+    <div className="panel-header">
+      <span className="panel-header__icon">{icon}</span>
+      <span className="panel-header__title">{title}</span>
+      <div className="panel-header__spacer" />
+      <button type="button" className="panel-header__btn" title={`Hide ${title.toLowerCase()}`}><PanelCloseIcon /></button>
     </div>
   );
 }
@@ -968,6 +1060,7 @@ function FilePanel({ scenario, remote = false }) {
 
   return (
     <section className={`file-panel${remote ? ' file-panel--remote' : ''}`} aria-label="File Panel">
+      <PreviewPanelHeader title="Files" icon={<RailFolderIcon />} />
       <div className="file-panel__header">
         <div className="file-panel__seg">
           <button className={`file-panel__seg-btn${mode === 'root' ? ' file-panel__seg-btn--active' : ''}`}>Root</button>
@@ -1561,6 +1654,7 @@ function AddWorkspacePage({ currentPath, onNavigate }) {
         </main>
         <div className="pane-handle" />
         <FilePanel scenario={scenarios.worktree} />
+        <SideRail />
       </div>
 
       {modalVisible && (
@@ -1643,34 +1737,41 @@ function BrowserIdentityWorkbench({ currentPath, onNavigate, presets, state, set
         </main>
         <div className="pane-handle" />
         <FilePanel scenario={scenarios.worktree} />
+        <SideRail />
       </div>
       {children}
     </PreviewPage>
   );
 }
 
-function BrowserSettingOption({ selected, title, detail }) {
+function BrowserSettingOption({ selected, title, detail, onSelect }) {
   return (
-    <div className={`browser-settings__option${selected ? ' browser-settings__option--selected' : ''}`}>
-      <span className="browser-settings__radio">{selected ? '●' : '○'}</span>
+    <button className={`browser-settings__option${selected ? ' browser-settings__option--selected' : ''}`} onClick={onSelect}>
+      <span className="browser-settings__radio">{selected ? '✓' : ''}</span>
       <span><strong>{title}</strong><small>{detail}</small></span>
-    </div>
+    </button>
   );
 }
 
 function BrowserSettingGroups() {
+  const [linkMode, setLinkMode] = useState('builtin');
+  const [surface, setSurface] = useState('pane');
   return (
     <div className="browser-settings__groups">
       <div>
         <div className="browser-profile__section-title">Open links in</div>
-        <BrowserSettingOption selected title="Built-in browser" detail="Terminal links open in OkWork’s own browser." />
-        <BrowserSettingOption title="System browser" detail="Terminal links open in your default browser." />
-        <BrowserSettingOption title="Built-in for remote terminals only" detail="Remote terminals stay reachable through OkBrowser." />
+        <div className="browser-settings__option-list">
+          <BrowserSettingOption selected={linkMode === 'builtin'} onSelect={() => setLinkMode('builtin')} title="Built-in browser" detail="Terminal links open in OkWork’s own browser." />
+          <BrowserSettingOption selected={linkMode === 'system'} onSelect={() => setLinkMode('system')} title="System browser" detail="Terminal links open in your default browser." />
+          <BrowserSettingOption selected={linkMode === 'remote'} onSelect={() => setLinkMode('remote')} title="Built-in for remote terminals only" detail="Remote terminals use the built-in browser; local terminals use the system browser." />
+        </div>
       </div>
       <div>
         <div className="browser-profile__section-title">Open the built-in browser in</div>
-        <BrowserSettingOption title="Separate window" detail="Open a dedicated OkBrowser window." />
-        <BrowserSettingOption selected title="In the app panel" detail="Open beside the active terminal." />
+        <div className="browser-settings__option-list">
+          <BrowserSettingOption selected={surface === 'window'} onSelect={() => setSurface('window')} title="Separate window" detail="The built-in browser opens as its own OkBrowser window." />
+          <BrowserSettingOption selected={surface === 'pane'} onSelect={() => setSurface('pane')} title="In the app panel" detail="The built-in browser opens in the panel on the right of the main window." />
+        </div>
       </div>
     </div>
   );
@@ -1701,15 +1802,15 @@ function ProfileSkeletons() {
 }
 
 function BrowserProfilesModal({ state, onClose, onOpenPasswords }) {
-  const [formOpen, setFormOpen] = useState(false);
+  const [formDraft, setFormDraft] = useState(null);
   const [created, setCreated] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const showCustom = state !== 'empty';
   const unavailable = state === 'encryption-unavailable';
   const profiles = [
-    ...(showCustom ? [{ id: 'work', name: 'Work', meta: 'Chrome 兼容 UA · 3 个 Workspace', count: 3, active: true }] : []),
-    ...(showCustom ? [{ id: 'personal', name: 'Personal', meta: '系统默认 UA · 1 个 Workspace', count: 1 }] : []),
-    ...(created ? [{ id: 'research', name: 'Research', meta: '系统默认 UA · 尚未绑定 Workspace', count: 0 }] : []),
+    ...(showCustom ? [{ id: 'work', name: 'Work', meta: 'Chrome 兼容 UA · 3 个 Project', count: 3 }] : []),
+    ...(showCustom ? [{ id: 'personal', name: 'Personal', meta: '系统默认 UA · 1 个 Project', count: 1 }] : []),
+    ...(created ? [{ id: 'research', name: 'Research', meta: '系统默认 UA · 尚未绑定 Project', count: 0 }] : []),
   ];
   const failedDelete = state === 'delete-failed';
 
@@ -1741,21 +1842,19 @@ function BrowserProfilesModal({ state, onClose, onOpenPasswords }) {
                   <div><strong>OkWork</strong><span className="browser-profile__tag">Built-in</span></div>
                   <span>系统默认 UA · 默认 Profile</span>
                 </div>
-                <span className="browser-profile__location">此设备</span>
                 <span className="browser-profile__count">0 个密码</span>
               </div>
               {profiles.map((profile) => (
                 <div key={profile.id}>
-                  <div className={`browser-profile__row${profile.active ? ' browser-profile__row--active' : ''}${failedDelete && profile.id === 'work' ? ' browser-profile__row--disabled' : ''}`}>
-                    <div className={`browser-profile__avatar${profile.active ? ' browser-profile__avatar--work' : ''}`}>{profile.name[0]}</div>
+                  <div className={`browser-profile__row${failedDelete && profile.id === 'work' ? ' browser-profile__row--disabled' : ''}`}>
+                    <div className="browser-profile__avatar">{profile.name[0]}</div>
                     <div className="browser-profile__identity">
-                      <div><strong>{profile.name}</strong>{profile.active && <span className="browser-profile__tag browser-profile__tag--active">当前</span>}</div>
+                      <div><strong>{profile.name}</strong></div>
                       <span>{profile.meta}</span>
                     </div>
-                    <span className="browser-profile__location">此设备</span>
                     <span className="browser-profile__count">{profile.count} 个密码</span>
                     <span className="browser-profile__row-actions">
-                      <button>编辑</button>
+                      <button onClick={() => setFormDraft({ id: profile.id, name: profile.name, ua: profile.meta.startsWith('Chrome') ? 'Mozilla/5.0 Chrome/127' : '' })}>编辑</button>
                       <button onClick={() => setDeleteTarget(profile.id)}>删除</button>
                     </span>
                   </div>
@@ -1781,15 +1880,16 @@ function BrowserProfilesModal({ state, onClose, onOpenPasswords }) {
             </div>
           )}
 
-          {formOpen ? (
+          {formDraft ? (
             <div className="browser-profile__new-form">
-              <input autoFocus defaultValue="Research" aria-label="Profile name" />
-              <input placeholder="System default User-Agent" aria-label="User agent" />
-              <button onClick={() => { setCreated(true); setFormOpen(false); }}>保存</button>
-              <button onClick={() => setFormOpen(false)}>取消</button>
+              <input autoFocus value={formDraft.name} onChange={(event) => setFormDraft({ ...formDraft, name: event.target.value })} placeholder="Profile name" aria-label="Profile name" />
+              <input value={formDraft.ua} onChange={(event) => setFormDraft({ ...formDraft, ua: event.target.value })} placeholder="System default User-Agent" aria-label="User agent" />
+              <button type="button" onClick={() => setFormDraft({ ...formDraft, ua: 'Mozilla/5.0 Chrome/127 Safari/537.36' })}>🎲 随机</button>
+              <button onClick={() => { if (!formDraft.id) setCreated(true); setFormDraft(null); }}>保存</button>
+              <button onClick={() => setFormDraft(null)}>取消</button>
             </div>
           ) : (
-            <button className="remote-hosts__btn remote-hosts__btn--primary browser-profile__add" onClick={() => setFormOpen(true)}>新建 Profile</button>
+            <button className="browser-profile__add" onClick={() => setFormDraft({ id: null, name: '', ua: '' })}>+ 新建 Profile</button>
           )}
 
           <div className="browser-profile__notice-row browser-profile__notice-row--disclosure">
@@ -1797,6 +1897,7 @@ function BrowserProfilesModal({ state, onClose, onOpenPasswords }) {
             <span className="browser-profile__notice-chip browser-profile__notice-chip--agent">Agent 可读填充值</span>
           </div>
         </div>
+        <div className="browser-profile__footer"><button onClick={onClose}>完成</button></div>
       </div>
     </div>
   );
@@ -1822,6 +1923,16 @@ const PASSWORD_ROWS = [
 function TrustedPasswordSurface({ row, mode, onClose }) {
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!revealed) return undefined;
+    const timer = window.setTimeout(() => setRevealed(false), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [revealed]);
+  useEffect(() => {
+    if (!copied) return undefined;
+    const timer = window.setTimeout(() => setCopied(false), 60_000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
   return (
     <div className="trusted-password__backdrop">
       <div className="trusted-password__window" role="dialog" aria-modal="true" aria-label="Trusted password window">
@@ -1853,13 +1964,17 @@ function PasswordListSkeleton() {
 
 function PasswordsModal({ state, onClose, onBack }) {
   const [query, setQuery] = useState('');
+  const [profileFilter, setProfileFilter] = useState('all');
   const [rows, setRows] = useState(() => state === 'empty' ? [] : PASSWORD_ROWS);
   const [deleteId, setDeleteId] = useState(null);
   const [trustedAction, setTrustedAction] = useState(null);
   useEffect(() => setRows(state === 'empty' ? [] : PASSWORD_ROWS), [state]);
   const unavailable = state === 'encryption-unavailable';
   const normalized = query.trim().toLowerCase();
-  const filtered = rows.filter((row) => !normalized || `${row.origin} ${row.username} ${row.profile}`.toLowerCase().includes(normalized));
+  const filtered = rows.filter((row) =>
+    (profileFilter === 'all' || row.profile === profileFilter)
+    && (!normalized || `${row.origin} ${row.username} ${row.profile}`.toLowerCase().includes(normalized)),
+  );
 
   return (
     <div className="browser-profile__backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -1879,7 +1994,9 @@ function PasswordsModal({ state, onClose, onBack }) {
           )}
           <div className="browser-passwords__toolbar">
             <input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search passwords" placeholder="搜索站点、用户名或 Profile" disabled={state === 'loading' || state === 'error'} />
-            <select aria-label="Profile filter"><option>全部 Profile</option><option>Work</option><option>Personal</option></select>
+            <select aria-label="Profile filter" value={profileFilter} onChange={(event) => setProfileFilter(event.target.value)}>
+              <option value="all">全部 Profile</option><option value="Work">Work</option><option value="Personal">Personal</option>
+            </select>
             <span className="browser-profile__notice-chip">本机加密</span>
           </div>
 
@@ -1974,13 +2091,19 @@ function PasswordFlowPage({ currentPath, onNavigate }) {
         <div className="password-flow__window">
           <div className="password-flow__titlebar">
             <span className="password-flow__lights"><i /><i /><i /></span>
-            <strong>OkBrowser · Work</strong>
-            <span className="password-flow__profile">Profile: Work · 此设备</span>
+            <strong>OkBrowser · feature/password-vault</strong>
+            <span className="password-flow__shell-actions">
+              <button className="password-flow__profile"><small>Profile</small><span>Work</span></button>
+              <button className="password-flow__dock">收回面板</button>
+            </span>
           </div>
           <div className="password-flow__tabs"><span className="password-flow__tab">Sign in to GitHub <b>×</b></span><button>+</button></div>
           <div className="password-flow__toolbar">
             <button>‹</button><button>›</button><button>↻</button>
             <div className={`password-flow__address${insecure ? ' password-flow__address--insecure' : ''}`}>{insecure ? 'ⓘ http://example.test/login' : '🔒 https://github.com/login'}</div>
+            <button className="password-flow__nav-action" title="在系统浏览器中打开">↗</button>
+            <button className="password-flow__network" title="网络出口">◉ 此设备 ▾</button>
+            <span className="browser-profile__notice-chip">密码库 · 此设备</span>
             <span className="browser-profile__notice-chip browser-profile__notice-chip--agent">Agent 可读填充值</span>
           </div>
           <PasswordFlowNotice state={state} onOpenAccounts={() => setAccountsOpen((value) => !value)} />
@@ -2000,11 +2123,6 @@ function PasswordFlowPage({ currentPath, onNavigate }) {
               <button className="password-flow__signin" onClick={() => setState(state === 'autofilled' ? 'updated' : 'saved')}>Sign in</button>
               <div className="password-flow__page-foot">{filled ? 'Filled by OkWork · Work profile' : 'No saved password used'}</div>
             </div>
-          </div>
-          <div className="password-flow__statusbar">
-            <span>密码库: 此设备</span>
-            <span>静默自动保存 / 填充</span>
-            <span>仅 HTTPS 与本机 loopback HTTP</span>
           </div>
         </div>
       </div>
@@ -2605,6 +2723,7 @@ function RemoteHostsPage({ currentPath, onNavigate }) {
         </main>
         <div className="pane-handle" />
         <FilePanel scenario={scenarios.worktree} />
+        <SideRail />
       </div>
 
       {modalOpen && (
@@ -2953,11 +3072,13 @@ function SidebarMachineGroupsPage({ currentPath, onNavigate }) {
         <div className="pane-handle" />
         {panelDisconnected ? (
           <section className="file-panel file-panel--disconnected" aria-label="File Panel">
+            <PreviewPanelHeader title="Files" icon={<RailFolderIcon />} />
             <div className="file-panel__disconnected-note">连接已断开 · 文件树暂不可用</div>
           </section>
         ) : (
           <FilePanel scenario={remoteScenario || scenarios.worktree} remote={activeIsRemote} />
         )}
+        <SideRail />
       </div>
     </PreviewPage>
   );
@@ -3216,6 +3337,7 @@ function ReconnectContinuityPage({ currentPath, onNavigate }) {
         </main>
         <div className="pane-handle" />
         <FilePanel scenario={RC_REMOTE_FILE_SCENARIO} remote />
+        <SideRail />
       </div>
     </PreviewPage>
   );
@@ -3293,6 +3415,7 @@ function App() {
       </main>
       <div className="pane-handle" />
       <FilePanel scenario={scenario} />
+      <SideRail />
     </div>
   );
 }

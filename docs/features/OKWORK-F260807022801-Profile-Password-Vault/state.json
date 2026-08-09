@@ -91,9 +91,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T14:05:10Z",
-  "updated_by": "review-preventability",
-  "_state_checksum": "sha256:7a68ff6a6db3a222524459d1fc56d5841893999aaf7f25702adf0944f7fc2ad7",
+  "updated_at": "2026-08-09T14:18:24Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:fc41191012961a589483db8ea8377c69f78da257660add531446ad868ec91706",
   "legal_next_stages": [
     "panorama_sync",
     "blueprint"
@@ -124,5 +124,10 @@
       "note": "",
       "at": "2026-08-09T14:05:06Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "ui_design",
+    "label": "UI 预览确认",
+    "started_at": "2026-08-09T14:18:24Z"
+  }
 }

@@ -32,7 +32,7 @@ pages_changed:
 
 ## 状态
 
-待用户确认
+待用户重新确认（最新版真实 UI 反向同步已完成）
 
 ## UI-AC-COVERAGE
 
@@ -53,6 +53,7 @@ pages_changed:
 | 日期 | 变更 | 影响的全景源 |
 |------|------|--------------|
 | 2026-08-09 | BL-006 UI 首版：将 WS-02 规划态的远程/Cookie 全景收敛为本机 Vault 范围，补齐真实 Browser Settings 整页、隔离可信密码窗口与所有失败态 | `preview-project/src/main.jsx`、`preview-project/src/styles.css` |
+| 2026-08-09 | 用户指出最近真实产品 UI 已大改；从当前 renderer 反向同步中性黑灰/暖橙 tokens、52px 胶囊 Tab、Local/Remote 机器分组、44px SideRail、统一 PanelHeader、520px SettingsModal 与 34/30/34 OkBrowser 独立窗骨架；保留 BL-006 安全语义 | `preview-project/src/main.jsx`、`preview-project/src/latest-ui-sync.css`，并直接导入 `src/renderer` 共用 CSS |
 
 ## Designer 自查报告
 
@@ -60,12 +61,12 @@ pages_changed:
 
 | 维度 | 检查项 | 通过 | 备注 |
 |------|--------|------|------|
-| 1. 全景对齐 | 4 | 4/4 | panorama_path=`docs/design`；宿主=OKWORK；沿用既有路由、shell 与 tokens |
+| 1. 全景对齐 | 4 | 4/4 | panorama_path=`docs/design`；宿主=OKWORK；壳层 CSS 直接消费当前真实 renderer 源，BL-006 只保留增量适配 |
 | 2. 状态覆盖 | 4×3 页 | 12/12 | 三页均有 normal / empty / loading / error 或等价 fail-closed 状态；页面不可自然触达状态只放 dev 悬浮面板 |
 | 3. PRD AC 覆盖 | 9 | 9/9 | 详 UI-AC-COVERAGE |
 | 4. 全景增量同步 | 4 | 4/4 | 🟡 增量；路由不变，内容由 WS-02 规划态收敛到 BL-006 执行态 |
 | 5. 结构性变更红线 | 3 | 3/3 | 未新增导航层级、未改根路由、未移除其他 Feature 页面 |
-| 6. 框架基线唯一性 | 1 | 1/1 | framework_source=`docs/design/preview-project/src/main.jsx` + `src/styles.css`；未读取历史 Feature preview 副本 |
+| 6. 框架基线唯一性 | 1 | 1/1 | framework_source=当前 `src/renderer` 的 index/Sidebar/TabBar/SideRail/PanelHeader/FilePanel CSS + `preview-project/src/main.jsx`；未读取历史 Feature preview 副本 |
 
 ### 全景对齐证据
 
@@ -74,8 +75,9 @@ pages_changed:
 - 风格与交互对照：
   1. `sitemap.md` 明确真实产品是 Electron 单窗口工作台；三个 Settings/OkBrowser 页面继续在既有工作台 shell 与 modal/window 中呈现，没有改成 Web 导航页。
   2. 三个 route 已由 WS-02 规划注册；本 Feature 只认领并收敛内容，不新增 IA 层级，也保持 `/` 的既有全景入口不变。
-  3. 真实 `BrowserSettingsPage` 仍包含链接打开方式、内置浏览器承载方式和 Browser Profiles；全景先复现整页再加入 Vault，不画孤立 Profile 概念页。
+  3. 真实 `BrowserSettingsPage` 仍包含链接打开方式、内置浏览器承载方式和 Browser Profiles；全景已回归真实 520px 单列 SettingsModal、固定 `✓` 选择列与底部“完成”，再加入 Vault，不画孤立 Profile 概念页。
   4. same-stack 交互遵守阶段规则：新建 Profile、搜索、筛选、删除、可信显示/复制和多账号切换均为页面内真实可点；dev 面板只切换 loading/error/empty 等难自然触达状态。
+  5. 最新工作台壳层由真实 CSS 构造保证：52px/32px 胶囊 Tab、Local/Remote Sidebar、右侧互斥面板槽 + 44px SideRail、40px PanelHeader 与低饱和暖橙 `#d08770` 不再在全景内手抄旧值。
 - 导航位置：Settings → Browser Settings → Browser Profiles / Saved Passwords；OkBrowser chrome → Password save/fill 状态。
 - 全景变更类型：🟡 增量。
 
@@ -90,6 +92,7 @@ preview-project：
 ~ /settings/browser-profiles：复现完整 Browser Settings，并加入本机 Vault 与删除失败语义
 ~ /settings/browser-passwords：普通页面仅脱敏元数据；显示/复制进入隔离可信窗口
 ~ /browser/password-save-fill：移除 Host/Cookie 状态，补齐本机保存、填充、隔离和 fail-closed 状态
+~ 全局 shell：从当前 renderer 反向同步 tokens / Sidebar / TabBar / SideRail / PanelHeader；预览工具改为右下角可折叠浮层，不再挤占真实页面布局
 ```
 
 ### 自查结论
@@ -98,5 +101,5 @@ preview-project：
 
 ## 补充洞察
 
-- `project-specs/UI-RULES.md` 仍是未填充模板，因此本轮一致性依据采用真实页面源码、现有 preview-project shell/tokens 与 sitemap 约束；不在 Feature 内擅自定义新的 workspace 级视觉策略。
+- `project-specs/UI-RULES.md` 仍是未填充模板，因此本轮一致性依据采用真实页面源码、从 `src/renderer` 直接导入的 shell CSS 与 sitemap 约束；不在 Feature 内擅自定义新的 workspace 级视觉策略。
 - “受信任密码窗口”是安全边界的产品表达，不是普通 Settings modal 的视觉变体。Blueprint 必须证明普通 main renderer 只能请求打开该窗口，不能直接触发单条解密或复制。

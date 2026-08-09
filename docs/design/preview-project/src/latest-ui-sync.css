@@ -1,0 +1,379 @@
+/*
+ * Latest real-UI reverse sync (2026-08-09).
+ * Shared shell primitives are imported from src/renderer in main.jsx; this file
+ * only adapts panorama-only tooling and BL-006 surfaces to those live tokens.
+ */
+
+/* Preview controls are a collapsible bottom-right tool, never part of app IA. */
+.preview-devbar {
+  position: fixed;
+  top: auto;
+  left: auto;
+  right: 16px;
+  bottom: 16px;
+  z-index: 500;
+  height: auto;
+  display: block;
+  width: min(390px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 32px));
+  overflow: hidden;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg-panel) 96%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+  padding: 0;
+  font-size: 11px;
+}
+
+.preview-devbar__summary {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  list-style: none;
+}
+
+.preview-devbar__summary::-webkit-details-marker { display: none; }
+.preview-devbar__summary::after { content: '⌃'; margin-left: auto; color: var(--accent); }
+.preview-devbar[open] .preview-devbar__summary::after { content: '⌄'; }
+
+.preview-devbar__label {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.preview-devbar__content {
+  max-height: calc(min(560px, 100vh - 32px) - 36px);
+  overflow-y: auto;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.preview-devbar__routes,
+.preview-devbar__states {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.preview-devbar__states {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.preview-devbar__route,
+.preview-devbar__state-chip {
+  min-height: 25px;
+  padding: 4px 8px;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.preview-devbar__route:hover,
+.preview-devbar__state-chip:hover { color: var(--fg); background: var(--bg-active); }
+
+.preview-devbar__route--active,
+.preview-devbar__state-chip--active {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+}
+
+.preview-devbar__body { height: 100%; padding-top: 0; }
+
+/* Real shell refinements not supplied by imported component CSS. */
+.terminal-host {
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+.scenario-chip--active,
+.scenario-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.file-panel__row--locate-target {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.file-panel__row--locate-target::after { display: none; }
+
+/* Browser Settings: current SettingsModal skeleton, then BL-006 increment. */
+.browser-profile__backdrop,
+.trusted-password__backdrop { inset: 0; }
+
+.browser-profile__card--settings {
+  width: 520px;
+  max-height: calc(100vh - 64px);
+}
+
+.browser-profile__header {
+  padding: 16px 20px;
+}
+
+.browser-profile__title { font-size: 15px; font-weight: 600; }
+.browser-profile__body { padding: 16px 20px; }
+
+.browser-profile__footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px 16px;
+}
+
+.browser-profile__footer button {
+  min-width: 70px;
+  height: 30px;
+  padding: 0 18px;
+  color: #1b1b1b;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.browser-settings__groups { display: block; }
+.browser-settings__groups > div + div { margin-top: 18px; }
+
+.browser-settings__option-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.browser-settings__option {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-settings__option:last-child { border-bottom: 0; }
+.browser-settings__option:hover { background: var(--bg-active); }
+.browser-settings__option--selected { background: transparent; }
+.browser-settings__radio { width: 12px; flex: none; padding-top: 1px; color: var(--accent); }
+.browser-settings__option strong { font-size: 12.5px; }
+.browser-settings__option small { font-size: 11px; line-height: 1.45; }
+.browser-settings__divider { margin: 18px 0; }
+
+.browser-profile__scope {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.browser-profile__scope-title,
+.browser-profile__scope-badge { color: var(--accent); }
+
+.browser-profile__scope-badge {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.browser-profile__row {
+  min-height: 43px;
+  gap: 8px;
+  padding: 7px 10px;
+}
+
+.browser-profile__avatar { width: 26px; height: 26px; border-radius: 6px; }
+.browser-profile__identity strong { font-size: 12px; }
+.browser-profile__identity > span { font-size: 10px; }
+.browser-profile__count { width: 58px; font-size: 10px; }
+.browser-profile__row-actions { gap: 4px; }
+
+.browser-profile__add {
+  width: 100%;
+  height: 28px;
+  margin-top: 8px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.browser-profile__new-form {
+  grid-template-columns: 1fr;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.browser-profile__new-form button:first-of-type {
+  color: var(--fg);
+  background: transparent;
+  border-color: var(--border);
+}
+
+.browser-profile__new-form button:nth-last-child(2) {
+  color: #1b1b1b;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.browser-profile__notice-row--disclosure,
+.browser-passwords__disclosures > div {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+
+/* Password manager is a wider sibling surface but shares the current skeleton. */
+.browser-passwords__card { width: 820px; }
+
+.browser-passwords__site-icon {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+
+.browser-passwords__profile,
+.browser-passwords__back { color: var(--accent); }
+
+.trusted-password__window {
+  background: var(--bg-panel);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+}
+
+.trusted-password__titlebar { background: var(--bg-active); }
+
+.trusted-password__seal {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+.trusted-password__primary { color: #1b1b1b; }
+
+/* Independent OkBrowser: current 34/30/34 shell geometry. */
+.password-flow__stage {
+  padding: 22px;
+  background: radial-gradient(circle at 50% 10%, #242424 0, var(--bg) 64%);
+}
+
+.password-flow__window {
+  background: var(--bg-panel);
+  border-color: var(--border);
+}
+
+.password-flow__titlebar {
+  position: relative;
+  height: 34px;
+  justify-content: center;
+  padding: 0 8px 0 82px;
+  background: var(--bg-panel);
+}
+
+.password-flow__lights {
+  position: absolute;
+  left: 16px;
+}
+
+.password-flow__titlebar > strong {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.password-flow__shell-actions {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.password-flow__profile,
+.password-flow__dock {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.password-flow__profile small { opacity: 0.7; }
+.password-flow__profile span { color: var(--fg); }
+
+.password-flow__tabs {
+  height: 30px;
+  align-items: stretch;
+  background: var(--bg-panel);
+}
+
+.password-flow__tab {
+  height: 30px;
+  background: var(--bg-active);
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+}
+
+.password-flow__toolbar {
+  height: 34px;
+  background: var(--bg-panel);
+}
+
+.password-flow__address {
+  height: 24px;
+  background: var(--bg);
+  border-color: var(--border);
+  border-radius: 4px;
+}
+
+.password-flow__toolbar > .password-flow__nav-action { width: 24px; }
+
+.password-flow__toolbar > .password-flow__network {
+  width: auto;
+  max-width: 100px;
+  padding: 0 6px;
+  color: var(--green);
+  border-radius: 4px;
+}
+
+.password-flow__notice {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+}
+
+.password-flow__notice-icon {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.password-flow__accounts,
+.trusted-password__titlebar { background-color: var(--bg-active); }
+
+@media (max-width: 900px) {
+  .browser-profile__card--settings { width: min(520px, calc(100vw - 32px)); }
+  .password-flow__network,
+  .password-flow__toolbar .browser-profile__notice-chip:not(.browser-profile__notice-chip--agent) { display: none; }
+}
