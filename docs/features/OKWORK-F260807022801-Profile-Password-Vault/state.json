@@ -141,9 +141,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T15:14:53Z",
+  "updated_at": "2026-08-09T15:25:01Z",
   "updated_by": "pause-mark",
-  "_state_checksum": "sha256:392ea271521526f0dfc1c56eee9c4884941df4c077ed9ffcc282af2a26323d46",
+  "_state_checksum": "sha256:326489ce250b5146e811a943e7e41d4a83c098409fc7f41ef115daf3a3cb0cc3",
   "legal_next_stages": [
     "dev"
   ],
@@ -182,5 +182,10 @@
       "note": "",
       "at": "2026-08-09T14:05:06Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "blueprint",
+    "label": "TECH 方案要素确认",
+    "started_at": "2026-08-09T15:25:01Z"
+  }
 }

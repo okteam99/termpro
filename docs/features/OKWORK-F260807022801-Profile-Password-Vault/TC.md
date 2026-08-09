@@ -1,6 +1,6 @@
 ---
 feature_id: "OKWORK-F260807022801-Profile-Password-Vault"
-status: pending_review
+status: confirmed
 tests:
   - id: T-001
     file: src/main/__tests__/browserPasswordFlow.test.ts
@@ -94,7 +94,7 @@ tests:
 
 ## 状态
 
-待评审
+已确认
 
 ---
 
