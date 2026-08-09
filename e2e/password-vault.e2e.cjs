@@ -283,6 +283,12 @@ async function run_password_vault_browser_journeys() {
       ),
       'OkBrowser chrome continuously discloses page and Agent DOM exposure',
     );
+    assertJourney(
+      (await browserWindow.locator('.password-status__disclosure').innerText()).includes(
+        'other local apps and ordinary OkWork pages may read the password from the system clipboard',
+      ),
+      'OkBrowser chrome continuously discloses the explicit clipboard export boundary',
+    );
 
     const address = browserWindow.locator('.browser-panel__address-input');
     const webview = browserWindow.locator('webview');
@@ -428,6 +434,16 @@ async function run_password_vault_browser_journeys() {
         'Other apps and ordinary OkWork pages may read it.',
       ),
       'trusted copy UI discloses the explicit clipboard export boundary',
+    );
+    await eventually(
+      async () => {
+        const label = await trustedWindow
+          .locator('.trusted-password-window__secret')
+          .getAttribute('aria-label');
+        if (label !== 'Password masked') throw new Error(`password remains visible (${label})`);
+      },
+      'AC-6 trusted reveal automatically returns to the masked state',
+      12_000,
     );
     journeyCompleted = true;
   } finally {

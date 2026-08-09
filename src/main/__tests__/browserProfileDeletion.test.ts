@@ -145,6 +145,40 @@ describe('BrowserProfileDeletionCoordinator', () => {
     expect(profiles.get(untouched.id)).not.toBeNull();
   });
 
+  it('Vault cleanup failure leaves the Profile persistently inactive before partition cleanup', async () => {
+    const target = profiles.save({ name: 'A' });
+    const h = makeHarness({
+      clearVault: () => {
+        throw new Error('raw vault failure must not escape');
+      },
+    });
+
+    await expect(h.coordinator.deleteProfile(target.id)).resolves.toEqual({
+      status: 'delete_failed',
+      profileId: target.id,
+      errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.vaultClearFailed,
+      updatedAt: 1_000,
+    });
+    expect(profiles.get(target.id)).toMatchObject({
+      deletionState: 'delete_failed',
+      deletionErrorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.vaultClearFailed,
+    });
+    expect(profiles.isActive(target.id)).toBe(false);
+    expect(h.calls).toEqual([
+      `disable:${target.id}`,
+      'notify', // deleting
+      'notify', // delete_failed
+    ]);
+    expect(h.errors).toEqual([
+      {
+        featureId: 'OKWORK-F260807022801-Profile-Password-Vault',
+        profileId: target.id,
+        step: 'clear_vault',
+        errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.vaultClearFailed,
+      },
+    ]);
+  });
+
   it('启动续跑 interrupted deleting，并保持 delete_failed 等待显式重试', async () => {
     const interrupted = profiles.save({ name: 'interrupted' });
     const failed = profiles.save({ name: 'failed' });

@@ -124,6 +124,11 @@ export function PasswordStatusBar({
         <span className="password-status__agent">
           {t('Filled values are readable by this page and connected OkBrowser Agents')}
         </span>
+        <span className="password-status__clipboard">
+          {t(
+            'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.',
+          )}
+        </span>
       </div>
     </div>
   );

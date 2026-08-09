@@ -25,6 +25,7 @@ export interface PasswordVaultIpcDeps {
   vault: PasswordVaultPort;
   controller: PasswordVaultController;
   clipboardLease: ClipboardSecretLeasePort;
+  isProfileActive(profileId: string): boolean;
   getMainWindow(): BrowserWindow | null;
   rendererDevServerUrl?: string;
   rendererName: string;
@@ -41,9 +42,11 @@ function codeOf(error: unknown): PasswordVaultActionResult['code'] {
 
 export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
   broadcastChanged(): void;
+  closeProfileTrustedWindows(profileId: string): void;
   closeAllTrustedWindows(): void;
 } {
   const trustedEntryBySender = new Map<number, string>();
+  const trustedProfileBySender = new Map<number, string>();
   const trustedWindows = new Map<string, BrowserWindow>();
   const trustedActionBySender = new Map<number, {
     action: TrustedPasswordAction;
@@ -57,8 +60,19 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
     return main !== null && BrowserWindow.fromWebContents(sender) === main;
   };
 
-  const trustedEntry = (sender: Electron.WebContents): string | null =>
-    trustedEntryBySender.get(sender.id) ?? null;
+  const profileIsActive = (profileId: string): boolean => {
+    try {
+      return deps.isProfileActive(profileId);
+    } catch {
+      return false;
+    }
+  };
+
+  const trustedEntry = (sender: Electron.WebContents): string | null => {
+    const entryId = trustedEntryBySender.get(sender.id);
+    const profileId = trustedProfileBySender.get(sender.id);
+    return entryId && profileId && profileIsActive(profileId) ? entryId : null;
+  };
 
   const consumeTrustedAction = (
     sender: Electron.WebContents,
@@ -99,7 +113,9 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
         ...(typeof query?.query === 'string' ? { query: query.query.slice(0, 1024) } : {}),
       };
       try {
-        return deps.vault.listMetadata(safeQuery);
+        return deps.vault
+          .listMetadata(safeQuery)
+          .filter((entry) => profileIsActive(entry.profileId));
       } catch (error) {
         console.error(`[password-vault] list failed code=${codeOf(error)}`);
         throw new Error(codeOf(error));
@@ -124,9 +140,15 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
   });
 
   const openTrustedWindow = (entryId: string): PasswordVaultActionResult => {
+    let profileId: string;
     try {
-      if (!deps.vault.listMetadata().some((entry) => entry.id === entryId)) {
+      const metadata = deps.vault.listMetadata().find((entry) => entry.id === entryId);
+      if (!metadata) {
         return { ok: false, code: 'VAULT_ENTRY_NOT_FOUND' };
+      }
+      profileId = metadata.profileId;
+      if (!profileIsActive(profileId)) {
+        return { ok: false, code: 'VAULT_PROFILE_INACTIVE' };
       }
     } catch (error) {
       return { ok: false, code: codeOf(error) };
@@ -155,12 +177,14 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
     trustedWindows.set(entryId, win);
     const trustedSenderId = win.webContents.id;
     trustedEntryBySender.set(trustedSenderId, entryId);
+    trustedProfileBySender.set(trustedSenderId, profileId);
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.once('ready-to-show', () => win.show());
     win.once('closed', () => {
       trustedWindows.delete(entryId);
       trustedEntryBySender.delete(trustedSenderId);
+      trustedProfileBySender.delete(trustedSenderId);
       trustedActionBySender.delete(trustedSenderId);
     });
     if (deps.rendererDevServerUrl) {
@@ -260,12 +284,24 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
 
   return {
     broadcastChanged,
+    closeProfileTrustedWindows(profileId: string) {
+      for (const [entryId, win] of trustedWindows) {
+        const senderId = win.webContents.id;
+        if (trustedProfileBySender.get(senderId) !== profileId) continue;
+        trustedWindows.delete(entryId);
+        trustedEntryBySender.delete(senderId);
+        trustedProfileBySender.delete(senderId);
+        trustedActionBySender.delete(senderId);
+        if (!win.isDestroyed()) win.close();
+      }
+    },
     closeAllTrustedWindows() {
       for (const win of trustedWindows.values()) {
         if (!win.isDestroyed()) win.close();
       }
       trustedWindows.clear();
       trustedEntryBySender.clear();
+      trustedProfileBySender.clear();
       trustedActionBySender.clear();
     },
   };

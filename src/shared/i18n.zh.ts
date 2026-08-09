@@ -516,6 +516,8 @@ export const zh: Record<string, string> = {
   'Password vault · this device': '密码库 · 此设备',
   'Filled values are readable by this page and connected OkBrowser Agents':
     '填充值可被此页面及已连接的 OkBrowser Agent 读取',
+  'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.':
+    '用户明确复制后，其他本机应用和普通 OkWork 页面可能从系统剪贴板读取密码；仅当内容未变化时，OkWork 才会在 60 秒后清除。',
   'Password filled from {profile}': '已从 {profile} 填充密码',
   'Account: {username}': '账号：{username}',
   'Saved account filled': '已填充保存的账号',

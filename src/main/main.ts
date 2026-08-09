@@ -246,6 +246,7 @@ const passwordVaultIpc = registerPasswordVaultIpc({
   vault: passwordVault,
   controller: passwordVaultController,
   clipboardLease: clipboardSecretLease,
+  isProfileActive: (profileId) => browserProfileStore.isActive(profileId),
   getMainWindow: () => mainWin,
   rendererDevServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   rendererName: MAIN_WINDOW_VITE_NAME,
@@ -253,7 +254,11 @@ const passwordVaultIpc = registerPasswordVaultIpc({
 broadcastPasswordVaultChanged = passwordVaultIpc.broadcastChanged;
 const browserProfileDeletion = new BrowserProfileDeletionCoordinator({
   profiles: browserProfileStore,
-  disableProfileAccess: (profileId) => passwordVaultController.closeProfileGuests(profileId),
+  disableProfileAccess: (profileId) => {
+    passwordVaultController.closeProfileGuests(profileId);
+    passwordVaultIpc.closeProfileTrustedWindows(profileId);
+    broadcastPasswordVaultChanged();
+  },
   clearVault: (profileId) => {
     passwordVault.deleteProfile(profileId);
   },

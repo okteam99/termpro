@@ -141,9 +141,16 @@ export function BrowserProfilesSection() {
         )}
       </div>
       <div className="browser-profiles__disclosure">
-        {t(
-          'Passwords are encrypted on this device. After filling, the website and connected OkBrowser Agents can read them.',
-        )}
+        <span>
+          {t(
+            'Passwords are encrypted on this device. After filling, the website and connected OkBrowser Agents can read them.',
+          )}
+        </span>
+        <span>
+          {t(
+            'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.',
+          )}
+        </span>
       </div>
 
       <div className="browser-profiles__list">

@@ -162,10 +162,60 @@
       "active_minutes": 4
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-08-09T18:17:32Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T18:17:32Z",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "completed_at": "2026-08-09T18:22:54Z",
+      "auto_commit": "48bf211",
+      "artifacts": [
+        "REVIEW.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-09T18:17:32Z",
+          "completed_at": "2026-08-09T18:22:54Z",
+          "review_commit": "48bf211",
+          "verdict": "NEEDS_REVISION",
+          "new_findings_count": 3,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "BLOCKER",
+          "status": "open",
+          "title": "Profile 删除失败后，普通/可信 IPC 仍可显示、解密和复制该 Profile 的密码",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F2",
+          "severity": "BLOCKER",
+          "status": "open",
+          "title": "Profile 设置和浏览器 chrome 缺少系统剪贴板导出风险的常驻披露",
+          "source": "qa",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F3",
+          "severity": "MINOR",
+          "status": "open",
+          "title": "TC 声称的 T-012 多账号、Profile 隔离、剪贴板条件清除和删除重试 Browser E2E 未实际执行",
+          "source": "qa",
+          "deferred_reason": "",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 5,
+      "active_minutes": 5
     }
   },
   "completed_stages": [
@@ -194,9 +244,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T18:17:43Z",
+  "updated_at": "2026-08-09T18:22:55Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:f7362fce2b42bc7ab3c8f60005b24244f513c10552f952d07b0a78fe148e3b36",
+  "_state_checksum": "sha256:7b6edb57df26869bd565cafb74002e15bb676ceaddd30a333d0ec73e1397eb7b",
   "legal_next_stages": [
     "test",
     "dev"

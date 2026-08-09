@@ -406,7 +406,7 @@ Then 每一条记录和展示均不包含密码、密码字段值、加密载荷
 | 项目 | 内容 |
 |---|---|
 | 是否需要 Browser E2E | ✅ 需要 |
-| 原因 | 自动保存/填充、Profile 切换、隔离可信面与常驻暴露披露都是跨 Electron 窗口、webview 和真实用户手势的高风险交互，组件测试无法单独证明接线有效。 |
+| 原因 | 自动保存/填充、固定 guest preload、隔离可信面与真实用户手势都跨 Electron 窗口和 webview，组件测试无法单独证明接线有效。Profile 隔离、删除失败和 60 秒条件清理使用可注入 integration test 提供更稳定的故障/时钟覆盖。 |
 | 用户是否可选择跳过 | 是（PMO 在执行前询问；跳过时应明确记录未验证的真实交互边界）。 |
 
 ### Browser E2E 前置条件
@@ -414,79 +414,49 @@ Then 每一条记录和展示均不包含密码、密码字段值、加密载荷
 | 条件类型 | 具体内容 | 获取方式 |
 |---|---|---|
 | 应用 | 可启动的本地 OkWork Electron 测试构建 | 测试脚本启动，并使用临时 `userData` 目录 |
-| 测试站点 | 可控的登录页，提供成功、明确失败及无法确认三种结果 | E2E harness 本地启动；使用 `http://localhost:<port>` 以符合 D-1 的 loopback 例外 |
-| 测试 Profile | 两个自定义 Profile 与默认 Profile | Browser E2E 前通过 UI 创建；不依赖已有用户数据 |
+| 测试站点 | 可控的标准登录页和可观察成功页 | E2E harness 本地启动；使用 `http://127.0.0.1:<port>` 以符合 D-1 的 loopback 例外 |
+| 测试 Profile | 临时 userData 中的默认 Profile | E2E-only workspace bootstrap 创建；不依赖已有用户数据 |
 | 加密能力 | 可用的测试钥匙串或等价受控测试环境 | 测试运行环境提供；不可用分支仍由 T-005 的可注入集成测试覆盖 |
 | 剪贴板 | 可读写且可在测试结束后恢复的临时系统剪贴板状态 | harness 在每个场景前后设置、断言并清理 |
 
 ### Browser E2E Scenarios
 
-#### FE-E2E-001: 真实登录成功保存、重开后静默填充与多账号切换
+#### FE-E2E-001: 真实保存/填充、脱敏管理与可信显示/复制纵向旅程
 
 **执行方式**: browser（真实 Electron 窗口与内置浏览器操作）  
 **关联测试**: T-012
 
 ```gherkin
-Given 用户在 Profile A 的 loopback 登录页成功登录 alice
+Given 应用以临时 userData 启动，用户在 loopback 标准登录页成功登录 alice
 When 用户关闭并重新打开该页面
 Then 空账号/密码字段被静默填充，chrome 显示不含密码的填充状态
-When 用户再成功登录 bob 并重开页面
-Then chrome 默认选择最近成功使用的 bob，且用户可在 chrome 切换到 alice
+  And chrome 常驻披露页面/Agent DOM 与显式剪贴板导出边界
+When 登录页已有非空账号与密码
+Then 静默填充不覆盖已有值
+When 用户打开 Saved passwords 并进入独立可信窗口
+Then 普通页面只显示 alice/origin 元数据且不含密码
+  And 可信窗口初始遮罩，真实点击后才显示或复制单条密码
+  And 显示到期后自动重新遮罩
+  And 测试结束恢复进入测试前的系统剪贴板内容
 ```
 
 **验证点**:
 
 | 验证类型 | 验证内容 | 预期值 |
 |---|---|---|
-| 页面 | 登录成功、重开后的字段值 | 仅匹配的 Profile + exact origin 得到候选或填充 |
-| chrome | 保存、填充和账号切换状态 | 无密码明文，切换由用户明确操作触发 |
-| 隔离 | 将同页改用 Profile B 后重开 | 不出现 Profile A 的账号 |
+| 页面与 chrome | 成功保存、重访填充、非空保护与状态/披露 | 不把密码写进 chrome；字段与当前 exact origin 一致 |
+| 普通管理页 | metadata 与披露 | 列表不含明文，包含 DOM/Agent 与 clipboard 风险说明 |
+| 隔离可信面 | 默认遮罩、真实 reveal/copy、自动重遮 | 普通 renderer 无明文；真实按钮 click 才获得一次性 proof |
+| 系统资源 | clipboard 与 userData | finally 恢复并回读剪贴板，只删除自己的 `mkdtemp` 目录 |
 
-#### FE-E2E-002: Saved passwords 搜索、可信显示/复制与剪贴板条件清理
+### 不由 T-012 重复承担的确定性覆盖
 
-**执行方式**: browser（真实 Settings 页面、隔离可信窗口及系统剪贴板）  
-**关联测试**: T-012
-
-```gherkin
-Given Profile A 已有两个保存账号且用户打开 Saved passwords
-When 用户按 Profile、origin 和用户名筛选
-Then 只显示匹配的脱敏条目
-When 用户从普通列表进入可信面并明确点击显示和复制
-Then 页面先提示剪贴板暴露面，可信面短时显示后重新遮罩，并显示 60 秒倒计时
-When 用户先改写系统剪贴板并等待倒计时结束
-Then 用户改写的内容仍保留
-```
-
-**验证点**:
-
-| 验证类型 | 验证内容 | 预期值 |
+| 行为 | 覆盖测试 | 不放入真实 GUI E2E 的理由 |
 |---|---|---|
-| 页面 | empty/loading/error/normal 与搜索结果 | 状态可区分，列表不显示密码 |
-| 隔离可信面 | 显示和复制入口 | 真实用户点击才可用，普通列表没有明文 |
-| 剪贴板 | 60 秒到期后的内容 | 仅在内容未被改写时被清除 |
-
-#### FE-E2E-003: Profile 删除失败重试与暴露面披露
-
-**执行方式**: browser（真实 Settings/Profile 交互；清理失败由受控 harness 注入）  
-**关联测试**: T-012
-
-```gherkin
-Given Profile A 有保存账号，且 harness 使一次删除清理失败
-When 用户在 Browser profiles 中确认删除 Profile A
-Then Profile A 进入不可使用的失败状态，展示可重试入口但不报告成功
-When 用户重试且清理成功
-Then Profile A 被移除，Profile B 保持可用
-When 用户查看 Profile 设置、Saved passwords 和浏览器 chrome
-Then 三处均可见页面/Agent 读取已填入值及剪贴板导出风险的披露
-```
-
-**验证点**:
-
-| 验证类型 | 验证内容 | 预期值 |
-|---|---|---|
-| 交互状态 | 删除中、失败、重试成功 | 删除中/失败期间 Profile A 不能再参与密码操作 |
-| 隔离 | 另一 Profile 的账号与填充 | 不受删除失败或重试影响 |
-| 披露 | 三个用户可见入口 | 均说明 DOM/Agent 与剪贴板导出的实际边界，且不展示密码 |
+| 失败/不确定不保存，多账号与 exact-origin/Profile 隔离 | T-001～T-004 | controller integration 可精确注入 evidence、Profile 与 origin，避免 GUI 站点启发式造成假阴性 |
+| 列表 loading/empty/error、搜索与 Profile 筛选 | T-006 | renderer unit 直接覆盖四态与组合筛选；T-012 只证明生产接线能拿到真实 metadata |
+| 60 秒到期清除、用户改写后保留 | T-007 | 注入时钟可同时证明两个 60 秒分支，不让 E2E 真等 60 秒 |
+| Profile 清理失败、跨重启保持禁用与重试 | T-008 + `browserPasswordIpc.test.ts` 的 inactive-profile 组合断言 | 可注入 Vault/Storage/Cache 故障并验证持久状态；生产 GUI 不增加测试专用故障控制面 |
 
 ---
 
@@ -495,3 +465,4 @@ Then 三处均可见页面/Agent 读取已填入值及剪贴板导出风险的�
 | 日期 | 变更 |
 |---|---|
 | 2026-08-09 | 首版：覆盖 AC-1 至 AC-9，定义 L1/L2 分层、Electron IPC 的 API E2E 不适用原因及三条真实 Browser E2E 交互路径。 |
+| 2026-08-10 | Review F3 收敛：T-012 改为与真实脚本一致的一条 fresh-build 纵向旅程；多账号/Profile 隔离、条件剪贴板清理与删除失败明确归入可注入 integration tests，不再把未执行场景申报为 Browser E2E。 |

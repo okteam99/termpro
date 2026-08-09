@@ -46,7 +46,11 @@ import { ClipboardSecretLease, type SecretClipboard } from '../clipboardSecretLe
 import { PASSWORD_TRUSTED_CHANNELS, PASSWORD_VAULT_CHANNELS } from '../../shared/passwordVault';
 
 interface FakeIpcMain { __handlers: Map<string, (...args: unknown[]) => unknown>; }
-interface ElectronTest { windows: Array<{ webContents: { id: number } }>; byWebContents: Map<unknown, unknown>; handlers: Map<string, (...args: unknown[]) => unknown>; }
+interface ElectronTest {
+  windows: Array<{ webContents: { id: number }; close: ReturnType<typeof vi.fn> }>;
+  byWebContents: Map<unknown, unknown>;
+  handlers: Map<string, (...args: unknown[]) => unknown>;
+}
 const electronTest = (await import('electron') as unknown as { __electronTest: ElectronTest }).__electronTest;
 
 const PROFILE = 'a'.repeat(32);
@@ -112,7 +116,7 @@ describe('browser password IPC sender allowlists', () => {
     controller.registerGuest(ownerGuest, PROFILE, mainSender.id);
     controller.registerGuest(otherOwnerGuest, PROFILE, 77);
     const copy = vi.fn(() => ({ expiresAt: 999 }));
-    registerPasswordVaultIpc({ vault: vault(), controller, clipboardLease: { copy }, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
+    registerPasswordVaultIpc({ vault: vault(), controller, clipboardLease: { copy }, isProfileActive: () => true, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
     const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
     const untrusted = { id: 99 };
 
@@ -148,7 +152,7 @@ describe('browser password IPC sender allowlists', () => {
     twoEntryVault.listMetadata = () => [entry, secondEntry].map(({ password: _password, ...metadata }) => metadata);
     twoEntryVault.getDecrypted = (id) => id === entry.id ? entry : secondEntry;
     const controller = new PasswordVaultController({ vault: twoEntryVault, isProfileActive: () => true, onMetadataChanged: vi.fn() });
-    registerPasswordVaultIpc({ vault: twoEntryVault, controller, clipboardLease: { copy: vi.fn(() => ({ expiresAt: 1 })) }, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
+    registerPasswordVaultIpc({ vault: twoEntryVault, controller, clipboardLease: { copy: vi.fn(() => ({ expiresAt: 1 })) }, isProfileActive: () => true, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
     const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
     handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id });
     handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: secondEntry.id });
@@ -171,7 +175,7 @@ describe('browser password IPC sender allowlists', () => {
     };
     const lease = new ClipboardSecretLease({ clipboard, now: () => Date.now() });
     const controller = new PasswordVaultController({ vault: vault(), isProfileActive: () => true, onMetadataChanged: vi.fn() });
-    registerPasswordVaultIpc({ vault: vault(), controller, clipboardLease: lease, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
+    registerPasswordVaultIpc({ vault: vault(), controller, clipboardLease: lease, isProfileActive: () => true, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
     const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
     handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id });
     const trustedSender = electronTest.windows.at(-1)!.webContents;
@@ -196,6 +200,46 @@ describe('browser password IPC sender allowlists', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('test_AC7_inactive_profile_hides_metadata_and_revokes_trusted_password_access', () => {
+    const mainSender = { id: 10 };
+    const mainWindow = makeWindow(mainSender);
+    let active = true;
+    const copy = vi.fn(() => ({ expiresAt: 999 }));
+    const testVault = vault();
+    const controller = new PasswordVaultController({
+      vault: testVault,
+      isProfileActive: () => active,
+      onMetadataChanged: vi.fn(),
+    });
+    const ipc = registerPasswordVaultIpc({
+      vault: testVault,
+      controller,
+      clipboardLease: { copy },
+      isProfileActive: () => active,
+      getMainWindow: () => mainWindow as never,
+      rendererName: 'main_window',
+    });
+    const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
+
+    expect(handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({ sender: mainSender })).toHaveLength(1);
+    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id })).toEqual({ ok: true });
+    const trustedWindow = electronTest.windows.at(-1)!;
+    const trustedSender = trustedWindow.webContents;
+    const issuedBeforeDeletion = grant(handlers, trustedSender, 'reveal');
+
+    // markDeleting/delete_failed makes the Profile inactive before cleanup starts.
+    active = false;
+    expect(handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({ sender: mainSender })).toEqual([]);
+    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id })).toEqual({ ok: false, code: 'VAULT_PROFILE_INACTIVE' });
+    expect(() => handlers.get(PASSWORD_TRUSTED_CHANNELS.context)!({ sender: trustedSender })).toThrow();
+    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.actionGrant)!({ sender: trustedSender }, { action: 'copy' })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!({ sender: trustedSender }, issuedBeforeDeletion)).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    expect(copy).not.toHaveBeenCalled();
+
+    ipc.closeProfileTrustedWindows(PROFILE);
+    expect(trustedWindow.close).toHaveBeenCalledTimes(1);
   });
 });
 

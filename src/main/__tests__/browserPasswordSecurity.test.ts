@@ -58,6 +58,7 @@ describe('browser password trust boundaries', () => {
     expect(controller.lookup(trustedGuest.id, {})).toMatchObject({ kind: 'credential', username: 'alice', password: SECRET });
 
     const ordinaryPreload = fs.readFileSync(path.join(process.cwd(), 'src/preload/preload.ts'), 'utf8');
+    const mainWiring = fs.readFileSync(path.join(process.cwd(), 'src/main/main.ts'), 'utf8');
     const savedPasswords = fs.readFileSync(path.join(process.cwd(), 'src/renderer/components/settings/SavedPasswordsPage.tsx'), 'utf8');
     const browserChrome = fs.readFileSync(path.join(process.cwd(), 'src/renderer/components/browser/PasswordStatusBar.tsx'), 'utf8');
     expect(Object.keys(PASSWORD_VAULT_CHANNELS).join(',')).not.toMatch(/reveal|copy|decrypt/i);
@@ -65,5 +66,10 @@ describe('browser password trust boundaries', () => {
     expect(savedPasswords).toContain('connected OkBrowser Agents can read values in the page DOM');
     expect(savedPasswords).toContain('Other apps and ordinary OkWork pages may read the exported value');
     expect(browserChrome).toContain('Filled values are readable by this page and connected OkBrowser Agents');
+    expect(browserChrome).toContain('other local apps and ordinary OkWork pages may read the password from the system clipboard');
+    const profileSettings = fs.readFileSync(path.join(process.cwd(), 'src/renderer/components/settings/BrowserProfilesSection.tsx'), 'utf8');
+    expect(profileSettings).toContain('other local apps and ordinary OkWork pages may read the password from the system clipboard');
+    expect(mainWiring).toContain('isProfileActive: (profileId) => browserProfileStore.isActive(profileId)');
+    expect(mainWiring).toContain('passwordVaultIpc.closeProfileTrustedWindows(profileId)');
   });
 });
