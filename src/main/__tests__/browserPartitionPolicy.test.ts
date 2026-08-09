@@ -9,9 +9,9 @@ const PID2 = 'b'.repeat(32);
 
 function makePolicy(profiles: string[] = [PID], configs: string[] = ['cfg-1']) {
   return createBrowserPartitionPolicy({
-    hasProfile: (id) => profiles.includes(id),
+    isProfileActive: (id) => profiles.includes(id),
     hasRemoteConfig: (id) => configs.includes(id),
-    listProfileIds: () => profiles,
+    listActiveProfileIds: () => profiles,
   });
 }
 
@@ -38,13 +38,28 @@ describe('isKnown(will-attach 白名单)', () => {
   it('拒绝:profile 已删除(存在性调用期判定,不缓存)', () => {
     const profiles: string[] = [PID];
     const p = createBrowserPartitionPolicy({
-      hasProfile: (id) => profiles.includes(id),
+      isProfileActive: (id) => profiles.includes(id),
       hasRemoteConfig: () => false,
-      listProfileIds: () => profiles,
+      listActiveProfileIds: () => profiles,
     });
     expect(p.isKnown(`persist:browser-prof-${PID}`)).toBe(true);
     profiles.length = 0; // 删除
     expect(p.isKnown(`persist:browser-prof-${PID}`)).toBe(false);
+  });
+
+  it('拒绝:profile 仍有元数据但已进入 deleting/delete_failed', () => {
+    let active = true;
+    const p = createBrowserPartitionPolicy({
+      isProfileActive: (id) => id === PID && active,
+      hasRemoteConfig: (id) => id === 'cfg-1',
+      listActiveProfileIds: () => (active ? [PID] : []),
+    });
+    expect(p.isKnown(`persist:browser-prof-${PID}-cfg-1`)).toBe(true);
+    active = false;
+    expect(p.isKnown(`persist:browser-prof-${PID}`)).toBe(false);
+    expect(p.isKnown(`persist:browser-prof-${PID}-cfg-1`)).toBe(false);
+    expect(p.localDirectPartitions()).toEqual(['persist:browser']);
+    expect(p.partitionsOfExit('cfg-1')).toEqual(['persist:browser-cfg-1']);
   });
 });
 

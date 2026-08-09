@@ -47,14 +47,26 @@ import { BrowserNetworkController } from './browserNetwork';
 import { ExitHoldLedger, filterHoldRequest } from './exitHolds';
 import { BrowserProfileStore } from './browserProfileStore';
 import { createBrowserPartitionPolicy } from './browserPartitionPolicy';
+import { BrowserProfileDeletionCoordinator } from './browserProfileDeletion';
+import { LocalPasswordVault } from './localPasswordVault';
+import { ClipboardSecretLease } from './clipboardSecretLease';
+import { PasswordVaultController } from './passwordVaultController';
+import { registerPasswordVaultIpc } from './passwordVaultIpc';
 import { JsonFileSettingsStore } from './settingsStore';
 import { BROWSER_NET_CHANNELS } from '../shared/remoteHost';
 import {
   BROWSER_PROFILE_CHANNELS,
   DEFAULT_PROFILE_ID,
+  browserPartition,
   parseBrowserPartition,
   type BrowserProfileInput,
 } from '../shared/browserProfile';
+import {
+  PASSWORD_GUEST_CHANNELS,
+  type PasswordGuestLookupRequest,
+  type PasswordLoginCandidate,
+  type PasswordLoginResultEvidence,
+} from '../shared/passwordVault';
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 import { encodeClipboardImage } from './clipboardImage';
 import { migrateLegacyUserData } from './userDataMigration';
@@ -75,7 +87,23 @@ process.stderr?.on?.('error', () => undefined);
 // DEV 渠道:npm start(未打包)或 make:dev 出的 "OkWork Dev" 包。
 // 独立 userData、不查更新、UI 显示红色 DEV 徽标,与正式版可同时安装。
 const isDevChannel = !app.isPackaged || app.getName().includes('Dev');
-if (!app.isPackaged && !process.env.OKWORK_SMOKE) {
+// E2E only: an explicit, absolute, caller-owned temporary directory makes
+// browser journeys reproducible without touching a developer's real profile.
+// Packaged builds deliberately ignore it, and malformed/relative input falls
+// back to normal dev behaviour rather than widening a filesystem boundary.
+const e2eUserDataDir =
+  !app.isPackaged &&
+  typeof process.env.OKWORK_E2E_USER_DATA_DIR === 'string' &&
+  path.isAbsolute(process.env.OKWORK_E2E_USER_DATA_DIR)
+    ? process.env.OKWORK_E2E_USER_DATA_DIR
+    : null;
+if (e2eUserDataDir) {
+  // Keep the macOS Safe Storage keychain service distinct from both normal
+  // development and the packaged app while exercising real encryption.
+  app.setName('OkWork-E2E');
+  app.setPath('userData', e2eUserDataDir);
+}
+if (!app.isPackaged && !process.env.OKWORK_SMOKE && !e2eUserDataDir) {
   // 🔴 app name 必须与 userData 一同隔离:macOS safeStorage 的钥匙串条目名随
   // app name 走("<name> Safe Storage")。此前 npm start 的 electron 二进制与
   // 正式签名的 OkWork.app 共用 "OkWork Safe Storage" 条目,签名不同 → 后启动的
@@ -93,7 +121,7 @@ if (process.env.OKWORK_SMOKE) {
 
 // 品牌改名(TermPro → OkWork)一次性迁移:旧 userData 整目录搬到新路径。
 // 必须先于单实例锁与一切 userData 读写;冒烟模式用独立临时目录,无需迁移。
-if (!process.env.OKWORK_SMOKE) {
+if (!process.env.OKWORK_SMOKE && !e2eUserDataDir) {
   const legacyName = !app.isPackaged
     ? 'TermPro-Dev'
     : app.getName().includes('Dev')
@@ -199,10 +227,65 @@ const browserProfileStore = new BrowserProfileStore(
 );
 // 分区策略:白名单双确认(profile/config 存在性)+ 本机直连集合 + 组合分区枚举
 const browserPartitionPolicy = createBrowserPartitionPolicy({
-  hasProfile: (id) => browserProfileStore.get(id) !== null,
+  isProfileActive: (id) => browserProfileStore.isActive(id),
   hasRemoteConfig: (id) => remoteHostConfigStore.get(id) !== null,
-  listProfileIds: () => browserProfileStore.list().map((p) => p.id),
+  listActiveProfileIds: () => browserProfileStore.listActive().map((p) => p.id),
 });
+const passwordVault = new LocalPasswordVault({
+  userDataDir: () => app.getPath('userData'),
+  safeStorage,
+});
+const clipboardSecretLease = new ClipboardSecretLease({ clipboard });
+let broadcastPasswordVaultChanged = (): void => undefined;
+const passwordVaultController = new PasswordVaultController({
+  vault: passwordVault,
+  isProfileActive: (profileId) => browserProfileStore.isActive(profileId),
+  onMetadataChanged: () => broadcastPasswordVaultChanged(),
+});
+const passwordVaultIpc = registerPasswordVaultIpc({
+  vault: passwordVault,
+  controller: passwordVaultController,
+  clipboardLease: clipboardSecretLease,
+  getMainWindow: () => mainWin,
+  rendererDevServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
+  rendererName: MAIN_WINDOW_VITE_NAME,
+});
+broadcastPasswordVaultChanged = passwordVaultIpc.broadcastChanged;
+const browserProfileDeletion = new BrowserProfileDeletionCoordinator({
+  profiles: browserProfileStore,
+  disableProfileAccess: (profileId) => passwordVaultController.closeProfileGuests(profileId),
+  clearVault: (profileId) => {
+    passwordVault.deleteProfile(profileId);
+  },
+  partitionsForProfile: (profileId) =>
+    browserPartitionPolicy.partitionsOfProfile(
+      profileId,
+      remoteHostConfigStore.list().map((config) => config.id),
+    ),
+  clearPartitionStorage: (partition) => session.fromPartition(partition).clearStorageData(),
+  clearPartitionCache: (partition) => session.fromPartition(partition).clearCache(),
+  notifyProfilesChanged: () => broadcastBrowserProfiles(),
+  logger: {
+    warn: (event) => console.warn('[browser-profile-delete]', event),
+    error: (event) => console.error('[browser-profile-delete]', event),
+  },
+});
+
+ipcMain.handle(
+  PASSWORD_GUEST_CHANNELS.lookup,
+  (event, request: PasswordGuestLookupRequest) =>
+    passwordVaultController.lookup(event.sender.id, request),
+);
+ipcMain.handle(
+  PASSWORD_GUEST_CHANNELS.candidate,
+  (event, candidate: PasswordLoginCandidate) =>
+    passwordVaultController.acceptCandidate(event.sender.id, candidate),
+);
+ipcMain.handle(
+  PASSWORD_GUEST_CHANNELS.result,
+  (event, evidence: PasswordLoginResultEvidence) =>
+    passwordVaultController.settleCandidate(event.sender.id, evidence),
+);
 const remoteHostOrchestrator = new RemoteHostOrchestrator({
   connectSsh: SshConnection.connect,
   credentials: remoteHostCredentials,
@@ -378,24 +461,14 @@ ipcMain.handle(BROWSER_PROFILE_CHANNELS.delete, (event, payload: { id: string })
     throw new Error('browserProfile.delete: main window only');
   }
   const id = typeof payload?.id === 'string' ? payload.id : '';
-  // partitionsOfProfile 只依赖给定 id 与 config 列表(不查 profile 存在性),故删除后
-  // 仍可枚举清盘;白名单则从删除一刻起拒绝该 profile 的新 attach。
-  const removed = browserProfileStore.delete(id);
-  if (!removed) return;
-  broadcastBrowserProfiles();
-  // 删除语义 = 清盘(用户可见文案已明示):该 profile 全部组合分区的存储/缓存清空,
-  // 防孤儿数据堆积。webview 若仍在挂(renderer 对账回落 default 前的窗口期),清的
-  // 是活 session——无害,标签随对账重挂到 default 分区。
-  for (const partition of browserPartitionPolicy.partitionsOfProfile(
-    id,
-    remoteHostConfigStore.list().map((c) => c.id),
-  )) {
-    const ses = session.fromPartition(partition);
-    void ses
-      .clearStorageData()
-      .then(() => ses.clearCache())
-      .catch((err) => console.error('[main] profile partition clear failed:', err));
+  return browserProfileDeletion.deleteProfile(id);
+});
+ipcMain.handle(BROWSER_PROFILE_CHANNELS.retryDelete, (event, payload: { id: string }) => {
+  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+    throw new Error('browserProfile.retryDelete: main window only');
   }
+  const id = typeof payload?.id === 'string' ? payload.id : '';
+  return browserProfileDeletion.retryProfileDeletion(id);
 });
 
 // ---- 浏览器窗格窗口化(弹出=整个窗格独立成窗 · OkBrowser · <终端tab名>)---------
@@ -738,6 +811,8 @@ ipcMain.handle('browserControl:mcp-base', () =>
 
 app.on('before-quit', () => {
   remoteHostOrchestrator.dispose();
+  passwordVaultIpc.closeAllTrustedWindows();
+  clipboardSecretLease.clearOnExit();
 });
 initUpdater({
   confirmInstallWhenIdle: async (version) => {
@@ -1329,18 +1404,23 @@ function buildMenu(): void {
  */
 function wireBrowserWebviewPolicies(
   win: BrowserWindow,
-  opts: { popup?: 'pane' | 'external' } = {},
+  opts: { popup?: 'pane' | 'external'; passwordBridge?: boolean } = {},
 ): void {
   const popupMode = opts.popup ?? 'pane';
+  const passwordBridge = opts.passwordBridge ?? popupMode === 'pane';
   win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     delete webPreferences.preload;
     delete (webPreferences as { preloadURL?: string }).preloadURL;
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
     if (params.src && !/^https?:\/\//i.test(params.src)) event.preventDefault();
     if (!browserPartitionPolicy.isKnown(params.partition)) {
       event.preventDefault();
       return;
+    }
+    if (passwordBridge) {
+      webPreferences.preload = path.join(__dirname, 'browserGuestPreload.js');
     }
     // 每分区 UA(profile 自定义;默认 profile 恒系统默认):attach 前设 session UA,
     // 覆盖 service worker 等 session 级请求;guest 首帧 UA 由 renderer 的 webview
@@ -1363,6 +1443,37 @@ function wireBrowserWebviewPolicies(
       .some((p) => guest.session === session.fromPartition(p));
     if (!isLocalDirect) {
       guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
+    }
+    if (passwordBridge) {
+      const profileIds = [
+        DEFAULT_PROFILE_ID,
+        ...browserProfileStore.listActive().map((profile) => profile.id),
+      ];
+      const exitIds = [
+        'local',
+        ...remoteHostConfigStore.list().map((config) => config.id),
+      ];
+      let profileId: string | null = null;
+      for (const candidateProfileId of profileIds) {
+        if (
+          exitIds.some(
+            (exitId) =>
+              guest.session ===
+              session.fromPartition(browserPartition(candidateProfileId, exitId)),
+          )
+        ) {
+          profileId = candidateProfileId;
+          break;
+        }
+      }
+      if (!profileId) {
+        guest.close({ waitForBeforeUnload: false });
+        return;
+      }
+      passwordVaultController.registerGuest(guest, profileId, win.webContents.id);
+      guest.on('did-finish-load', () =>
+        passwordVaultController.requestNavigationVerification(guest.id),
+      );
     }
     let lastOpenAt = 0;
     guest.setWindowOpenHandler(({ url }) => {
@@ -1402,7 +1513,9 @@ const createWindow = () => {
       // 沙箱 preload 没有 process.env,冒烟开关经 argv 传递
       additionalArguments: buildAdditionalArguments({
         version: app.getVersion(),
-        smoke: !!process.env.OKWORK_SMOKE,
+        // E2E reuses the smoke renderer bootstrap to create a disposable
+        // workspace. Unlike OKWORK_SMOKE, it has no main-process quit handler.
+        smoke: !!process.env.OKWORK_SMOKE || !!e2eUserDataDir,
         dev: isDevChannel,
         locale: getLocale(),
       }),
@@ -1506,6 +1619,7 @@ app.on('ready', () => {
   // Promise 跨睡眠占槽。唤醒时把所有活跃远程连接切到新世代;renderer 既有断线
   // 重连状态机会重新认领远端驻留 Host/session,无需重启或升级服务器。
   powerMonitor.on('resume', () => remoteHostOrchestrator.resetAfterSystemResume());
+  void browserProfileDeletion.resumeInterruptedDeletions();
   createWindow();
   // 冲刷启动前(open-file 早于 ready)入队的待打开文件
   appIsReady = true;

@@ -4,9 +4,13 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+  BROWSER_PROFILE_DELETION_ERROR_CODES,
   DEFAULT_PROFILE_ID,
   PROFILE_ID_RE,
+  isBrowserProfileActive,
+  isBrowserProfileDeletionErrorCode,
   type BrowserProfile,
+  type BrowserProfileDeletionErrorCode,
   type BrowserProfileInput,
 } from '../shared/browserProfile';
 import { t } from '../shared/i18n';
@@ -25,13 +29,32 @@ function sanitize(raw: unknown): BrowserProfile[] {
     if (!p || typeof p.id !== 'string' || !PROFILE_ID_RE.test(p.id)) continue;
     if (typeof p.name !== 'string' || !p.name.trim()) continue;
     if (out.some((x) => x.id === p.id)) continue;
+    const deletionState =
+      p.deletionState === 'deleting' || p.deletionState === 'delete_failed'
+        ? p.deletionState
+        : undefined;
+    const deletionUpdatedAt =
+      typeof p.deletionUpdatedAt === 'number' && Number.isFinite(p.deletionUpdatedAt)
+        ? p.deletionUpdatedAt
+        : 0;
+    const deletionErrorCode = isBrowserProfileDeletionErrorCode(p.deletionErrorCode)
+      ? p.deletionErrorCode
+      : BROWSER_PROFILE_DELETION_ERROR_CODES.failed;
     out.push({
       id: p.id,
       name: p.name,
       ...(typeof p.userAgent === 'string' && p.userAgent
         ? { userAgent: p.userAgent.slice(0, MAX_UA_LENGTH) }
         : {}),
-      createdAt: typeof p.createdAt === 'number' ? p.createdAt : 0,
+      createdAt:
+        typeof p.createdAt === 'number' && Number.isFinite(p.createdAt) ? p.createdAt : 0,
+      ...(deletionState
+        ? {
+            deletionState,
+            deletionUpdatedAt,
+            ...(deletionState === 'delete_failed' ? { deletionErrorCode } : {}),
+          }
+        : {}),
     });
   }
   return out;
@@ -49,6 +72,16 @@ export class BrowserProfileStore {
     return this.list().find((p) => p.id === id) ?? null;
   }
 
+  /** 默认 Profile 恒 active；删除中/失败的自定义 Profile 均 inactive。 */
+  isActive(id: string): boolean {
+    if (id === DEFAULT_PROFILE_ID) return true;
+    return isBrowserProfileActive(this.get(id));
+  }
+
+  listActive(): BrowserProfile[] {
+    return this.list().filter(isBrowserProfileActive);
+  }
+
   /** 新建(省略 id,自造 32 位 hex)或更新(id 命中既有);默认 profile 恒拒绝。 */
   save(input: BrowserProfileInput): BrowserProfile {
     if (input.id === DEFAULT_PROFILE_ID) {
@@ -62,6 +95,9 @@ export class BrowserProfileStore {
     if (input.id !== undefined) {
       const idx = list.findIndex((p) => p.id === input.id);
       if (idx < 0) throw new Error(t('Browser profile not found'));
+      if (!isBrowserProfileActive(list[idx])) {
+        throw new Error('BROWSER_PROFILE_INACTIVE');
+      }
       const updated: BrowserProfile = {
         ...list[idx],
         name,
@@ -83,12 +119,57 @@ export class BrowserProfileStore {
     return created;
   }
 
-  /** 删除;默认 profile / 不存在 → false(幂等,无副作用)。 */
-  delete(id: string): boolean {
+  /** active/delete_failed/deleting → deleting；必须先成功落盘，调用方才可开始清理。 */
+  markDeleting(id: string, updatedAt = Date.now()): BrowserProfile {
+    if (id === DEFAULT_PROFILE_ID) {
+      throw new Error('BROWSER_PROFILE_DEFAULT_DELETE_FORBIDDEN');
+    }
+    const list = this.list();
+    const idx = list.findIndex((p) => p.id === id);
+    if (idx < 0) throw new Error('BROWSER_PROFILE_NOT_FOUND');
+    const updated: BrowserProfile = {
+      ...list[idx],
+      deletionState: 'deleting',
+      deletionUpdatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+    };
+    delete updated.deletionErrorCode;
+    list[idx] = updated;
+    this.settings.write(list);
+    return updated;
+  }
+
+  /** deleting/delete_failed → delete_failed；errorCode 只能来自固定 union。 */
+  markDeleteFailed(
+    id: string,
+    errorCode: BrowserProfileDeletionErrorCode,
+    updatedAt = Date.now(),
+  ): BrowserProfile {
+    const list = this.list();
+    const idx = list.findIndex((p) => p.id === id);
+    if (idx < 0) throw new Error('BROWSER_PROFILE_NOT_FOUND');
+    if (list[idx].deletionState === undefined) {
+      throw new Error('BROWSER_PROFILE_DELETE_NOT_STARTED');
+    }
+    const updated: BrowserProfile = {
+      ...list[idx],
+      deletionState: 'delete_failed',
+      deletionErrorCode: errorCode,
+      deletionUpdatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+    };
+    list[idx] = updated;
+    this.settings.write(list);
+    return updated;
+  }
+
+  /**
+   * 所有外部数据清理成功后的最后一步。active/delete_failed 不可直接移除，防止绕过协调器。
+   */
+  finalizeDeletion(id: string): boolean {
     if (id === DEFAULT_PROFILE_ID) return false;
     const list = this.list();
+    const existing = list.find((p) => p.id === id);
+    if (!existing || existing.deletionState !== 'deleting') return false;
     const next = list.filter((p) => p.id !== id);
-    if (next.length === list.length) return false;
     this.settings.write(next);
     return true;
   }

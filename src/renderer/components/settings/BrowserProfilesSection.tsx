@@ -3,12 +3,13 @@
 // 支持增/改/删。列表数据来自 store 镜像(profilesSync 服务已订阅 main 的
 // browserProfile:changed 推送,增删改后自动刷新,本组件无需手动 list()/refresh)。
 
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import './BrowserProfilesSection.css';
 import { t } from '../../../shared/i18n';
 import { useAppStore } from '../../state/store';
 import { randomUserAgent } from './randomUserAgent';
 import type { BrowserProfile } from '../../../shared/browserProfile';
+import { DEFAULT_PROFILE_ID } from '../../../shared/browserProfile';
 
 interface FormValues {
   name: string;
@@ -25,6 +26,33 @@ export function BrowserProfilesSection() {
   const [formValues, setFormValues] = useState<FormValues>(EMPTY_FORM);
   // save IPC 失败的表单内呈现(不关表单,对齐 RemoteHostsPage 的既有约定)
   const [formError, setFormError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [passwordCounts, setPasswordCounts] = useState<Map<string, number> | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    const bridge = window.okwork?.passwordVault;
+    if (!bridge) return;
+    const refresh = async () => {
+      try {
+        const entries = await bridge.listMetadata();
+        if (disposed) return;
+        const counts = new Map<string, number>();
+        for (const entry of entries) {
+          counts.set(entry.profileId, (counts.get(entry.profileId) ?? 0) + 1);
+        }
+        setPasswordCounts(counts);
+      } catch {
+        if (!disposed) setPasswordCounts(null);
+      }
+    };
+    void refresh();
+    const unsubscribe = bridge.onChanged(() => void refresh());
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [profiles]);
 
   function openAddForm() {
     setFormMode('add');
@@ -66,12 +94,30 @@ export function BrowserProfilesSection() {
 
   async function handleDelete(profile: BrowserProfile) {
     const ok = window.confirm(
-      t('Delete profile "{name}"? Its cookies, logins and cache on this device will be cleared.', {
+      t('Delete Profile "{name}"? Its saved passwords, cookies, logins and cache on this device will be cleared.', {
         name: profile.name,
       }),
     );
     if (!ok) return;
-    await window.okwork?.browserProfile?.delete?.({ id: profile.id });
+    setDeleteError(null);
+    try {
+      const result = await window.okwork?.browserProfile?.delete?.({ id: profile.id });
+      if (result && result.status !== 'deleted') {
+        setDeleteError(result.errorCode);
+      }
+    } catch {
+      setDeleteError('BROWSER_PROFILE_DELETE_UNAVAILABLE');
+    }
+  }
+
+  async function handleRetryDelete(profile: BrowserProfile) {
+    setDeleteError(null);
+    try {
+      const result = await window.okwork?.browserProfile?.retryDelete?.({ id: profile.id });
+      if (result && result.status !== 'deleted') setDeleteError(result.errorCode);
+    } catch {
+      setDeleteError('BROWSER_PROFILE_DELETE_UNAVAILABLE');
+    }
   }
 
   // Esc 只关本表单——SettingsModal 骨架在 document 上监听 Escape 关整个弹层,
@@ -91,7 +137,12 @@ export function BrowserProfilesSection() {
       <div className="browser-profiles__title">{t('Browser profiles')}</div>
       <div className="browser-profiles__desc">
         {t(
-          'Each profile has isolated cookies, storage and an optional custom User-Agent. Projects choose a profile in their edit dialog.',
+          'Each Profile has isolated cookies, saved passwords, storage and an optional custom User-Agent. Projects choose a Profile in their edit dialog.',
+        )}
+      </div>
+      <div className="browser-profiles__disclosure">
+        {t(
+          'Passwords are encrypted on this device. After filling, the website and connected OkBrowser Agents can read them.',
         )}
       </div>
 
@@ -102,30 +153,72 @@ export function BrowserProfilesSection() {
           <span className="browser-profiles__row-desc">
             {t('Shared default storage · system User-Agent')}
           </span>
+          {passwordCounts && (
+            <span className="browser-profiles__password-count">
+              {t('{count} saved passwords', {
+                count: passwordCounts.get(DEFAULT_PROFILE_ID) ?? 0,
+              })}
+            </span>
+          )}
         </div>
         {profiles.map((profile) => (
           <div key={profile.id} className="browser-profiles__row">
             <span className="browser-profiles__name">{profile.name}</span>
+            {profile.deletionState && (
+              <span
+                className={`browser-profiles__badge browser-profiles__badge--${profile.deletionState}`}
+              >
+                {profile.deletionState === 'deleting'
+                  ? t('Deleting…')
+                  : t('Delete failed')}
+              </span>
+            )}
             <span className="browser-profiles__row-desc">
-              {profile.userAgent || t('System default User-Agent')}
+              {profile.deletionState === 'delete_failed'
+                ? profile.deletionErrorCode
+                : (profile.userAgent || t('System default User-Agent'))}
             </span>
+            {passwordCounts && (
+              <span className="browser-profiles__password-count">
+                {t('{count} saved passwords', {
+                  count: passwordCounts.get(profile.id) ?? 0,
+                })}
+              </span>
+            )}
             <span className="browser-profiles__row-actions">
-              <button
-                className="browser-profiles__action"
-                onClick={() => openEditForm(profile)}
-              >
-                {t('Edit')}
-              </button>
-              <button
-                className="browser-profiles__action browser-profiles__action--danger"
-                onClick={() => handleDelete(profile)}
-              >
-                {t('Delete')}
-              </button>
+              {profile.deletionState === 'delete_failed' ? (
+                <button
+                  className="browser-profiles__action browser-profiles__action--danger"
+                  onClick={() => handleRetryDelete(profile)}
+                >
+                  {t('Retry cleanup')}
+                </button>
+              ) : profile.deletionState === 'deleting' ? null : (
+                <>
+                  <button
+                    className="browser-profiles__action"
+                    onClick={() => openEditForm(profile)}
+                  >
+                    {t('Edit')}
+                  </button>
+                  <button
+                    className="browser-profiles__action browser-profiles__action--danger"
+                    onClick={() => handleDelete(profile)}
+                  >
+                    {t('Delete')}
+                  </button>
+                </>
+              )}
             </span>
           </div>
         ))}
       </div>
+
+      {deleteError && (
+        <div className="browser-profiles__form-error" role="alert">
+          {t('Profile cleanup did not finish. The profile remains disabled and can be retried.')} ({deleteError})
+        </div>
+      )}
 
       {formMode ? (
         <div className="browser-profiles__form" onKeyDown={onFormKeyDown}>

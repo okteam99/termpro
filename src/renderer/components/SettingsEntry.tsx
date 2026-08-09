@@ -5,6 +5,8 @@ import { useAppStore } from '../state/store';
 import { BrowserSettingsPage } from './settings/BrowserSettingsPage';
 import { LanguagePage } from './settings/LanguagePage';
 import { RemoteHostsPage } from './settings/RemoteHostsPage';
+import { SavedPasswordsPage } from './settings/SavedPasswordsPage';
+import { DEFAULT_PROFILE_ID } from '../../shared/browserProfile';
 
 // 应用图标(About 弹窗 logo)· Vite 把资源打进 renderer bundle(dev + 打包均生效)
 const appIconUrl = new URL('../../../assets/icon.png', import.meta.url).href;
@@ -167,7 +169,7 @@ function localePrefLabel(pref: LocalePref): string {
 
 /** 菜单项挂载的弹层(互斥单选;null = 都不开)。设置项一律独立 modal,
  *  不再行内展开(用户指令 2026-07-20)。 */
-type SettingsPage = 'language' | 'browser' | 'remoteHosts' | 'about';
+type SettingsPage = 'language' | 'browser' | 'passwords' | 'remoteHosts' | 'about';
 
 /** 浏览器设置:指针点击链接轮廓 */
 function LinkIcon() {
@@ -207,6 +209,7 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const pinBottomBar = useAppStore((s) => s.pinBottomBar);
   const setPinBottomBar = useAppStore((s) => s.setPinBottomBar);
   const localePref = useAppStore((s) => s.localePref);
+  const browserProfiles = useAppStore((s) => s.browserProfiles);
   const remoteHostsPageNonce = useAppStore((s) => s.remoteHostsPageNonce);
   // 首次挂载读到的 nonce 是「初值」,不算触发——只有后续自增(store.openRemoteHostsPage,
   // 如「host 过旧」死胡同提示引导)才应该弹开该页
@@ -255,6 +258,15 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
     prevRemoteHostsPageNonceRef.current = remoteHostsPageNonce;
     openPage('remoteHosts');
   }, [remoteHostsPageNonce]);
+
+  useEffect(() => {
+    if (page !== 'passwords') return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleClosePage();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [page]);
 
   return (
     <div className="settings-anchor" ref={anchorRef}>
@@ -310,6 +322,15 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
             className="settings-menu-item"
             role="menuitem"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            onClick={() => openPage('passwords')}
+          >
+            <span className="settings-menu-icon" aria-hidden="true">◇</span>
+            <span className="settings-menu-label">{t('Saved Passwords')}</span>
+          </button>
+          <button
+            className="settings-menu-item"
+            role="menuitem"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => openPage('remoteHosts')}
           >
             <span className="settings-menu-icon">
@@ -356,7 +377,29 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
 
       {page === 'about' && <AboutModal version={version} onClose={handleClosePage} />}
       {page === 'language' && <LanguagePage onClose={handleClosePage} />}
-      {page === 'browser' && <BrowserSettingsPage onClose={handleClosePage} />}
+      {page === 'browser' && (
+        <BrowserSettingsPage
+          onClose={handleClosePage}
+          onOpenPasswords={() => setPage('passwords')}
+        />
+      )}
+      {page === 'passwords' && (
+        <div
+          className="settings-modal__backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) handleClosePage();
+          }}
+        >
+          <SavedPasswordsPage
+            onBack={() => setPage('browser')}
+            onClose={handleClosePage}
+            profiles={[
+              { id: DEFAULT_PROFILE_ID, name: t('OkWork (built-in)') },
+              ...browserProfiles.map((profile) => ({ id: profile.id, name: profile.name })),
+            ]}
+          />
+        </div>
+      )}
       {page === 'remoteHosts' && <RemoteHostsPage onClose={handleClosePage} />}
     </div>
   );

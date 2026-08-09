@@ -10,7 +10,7 @@
 - [x] 涉及多模块：是
 - [x] 数据库变更：否；仅新增 `userData` 下的版本化本地 Vault 文档
 - [x] 影响现有功能：是；Browser Profile 删除、Browser webview attach、Settings 与 OkBrowser chrome
-- [x] 新技术栈/依赖：否；复用 Electron `safeStorage`、`BrowserWindow`、`session`、IPC 与现有 React/Vitest
+- [x] 新技术栈/依赖：生产无新增；复用 Electron `safeStorage`、`BrowserWindow`、`session`、IPC 与现有 React/Vitest，并新增 dev-only `playwright-core` 驱动真实 Electron E2E
 
 **结论**：复杂方案。密码明文跨 guest/main/可信窗口，且 Profile 删除要从“先删元数据、后台尽力清理”改成持久化状态机；实现前必须把安全边界和失败语义锁定。
 
@@ -57,7 +57,7 @@
 - **已验证**：`wireBrowserWebviewPolicies()` 同时接到主窗和独立 OkBrowser 壳窗；在这里由 main 固定写入 guest preload，可以保证两种承载面行为一致。
 - **已验证**：查看器窗口也使用 webview，但以 `popup: external` 接线；可信密码 guest preload 必须只注入 BrowserPanel/OkBrowser 的 `pane` 模式，不能进入项目 HTML 预览。
 - **已验证**：普通 renderer 可读系统剪贴板；因此复制后的密码只能定义为用户显式导出面，不能承诺仍对普通 renderer 保密。
-- **推断并在 dev 验证**：Electron Forge 的新增 preload target 会生成稳定的 `password_guest_preload.js` / `password_trusted_preload.js`；dev 第一阶段必须用打包产物路径和冒烟测试确认，不靠文件名假设继续实现。
+- **已在 dev 验证**：Electron Forge 的新增 preload target 稳定生成 `.vite/build/browserGuestPreload.js` 与 `.vite/build/passwordTrustedPreload.js`；默认 T-012 每次先重建并校验产物 freshness，不依赖旧文件。
 
 ## 技术方案
 
@@ -176,8 +176,9 @@ flowchart LR
 | `passwordVaultGuest.lookup` | 固定 guest preload | `{ pageUsername? }` | 当前页选中账号的单条 fill payload 或 multiple/none 状态 |
 | `passwordVaultGuest.candidate/result` | 固定 guest preload | candidate / evidence | 无；main 只在确认成功时 upsert |
 | `passwordVaultTrusted.context` | 专用可信 preload | 无 | 当前窗口绑定的一条脱敏 metadata |
-| `passwordVaultTrusted.reveal` | 专用可信 preload | 用户点击 | 单条明文只返回可信窗口，10 秒后 UI 丢弃并重遮罩 |
-| `passwordVaultTrusted.copy` | 专用可信 preload | 用户点击 | main 直接写剪贴板，返回到期时间，不返回明文 |
+| `passwordVaultTrusted.actionGrant` | 专用可信 preload | `Event.isTrusted` 的 reveal/copy 按钮点击 | main 发放 sender + entry + action 绑定、5 秒有效且一次性消费的随机 proof；不暴露给页面 |
+| `passwordVaultTrusted.reveal` | 专用可信 preload | `{ proof }` | proof 校验并消费后，单条明文只返回可信窗口，10 秒后 UI 丢弃并重遮罩 |
+| `passwordVaultTrusted.copy` | 专用可信 preload | `{ proof }` | proof 校验并消费后，main 直接写剪贴板，返回到期时间，不返回明文 |
 | `browserProfile.delete/retryDelete` | 普通主窗 | `{ id }` | 等待协调器完成；全成功才移除，失败保留状态 |
 
 所有 IPC handler 先按 sender 类别 allowlist，再校验 payload。固定 guest 通道额外逐次验证：guest 仍登记、Profile active、当前 URL 与 lookup/submit origin 一致、origin 为 HTTPS 或 loopback HTTP。普通 preload 不暴露 trusted/guest channel 的直接 invoke 封装。
@@ -229,7 +230,7 @@ flowchart LR
 - `src/main/browserProfileDeletion.ts` — Profile 删除状态机与启动恢复。
 - `src/main/clipboardSecretLease.ts` — 60 秒 generation + digest 条件清理。
 - `src/preload/browserGuestPreload.ts` — 标准登录字段检测、候选捕获、结果 evidence、受限填充；不 expose 给页面。
-- `src/preload/passwordTrustedPreload.ts` — 隔离窗口的 context/reveal/copy/delete 窄桥。
+- `src/preload/passwordTrustedPreload.ts` — 隔离窗口的 context/reveal/copy 窄桥与真实点击一次性 proof gate；无 delete/通用 decrypt。
 - `src/renderer/components/settings/SavedPasswordsPage.tsx` + CSS — 脱敏列表、搜索/筛选、状态和删除。
 - `src/renderer/components/passwords/TrustedPasswordWindow.tsx` + CSS — 独立可信显示/复制窗口。
 - `src/renderer/components/browser/PasswordStatusBar.tsx` + CSS — 保存/填充/账号切换/安全披露 chrome。
@@ -318,7 +319,7 @@ stateDiagram-v2
 - **单元/集成**：`LocalPasswordVault` 使用临时真实目录 + 注入 `SafeStorageLike`，读取真实写盘文本并用重建实例验证重启；controller/IPC 用真实 handler 接线与假 WebContents 身份验证，不 mock 被测 store 内部方法。
 - **renderer 单测**：SavedPasswords/BrowserPanel 使用公开 preload DTO 和真实用户事件；不把明文塞进普通页面 fixture。fake timer 场景不用 `waitFor`，遵守 KNOWLEDGE RD-12。
 - **契约测试**：验证 forge 生成的固定 guest/trusted preload 产物路径、main 的 `will-attach-webview` 只对 BrowserPanel 注入、Viewer 仍拒绝 preload；验证普通 preload 的 API 类型中没有 reveal/copy/decrypt。
-- **真实 Electron Browser E2E**：本地 loopback 登录 harness 跑成功/失败/不确定、Profile 隔离、可信窗口、剪贴板与删除失败重试。使用临时 userData，不依赖用户真实 Vault。
+- **真实 Electron Browser E2E**：本地 loopback 登录 harness 跑成功保存、回访填充、非空字段保护、脱敏管理、可信窗口 reveal/copy 与剪贴板恢复。失败/不确定、Profile 隔离与删除失败重试由 integration tests 覆盖。E2E 使用临时 userData，不依赖用户真实 Vault。
 - **基线失败集**：dev 开工先跑 `npm run typecheck`、`npm test`、lint/冒烟并按 state.py 提示登记 brownfield baseline；当前 Blueprint 不假设全绿。
 
 ### 测试基建成本
@@ -330,25 +331,25 @@ stateDiagram-v2
 
 | TC 用例 | 测试目标 | 状态 |
 |---|---|---|
-| T-001～T-004 | 登录 evidence、exact-origin/Profile、填充与更新 | ☐ |
-| T-005 | 加密持久化与 fail-closed | ☐ |
-| T-006～T-007 | 脱敏管理页、可信显示/复制、剪贴板租约 | ☐ |
-| T-008～T-009 | Profile/单账号删除与重试 | ☐ |
-| T-010～T-011 | sender allowlist、preload 边界、日志脱敏 | ☐ |
-| T-012 | 真实 Electron Browser journeys | ☐ |
+| T-001～T-004 | 登录 evidence、exact-origin/Profile、填充与更新 | ✅ |
+| T-005 | 加密持久化与 fail-closed | ✅ |
+| T-006～T-007 | 脱敏管理页、可信显示/复制、剪贴板租约 | ✅ |
+| T-008～T-009 | Profile/单账号删除与重试 | ✅ |
+| T-010～T-011 | sender allowlist、preload 边界、日志脱敏 | ✅ |
+| T-012 | 真实 Electron Browser journeys | ✅ |
 
 ### 实现步骤
 
 | # | 步骤 | 类型 | 验证方式 | 状态 |
 |---|---|---|---|---|
-| 1 | 建 shared model、LocalPasswordVault 与加密/损坏/原子写测试 | 数据核心 | T-005 + typecheck | ☐ |
-| 2 | 建 guest registry/origin policy/pending evidence 状态机 | 安全核心 | T-001～T-004、T-010 | ☐ |
-| 3 | 增加并验证固定 guest preload build，接标准字段检测/填充 | 跨进程接线 | preload 契约测试 + build | ☐ |
-| 4 | 接 ordinary/trusted IPC、可信窗口与 ClipboardSecretLease | 安全/UI | T-007、T-010 | ☐ |
-| 5 | 把 Profile 删除改为持久化协调器并接启动恢复 | 生命周期 | T-008～T-009 | ☐ |
-| 6 | 接 SavedPasswords、Profile 状态、Browser chrome 与 i18n | UI | T-006 + 组件测试 | ☐ |
-| 7 | 全量 typecheck/lint/test/build/冒烟，核对 panorama 意图 | 收敛 | 三绿 + UI 对照 | ☐ |
-| 8 | Browser E2E 跑 T-012 三条旅程 | 黑盒验收 | e2e 报告/截图 | ☐ |
+| 1 | 建 shared model、LocalPasswordVault 与加密/损坏/原子写测试 | 数据核心 | T-005 + typecheck | ✅ |
+| 2 | 建 guest registry/origin policy/pending evidence 状态机 | 安全核心 | T-001～T-004、T-010 | ✅ |
+| 3 | 增加并验证固定 guest preload build，接标准字段检测/填充 | 跨进程接线 | preload 契约测试 + build | ✅ |
+| 4 | 接 ordinary/trusted IPC、可信窗口与 ClipboardSecretLease | 安全/UI | T-007、T-010 | ✅ |
+| 5 | 把 Profile 删除改为持久化协调器并接启动恢复 | 生命周期 | T-008～T-009 | ✅ |
+| 6 | 接 SavedPasswords、Profile 状态、Browser chrome 与 i18n | UI | T-006 + 组件测试 | ✅ |
+| 7 | 全量 typecheck/test/build/冒烟、changed-files lint，核对 panorama 意图 | 收敛 | 全量测试三绿 + feature lint 0 error + UI 对照 | ✅ |
+| 8 | Browser E2E 跑 T-012 真实纵向旅程 | 黑盒验收 | fresh build + Playwright Electron 报告 | ✅ |
 
 ## 风险与缓解
 
@@ -374,25 +375,26 @@ stateDiagram-v2
 | 日期 | 变更 |
 |---|---|
 | 2026-08-09 | 首版：基于当前 Profile/webview/preload/delete 真实代码，定义本地 Vault、三类 IPC 信任面、登录 evidence、删除状态机与剪贴板租约 |
+| 2026-08-10 | Dev 落地：确认实际 preload 产物；增加真实 Electron E2E；可信 reveal/copy 使用隔离 preload 真实点击 + main 一次性短时 proof，修复跨 isolated-world 事件时序。 |
 
 ## 完工自查
 
 **对照本 TECH 的设计落地：**
 
-- [ ] 现状基线关键前提仍成立；forge preload 产物路径已由 build/冒烟实证
-- [ ] 错误处理表每条失败路径均实现，未把 error/uncertain 混成 success
-- [ ] 每条 catch/error 路径按表记录 WARN/ERROR 且不含秘密
-- [ ] BrowserProfile / preload / IPC 消费方全部同步，typecheck 零报错
-- [ ] Vault/DTO 字段跨层一致，普通 renderer 类型无明文字段
+- [x] 现状基线关键前提仍成立；forge preload 产物路径已由 build/冒烟实证
+- [x] 错误处理表每条失败路径均实现，未把 error/uncertain 混成 success
+- [x] 每条 catch/error 路径按表记录 WARN/ERROR 且不含秘密
+- [x] BrowserProfile / preload / IPC 消费方全部同步，typecheck 零报错
+- [x] Vault/DTO 字段跨层一致，普通 renderer 类型无明文字段
 - [x] 数据库变更：N-A；无 DB/SQL/migration
 - [x] SQL 性能：N-A；已给本地 O(n) 文件低基数理由
-- [ ] 测试策略中的 integration/contract/browser e2e 均已实现并真跑
+- [x] 测试策略中的 integration/contract/browser e2e 均已实现并真跑
 
 **通用质量门：**
 
-- [ ] DEV-RULES / HARD-RULES 符合
-- [ ] build、typecheck、lint、test、冒烟通过
-- [ ] 实际 UI 与已确认 panorama 的三页意图一致
+- [x] DEV-RULES / HARD-RULES 符合
+- [x] package/build、typecheck、全量 test、真实 Electron 冒烟通过；变更文件 ESLint 0 error（仓库既有全量 lint 基线错误不归本 Feature）
+- [x] 实际 UI 与已确认 panorama 的三页意图一致（布局、视觉 token、披露/计数内容、入口与可信交互均已反向核对）
 
 ## 🧩 补充洞察
 

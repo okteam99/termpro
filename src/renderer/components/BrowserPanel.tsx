@@ -3,6 +3,11 @@ import { resolveBrowserTabNet, useAppStore, selectActiveWorkspace } from '../sta
 import type { BrowserTabState } from '../state/store';
 import { t } from '../../shared/i18n';
 import { DEFAULT_PROFILE_ID, browserPartition } from '../../shared/browserProfile';
+import {
+  PASSWORD_GUEST_CHANNELS,
+  isPasswordGuestStatus,
+  type PasswordGuestStatus,
+} from '../../shared/passwordVault';
 import { registerBrowserView } from '../services/browserViewRegistry';
 import type {
   BrowserNetworkSnapshot,
@@ -10,6 +15,7 @@ import type {
   RemoteStage,
 } from '../../shared/remoteHost';
 import { PanelHeader, PanelHeaderButton } from './PanelHeader';
+import { PasswordStatusBar } from './browser/PasswordStatusBar';
 import './BrowserPanel.css';
 
 // webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
@@ -103,6 +109,7 @@ interface BrowserWebviewProps {
   onNavChange: (id: string, patch: Partial<NavState>) => void;
   onUrlChange: (ownerTerminalTabId: string, id: string, url: string) => void;
   onTitleChange: (ownerTerminalTabId: string, id: string, title: string) => void;
+  onPasswordStatus: (id: string, status: PasswordGuestStatus, guestId: number) => void;
 }
 
 /** 常驻挂载的单标签 webview:src 只设一次(锁定首个非空 url),store 后续 url 更新
@@ -120,6 +127,7 @@ function BrowserWebview({
   onNavChange,
   onUrlChange,
   onTitleChange,
+  onPasswordStatus,
 }: BrowserWebviewProps) {
   const srcRef = useRef(url);
   if (!srcRef.current && url) srcRef.current = url;
@@ -175,6 +183,17 @@ function BrowserWebview({
         errorText: `${ev.errorDescription || 'LOAD_FAILED'} (${ev.errorCode ?? '?'})`,
       });
     }
+    function handleIpcMessage(e: Event) {
+      const ev = e as Event & { channel?: string; args?: unknown[] };
+      if (ev.channel !== PASSWORD_GUEST_CHANNELS.statusToHost) return;
+      const status = ev.args?.[0];
+      if (!isPasswordGuestStatus(status)) return;
+      try {
+        onPasswordStatus(tabId, status, el!.getWebContentsId());
+      } catch {
+        // guest 尚未完成 attach 时没有 id；丢弃这条瞬时状态即可。
+      }
+    }
 
     el.addEventListener('did-navigate', handleDidNavigate);
     el.addEventListener('did-navigate-in-page', handleDidNavigateInPage);
@@ -182,6 +201,7 @@ function BrowserWebview({
     el.addEventListener('did-start-loading', handleStartLoading);
     el.addEventListener('did-stop-loading', handleStopLoading);
     el.addEventListener('did-fail-load', handleDidFailLoad);
+    el.addEventListener('ipc-message', handleIpcMessage);
     return () => {
       el.removeEventListener('did-navigate', handleDidNavigate);
       el.removeEventListener('did-navigate-in-page', handleDidNavigateInPage);
@@ -189,8 +209,17 @@ function BrowserWebview({
       el.removeEventListener('did-start-loading', handleStartLoading);
       el.removeEventListener('did-stop-loading', handleStopLoading);
       el.removeEventListener('did-fail-load', handleDidFailLoad);
+      el.removeEventListener('ipc-message', handleIpcMessage);
     };
-  }, [el, tabId, ownerTerminalTabId, onNavChange, onUrlChange, onTitleChange]);
+  }, [
+    el,
+    tabId,
+    ownerTerminalTabId,
+    onNavChange,
+    onUrlChange,
+    onTitleChange,
+    onPasswordStatus,
+  ]);
 
   if (!srcRef.current) return null;
 
@@ -511,6 +540,9 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
 
   const webviewRefs = useRef(new Map<string, WebviewElement>());
   const [navStates, setNavStates] = useState<Record<string, NavState>>({});
+  const [passwordStates, setPasswordStates] = useState<
+    Record<string, { status: PasswordGuestStatus; guestId: number }>
+  >({});
   // 地址栏编辑态:聚焦进入(draft=当前 url),Enter 提交/Esc 放弃后失焦退出
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -587,6 +619,10 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
       const kept = Object.entries(prev).filter(([id]) => liveIds.has(id));
       return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
     });
+    setPasswordStates((prev) => {
+      const kept = Object.entries(prev).filter(([id]) => liveIds.has(id));
+      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
+    });
   }, [workspaces]);
 
   // 空标签(未导航)自动聚焦地址栏。🔴 推迟到下一帧:首开面板时终端/webview 的
@@ -633,9 +669,21 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     setNavStates((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_NAV_STATE), ...patch } }));
   }, []);
 
+  const handlePasswordStatus = useCallback(
+    (id: string, status: PasswordGuestStatus, guestId: number) => {
+      setPasswordStates((prev) => ({ ...prev, [id]: { status, guestId } }));
+    },
+    [],
+  );
+
   const activeUrl = activeTab?.url ?? '';
   const isEmptyTab = !activeTab || activeUrl === '';
   const activeNav = (activeTabId && navStates[activeTabId]) || DEFAULT_NAV_STATE;
+  const activePassword = activeTabId ? passwordStates[activeTabId] : undefined;
+  const activeProfileId = activeWorkspace?.browserProfileId ?? DEFAULT_PROFILE_ID;
+  const activeProfileName =
+    browserProfiles.find((profile) => profile.id === activeProfileId)?.name ??
+    (activeProfileId === DEFAULT_PROFILE_ID ? t('Default Profile') : activeProfileId);
 
   function handleNavigate(raw: string) {
     if (!activeTermTabId || !activeTab) return;
@@ -846,6 +894,19 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
         </div>
       )}
 
+      <PasswordStatusBar
+        status={activePassword?.status ?? { kind: 'idle' }}
+        profileName={activeProfileName}
+        onChooseAccount={
+          activePassword
+            ? () =>
+                void window.okwork?.passwordVault.openAccountMenu({
+                  guestWebContentsId: activePassword.guestId,
+                })
+            : undefined
+        }
+      />
+
       <div className="browser-panel__views">
         {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),
             为每个浏览器标签渲染一个常驻 webview,可见性用 CSS visibility 切换——绝不能
@@ -883,6 +944,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
                   onNavChange={handleNavChange}
                   onUrlChange={handleUrlChange}
                   onTitleChange={handleTitleChange}
+                  onPasswordStatus={handlePasswordStatus}
                 />
               );
             }),

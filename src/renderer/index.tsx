@@ -4,6 +4,7 @@ import App from './App';
 import { ViewerWindow } from './components/viewer/ViewerWindow';
 import type { ViewerPayload } from './components/viewer/ViewerWindow';
 import { BrowserPaneShellWindow } from './components/BrowserPaneShellWindow';
+import { TrustedPasswordWindow } from './components/passwords/TrustedPasswordWindow';
 import { installSelectionGuard } from './terminal/selectionGuard';
 import { setLocale } from '../shared/i18n';
 import './index.css';
@@ -35,9 +36,14 @@ const browserPaneTabId =
   window.okwork?.browserPaneTabId ??
   new URLSearchParams(window.location.search).get('browserPane') ??
   null;
+const isTrustedPasswordWindow =
+  new URLSearchParams(window.location.search).get('passwordTrusted') === '1' &&
+  window.passwordTrusted !== undefined;
 createRoot(container).render(
   <React.StrictMode>
-    {browserPaneTabId ? (
+    {isTrustedPasswordWindow ? (
+      <TrustedPasswordWindow />
+    ) : browserPaneTabId ? (
       <BrowserPaneShellWindow terminalTabId={browserPaneTabId} />
     ) : viewerPayload ? (
       <ViewerWindow payload={viewerPayload} />

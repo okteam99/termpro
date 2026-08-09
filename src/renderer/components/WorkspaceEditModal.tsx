@@ -15,7 +15,9 @@ interface WorkspaceEditModalProps {
 /** 工作区编辑弹层:改名 + 选择浏览器 profile。Enter 保存,Esc / 点遮罩 / 取消 关闭。
  *  保存逻辑内聚于此(RenameModal 只管改名,本弹层多一个字段,不复用它)。 */
 export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEditModalProps) {
-  const profiles = useAppStore((s) => s.browserProfiles);
+  const profiles = useAppStore((s) =>
+    s.browserProfiles.filter((profile) => profile.deletionState === undefined),
+  );
   const renameWorkspace = useAppStore((s) => s.renameWorkspace);
   const setWorkspaceBrowserProfile = useAppStore((s) => s.setWorkspaceBrowserProfile);
 

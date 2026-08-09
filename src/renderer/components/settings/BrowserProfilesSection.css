@@ -21,6 +21,17 @@
   margin-bottom: 10px;
 }
 
+.browser-profiles__disclosure {
+  margin: -2px 0 10px;
+  padding: 7px 9px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 18%, var(--border));
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .browser-profiles__list {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -62,6 +73,12 @@
   white-space: nowrap;
 }
 
+.browser-profiles__badge--deleting,
+.browser-profiles__badge--delete_failed {
+  color: var(--red, #e06c75);
+  border-color: rgba(224, 108, 117, 0.4);
+}
+
 .browser-profiles__row-desc {
   flex: 1;
   min-width: 0;
@@ -78,6 +95,13 @@
   align-items: center;
   gap: 6px;
   margin-left: auto;
+}
+
+.browser-profiles__password-count {
+  flex: none;
+  color: var(--accent);
+  font-size: 9.5px;
+  white-space: nowrap;
 }
 
 .browser-profiles__action {

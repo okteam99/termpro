@@ -14,12 +14,12 @@ import {
 } from '../shared/browserProfile';
 
 export interface BrowserPartitionPolicyDeps {
-  /** 自定义 profile 存在性(默认 profile 恒存在,策略内部处理,勿在此判 'default')。 */
-  hasProfile: (id: string) => boolean;
+  /** 自定义 profile active 判定(删除中/失败必须为 false)。 */
+  isProfileActive: (id: string) => boolean;
   /** 远程机配置存在性。 */
   hasRemoteConfig: (id: string) => boolean;
-  /** 全部自定义 profile id(不含默认)。 */
-  listProfileIds: () => string[];
+  /** 全部 active 自定义 profile id(不含默认)。 */
+  listActiveProfileIds: () => string[];
 }
 
 export interface BrowserPartitionPolicy {
@@ -41,7 +41,7 @@ export function createBrowserPartitionPolicy(
       if (typeof partition !== 'string') return false;
       const parsed = parseBrowserPartition(partition);
       if (!parsed) return false;
-      if (parsed.profileId !== DEFAULT_PROFILE_ID && !deps.hasProfile(parsed.profileId)) {
+      if (parsed.profileId !== DEFAULT_PROFILE_ID && !deps.isProfileActive(parsed.profileId)) {
         return false;
       }
       if (parsed.netHostId !== 'local' && !deps.hasRemoteConfig(parsed.netHostId)) {
@@ -52,13 +52,13 @@ export function createBrowserPartitionPolicy(
     localDirectPartitions() {
       return [
         browserPartition(DEFAULT_PROFILE_ID, 'local'),
-        ...deps.listProfileIds().map((pid) => browserPartition(pid, 'local')),
+        ...deps.listActiveProfileIds().map((pid) => browserPartition(pid, 'local')),
       ];
     },
     partitionsOfExit(configId) {
       return [
         browserPartition(DEFAULT_PROFILE_ID, configId),
-        ...deps.listProfileIds().map((pid) => browserPartition(pid, configId)),
+        ...deps.listActiveProfileIds().map((pid) => browserPartition(pid, configId)),
       ];
     },
     partitionsOfProfile(profileId, configIds) {
