@@ -1,0 +1,84 @@
+{
+  "feature_id": "OKWORK-F260810051623-Remote-Profile-Authority",
+  "bl": "BL-007",
+  "clarity": "normal",
+  "preset": "full",
+  "sub_project": "OKWORK",
+  "flow_type": "Feature",
+  "artifact_root": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260810051623-Remote-Profile-Authority/docs/features/OKWORK-F260810051623-Remote-Profile-Authority",
+  "host": "codex-cli",
+  "host_history": [
+    {
+      "host": "codex-cli",
+      "at": "2026-08-10T05:39:59Z",
+      "source": "init-feature"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-10T05:40:04Z",
+      "source": "goal-start",
+      "previous": "codex-cli"
+    }
+  ],
+  "current_stage": "goal",
+  "merge_target": "main",
+  "review_base_commit": null,
+  "worktree": {
+    "strategy": "auto",
+    "branch": "feature/okwork-f260810051623-remote-profile-authority",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260810051623-Remote-Profile-Authority",
+    "base_branch": "origin/main",
+    "created_at": "2026-08-10T05:39:59Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "feature/okwork-f260810051623-remote-profile-authority",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-08-10T05:39:59Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [],
+  "review_round": 0,
+  "stage_contracts": {
+    "goal": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-10T05:40:04Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-08-10T05:39:59Z",
+  "stage_review_roles": {
+    "goal": [
+      "fast"
+    ],
+    "blueprint": [],
+    "review": [
+      "fast"
+    ]
+  },
+  "stage_review_roles_adjustments": [
+    {
+      "stage": "*",
+      "roles": [],
+      "reason": "fast_mode(localconfig)· goal/review 各留单路合并评审 · 其余评审跳",
+      "adjusted_via": "fast_mode"
+    }
+  ],
+  "fast_mode": true,
+  "updated_at": "2026-08-10T05:55:20Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:ab95a589adf158432dd38a944d565573888da8ca4da969a65e146445dd0355e7",
+  "legal_next_stages": [
+    "ui_design",
+    "blueprint"
+  ],
+  "open_pause": {
+    "stage": "goal",
+    "label": "Goal PRD 最终确认",
+    "started_at": "2026-08-10T05:55:20Z"
+  }
+}
