@@ -1,9 +1,9 @@
 ---
 feature_id: "OKWORK-F260807022801-Profile-Password-Vault"
 author: PM
-status: draft
-decision: ""
-decided_at: ""
+status: confirmed
+decision: "approved_and_ship"
+decided_at: "2026-08-10T03:17:38Z"
 prd_ref: PRD.md (v1.0)
 test_report_ref: TEST-REPORT.md
 browser_test_report_ref: BROWSER-TEST-REPORT.md
@@ -14,6 +14,10 @@ revision_history:
     date: "2026-08-10"
     author: PM
     summary: AC 实证核对完成，等待用户发布决策
+  - version: v1.0
+    date: "2026-08-10"
+    author: PM
+    summary: 用户选择 approved_and_ship
 ---
 
 # BL-006 Profile 密码库与静默保存/填充 - PM 验收说明
@@ -27,7 +31,7 @@ revision_history:
 | 项 | 内容 |
 |---|---|
 | PM 初审 | 9 / 9 AC 有通过证据，无 BL-006 阻塞 finding |
-| 用户决策 | 待用户选择 `approved_and_ship` / `approved_no_ship` / `rejected_with_feedback` |
+| 用户决策 | `approved_and_ship`（用户于 2026-08-10T03:17:38Z 选择 1） |
 | 评审依据 | PRD v1.0、TEST-REPORT、BROWSER-TEST-REPORT、10 张整窗截图、REVIEW APPROVE |
 | 功能范围 | 当前设备本地加密 Vault；Remote Host provider 明确属于后续 BL-007，Cookie 同步属于 BL-008 |
 
@@ -51,8 +55,9 @@ revision_history:
 
 ## §3 决策
 
-**决策**：等待用户拍板  
-**PM 建议**：若认可 BL-006 的本地范围与当前 UI/证据，可选 `approved_and_ship`；进入 ship 后仍会在平台合并前再次暂停，不会直接推送或合并。
+**决策**：`approved_and_ship`
+
+**理由**：用户认可 BL-006 的本地范围、当前 UI 与 9/9 AC 实证，选择进入 Ship；平台合并仍遵循 Ship 阶段暂停点。
 
 ### rejected_with_feedback finding
 
@@ -82,4 +87,3 @@ revision_history:
 | TEST-REPORT | 1741 tests passed；typecheck 0；AC coverage 9/9；live Electron e2e 0 |
 | BROWSER-TEST-REPORT | 3 组真实场景、10 张整窗截图、截图覆盖 9/9 |
 | 范围边界 | BL-006 本地 Vault；BL-007 才接 Remote Host provider；BL-008 才做 Cookie 同步 |
-
