@@ -17,16 +17,27 @@ vi.mock('../../terminal/terminalRegistry', () => ({
 
 import { WorkspaceEditModal } from '../WorkspaceEditModal';
 import { useAppStore } from '../../state/store';
-import type { BrowserProfile } from '../../../shared/browserProfile';
+import type { BrowserProfileSummary } from '../../../shared/browserProfile';
 
-function profile(overrides: Partial<BrowserProfile> = {}): BrowserProfile {
-  return { id: 'p1', name: 'Work', createdAt: 1, ...overrides };
+function profile(
+  overrides: Partial<BrowserProfileSummary> = {},
+): BrowserProfileSummary {
+  return {
+    id: 'p1',
+    name: 'Work',
+    createdAt: 1,
+    storage: { kind: 'local' },
+    storageLabel: 'This device',
+    availability: 'ready',
+    ...overrides,
+  };
 }
 
 // store 是模块级单例,某个用例注入的 vi.fn() 会残留污染后续用例——每个用例前把
 // renameWorkspace/setWorkspaceBrowserProfile 复位到真实实现(捕获于首次 getState())。
 const realRenameWorkspace = useAppStore.getState().renameWorkspace;
-const realSetWorkspaceBrowserProfile = useAppStore.getState().setWorkspaceBrowserProfile;
+const realSetWorkspaceBrowserProfile =
+  useAppStore.getState().setWorkspaceBrowserProfile;
 
 beforeEach(() => {
   useAppStore.setState({
@@ -64,16 +75,25 @@ describe('WorkspaceEditModal', () => {
     expect(screen.getByText('Personal')).toBeInTheDocument();
     expect(screen.queryByText('Deleting')).toBeNull();
 
-    const select = screen.getByLabelText('Browser profile') as HTMLSelectElement;
+    const select = screen.getByLabelText(
+      'Browser profile',
+    ) as HTMLSelectElement;
     expect(select.value).toBe('p2');
   });
 
   it('未绑定 profile 时(缺省)select 落在内置项', () => {
-    useAppStore.setState({ browserProfiles: [profile({ id: 'p1', name: 'Work' })] });
+    useAppStore.setState({
+      browserProfiles: [profile({ id: 'p1', name: 'Work' })],
+    });
     render(
-      <WorkspaceEditModal workspace={{ id: 'w1', name: 'my-project' }} onClose={vi.fn()} />,
+      <WorkspaceEditModal
+        workspace={{ id: 'w1', name: 'my-project' }}
+        onClose={vi.fn()}
+      />,
     );
-    const select = screen.getByLabelText('Browser profile') as HTMLSelectElement;
+    const select = screen.getByLabelText(
+      'Browser profile',
+    ) as HTMLSelectElement;
     expect(select.value).toBe('default');
   });
 
@@ -105,7 +125,10 @@ describe('WorkspaceEditModal', () => {
     const renameWorkspace = vi.fn();
     const setWorkspaceBrowserProfile = vi.fn();
     useAppStore.setState({
-      browserProfiles: [profile({ id: 'p1', name: 'Work' }), profile({ id: 'p2', name: 'Personal' })],
+      browserProfiles: [
+        profile({ id: 'p1', name: 'Work' }),
+        profile({ id: 'p2', name: 'Personal' }),
+      ],
       renameWorkspace: renameWorkspace as any,
       setWorkspaceBrowserProfile,
     });
@@ -116,7 +139,9 @@ describe('WorkspaceEditModal', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Browser profile'), { target: { value: 'p2' } });
+    fireEvent.change(screen.getByLabelText('Browser profile'), {
+      target: { value: 'p2' },
+    });
     fireEvent.click(screen.getByText('Save'));
 
     expect(setWorkspaceBrowserProfile).toHaveBeenCalledWith('w1', 'p2');
@@ -146,7 +171,9 @@ describe('WorkspaceEditModal', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Browser profile'), { target: { value: 'default' } });
+    fireEvent.change(screen.getByLabelText('Browser profile'), {
+      target: { value: 'default' },
+    });
     fireEvent.click(screen.getByText('Save'));
 
     const ws = useAppStore.getState().workspaces.find((w) => w.id === 'w1');
@@ -159,13 +186,20 @@ describe('WorkspaceEditModal', () => {
     const renameWorkspace = vi.fn();
     const setWorkspaceBrowserProfile = vi.fn();
     useAppStore.setState({
-      browserProfiles: [profile({ id: 'p1', name: 'Work' }), profile({ id: 'p2', name: 'Personal' })],
+      browserProfiles: [
+        profile({ id: 'p1', name: 'Work' }),
+        profile({ id: 'p2', name: 'Personal' }),
+      ],
       renameWorkspace: renameWorkspace as any,
       setWorkspaceBrowserProfile,
     });
     render(
       <WorkspaceEditModal
-        workspace={{ id: 'shell-ws', name: 'my-project', browserProfileId: 'p1' }}
+        workspace={{
+          id: 'shell-ws',
+          name: 'my-project',
+          browserProfileId: 'p1',
+        }}
         onSave={onSave}
         onClose={onClose}
       />,
@@ -174,7 +208,9 @@ describe('WorkspaceEditModal', () => {
     fireEvent.change(screen.getByDisplayValue('my-project'), {
       target: { value: '  renamed  ' },
     });
-    fireEvent.change(screen.getByLabelText('Browser profile'), { target: { value: 'p2' } });
+    fireEvent.change(screen.getByLabelText('Browser profile'), {
+      target: { value: 'p2' },
+    });
     fireEvent.click(screen.getByText('Save'));
 
     expect(onSave).toHaveBeenCalledWith({ name: 'renamed', profileId: 'p2' });
@@ -189,7 +225,10 @@ describe('WorkspaceEditModal', () => {
       browserPane: { setProfile },
     };
     useAppStore.setState({
-      browserProfiles: [profile({ id: 'p1', name: 'Work' }), profile({ id: 'p2', name: 'Personal' })],
+      browserProfiles: [
+        profile({ id: 'p1', name: 'Work' }),
+        profile({ id: 'p2', name: 'Personal' }),
+      ],
       workspaces: [
         {
           id: 'w1',
@@ -222,7 +261,9 @@ describe('WorkspaceEditModal', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Browser profile'), { target: { value: 'p2' } });
+    fireEvent.change(screen.getByLabelText('Browser profile'), {
+      target: { value: 'p2' },
+    });
     fireEvent.click(screen.getByText('Save'));
 
     expect(setProfile).toHaveBeenCalledTimes(1);
@@ -233,9 +274,14 @@ describe('WorkspaceEditModal', () => {
   it('名称空白 → 保存按钮 disabled', () => {
     useAppStore.setState({ browserProfiles: [] });
     render(
-      <WorkspaceEditModal workspace={{ id: 'w1', name: 'my-project' }} onClose={vi.fn()} />,
+      <WorkspaceEditModal
+        workspace={{ id: 'w1', name: 'my-project' }}
+        onClose={vi.fn()}
+      />,
     );
-    fireEvent.change(screen.getByDisplayValue('my-project'), { target: { value: '   ' } });
+    fireEvent.change(screen.getByDisplayValue('my-project'), {
+      target: { value: '   ' },
+    });
     expect(screen.getByText('Save')).toBeDisabled();
   });
 
@@ -249,10 +295,15 @@ describe('WorkspaceEditModal', () => {
       setWorkspaceBrowserProfile,
     });
     render(
-      <WorkspaceEditModal workspace={{ id: 'w1', name: 'my-project' }} onClose={onClose} />,
+      <WorkspaceEditModal
+        workspace={{ id: 'w1', name: 'my-project' }}
+        onClose={onClose}
+      />,
     );
 
-    fireEvent.change(screen.getByDisplayValue('my-project'), { target: { value: 'changed' } });
+    fireEvent.change(screen.getByDisplayValue('my-project'), {
+      target: { value: 'changed' },
+    });
     fireEvent.keyDown(screen.getByDisplayValue('changed'), { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalled();
@@ -270,10 +321,15 @@ describe('WorkspaceEditModal', () => {
       setWorkspaceBrowserProfile,
     });
     render(
-      <WorkspaceEditModal workspace={{ id: 'w1', name: 'my-project' }} onClose={onClose} />,
+      <WorkspaceEditModal
+        workspace={{ id: 'w1', name: 'my-project' }}
+        onClose={onClose}
+      />,
     );
 
-    fireEvent.change(screen.getByDisplayValue('my-project'), { target: { value: 'changed' } });
+    fireEvent.change(screen.getByDisplayValue('my-project'), {
+      target: { value: 'changed' },
+    });
     fireEvent.click(screen.getByText('Cancel'));
 
     expect(onClose).toHaveBeenCalled();

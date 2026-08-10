@@ -1,6 +1,6 @@
 ---
 feature_id: "OKWORK-F260810051623-Remote-Profile-Authority"
-status: draft
+status: confirmed
 tests:
   - id: TC-001
     file: src/main/__tests__/remoteProfileAuthority.test.ts
@@ -23,7 +23,7 @@ tests:
     ci: true
     ci_reason: "普通 Host token 或错配专用凭据能够读取、写入或枚举远端 Profile/Vault，会突破密码明文的 main-only 安全边界。"
   - id: TC-004
-    file: src/main/__tests__/remoteProfileMigration.test.ts
+    file: src/main/__tests__/remoteProfileAuthority.test.ts
     function: test_AC4_migration_locks_mutations_and_reads_only_from_source_until_verified_switch
     covers_ac: ["AC-4"]
     level: integration
@@ -65,7 +65,7 @@ tests:
     level: integration
     priority: P0
   - id: TC-010
-    file: src/main/remote/__tests__/hostConfigStore.test.ts
+    file: src/main/remote/__tests__/remoteProfileDependencies.test.ts
     function: test_AC8_blocks_host_delete_for_authority_migration_and_cleanup_dependencies
     covers_ac: ["AC-8"]
     level: integration
@@ -96,7 +96,7 @@ tests:
 
 ## 状态
 
-草稿
+已确认
 
 ## 需求覆盖矩阵
 

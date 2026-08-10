@@ -4,7 +4,13 @@
 // profile 的增/改/删。store 镜像用 useAppStore.setState 播种(profilesSync 服务本身
 // 不在本测试范围内);window.okwork.browserProfile 用内存态假桥挂桩。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 
 expect.extend(matchers);
@@ -18,17 +24,33 @@ vi.mock('../../../terminal/terminalRegistry', () => ({
 
 import { BrowserProfilesSection } from '../BrowserProfilesSection';
 import { useAppStore } from '../../../state/store';
-import type { BrowserProfile, BrowserProfileInput } from '../../../../shared/browserProfile';
+import type {
+  BrowserProfile,
+  BrowserProfileInput,
+  BrowserProfileSummary,
+} from '../../../../shared/browserProfile';
 
-function profile(overrides: Partial<BrowserProfile> = {}): BrowserProfile {
-  return { id: 'p1', name: 'Work', createdAt: 1, ...overrides };
+function profile(
+  overrides: Partial<BrowserProfileSummary> = {},
+): BrowserProfileSummary {
+  return {
+    id: 'p1',
+    name: 'Work',
+    createdAt: 1,
+    storage: { kind: 'local' },
+    storageLabel: 'This device',
+    availability: 'ready',
+    ...overrides,
+  };
 }
 
 /** 挂桩 window.okwork.browserProfile:save/delete 默认成功,可传 override 令其 reject。 */
-function mockBridge(overrides: {
-  save?: (input: BrowserProfileInput) => Promise<BrowserProfile>;
-  delete?: (payload: { id: string }) => Promise<void>;
-} = {}) {
+function mockBridge(
+  overrides: {
+    save?: (input: BrowserProfileInput) => Promise<BrowserProfile>;
+    delete?: (payload: { id: string }) => Promise<void>;
+  } = {},
+) {
   const bridge = {
     list: vi.fn().mockResolvedValue([]),
     save: vi.fn(
@@ -41,9 +63,46 @@ function mockBridge(overrides: {
         })),
     ),
     delete: vi.fn(overrides.delete ?? (async () => undefined)),
+    retryDelete: vi.fn(async () => ({ status: 'deleted' as const })),
+    planStorageChange: vi.fn(
+      async (input: { profileId: string; target: unknown }) => ({
+        planId: 'plan-1',
+        profileId: input.profileId,
+        target: input.target,
+        targetLabel: 'build-box',
+        canDecryptDisclosure: true,
+        steps: ['copying', 'verifying', 'switching'] as const,
+      }),
+    ),
+    confirmStorageChange: vi.fn(async () => ({
+      accepted: true as const,
+      operationId: 'operation-1',
+    })),
+    retryStorageChange: vi.fn(async () => ({
+      accepted: true as const,
+      operationId: 'operation-1',
+    })),
     onChanged: vi.fn(() => () => undefined),
   };
-  (window as unknown as { okwork: unknown }).okwork = { browserProfile: bridge };
+  (window as unknown as { okwork: unknown }).okwork = {
+    browserProfile: bridge,
+    remoteHost: {
+      list: vi.fn(async () => [
+        {
+          id: 'host-1',
+          alias: 'build-box',
+          host: '10.0.0.8',
+          port: 22,
+          username: 'liam',
+          authType: 'key',
+          hasPassword: false,
+          hasPassphrase: false,
+          createdAt: 1,
+        },
+      ]),
+      stages: vi.fn(async () => ({ 'host-1': 'ready' })),
+    },
+  };
   return bridge;
 }
 
@@ -70,17 +129,15 @@ describe('BrowserProfilesSection', () => {
 
     expect(screen.getByText('OkWork (built-in)')).toBeInTheDocument();
     expect(screen.getByText('Built-in')).toBeInTheDocument();
-    expect(screen.getByText('Shared default storage · system User-Agent')).toBeInTheDocument();
+    expect(screen.getAllByText('Password storage: This device')).toHaveLength(
+      3,
+    );
 
     expect(screen.getByText('Work')).toBeInTheDocument();
     expect(screen.getByText('CustomUA/1.0')).toBeInTheDocument();
     expect(screen.getByText('Personal')).toBeInTheDocument();
-    expect(screen.getByText('System default User-Agent')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.',
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText('System default User-Agent')).toHaveLength(2);
+    expect(screen.queryByText(/AUTHORITY/)).toBeNull();
 
     // 只有两个自定义 profile 各一对编辑/删除;内置行不贡献按钮
     expect(screen.getAllByText('Edit')).toHaveLength(2);
@@ -114,20 +171,28 @@ describe('BrowserProfilesSection', () => {
     });
     // 保存成功后表单关闭
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText('Profile name')).not.toBeInTheDocument();
+      expect(
+        screen.queryByPlaceholderText('Profile name'),
+      ).not.toBeInTheDocument();
     });
   });
 
   it('编辑:点某行编辑 → 表单预填 → 保存带 id', async () => {
     const bridge = mockBridge();
     useAppStore.setState({
-      browserProfiles: [profile({ id: 'p1', name: 'Work', userAgent: 'CustomUA/1.0' })],
+      browserProfiles: [
+        profile({ id: 'p1', name: 'Work', userAgent: 'CustomUA/1.0' }),
+      ],
     });
     render(<BrowserProfilesSection />);
 
     fireEvent.click(screen.getByText('Edit'));
-    const nameInput = screen.getByPlaceholderText('Profile name') as HTMLInputElement;
-    const uaInput = screen.getByPlaceholderText('System default User-Agent') as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText(
+      'Profile name',
+    ) as HTMLInputElement;
+    const uaInput = screen.getByPlaceholderText(
+      'System default User-Agent',
+    ) as HTMLInputElement;
     expect(nameInput.value).toBe('Work');
     expect(uaInput.value).toBe('CustomUA/1.0');
 
@@ -145,7 +210,9 @@ describe('BrowserProfilesSection', () => {
 
   it('删除:confirm 确认后调用 delete;取消则不调用', async () => {
     const bridge = mockBridge();
-    useAppStore.setState({ browserProfiles: [profile({ id: 'p1', name: 'Work' })] });
+    useAppStore.setState({
+      browserProfiles: [profile({ id: 'p1', name: 'Work' })],
+    });
     render(<BrowserProfilesSection />);
 
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
@@ -179,5 +246,84 @@ describe('BrowserProfilesSection', () => {
     expect(bridge.save).toHaveBeenCalled();
     // 表单仍开着
     expect(screen.getByPlaceholderText('Profile name')).toBeInTheDocument();
+  });
+
+  it('test_AC1_AC2_shows_storage_location_and_requires_eligible_target_confirmation', async () => {
+    const bridge = mockBridge();
+    useAppStore.setState({ browserProfiles: [profile()] });
+    render(<BrowserProfilesSection />);
+
+    fireEvent.click(screen.getAllByText('Change location')[1]);
+    await screen.findByText('build-box');
+    fireEvent.click(screen.getByText('build-box'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    await waitFor(() =>
+      expect(bridge.planStorageChange).toHaveBeenCalledWith({
+        profileId: 'p1',
+        target: { kind: 'remote', hostId: 'host-1' },
+      }),
+    );
+    expect(screen.getByText('Move to build-box')).toBeInTheDocument();
+    expect(bridge.confirmStorageChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Move Profile'));
+    await waitFor(() =>
+      expect(bridge.confirmStorageChange).toHaveBeenCalledWith({
+        planId: 'plan-1',
+      }),
+    );
+  });
+
+  it('远程存储离线时保留页面会话提示并禁用修改', () => {
+    mockBridge();
+    useAppStore.setState({
+      browserProfiles: [
+        profile({
+          storage: { kind: 'remote', hostId: 'host-1' },
+          storageLabel: 'build-box',
+          availability: 'offline',
+        }),
+      ],
+    });
+    render(<BrowserProfilesSection />);
+
+    expect(
+      screen.getByText('Password storage: build-box · Offline'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/The page session may continue with local cookies/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Edit')).toBeDisabled();
+    expect(screen.getByText('Delete')).toBeDisabled();
+    expect(screen.getAllByText('Change location')[1]).toBeDisabled();
+  });
+
+  it('迁移失败只允许重试，不开放新的迁移、编辑或删除', async () => {
+    const bridge = mockBridge();
+    useAppStore.setState({
+      browserProfiles: [
+        profile({
+          migration: {
+            operationId: 'operation-1',
+            phase: 'failed',
+            sourceLabel: 'This device',
+            targetLabel: 'build-box',
+            errorCode: 'PROFILE_STORAGE_TIMEOUT',
+          },
+        }),
+      ],
+    });
+    render(<BrowserProfilesSection />);
+
+    expect(screen.getAllByText('Change location')[1]).toBeDisabled();
+    expect(screen.getByText('Edit')).toBeDisabled();
+    expect(screen.getByText('Delete')).toBeDisabled();
+    fireEvent.click(screen.getByText('Retry'));
+    await waitFor(() =>
+      expect(bridge.retryStorageChange).toHaveBeenCalledWith({
+        operationId: 'operation-1',
+      }),
+    );
   });
 });

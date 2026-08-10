@@ -183,6 +183,23 @@ export interface RemoteHostCapabilities {
   encryptionAvailable: boolean;
 }
 
+export type RemoteHostDependencyType =
+  | 'current_storage'
+  | 'migration_source'
+  | 'migration_target'
+  | 'delete_cleanup'
+  | 'source_cleanup';
+
+export interface RemoteHostDependency {
+  profileId: string;
+  profileName: string;
+  type: RemoteHostDependencyType;
+}
+
+export type RemoteHostDeleteResult =
+  | { status: 'deleted' }
+  | { status: 'blocked'; dependencies: RemoteHostDependency[] };
+
 /** 失败分类文案单源（renderer 经 failReasonCopy 取词 · UI.md 呈现口径）。 */
 export interface FailReasonCopy {
   /** UI 徽标/详情标签 */
@@ -214,16 +231,22 @@ export function failReasonCopyMap(): Record<FailReason, FailReasonCopy> {
       detail: t(
         'node not found on the remote PATH, login shell, or common install locations (nvm / fnm / Homebrew / volta)',
       ),
-      guidance: t('Install Node.js 20 or newer on the remote machine, then retry'),
+      guidance: t(
+        'Install Node.js 20 or newer on the remote machine, then retry',
+      ),
     },
     archUnsupported: {
       label: t('Unsupported architecture'),
       detail: t('No bundled host build for this remote architecture'),
-      guidance: t('Run `npm i -g okwork-host` on the remote machine, then retry'),
+      guidance: t(
+        'Run `npm i -g okwork-host` on the remote machine, then retry',
+      ),
     },
     deployFailed: {
       label: t('Deploy failed'),
-      detail: t('Host bundle upload interrupted (network / disk / permissions)'),
+      detail: t(
+        'Host bundle upload interrupted (network / disk / permissions)',
+      ),
     },
     startFailed: {
       label: t('Start failed'),
@@ -231,7 +254,9 @@ export function failReasonCopyMap(): Record<FailReason, FailReasonCopy> {
     },
     incompatible: {
       label: t('Incompatible version'),
-      detail: t('Remote host protocol version is incompatible with this app · disconnected'),
+      detail: t(
+        'Remote host protocol version is incompatible with this app · disconnected',
+      ),
     },
     internal: {
       label: t('Internal error'),

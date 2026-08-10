@@ -1,4 +1,9 @@
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  randomUUID,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -27,18 +32,25 @@ class TestSafeStorage implements PasswordVaultSafeStorage {
   encryptString(plaintext: string): Buffer {
     const nonce = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', this.key, nonce);
-    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+    const encrypted = Buffer.concat([
+      cipher.update(plaintext, 'utf8'),
+      cipher.final(),
+    ]);
     return Buffer.concat([nonce, cipher.getAuthTag(), encrypted]);
   }
 
   decryptString(encrypted: Buffer): string {
-    if (this.failDecrypt) throw new Error('test decrypt failure with no secret material');
+    if (this.failDecrypt)
+      throw new Error('test decrypt failure with no secret material');
     const nonce = encrypted.subarray(0, 12);
     const tag = encrypted.subarray(12, 28);
     const ciphertext = encrypted.subarray(28);
     const decipher = createDecipheriv('aes-256-gcm', this.key, nonce);
     decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+    return Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final(),
+    ]).toString('utf8');
   }
 }
 
@@ -47,7 +59,9 @@ function errorCode(action: () => unknown): string | undefined {
     action();
     return undefined;
   } catch (error) {
-    return error instanceof PasswordVaultError ? error.code : 'UNEXPECTED_ERROR';
+    return error instanceof PasswordVaultError
+      ? error.code
+      : 'UNEXPECTED_ERROR';
   }
 }
 
@@ -96,25 +110,35 @@ describe('LocalPasswordVault', () => {
     expect(serialized).not.toContain(SENTINEL_PASSWORD);
     expect(fs.statSync(directory).mode & 0o777).toBe(0o700);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    expect(fs.readdirSync(directory).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    expect(
+      fs.readdirSync(directory).filter((name) => name.includes('.tmp-')),
+    ).toEqual([]);
 
-    const restarted = new LocalPasswordVault({ userDataDir: () => tmpDir, safeStorage, logger });
+    const restarted = new LocalPasswordVault({
+      userDataDir: () => tmpDir,
+      safeStorage,
+      logger,
+    });
     expect(restarted.lookup(PROFILE_A, ORIGIN)).toEqual([
       { ...saved.metadata, password: SENTINEL_PASSWORD },
     ]);
-    expect(restarted.getDecrypted(saved.metadata.id).password).toBe(SENTINEL_PASSWORD);
+    expect(restarted.getDecrypted(PROFILE_A, saved.metadata.id).password).toBe(
+      SENTINEL_PASSWORD,
+    );
 
     safeStorage.failDecrypt = true;
     expect(errorCode(() => restarted.lookup(PROFILE_A, ORIGIN))).toBe(
       'VAULT_DECRYPT_FAILED',
     );
-    expect(errorCode(() => restarted.getDecrypted(saved.metadata.id))).toBe(
-      'VAULT_DECRYPT_FAILED',
-    );
-    expect(restarted.listMetadata({ profileId: PROFILE_A })).toEqual([saved.metadata]);
-    expect(JSON.stringify([...warn.mock.calls, ...error.mock.calls])).not.toContain(
-      SENTINEL_PASSWORD,
-    );
+    expect(
+      errorCode(() => restarted.getDecrypted(PROFILE_A, saved.metadata.id)),
+    ).toBe('VAULT_DECRYPT_FAILED');
+    expect(restarted.listMetadata({ profileId: PROFILE_A })).toEqual([
+      saved.metadata,
+    ]);
+    expect(
+      JSON.stringify([...warn.mock.calls, ...error.mock.calls]),
+    ).not.toContain(SENTINEL_PASSWORD);
   });
 
   it('upsert keeps account identity stable, only changes updatedAt for a changed password', () => {
@@ -125,7 +149,11 @@ describe('LocalPasswordVault', () => {
       password: 'old-password',
       now: 10,
     });
-    const file = path.join(tmpDir, 'browser-password-vault', `${PROFILE_A}.json`);
+    const file = path.join(
+      tmpDir,
+      'browser-password-vault',
+      `${PROFILE_A}.json`,
+    );
     const cipherBefore = (
       JSON.parse(fs.readFileSync(file, 'utf8')) as {
         entries: Array<{ encryptedPassword: string }>;
@@ -146,7 +174,12 @@ describe('LocalPasswordVault', () => {
     ).entries[0].encryptedPassword;
     expect(same).toMatchObject({
       kind: 'updated',
-      metadata: { id: first.metadata.id, createdAt: 10, updatedAt: 10, lastUsedAt: 20 },
+      metadata: {
+        id: first.metadata.id,
+        createdAt: 10,
+        updatedAt: 10,
+        lastUsedAt: 20,
+      },
     });
     expect(cipherAfterSame).toBe(cipherBefore);
 
@@ -159,9 +192,16 @@ describe('LocalPasswordVault', () => {
     });
     expect(changed).toMatchObject({
       kind: 'updated',
-      metadata: { id: first.metadata.id, createdAt: 10, updatedAt: 30, lastUsedAt: 30 },
+      metadata: {
+        id: first.metadata.id,
+        createdAt: 10,
+        updatedAt: 30,
+        lastUsedAt: 30,
+      },
     });
-    expect(vault.getDecrypted(first.metadata.id).password).toBe('new-password');
+    expect(vault.getDecrypted(PROFILE_A, first.metadata.id).password).toBe(
+      'new-password',
+    );
   });
 
   it('lists and searches metadata across profiles without exposing passwords', () => {
@@ -184,9 +224,15 @@ describe('LocalPasswordVault', () => {
       newer.metadata.id,
       older.metadata.id,
     ]);
-    expect(vault.listMetadata({ profileId: PROFILE_A })).toEqual([older.metadata]);
-    expect(vault.listMetadata({ query: 'WORK.EXAMPLE' })).toEqual([newer.metadata]);
-    expect(vault.lookup(PROFILE_A, 'https://different.example.test')).toEqual([]);
+    expect(vault.listMetadata({ profileId: PROFILE_A })).toEqual([
+      older.metadata,
+    ]);
+    expect(vault.listMetadata({ query: 'WORK.EXAMPLE' })).toEqual([
+      newer.metadata,
+    ]);
+    expect(vault.lookup(PROFILE_A, 'https://different.example.test')).toEqual(
+      [],
+    );
   });
 
   it('rejects unavailable encryption before saving or decrypting and never writes plaintext', () => {
@@ -205,10 +251,12 @@ describe('LocalPasswordVault', () => {
     expect(errorCode(() => vault.lookup(PROFILE_A, ORIGIN))).toBe(
       'VAULT_ENCRYPTION_UNAVAILABLE',
     );
-    expect(errorCode(() => vault.getDecrypted(randomUUID()))).toBe(
+    expect(errorCode(() => vault.getDecrypted(PROFILE_A, randomUUID()))).toBe(
       'VAULT_ENCRYPTION_UNAVAILABLE',
     );
-    expect(fs.existsSync(path.join(tmpDir, 'browser-password-vault'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, 'browser-password-vault'))).toBe(
+      false,
+    );
     expect(JSON.stringify(warn.mock.calls)).not.toContain(SENTINEL_PASSWORD);
   });
 
@@ -218,7 +266,8 @@ describe('LocalPasswordVault', () => {
     const file = path.join(directory, `${PROFILE_A}.json`);
 
     // Deliberately bypass the real writer to model a hand-edited/damaged disk document.
-    const corrupt = '{"version":2,"profileId":"' + PROFILE_A + '","entries":[]}';
+    const corrupt =
+      '{"version":2,"profileId":"' + PROFILE_A + '","entries":[]}';
     fs.writeFileSync(file, corrupt, { mode: 0o600 });
     expect(errorCode(() => vault.listMetadata({ profileId: PROFILE_A }))).toBe(
       'VAULT_CORRUPT',
@@ -236,7 +285,9 @@ describe('LocalPasswordVault', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe(corrupt);
 
     fs.writeFileSync(file, '{not-json', 'utf8');
-    expect(errorCode(() => vault.lookup(PROFILE_A, ORIGIN))).toBe('VAULT_CORRUPT');
+    expect(errorCode(() => vault.lookup(PROFILE_A, ORIGIN))).toBe(
+      'VAULT_CORRUPT',
+    );
     expect(fs.readFileSync(file, 'utf8')).toBe('{not-json');
   });
 
@@ -263,17 +314,21 @@ describe('LocalPasswordVault', () => {
       now: 30,
     });
 
-    expect(vault.deleteEntry(alice.metadata.id)).toBe(true);
-    expect(vault.deleteEntry(alice.metadata.id)).toBe(false);
+    expect(vault.deleteEntry(PROFILE_A, alice.metadata.id)).toBe(true);
+    expect(vault.deleteEntry(PROFILE_A, alice.metadata.id)).toBe(false);
     expect(vault.lookup(PROFILE_A, ORIGIN).map((entry) => entry.id)).toEqual([
       bob.metadata.id,
     ]);
-    expect(vault.getDecrypted(otherProfile.metadata.id).profileId).toBe(PROFILE_B);
+    expect(
+      vault.getDecrypted(PROFILE_B, otherProfile.metadata.id).profileId,
+    ).toBe(PROFILE_B);
 
     expect(vault.deleteProfile(PROFILE_A)).toBe(true);
     expect(vault.deleteProfile(PROFILE_A)).toBe(false);
     expect(vault.listMetadata({ profileId: PROFILE_A })).toEqual([]);
-    expect(vault.getDecrypted(otherProfile.metadata.id).password).toBe('password-c');
+    expect(
+      vault.getDecrypted(PROFILE_B, otherProfile.metadata.id).password,
+    ).toBe('password-c');
   });
 
   it('rejects non-canonical identities and unknown entry ids with fixed safe codes', () => {
@@ -297,7 +352,7 @@ describe('LocalPasswordVault', () => {
         }),
       ),
     ).toBe('VAULT_INVALID_INPUT');
-    expect(errorCode(() => vault.getDecrypted(randomUUID()))).toBe(
+    expect(errorCode(() => vault.getDecrypted(PROFILE_A, randomUUID()))).toBe(
       'VAULT_ENTRY_NOT_FOUND',
     );
   });

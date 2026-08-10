@@ -42,6 +42,8 @@ export interface BrowserProfileDeletionStore {
 
 export interface BrowserProfileDeletionDeps {
   profiles: BrowserProfileDeletionStore;
+  /** Storage migration and deletion are mutually exclusive durable workflows. */
+  canBeginDeletion?(profileId: string): boolean;
   /** 状态已落盘后，立即关闭/注销该 Profile 的 guest 能力。 */
   disableProfileAccess(profileId: string): void | Promise<void>;
   clearVault(profileId: string): void | Promise<void>;
@@ -67,7 +69,10 @@ interface DeletionFailure {
  * 所有公开方法都返回脱敏结果，不把底层异常传播到 renderer。
  */
 export class BrowserProfileDeletionCoordinator {
-  private readonly inflight = new Map<string, Promise<BrowserProfileDeletionResult>>();
+  private readonly inflight = new Map<
+    string,
+    Promise<BrowserProfileDeletionResult>
+  >();
 
   constructor(private readonly deps: BrowserProfileDeletionDeps) {}
 
@@ -75,7 +80,9 @@ export class BrowserProfileDeletionCoordinator {
     return this.enqueue(profileId, false);
   }
 
-  retryProfileDeletion(profileId: string): Promise<BrowserProfileDeletionResult> {
+  retryProfileDeletion(
+    profileId: string,
+  ): Promise<BrowserProfileDeletionResult> {
     return this.enqueue(profileId, false);
   }
 
@@ -84,20 +91,29 @@ export class BrowserProfileDeletionCoordinator {
     const interrupted = this.deps.profiles
       .list()
       .filter((profile) => profile.deletionState === 'deleting');
-    return Promise.all(interrupted.map((profile) => this.enqueue(profile.id, true)));
+    return Promise.all(
+      interrupted.map((profile) => this.enqueue(profile.id, true)),
+    );
   }
 
-  private enqueue(profileId: string, resume: boolean): Promise<BrowserProfileDeletionResult> {
+  private enqueue(
+    profileId: string,
+    resume: boolean,
+  ): Promise<BrowserProfileDeletionResult> {
     const existing = this.inflight.get(profileId);
     if (existing) return existing;
     const operation = this.run(profileId, resume).finally(() => {
-      if (this.inflight.get(profileId) === operation) this.inflight.delete(profileId);
+      if (this.inflight.get(profileId) === operation)
+        this.inflight.delete(profileId);
     });
     this.inflight.set(profileId, operation);
     return operation;
   }
 
-  private async run(profileId: string, resume: boolean): Promise<BrowserProfileDeletionResult> {
+  private async run(
+    profileId: string,
+    resume: boolean,
+  ): Promise<BrowserProfileDeletionResult> {
     if (profileId === DEFAULT_PROFILE_ID) {
       return {
         status: 'rejected',
@@ -118,6 +134,13 @@ export class BrowserProfileDeletionCoordinator {
         status: 'rejected',
         profileId,
         errorCode: BROWSER_PROFILE_DELETE_REJECTION_CODES.notFound,
+      };
+    }
+    if (!resume && this.deps.canBeginDeletion?.(profileId) === false) {
+      return {
+        status: 'rejected',
+        profileId,
+        errorCode: BROWSER_PROFILE_DELETE_REJECTION_CODES.migrationInProgress,
       };
     }
 
@@ -167,7 +190,9 @@ export class BrowserProfileDeletionCoordinator {
     return { status: 'deleted', profileId };
   }
 
-  private async performCleanup(profileId: string): Promise<DeletionFailure | null> {
+  private async performCleanup(
+    profileId: string,
+  ): Promise<DeletionFailure | null> {
     try {
       await this.deps.clearVault(profileId);
     } catch {
@@ -214,7 +239,11 @@ export class BrowserProfileDeletionCoordinator {
     this.logError(profileId, failure.step, failure.errorCode);
     const updatedAt = this.now();
     try {
-      this.deps.profiles.markDeleteFailed(profileId, failure.errorCode, updatedAt);
+      this.deps.profiles.markDeleteFailed(
+        profileId,
+        failure.errorCode,
+        updatedAt,
+      );
     } catch {
       this.logError(
         profileId,
@@ -229,7 +258,12 @@ export class BrowserProfileDeletionCoordinator {
       };
     }
     await this.notify(profileId);
-    return { status: 'delete_failed', profileId, errorCode: failure.errorCode, updatedAt };
+    return {
+      status: 'delete_failed',
+      profileId,
+      errorCode: failure.errorCode,
+      updatedAt,
+    };
   }
 
   private async notify(profileId: string): Promise<void> {
@@ -250,7 +284,12 @@ export class BrowserProfileDeletionCoordinator {
     step: BrowserProfileDeletionStep,
     errorCode: BrowserProfileDeletionErrorCode,
   ): void {
-    this.deps.logger.error({ featureId: FEATURE_ID, profileId, step, errorCode });
+    this.deps.logger.error({
+      featureId: FEATURE_ID,
+      profileId,
+      step,
+      errorCode,
+    });
   }
 
   private now(): number {

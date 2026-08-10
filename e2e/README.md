@@ -18,8 +18,9 @@ security-critical wiring that a source-only test could miss:
 - the normal preload contains only metadata/open-window password operations,
   not trusted reveal/copy or guest lookup operations;
 - guest/trusted preloads expose distinct constrained channels;
-- compiled renderer assets contain the Saved passwords/trusted-window route,
-  browser status behaviour, and the page/Agent exposure disclosure.
+- compiled renderer assets contain the Saved passwords/trusted-window route
+  and browser status behaviour; the browser chrome shows password storage as
+  ordinary text without the removed description bubble or `AUTHORITY` marker.
 
 Use `--skip-build` only after a successful build when iterating on the
 artifact checks and browser journey.

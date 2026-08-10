@@ -8,6 +8,7 @@ import {
   type PasswordGuestStatus,
   type PasswordLoginCandidate,
   type PasswordLoginResultEvidence,
+  type PasswordMetadataSnapshot,
   type PasswordMetadataQuery,
 } from '../shared/passwordVault';
 
@@ -25,19 +26,32 @@ export interface DecryptedPasswordCredentialLike {
 }
 
 export interface PasswordVaultPort {
-  isAvailable(): boolean;
-  listMetadata(query?: PasswordMetadataQuery): PasswordCredentialMetadata[];
-  lookup(profileId: string, origin: string): DecryptedPasswordCredentialLike[];
-  getDecrypted(id: string): DecryptedPasswordCredentialLike;
+  isAvailable(profileId: string): boolean;
+  /** Local provider capability only; remote availability is reported per Profile. */
+  localEncryptionAvailable?(): boolean;
+  listMetadata(
+    query?: PasswordMetadataQuery,
+  ): Promise<PasswordMetadataSnapshot>;
+  lookup(
+    profileId: string,
+    origin: string,
+  ): Promise<DecryptedPasswordCredentialLike[]>;
+  getDecrypted(
+    profileId: string,
+    id: string,
+  ): Promise<DecryptedPasswordCredentialLike>;
   upsert(input: {
     profileId: string;
     origin: string;
     username: string;
     password: string;
     now?: number;
-  }): { kind: 'saved' | 'updated'; metadata: PasswordCredentialMetadata };
-  deleteEntry(id: string): boolean;
-  deleteProfile(profileId: string): boolean;
+  }): Promise<{
+    kind: 'saved' | 'updated';
+    metadata: PasswordCredentialMetadata;
+  }>;
+  deleteEntry(profileId: string, id: string): Promise<boolean>;
+  deleteProfile(profileId: string): Promise<boolean>;
 }
 
 export interface PasswordGuestSender {
@@ -78,18 +92,28 @@ interface PendingLogin {
 
 function isLoopbackHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || host === '::1') {
+  if (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '[::1]' ||
+    host === '::1'
+  ) {
     return true;
   }
   const parts = host.split('.');
-  return parts.length === 4 && parts[0] === '127' && parts.every((part) => /^\d{1,3}$/.test(part));
+  return (
+    parts.length === 4 &&
+    parts[0] === '127' &&
+    parts.every((part) => /^\d{1,3}$/.test(part))
+  );
 }
 
 export function canonicalPasswordOrigin(rawUrl: string): string | null {
   try {
     const url = new URL(rawUrl);
     if (url.protocol === 'https:') return url.origin;
-    if (url.protocol === 'http:' && isLoopbackHost(url.hostname)) return url.origin;
+    if (url.protocol === 'http:' && isLoopbackHost(url.hostname))
+      return url.origin;
     return null;
   } catch {
     return null;
@@ -98,7 +122,9 @@ export function canonicalPasswordOrigin(rawUrl: string): string | null {
 
 function fixedErrorCode(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === 'string' && /^VAULT_[A-Z_]+$/.test(code) ? code : 'VAULT_IO_FAILED';
+  return typeof code === 'string' && /^VAULT_[A-Z_]+$/.test(code)
+    ? code
+    : 'VAULT_IO_FAILED';
 }
 
 export class PasswordVaultController {
@@ -141,29 +167,72 @@ export class PasswordVaultController {
     }
   }
 
-  guestBelongsToOwner(guestWebContentsId: number, ownerWebContentsId: number): boolean {
-    return this.guests.get(guestWebContentsId)?.ownerWebContentsId === ownerWebContentsId;
+  /**
+   * Remote storage can disappear while Chromium still has a valid local Cookie session.
+   * Keep the page alive, clear any pending secret, and publish a fail-closed password state.
+   */
+  suspendProfileGuests(profileId: string): void {
+    for (const guest of this.guests.values()) {
+      if (guest.profileId !== profileId || guest.sender.isDestroyed()) continue;
+      this.clearPending(guest.sender.id);
+      guest.sender.send(PASSWORD_GUEST_CHANNELS.status, {
+        kind: 'unavailable',
+        messageCode: 'remote_storage_offline',
+      } satisfies PasswordGuestStatus);
+    }
   }
 
-  guestMetadata(guestWebContentsId: number): PasswordCredentialMetadata[] {
-    const ctx = this.context(guestWebContentsId);
-    if (!ctx) return [];
-    return this.deps.vault.listMetadata({ profileId: ctx.guest.profileId }).filter(
-      (entry) => entry.origin === ctx.origin,
+  /** A revalidated Host generation restores password actions without reloading the page. */
+  resumeProfileGuests(profileId: string): void {
+    for (const guest of this.guests.values()) {
+      if (guest.profileId !== profileId || guest.sender.isDestroyed()) continue;
+      guest.sender.send(PASSWORD_GUEST_CHANNELS.status, {
+        kind: 'idle',
+      } satisfies PasswordGuestStatus);
+    }
+  }
+
+  guestBelongsToOwner(
+    guestWebContentsId: number,
+    ownerWebContentsId: number,
+  ): boolean {
+    return (
+      this.guests.get(guestWebContentsId)?.ownerWebContentsId ===
+      ownerWebContentsId
     );
   }
 
-  lookup(senderId: number, request: PasswordGuestLookupRequest): PasswordGuestLookupResult {
+  async guestMetadata(
+    guestWebContentsId: number,
+  ): Promise<PasswordCredentialMetadata[]> {
+    const ctx = this.context(guestWebContentsId);
+    if (!ctx) return [];
+    const snapshot = await this.deps.vault.listMetadata({
+      profileId: ctx.guest.profileId,
+    });
+    return snapshot.entries.filter((entry) => entry.origin === ctx.origin);
+  }
+
+  async lookup(
+    senderId: number,
+    request: PasswordGuestLookupRequest,
+  ): Promise<PasswordGuestLookupResult> {
     const ctx = this.context(senderId);
     if (!ctx) return { kind: 'unavailable' };
     if (!ctx.origin) return { kind: 'insecure_origin' };
     try {
-      const candidates = this.deps.vault.lookup(ctx.guest.profileId, ctx.origin);
+      const candidates = await this.deps.vault.lookup(
+        ctx.guest.profileId,
+        ctx.origin,
+      );
       if (candidates.length === 0) return { kind: 'none' };
       const requestedUsername =
-        typeof request?.pageUsername === 'string' ? request.pageUsername.trim() : '';
+        typeof request?.pageUsername === 'string'
+          ? request.pageUsername.trim()
+          : '';
       const selected =
-        candidates.find((entry) => entry.username === requestedUsername) ?? candidates[0];
+        candidates.find((entry) => entry.username === requestedUsername) ??
+        candidates[0];
       return {
         kind: 'credential',
         entryId: selected.id,
@@ -181,12 +250,18 @@ export class PasswordVaultController {
     }
   }
 
-  acceptCandidate(senderId: number, candidate: PasswordLoginCandidate): boolean {
+  acceptCandidate(
+    senderId: number,
+    candidate: PasswordLoginCandidate,
+  ): boolean {
     const ctx = this.context(senderId);
-    if (!ctx?.origin || !this.deps.vault.isAvailable()) return false;
+    if (!ctx?.origin || !this.deps.vault.isAvailable(ctx.guest.profileId))
+      return false;
     const nonce = typeof candidate?.nonce === 'string' ? candidate.nonce : '';
-    const username = typeof candidate?.username === 'string' ? candidate.username.trim() : '';
-    const password = typeof candidate?.password === 'string' ? candidate.password : '';
+    const username =
+      typeof candidate?.username === 'string' ? candidate.username.trim() : '';
+    const password =
+      typeof candidate?.password === 'string' ? candidate.password : '';
     if (
       !nonce ||
       nonce.length > 200 ||
@@ -202,7 +277,10 @@ export class PasswordVaultController {
       const pending = this.pending.get(senderId);
       if (!pending || pending.nonce !== nonce) return;
       this.clearPending(senderId);
-      this.sendStatus(senderId, { kind: 'uncertain', messageCode: 'login_timeout' });
+      this.sendStatus(senderId, {
+        kind: 'uncertain',
+        messageCode: 'login_timeout',
+      });
     }, PENDING_LOGIN_TIMEOUT_MS);
     this.pending.set(senderId, {
       nonce,
@@ -216,7 +294,10 @@ export class PasswordVaultController {
     return true;
   }
 
-  settleCandidate(senderId: number, evidence: PasswordLoginResultEvidence): PasswordGuestStatus {
+  async settleCandidate(
+    senderId: number,
+    evidence: PasswordLoginResultEvidence,
+  ): Promise<PasswordGuestStatus> {
     const pending = this.pending.get(senderId);
     const ctx = this.context(senderId);
     if (
@@ -239,7 +320,7 @@ export class PasswordVaultController {
       return status;
     }
     try {
-      const result = this.deps.vault.upsert({
+      const result = await this.deps.vault.upsert({
         profileId: pending.profileId,
         origin: pending.origin,
         username: pending.username,
@@ -259,7 +340,10 @@ export class PasswordVaultController {
       this.logger.error(
         `[password-vault] save failed code=${fixedErrorCode(error)} senderId=${senderId}`,
       );
-      const status: PasswordGuestStatus = { kind: 'unavailable', messageCode: fixedErrorCode(error) };
+      const status: PasswordGuestStatus = {
+        kind: 'unavailable',
+        messageCode: fixedErrorCode(error),
+      };
       this.sendStatus(senderId, status);
       return status;
     }
@@ -272,25 +356,32 @@ export class PasswordVaultController {
     guest.sender.send(PASSWORD_GUEST_CHANNELS.verify, { nonce: pending.nonce });
   }
 
-  fillEntry(senderId: number, entryId: string): boolean {
+  async fillEntry(senderId: number, entryId: string): Promise<boolean> {
     const ctx = this.context(senderId);
     if (!ctx?.origin) return false;
     try {
-      const entry = this.deps.vault.getDecrypted(entryId);
+      const entry = await this.deps.vault.getDecrypted(
+        ctx.guest.profileId,
+        entryId,
+      );
       if (
         entry.profileId !== ctx.guest.profileId ||
         entry.origin !== ctx.origin
       ) {
-        this.logger.warn(`[password-vault] forbidden fill senderId=${senderId}`);
+        this.logger.warn(
+          `[password-vault] forbidden fill senderId=${senderId}`,
+        );
         return false;
       }
-      const all = this.deps.vault.lookup(ctx.guest.profileId, ctx.origin);
+      const all = await this.deps.vault.lookup(ctx.guest.profileId, ctx.origin);
       ctx.guest.sender.send(PASSWORD_GUEST_CHANNELS.fill, {
         kind: 'credential',
         entryId: entry.id,
         username: entry.username,
         password: entry.password,
-        ...(all.length > 1 ? { usernames: all.map((item) => item.username) } : {}),
+        ...(all.length > 1
+          ? { usernames: all.map((item) => item.username) }
+          : {}),
       } satisfies PasswordGuestLookupResult);
       return true;
     } catch (error) {
@@ -301,7 +392,9 @@ export class PasswordVaultController {
     }
   }
 
-  private context(senderId: number): { guest: RegisteredGuest; origin: string | null } | null {
+  private context(
+    senderId: number,
+  ): { guest: RegisteredGuest; origin: string | null } | null {
     const guest = this.guests.get(senderId);
     if (
       !guest ||
@@ -315,7 +408,8 @@ export class PasswordVaultController {
 
   private sendStatus(senderId: number, status: PasswordGuestStatus): void {
     const sender = this.guests.get(senderId)?.sender;
-    if (sender && !sender.isDestroyed()) sender.send(PASSWORD_GUEST_CHANNELS.status, status);
+    if (sender && !sender.isDestroyed())
+      sender.send(PASSWORD_GUEST_CHANNELS.status, status);
   }
 
   private clearPending(senderId: number): void {

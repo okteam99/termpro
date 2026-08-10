@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { resolveBrowserTabNet, useAppStore, selectActiveWorkspace } from '../state/store';
+import {
+  resolveBrowserTabNet,
+  useAppStore,
+  selectActiveWorkspace,
+} from '../state/store';
 import type { BrowserTabState } from '../state/store';
 import { t } from '../../shared/i18n';
-import { DEFAULT_PROFILE_ID, browserPartition } from '../../shared/browserProfile';
+import {
+  DEFAULT_PROFILE_ID,
+  browserPartition,
+} from '../../shared/browserProfile';
 import {
   PASSWORD_GUEST_CHANNELS,
   isPasswordGuestStatus,
@@ -47,7 +54,10 @@ type WebviewElement = HTMLWebViewElement;
 /** canGoBack/canGoForward 安全读取:jsdom 里 <webview> 只是惰性自定义元素,不带这些方法
  *  (真实 Electron 里恒有);🔴 真实 Electron 里 dom-ready 之前调用会 throw
  *  (冷启动恢复持久化标签时首帧必经此态)——一律兜底「不可导航」,不让读取崩组件。 */
-function readNavAvailability(el: WebviewElement): { canGoBack: boolean; canGoForward: boolean } {
+function readNavAvailability(el: WebviewElement): {
+  canGoBack: boolean;
+  canGoForward: boolean;
+} {
   try {
     return {
       canGoBack: typeof el.canGoBack === 'function' && el.canGoBack(),
@@ -67,7 +77,11 @@ interface NavState {
   errorText?: string;
 }
 
-const DEFAULT_NAV_STATE: NavState = { loading: false, canGoBack: false, canGoForward: false };
+const DEFAULT_NAV_STATE: NavState = {
+  loading: false,
+  canGoBack: false,
+  canGoForward: false,
+};
 
 /** 地址栏提交时的 URL 规整:http(s) 原样;其它 scheme 一律拒绝(评审 P2-2:
  *  file:/javascript:/chrome: 等不进 webview);像域名/localhost → 补 https://;其余当搜索词 */
@@ -77,7 +91,8 @@ function normalizeUrlInput(raw: string): string | null {
   if (/^https?:/i.test(trimmed)) return trimmed;
   if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
   const looksLikeHost =
-    !/\s/.test(trimmed) && (trimmed.includes('.') || trimmed.startsWith('localhost'));
+    !/\s/.test(trimmed) &&
+    (trimmed.includes('.') || trimmed.startsWith('localhost'));
   if (looksLikeHost) return `https://${trimmed}`;
   return `https://www.bing.com/search?q=${encodeURIComponent(trimmed)}`;
 }
@@ -108,8 +123,16 @@ interface BrowserWebviewProps {
   onWebviewRef: (id: string, el: WebviewElement | null) => void;
   onNavChange: (id: string, patch: Partial<NavState>) => void;
   onUrlChange: (ownerTerminalTabId: string, id: string, url: string) => void;
-  onTitleChange: (ownerTerminalTabId: string, id: string, title: string) => void;
-  onPasswordStatus: (id: string, status: PasswordGuestStatus, guestId: number) => void;
+  onTitleChange: (
+    ownerTerminalTabId: string,
+    id: string,
+    title: string,
+  ) => void;
+  onPasswordStatus: (
+    id: string,
+    status: PasswordGuestStatus,
+    guestId: number,
+  ) => void;
 }
 
 /** 常驻挂载的单标签 webview:src 只设一次(锁定首个非空 url),store 后续 url 更新
@@ -148,7 +171,8 @@ function BrowserWebview({
 
     function handleDidNavigate(e: Event) {
       const navigatedUrl = (e as Event & { url?: string }).url;
-      if (typeof navigatedUrl === 'string') onUrlChange(ownerTerminalTabId, tabId, navigatedUrl);
+      if (typeof navigatedUrl === 'string')
+        onUrlChange(ownerTerminalTabId, tabId, navigatedUrl);
       onNavChange(tabId, readNavAvailability(el!));
     }
     function handleDidNavigateInPage(e: Event) {
@@ -159,7 +183,8 @@ function BrowserWebview({
     }
     function handleTitleUpdated(e: Event) {
       const title = (e as Event & { title?: string }).title;
-      if (typeof title === 'string') onTitleChange(ownerTerminalTabId, tabId, title);
+      if (typeof title === 'string')
+        onTitleChange(ownerTerminalTabId, tabId, title);
     }
     function handleStartLoading() {
       // 新一轮导航开始即清上一轮的失败态(错误条只描述当前页)
@@ -380,7 +405,9 @@ function BrowserNetSelector({
   tab: BrowserTabState | null;
   ownerHostId: string;
 }) {
-  const [snapshot, setSnapshot] = useState<BrowserNetworkSnapshot>({ exits: [] });
+  const [snapshot, setSnapshot] = useState<BrowserNetworkSnapshot>({
+    exits: [],
+  });
   const [open, setOpen] = useState(false);
   const [candidates, setCandidates] = useState<NetOption[]>([]);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -390,12 +417,12 @@ function BrowserNetSelector({
   // 拉权威快照对齐 + 订阅变更(断线标 down/重连恢复);window.okwork 可能不存在(测试态)
   useEffect(() => {
     let cancelled = false;
-    window.okwork?.browserNet
-      ?.get?.()
-      .then((s) => {
-        if (!cancelled) setSnapshot(s);
-      });
-    const unsubscribe = window.okwork?.browserNet?.onChanged?.((s) => setSnapshot(s));
+    window.okwork?.browserNet?.get?.().then((s) => {
+      if (!cancelled) setSnapshot(s);
+    });
+    const unsubscribe = window.okwork?.browserNet?.onChanged?.((s) =>
+      setSnapshot(s),
+    );
     return () => {
       cancelled = true;
       unsubscribe?.();
@@ -407,7 +434,11 @@ function BrowserNetSelector({
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
       const target = e.target as Node;
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      if (
+        triggerRef.current?.contains(target) ||
+        menuRef.current?.contains(target)
+      )
+        return;
       setOpen(false);
     }
     document.addEventListener('mousedown', onMouseDown);
@@ -418,8 +449,11 @@ function BrowserNetSelector({
   const openMenu = useCallback(() => {
     setOpen(true);
     const stagesP =
-      window.okwork?.remoteHost?.stages?.() ?? Promise.resolve({} as Record<string, RemoteStage>);
-    const listP = window.okwork?.remoteHost?.list?.() ?? Promise.resolve([] as RemoteHostConfig[]);
+      window.okwork?.remoteHost?.stages?.() ??
+      Promise.resolve({} as Record<string, RemoteStage>);
+    const listP =
+      window.okwork?.remoteHost?.list?.() ??
+      Promise.resolve([] as RemoteHostConfig[]);
     Promise.all([stagesP, listP]).then(([stages, list]) => {
       const ready = list.filter((cfg) => stages[cfg.id] === 'ready');
       setCandidates(ready.map((cfg) => ({ hostId: cfg.id, alias: cfg.alias })));
@@ -481,8 +515,12 @@ function BrowserNetSelector({
             }`}
             onClick={() => handleSelect('local')}
           >
-            <span className="browser-panel__net-check">{!isRemote ? '✓' : ''}</span>
-            <span className="browser-panel__net-item-label">{t('Local network')}</span>
+            <span className="browser-panel__net-check">
+              {!isRemote ? '✓' : ''}
+            </span>
+            <span className="browser-panel__net-item-label">
+              {t('Local network')}
+            </span>
           </div>
           {candidates.map((c) => {
             const selected = current === c.hostId;
@@ -494,13 +532,19 @@ function BrowserNetSelector({
                 }`}
                 onClick={() => handleSelect(c.hostId)}
               >
-                <span className="browser-panel__net-check">{selected ? '✓' : ''}</span>
-                <span className="browser-panel__net-item-label">{c.alias ?? c.hostId}</span>
+                <span className="browser-panel__net-check">
+                  {selected ? '✓' : ''}
+                </span>
+                <span className="browser-panel__net-item-label">
+                  {c.alias ?? c.hostId}
+                </span>
               </div>
             );
           })}
           {candidates.length === 0 && (
-            <div className="browser-panel__net-empty">{t('No connected remote machines')}</div>
+            <div className="browser-panel__net-empty">
+              {t('No connected remote machines')}
+            </div>
           )}
         </div>
       )}
@@ -529,7 +573,8 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   // 浏览器窗格绑定当前活跃终端 tab(像 FilePanel 绑定 activeTab 一样);nav 栏/标签条
   // 都反映它,切终端 tab 面板跟着换一组标签。
   const activeTermTab =
-    activeWorkspace?.tabs.find((tb) => tb.id === activeWorkspace.activeTabId) ?? null;
+    activeWorkspace?.tabs.find((tb) => tb.id === activeWorkspace.activeTabId) ??
+    null;
   const activeTermTabId = activeTermTab?.id ?? null;
   const pane = activeTermTab?.browser ?? null;
   // 活跃窗格已弹出为独立窗口:主窗只渲染占位(聚焦入口),内容归壳窗所有
@@ -555,39 +600,42 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   // 错地方,也不打扰当前面板显示——面板只展示活跃终端 tab 的窗格)。
   // 反查不中(来源 dom-ready 前拿不到 id / 来源标签恰被关)→ 回退当前活跃终端 tab。
   useEffect(() => {
-    const unsubscribe = window.okwork?.onBrowserOpenUrl?.((url, sourceWebContentsId) => {
-      const s = useAppStore.getState();
-      let ownerTabId: string | null = null;
-      if (typeof sourceWebContentsId === 'number') {
-        let sourceBrowserTabId: string | null = null;
-        for (const [btId, el] of webviewRefs.current) {
-          try {
-            if (el.getWebContentsId() === sourceWebContentsId) {
-              sourceBrowserTabId = btId;
-              break;
-            }
-          } catch {
-            // attach/dom-ready 前调用会 throw——该 webview 尚无 guest,必非来源,跳过
-          }
-        }
-        if (sourceBrowserTabId) {
-          for (const w of s.workspaces) {
-            const owner = w.tabs.find((tb) =>
-              tb.browser?.tabs.some((b) => b.id === sourceBrowserTabId),
-            );
-            if (owner) {
-              ownerTabId = owner.id;
-              break;
+    const unsubscribe = window.okwork?.onBrowserOpenUrl?.(
+      (url, sourceWebContentsId) => {
+        const s = useAppStore.getState();
+        let ownerTabId: string | null = null;
+        if (typeof sourceWebContentsId === 'number') {
+          let sourceBrowserTabId: string | null = null;
+          for (const [btId, el] of webviewRefs.current) {
+            try {
+              if (el.getWebContentsId() === sourceWebContentsId) {
+                sourceBrowserTabId = btId;
+                break;
+              }
+            } catch {
+              // attach/dom-ready 前调用会 throw——该 webview 尚无 guest,必非来源,跳过
             }
           }
+          if (sourceBrowserTabId) {
+            for (const w of s.workspaces) {
+              const owner = w.tabs.find((tb) =>
+                tb.browser?.tabs.some((b) => b.id === sourceBrowserTabId),
+              );
+              if (owner) {
+                ownerTabId = owner.id;
+                break;
+              }
+            }
+          }
         }
-      }
-      if (!ownerTabId) {
-        const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
-        ownerTabId = ws?.tabs.find((tb) => tb.id === ws.activeTabId)?.id ?? null;
-      }
-      if (ownerTabId) s.addBrowserTab(ownerTabId, url);
-    });
+        if (!ownerTabId) {
+          const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+          ownerTabId =
+            ws?.tabs.find((tb) => tb.id === ws.activeTabId)?.id ?? null;
+        }
+        if (ownerTabId) s.addBrowserTab(ownerTabId, url);
+      },
+    );
     return () => unsubscribe?.();
   }, []);
 
@@ -604,7 +652,13 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     if (activePopped) return; // 已弹出:内容归壳窗,主窗绝不往镜像里种标签
     if (tabs.length > 0) return;
     addBrowserTab(activeTermTabId);
-  }, [browserPanelOpen, activeTermTabId, tabs.length, addBrowserTab, activePopped]);
+  }, [
+    browserPanelOpen,
+    activeTermTabId,
+    tabs.length,
+    addBrowserTab,
+    activePopped,
+  ]);
 
   // 收敛 navStates:只保留仍存在于任意 workspace/终端 tab 的浏览器标签 id
   // (id 是 uuid 不复用,长会话反复开关防无界增长;评审 P2-4)
@@ -617,11 +671,15 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     }
     setNavStates((prev) => {
       const kept = Object.entries(prev).filter(([id]) => liveIds.has(id));
-      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
+      return kept.length === Object.keys(prev).length
+        ? prev
+        : Object.fromEntries(kept);
     });
     setPasswordStates((prev) => {
       const kept = Object.entries(prev).filter(([id]) => liveIds.has(id));
-      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
+      return kept.length === Object.keys(prev).length
+        ? prev
+        : Object.fromEntries(kept);
     });
   }, [workspaces]);
 
@@ -640,16 +698,22 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     if (!el) return;
     setNavStates((prev) => ({
       ...prev,
-      [activeTabId]: { ...(prev[activeTabId] ?? DEFAULT_NAV_STATE), ...readNavAvailability(el) },
+      [activeTabId]: {
+        ...(prev[activeTabId] ?? DEFAULT_NAV_STATE),
+        ...readNavAvailability(el),
+      },
     }));
   }, [activeTabId]);
 
-  const handleWebviewRef = useCallback((id: string, node: WebviewElement | null) => {
-    if (node) webviewRefs.current.set(id, node);
-    else webviewRefs.current.delete(id);
-    // AI 浏览器控制:同步进模块级注册表,让 browserControl 在组件外拿到 webview
-    registerBrowserView(id, node);
-  }, []);
+  const handleWebviewRef = useCallback(
+    (id: string, node: WebviewElement | null) => {
+      if (node) webviewRefs.current.set(id, node);
+      else webviewRefs.current.delete(id);
+      // AI 浏览器控制:同步进模块级注册表,让 browserControl 在组件外拿到 webview
+      registerBrowserView(id, node);
+    },
+    [],
+  );
 
   const handleUrlChange = useCallback(
     (ownerTerminalTabId: string, id: string, url: string) => {
@@ -665,9 +729,15 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     [updateBrowserTab],
   );
 
-  const handleNavChange = useCallback((id: string, patch: Partial<NavState>) => {
-    setNavStates((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_NAV_STATE), ...patch } }));
-  }, []);
+  const handleNavChange = useCallback(
+    (id: string, patch: Partial<NavState>) => {
+      setNavStates((prev) => ({
+        ...prev,
+        [id]: { ...(prev[id] ?? DEFAULT_NAV_STATE), ...patch },
+      }));
+    },
+    [],
+  );
 
   const handlePasswordStatus = useCallback(
     (id: string, status: PasswordGuestStatus, guestId: number) => {
@@ -678,12 +748,23 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
 
   const activeUrl = activeTab?.url ?? '';
   const isEmptyTab = !activeTab || activeUrl === '';
-  const activeNav = (activeTabId && navStates[activeTabId]) || DEFAULT_NAV_STATE;
+  const activeNav =
+    (activeTabId && navStates[activeTabId]) || DEFAULT_NAV_STATE;
   const activePassword = activeTabId ? passwordStates[activeTabId] : undefined;
-  const activeProfileId = activeWorkspace?.browserProfileId ?? DEFAULT_PROFILE_ID;
+  const activeProfileId =
+    activeWorkspace?.browserProfileId ?? DEFAULT_PROFILE_ID;
+  const activeProfile = browserProfiles.find(
+    (profile) => profile.id === activeProfileId,
+  );
   const activeProfileName =
-    browserProfiles.find((profile) => profile.id === activeProfileId)?.name ??
-    (activeProfileId === DEFAULT_PROFILE_ID ? t('Default Profile') : activeProfileId);
+    activeProfile?.name ??
+    (activeProfileId === DEFAULT_PROFILE_ID
+      ? t('Default Profile')
+      : activeProfileId);
+  const activeProfileStorageLabel =
+    activeProfile?.storageLabel ?? t('This device');
+  const activeProfileStorageUnavailable =
+    activeProfile !== undefined && activeProfile.availability !== 'ready';
 
   function handleNavigate(raw: string) {
     if (!activeTermTabId || !activeTab) return;
@@ -693,7 +774,10 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     // did-navigate 不会来,不写这步地址栏会退回旧地址(用户报告 2026-07-23)。
     // src 由 srcRef 锁定一次,store 更新不会反向触发 reload;标签名先落目标 host,
     // 成功后由 page-title-updated 覆盖为真实标题。
-    updateBrowserTab(activeTermTabId, activeTab.id, { url, title: hostOf(url) ?? url });
+    updateBrowserTab(activeTermTabId, activeTab.id, {
+      url,
+      title: hostOf(url) ?? url,
+    });
     const el = webviewRefs.current.get(activeTab.id);
     // 已有 webview:直接导航(空标签则由上面的 store 写入触发首次渲染,src 锁定为这个 url)
     if (el) void el.loadURL(url);
@@ -736,7 +820,9 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
       toggleBrowserPanel();
       return;
     }
-    const result = await window.okwork?.browserPanel?.confirmClose?.(tabs.length);
+    const result = await window.okwork?.browserPanel?.confirmClose?.(
+      tabs.length,
+    );
     if (result === 'closeAll') {
       if (activeTermTabId) closeBrowserPane(activeTermTabId);
     } else if (result === 'hide' || !result) {
@@ -774,7 +860,8 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
           <button
             className="browser-panel__popped-focus"
             onClick={() =>
-              activeTermTabId && window.okwork?.browserPane?.focus?.(activeTermTabId)
+              activeTermTabId &&
+              window.okwork?.browserPane?.focus?.(activeTermTabId)
             }
           >
             {t('Focus window')}
@@ -782,181 +869,211 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
         </div>
       )}
       {!activePopped && (
-      <>
-      <div className="browser-panel__tabs">
-        {tabs.map((tab) => {
-          const isActive = tab.id === activeTabId;
-          const label = tab.title ?? hostOf(tab.url) ?? t('New Tab');
-          return (
-            <div
-              key={tab.id}
-              className={`browser-panel__tab${isActive ? ' browser-panel__tab--active' : ''}`}
-              onClick={() => activeTermTabId && setBrowserActiveTab(activeTermTabId, tab.id)}
-              title={label}
+        <>
+          <div className="browser-panel__tabs">
+            {tabs.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              const label = tab.title ?? hostOf(tab.url) ?? t('New Tab');
+              return (
+                <div
+                  key={tab.id}
+                  className={`browser-panel__tab${isActive ? ' browser-panel__tab--active' : ''}`}
+                  onClick={() =>
+                    activeTermTabId &&
+                    setBrowserActiveTab(activeTermTabId, tab.id)
+                  }
+                  title={label}
+                >
+                  <span className="browser-panel__tab-title">{label}</span>
+                  <button
+                    className="browser-panel__tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (activeTermTabId)
+                        closeBrowserTab(activeTermTabId, tab.id);
+                    }}
+                    title={t('Close tab')}
+                  >
+                    &times;
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              className="browser-panel__tab-add"
+              onClick={() => activeTermTabId && addBrowserTab(activeTermTabId)}
+              title={t('New tab')}
             >
-              <span className="browser-panel__tab-title">{label}</span>
-              <button
-                className="browser-panel__tab-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (activeTermTabId) closeBrowserTab(activeTermTabId, tab.id);
-                }}
-                title={t('Close tab')}
-              >
-                &times;
-              </button>
+              +
+            </button>
+          </div>
+
+          <div className="browser-panel__nav">
+            <button
+              className="browser-panel__nav-btn"
+              disabled={isEmptyTab || !activeNav.canGoBack}
+              onClick={() =>
+                activeTab && webviewRefs.current.get(activeTab.id)?.goBack()
+              }
+              title={t('Back')}
+            >
+              <BackIcon />
+            </button>
+            <button
+              className="browser-panel__nav-btn"
+              disabled={isEmptyTab || !activeNav.canGoForward}
+              onClick={() =>
+                activeTab && webviewRefs.current.get(activeTab.id)?.goForward()
+              }
+              title={t('Forward')}
+            >
+              <ForwardIcon />
+            </button>
+            <button
+              className="browser-panel__nav-btn"
+              disabled={isEmptyTab}
+              onClick={() => {
+                if (!activeTab) return;
+                const el = webviewRefs.current.get(activeTab.id);
+                if (!el) return;
+                if (activeNav.loading) el.stop();
+                else el.reload();
+              }}
+              title={activeNav.loading ? t('Stop') : t('Refresh')}
+            >
+              {activeNav.loading ? <StopIcon /> : <RefreshIcon />}
+            </button>
+            <input
+              ref={addressInputRef}
+              className="browser-panel__address-input"
+              type="text"
+              value={editing ? draft : activeUrl}
+              // 🔴 Electron webview 持焦时,宿主页输入框的原生点击聚焦可能失效——
+              // mousedown 先摘掉 webview 焦点,原生聚焦流程才可靠
+              onMouseDown={() => {
+                if (activeTab) webviewRefs.current.get(activeTab.id)?.blur();
+              }}
+              onFocus={() => {
+                setEditing(true);
+                setDraft(activeUrl);
+              }}
+              onChange={(e) => {
+                // 🔴 自愈:任何竞态把 editing 留在 false(受控值钉死在 activeUrl,表现为
+                // 「打不进字」)时,首次按键即恢复编辑态,以 DOM 实际值为准
+                if (!editing) setEditing(true);
+                setDraft(e.target.value);
+              }}
+              onKeyDown={handleAddressKeyDown}
+              onBlur={() => setEditing(false)}
+              spellCheck={false}
+            />
+            <button
+              className="browser-panel__nav-btn"
+              disabled={!activeUrl}
+              onClick={() =>
+                activeTab && window.okwork.openExternal(activeTab.url)
+              }
+              title={t('Open in system browser')}
+            >
+              ↗
+            </button>
+            <BrowserNetSelector
+              terminalTabId={activeTermTabId}
+              tab={activeTab}
+              ownerHostId={activeWorkspace?.hostId ?? 'local'}
+            />
+            <span
+              className={`browser-panel__password-storage${activeProfileStorageUnavailable ? ' browser-panel__password-storage--offline' : ''}`}
+            >
+              {t('Password storage')}: {activeProfileStorageLabel}
+              {activeProfileStorageUnavailable ? ` · ${t('Offline')}` : ''}
+            </span>
+          </div>
+
+          {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎ */}
+          {activeNav.errorText && (
+            <div className="browser-panel__load-error" role="alert">
+              {t('Page failed to load: {error}', {
+                error: activeNav.errorText,
+              })}
             </div>
-          );
-        })}
-        <button
-          className="browser-panel__tab-add"
-          onClick={() => activeTermTabId && addBrowserTab(activeTermTabId)}
-          title={t('New tab')}
-        >
-          +
-        </button>
-      </div>
+          )}
 
-      <div className="browser-panel__nav">
-        <button
-          className="browser-panel__nav-btn"
-          disabled={isEmptyTab || !activeNav.canGoBack}
-          onClick={() => activeTab && webviewRefs.current.get(activeTab.id)?.goBack()}
-          title={t('Back')}
-        >
-          <BackIcon />
-        </button>
-        <button
-          className="browser-panel__nav-btn"
-          disabled={isEmptyTab || !activeNav.canGoForward}
-          onClick={() => activeTab && webviewRefs.current.get(activeTab.id)?.goForward()}
-          title={t('Forward')}
-        >
-          <ForwardIcon />
-        </button>
-        <button
-          className="browser-panel__nav-btn"
-          disabled={isEmptyTab}
-          onClick={() => {
-            if (!activeTab) return;
-            const el = webviewRefs.current.get(activeTab.id);
-            if (!el) return;
-            if (activeNav.loading) el.stop();
-            else el.reload();
-          }}
-          title={activeNav.loading ? t('Stop') : t('Refresh')}
-        >
-          {activeNav.loading ? <StopIcon /> : <RefreshIcon />}
-        </button>
-        <input
-          ref={addressInputRef}
-          className="browser-panel__address-input"
-          type="text"
-          value={editing ? draft : activeUrl}
-          // 🔴 Electron webview 持焦时,宿主页输入框的原生点击聚焦可能失效——
-          // mousedown 先摘掉 webview 焦点,原生聚焦流程才可靠
-          onMouseDown={() => {
-            if (activeTab) webviewRefs.current.get(activeTab.id)?.blur();
-          }}
-          onFocus={() => {
-            setEditing(true);
-            setDraft(activeUrl);
-          }}
-          onChange={(e) => {
-            // 🔴 自愈:任何竞态把 editing 留在 false(受控值钉死在 activeUrl,表现为
-            // 「打不进字」)时,首次按键即恢复编辑态,以 DOM 实际值为准
-            if (!editing) setEditing(true);
-            setDraft(e.target.value);
-          }}
-          onKeyDown={handleAddressKeyDown}
-          onBlur={() => setEditing(false)}
-          spellCheck={false}
-        />
-        <button
-          className="browser-panel__nav-btn"
-          disabled={!activeUrl}
-          onClick={() => activeTab && window.okwork.openExternal(activeTab.url)}
-          title={t('Open in system browser')}
-        >
-          ↗
-        </button>
-        <BrowserNetSelector
-          terminalTabId={activeTermTabId}
-          tab={activeTab}
-          ownerHostId={activeWorkspace?.hostId ?? 'local'}
-        />
-      </div>
+          <PasswordStatusBar
+            status={
+              activeProfileStorageUnavailable
+                ? { kind: 'unavailable' }
+                : (activePassword?.status ?? { kind: 'idle' })
+            }
+            profileName={activeProfileName}
+            storageLabel={activeProfileStorageLabel}
+            storageUnavailable={activeProfileStorageUnavailable}
+            onChooseAccount={
+              activePassword
+                ? () =>
+                    void window.okwork?.passwordVault.openAccountMenu({
+                      guestWebContentsId: activePassword.guestId,
+                    })
+                : undefined
+            }
+          />
 
-      {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎ */}
-      {activeNav.errorText && (
-        <div className="browser-panel__load-error" role="alert">
-          {t('Page failed to load: {error}', { error: activeNav.errorText })}
-        </div>
-      )}
-
-      <PasswordStatusBar
-        status={activePassword?.status ?? { kind: 'idle' }}
-        profileName={activeProfileName}
-        onChooseAccount={
-          activePassword
-            ? () =>
-                void window.okwork?.passwordVault.openAccountMenu({
-                  guestWebContentsId: activePassword.guestId,
-                })
-            : undefined
-        }
-      />
-
-      <div className="browser-panel__views">
-        {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),
+          <div className="browser-panel__views">
+            {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),
             为每个浏览器标签渲染一个常驻 webview,可见性用 CSS visibility 切换——绝不能
             只挂载活跃 tab 的 webview,否则切终端 tab/切 workspace 时旧标签会被卸载重挂,
             <webview> reparent/remount 必重新加载页面。
             已弹出窗格(poppedOut)跳过:其 webview 活在壳窗,主窗渲染=同页双载。 */}
-        {workspaces.flatMap((w) => {
-          // 分区 = profile × 出口 二维:workspace 的 profile 定第一维,标签出口定第二维。
-          // 🔴 渲染门:绑定了自定义 profile 但快照未到(browserProfilesLoaded=false)时
-          // 先不挂该 ws 的 webview——若先按快照缺省挂上,快照到达后 key 变化重挂 = 启动
-          // 双载,且首载会把页面写错分区(跨 profile 串写)。默认 profile 的 ws 不受影响。
-          const profileId = w.browserProfileId ?? DEFAULT_PROFILE_ID;
-          if (profileId !== DEFAULT_PROFILE_ID && !browserProfilesLoaded) return [];
-          const userAgent = browserProfiles.find((p) => p.id === profileId)?.userAgent;
-          return w.tabs.flatMap((tb) =>
-            (tb.browser?.poppedOut ? [] : (tb.browser?.tabs ?? [])).map((bt) => {
-              // 分区/UA 掺进 key——换出口/换 profile/改 UA 即重挂重载该标签
-              // (webview partition 创建后不可变,Chromium 语义;UA 变更同语义处理)
-              const partition = browserPartition(
-                profileId,
-                resolveBrowserTabNet(bt, w.hostId),
+            {workspaces.flatMap((w) => {
+              // 分区 = profile × 出口 二维:workspace 的 profile 定第一维,标签出口定第二维。
+              // 🔴 渲染门:绑定了自定义 profile 但快照未到(browserProfilesLoaded=false)时
+              // 先不挂该 ws 的 webview——若先按快照缺省挂上,快照到达后 key 变化重挂 = 启动
+              // 双载,且首载会把页面写错分区(跨 profile 串写)。默认 profile 的 ws 不受影响。
+              const profileId = w.browserProfileId ?? DEFAULT_PROFILE_ID;
+              if (profileId !== DEFAULT_PROFILE_ID && !browserProfilesLoaded)
+                return [];
+              const userAgent = browserProfiles.find(
+                (p) => p.id === profileId,
+              )?.userAgent;
+              return w.tabs.flatMap((tb) =>
+                (tb.browser?.poppedOut ? [] : (tb.browser?.tabs ?? [])).map(
+                  (bt) => {
+                    // 分区/UA 掺进 key——换出口/换 profile/改 UA 即重挂重载该标签
+                    // (webview partition 创建后不可变,Chromium 语义;UA 变更同语义处理)
+                    const partition = browserPartition(
+                      profileId,
+                      resolveBrowserTabNet(bt, w.hostId),
+                    );
+                    return (
+                      <BrowserWebview
+                        key={`${bt.id}:${partition}:${userAgent ?? ''}`}
+                        tabId={bt.id}
+                        ownerTerminalTabId={tb.id}
+                        partition={partition}
+                        useragent={userAgent}
+                        url={bt.url}
+                        active={
+                          tb.id === activeTermTabId &&
+                          bt.id === (tb.browser?.activeTabId ?? null)
+                        }
+                        onWebviewRef={handleWebviewRef}
+                        onNavChange={handleNavChange}
+                        onUrlChange={handleUrlChange}
+                        onTitleChange={handleTitleChange}
+                        onPasswordStatus={handlePasswordStatus}
+                      />
+                    );
+                  },
+                ),
               );
-              return (
-                <BrowserWebview
-                  key={`${bt.id}:${partition}:${userAgent ?? ''}`}
-                  tabId={bt.id}
-                  ownerTerminalTabId={tb.id}
-                  partition={partition}
-                  useragent={userAgent}
-                  url={bt.url}
-                  active={
-                    tb.id === activeTermTabId && bt.id === (tb.browser?.activeTabId ?? null)
-                  }
-                  onWebviewRef={handleWebviewRef}
-                  onNavChange={handleNavChange}
-                  onUrlChange={handleUrlChange}
-                  onTitleChange={handleTitleChange}
-                  onPasswordStatus={handlePasswordStatus}
-                />
-              );
-            }),
-          );
-        })}
-        {isEmptyTab && (
-          <div className="browser-panel__empty">
-            {t('Enter a URL or search to get started')}
+            })}
+            {isEmptyTab && (
+              <div className="browser-panel__empty">
+                {t('Enter a URL or search to get started')}
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      </>
+        </>
       )}
     </div>
   );

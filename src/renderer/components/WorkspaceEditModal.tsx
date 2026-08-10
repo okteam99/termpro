@@ -14,20 +14,30 @@ interface WorkspaceEditModalProps {
 
 /** 工作区编辑弹层:改名 + 选择浏览器 profile。Enter 保存,Esc / 点遮罩 / 取消 关闭。
  *  保存逻辑内聚于此(RenameModal 只管改名,本弹层多一个字段,不复用它)。 */
-export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEditModalProps) {
+export function WorkspaceEditModal({
+  workspace,
+  onClose,
+  onSave,
+}: WorkspaceEditModalProps) {
   const browserProfiles = useAppStore((s) => s.browserProfiles);
   const profiles = useMemo(
-    () => browserProfiles.filter((profile) => profile.deletionState === undefined),
+    () =>
+      browserProfiles.filter((profile) => profile.deletionState === undefined),
     [browserProfiles],
   );
   const renameWorkspace = useAppStore((s) => s.renameWorkspace);
-  const setWorkspaceBrowserProfile = useAppStore((s) => s.setWorkspaceBrowserProfile);
+  const setWorkspaceBrowserProfile = useAppStore(
+    (s) => s.setWorkspaceBrowserProfile,
+  );
 
   const [name, setName] = useState(workspace.name);
   const [profileId, setProfileId] = useState<string>(() => {
     const wanted = workspace.browserProfileId ?? DEFAULT_PROFILE_ID;
     // 竞态兜底:绑定的 profile 已被删(store 对账通常已剥离,这里双保险)→ 按内置显示
-    if (wanted !== DEFAULT_PROFILE_ID && !profiles.some((p) => p.id === wanted)) {
+    if (
+      wanted !== DEFAULT_PROFILE_ID &&
+      !profiles.some((p) => p.id === wanted)
+    ) {
       return DEFAULT_PROFILE_ID;
     }
     return wanted;
@@ -81,7 +91,10 @@ export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEdit
         <div className="workspace-edit-modal__title">{t('Edit Project')}</div>
 
         <div className="workspace-edit-modal__field">
-          <label className="workspace-edit-modal__label" htmlFor="workspace-edit-modal-name">
+          <label
+            className="workspace-edit-modal__label"
+            htmlFor="workspace-edit-modal-name"
+          >
             {t('Name')}
           </label>
           <input
@@ -95,7 +108,10 @@ export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEdit
         </div>
 
         <div className="workspace-edit-modal__field">
-          <label className="workspace-edit-modal__label" htmlFor="workspace-edit-modal-profile">
+          <label
+            className="workspace-edit-modal__label"
+            htmlFor="workspace-edit-modal-profile"
+          >
             {t('Browser profile')}
           </label>
           <select
@@ -105,11 +121,13 @@ export function WorkspaceEditModal({ workspace, onClose, onSave }: WorkspaceEdit
             onChange={(e) => setProfileId(e.target.value)}
           >
             <option value={DEFAULT_PROFILE_ID}>{t('OkWork (built-in)')}</option>
-            {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.name}
-              </option>
-            ))}
+            {profiles
+              .filter((profile) => profile.id !== DEFAULT_PROFILE_ID)
+              .map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
           </select>
           <span className="workspace-edit-modal__hint">
             {t(

@@ -2,7 +2,7 @@
 
 ## 状态
 
-草稿
+开发中
 
 ## 复杂度评估
 
@@ -405,35 +405,35 @@ sequenceDiagram
 
 | TC 用例 | 测试方法名 | 状态 |
 |---------|-----------|------|
-| TC-001 | `test_AC1_persists_one_authority_for_default_and_custom_profiles` | ☐ |
-| TC-002 | `test_AC1_AC2_shows_storage_location_and_requires_eligible_target_confirmation` | ☐ |
-| TC-003 | `test_AC3_rejects_renderer_and_invalid_main_only_capabilities_without_enumeration` | ☐ |
-| TC-004 | `test_AC4_migration_locks_mutations_and_reads_only_from_source_until_verified_switch` | ☐ |
-| TC-005 | `test_AC4_recovers_after_restart_and_ignores_late_precommit_responses` | ☐ |
-| TC-006 | `test_AC5_keeps_exactly_one_authority_on_pre_and_post_commit_failures` | ☐ |
-| TC-007 | `test_AC5_keeps_cleanup_pending_source_blocked_until_idempotent_retry_succeeds` | ☐ |
-| TC-008 | `test_AC6_fails_closed_for_all_password_and_profile_mutations_until_current_generation_revalidates` | ☐ |
-| TC-009 | `test_AC7_remote_authority_profile_deletion_revokes_access_and_resumes_after_restart` | ☐ |
-| TC-010 | `test_AC8_blocks_host_delete_for_authority_migration_and_cleanup_dependencies` | ☐ |
-| TC-011 | `test_AC9_redacts_secrets_and_reports_only_stable_non_sensitive_failures` | ☐ |
-| TC-012 | `test_AC6_AC9_remote_authority_offline_shows_no_stale_metadata_and_safe_alert` | ☐ |
-| TC-013 | `test_AC8_dependency_blocked_delete_lists_profiles_and_recovery_action` | ☐ |
+| TC-001 | `test_AC1_persists_one_authority_for_default_and_custom_profiles` | ✅ |
+| TC-002 | `test_AC1_AC2_shows_storage_location_and_requires_eligible_target_confirmation` | ✅ |
+| TC-003 | `test_AC3_rejects_renderer_and_invalid_main_only_capabilities_without_enumeration` | ✅ |
+| TC-004 | `test_AC4_migration_locks_mutations_and_reads_only_from_source_until_verified_switch` | ✅ |
+| TC-005 | `test_AC4_recovers_after_restart_and_ignores_late_precommit_responses` | ✅ |
+| TC-006 | `test_AC5_keeps_exactly_one_authority_on_pre_and_post_commit_failures` | ✅ |
+| TC-007 | `test_AC5_keeps_cleanup_pending_source_blocked_until_idempotent_retry_succeeds` | ✅ |
+| TC-008 | `test_AC6_fails_closed_for_all_password_and_profile_mutations_until_current_generation_revalidates` | ✅ |
+| TC-009 | `test_AC7_remote_authority_profile_deletion_revokes_access_and_resumes_after_restart` | ✅ |
+| TC-010 | `test_AC8_blocks_host_delete_for_authority_migration_and_cleanup_dependencies` | ✅ |
+| TC-011 | `test_AC9_redacts_secrets_and_reports_only_stable_non_sensitive_failures` | ✅ |
+| TC-012 | `test_AC6_AC9_remote_authority_offline_shows_no_stale_metadata_and_safe_alert` | ✅ |
+| TC-013 | `test_AC8_dependency_blocked_delete_lists_profiles_and_recovery_action` | ✅ |
 
 ### 实现步骤
 
 | # | 步骤 | 类型 | 验证方式 | 状态 |
 |---|------|------|----------|------|
-| 0 | 先把旧同步 `PasswordVaultPort` 调用收敛为 async、profile-scoped port，local adapter 保持现有语义 | 机械收敛 | 既有 password/profile tests + typecheck 全绿 | ☐ |
-| 1 | 增加 shared storage/migration/snapshot/delete DTO 与固定错误码 | 契约 | typecheck + shared guard tests | ☐ |
-| 2 | 实现 ProfileCatalogStore 的 bootstrap、原子写、损坏 fail-closed 与 transition guards | 数据/单元 | TC-001/005/006 前半 | ☐ |
-| 3 | 实现 Host AES-GCM encrypted store、staging、grant 与 CLI stdin 协议 | 安全/存储 | crypto/permission/CLI integration + TC-003/011 | ☐ |
-| 4 | 为 SSH/orchestrator 增加有界 main-only transport 与 connectionGeneration | 集成 | orchestrator/SSH tests；证明 token 不进 tunnel/preload | ☐ |
-| 5 | 实现 RemoteProfileProvider 与 ProfileAuthorityService，接管 Profile/Vault 路由和断线失效 | 领域 | TC-001/003/008/012 | ☐ |
-| 6 | 实现 migration coordinator 的 copy/verify/switch/cleanup/restart/late-response | 领域 | TC-004..007 | ☐ |
-| 7 | 把 Profile 删除接到远端 provider/catalog lifecycle，并加 migration 互斥 | 领域 | TC-009 + 既有 deletion regression | ☐ |
-| 8 | 在 Remote Host delete 前接入依赖硬门与结构化结果 | 领域/UI 契约 | TC-010/013 + 无依赖回归 | ☐ |
-| 9 | 切换 main wiring、preload/types、Profile store/partition attach gate 的所有消费方 | 集成 | typecheck + targeted integration | ☐ |
-| 10 | 按确认全景实现四个既有 UI 面，不加入气泡或 AUTHORITY 标识 | UI | TC-002/012/013 + 设计↔实际核对 | ☐ |
+| 0 | 先把旧同步 `PasswordVaultPort` 调用收敛为 async、profile-scoped port，local adapter 保持现有语义 | 机械收敛 | 既有 password/profile tests + typecheck 全绿 | ✅ |
+| 1 | 增加 shared storage/migration/snapshot/delete DTO 与固定错误码 | 契约 | typecheck + shared guard tests | ✅ |
+| 2 | 实现 ProfileCatalogStore 的 bootstrap、原子写、损坏 fail-closed 与 transition guards | 数据/单元 | TC-001/005/006 前半 | ✅ |
+| 3 | 实现 Host AES-GCM encrypted store、staging、grant 与 CLI stdin 协议 | 安全/存储 | crypto/permission/CLI integration + TC-003/011 | ✅ |
+| 4 | 为 SSH/orchestrator 增加有界 main-only transport 与 connectionGeneration | 集成 | orchestrator/SSH tests；证明 token 不进 tunnel/preload | ✅ |
+| 5 | 实现 RemoteProfileProvider 与 ProfileAuthorityService，接管 Profile/Vault 路由和断线失效 | 领域 | TC-001/003/008/012 | ✅ |
+| 6 | 实现 migration coordinator 的 copy/verify/switch/cleanup/restart/late-response | 领域 | TC-004..007 | ✅ |
+| 7 | 把 Profile 删除接到远端 provider/catalog lifecycle，并加 migration 互斥 | 领域 | TC-009 + 既有 deletion regression | ✅ |
+| 8 | 在 Remote Host delete 前接入依赖硬门与结构化结果 | 领域/UI 契约 | TC-010/013 + 无依赖回归 | ✅ |
+| 9 | 切换 main wiring、preload/types、Profile store/partition attach gate 的所有消费方 | 集成 | typecheck + targeted integration | ✅ |
+| 10 | 按确认全景实现四个既有 UI 面，不加入气泡或 AUTHORITY 标识 | UI | TC-002/012/013 + 设计↔实际核对 | ✅ |
 | 11 | 跑 targeted → 全量 Vitest → lint/typecheck/package 与真实 Electron Browser E2E | 验收 | TC 13/13、AC 9/9、0 新增基线失败 | ☐ |
 
 ## 风险与缓解
@@ -458,25 +458,28 @@ sequenceDiagram
 | 日期 | 变更 |
 |------|------|
 | 2026-08-10 | 初稿：落定 catalog、main-only SSH stdio provider、远端 AES-GCM、迁移提交点、fail-closed 与删除依赖设计 |
+| 2026-08-10 | 实现完成：接入本机/远端 provider、可恢复迁移、删除依赖门、四处 UI 与 13 条 TC；进入验证档终检 |
 
 ## 完工自查
 
 **对照本 TECH 的设计落地:**
 
-- [ ] **现状基线**: 实现中关键前提仍成立
-- [ ] **§错误处理/异常路径**: 每条失败路径均有实现和测试
-- [ ] **错误/异常有 WARN/ERROR 日志**: 固定码、足够上下文、零秘密
-- [ ] **§依赖与影响**: `npm run typecheck` 证明全部消费方已同步
-- [ ] **§数据结构**: DTO ↔ model ↔ encrypted envelope 字段一致
+- [x] **现状基线**: `ProfileCatalogStore` 仍是唯一路由单源，local/remote provider 未引入影子回退
+- [x] **§错误处理/异常路径**: 离线、损坏、版本不兼容、迁移失败/迟到响应和 cleanup pending 均有固定码与测试
+- [x] **错误/异常有 WARN/ERROR 日志**: 日志仅含固定码与业务 ID，不含 password、bundle、capability 或加密材料
+- [x] **§依赖与影响**: `npm run typecheck` 已证明 async/profile-scoped 消费方同步
+- [x] **§数据结构**: shared DTO、catalog model、Host encrypted envelope 与 renderer snapshot 已逐字段接线
 - [x] **§数据库变更**: N-A，无数据库/SQL
 - [x] **涉 SQL 查询**: N-A，无 SQL
-- [ ] **§测试策略**: Host CLI 与 main provider 真实跨进程契约已覆盖
+- [x] **§测试策略**: Host CLI 真实子进程/stdin/stdout/crypto/fs 与 main provider/generation 契约均有回归测试
 
 **通用质量门:**
 
-- [ ] 规范符合 DEV-RULES / HARD-RULES / ADR-0002
+- [x] 规范符合 DEV-RULES / HARD-RULES / ADR-0002：renderer 不碰 fs/secret，Host 零 Electron import，密码路径保持 main-only
 - [ ] build、lint、typecheck、全量 tests 通过或仅有登记基线失败
-- [ ] 设计↔实际一致，且 UI 无气泡描述和 `AUTHORITY` 标识
+- [x] 布局结构、交互流、状态与字段映射已做设计↔实际静态逐项核对；组件/Electron E2E 明确断言 UI 无说明气泡和 `AUTHORITY` 标识
+
+> 视觉证据限制：内置浏览器控制连接未提供可用 browser instance，无法生成设计预览与真实应用的并排截图；未用无关浏览器自动化绕过。此限制保留给 review 明示核对，不影响已完成的源代码/CSS 四要素对照与真实 Electron E2E 门禁。
 
 ## 🧩 补充洞察
 

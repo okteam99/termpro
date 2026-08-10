@@ -6,7 +6,11 @@ import { EventEmitter } from 'node:events';
 import { vi } from 'vitest';
 import type { Server as NetServer } from 'node:net';
 import type { Duplex } from 'node:stream';
-import type { ExecResult, ReverseForwardHandle, SshConnectionLike } from '../ssh';
+import type {
+  ExecResult,
+  ReverseForwardHandle,
+  SshConnectionLike,
+} from '../ssh';
 
 let fakePortSeq = 41000;
 
@@ -39,8 +43,16 @@ export type ExecHandler = (cmd: string) => ExecResult | null;
 export interface RoutedSshOptions {
   /** 按顺序尝试,第一个返回非 null 的即命中;都不命中 → 默认 {code:0,stdout:'',stderr:''}。 */
   execHandlers?: ExecHandler[];
+  execWithStdin?: (
+    cmd: string,
+    stdin: string,
+  ) => ExecResult | Promise<ExecResult>;
   sftpReadFile?: (path: string) => Buffer | null;
-  sftpWriteDir?: (localDir: string, remoteDir: string, onProgress: (pct: number) => void) => void;
+  sftpWriteDir?: (
+    localDir: string,
+    remoteDir: string,
+    onProgress: (pct: number) => void,
+  ) => void;
   /** 抛错即模拟 rename 目标已存在(ENOTEMPTY)。 */
   sftpRename?: (from: string, to: string) => void;
   forwardOut?: (localPort: number, remotePort: number) => FakeServer;
@@ -48,13 +60,17 @@ export interface RoutedSshOptions {
    *  需要覆盖行为的测试自行传入,如注入 PassThrough 当 Duplex)。 */
   openOutbound?: (dstHost: string, dstPort: number) => Promise<Duplex>;
   /** 反向转发桩(浏览器 MCP 回环);缺省返回 { remotePort: remotePort||39217, close: noop }。 */
-  forwardInToLocal?: (localPort: number, remotePort: number) => Promise<ReverseForwardHandle>;
+  forwardInToLocal?: (
+    localPort: number,
+    remotePort: number,
+  ) => Promise<ReverseForwardHandle>;
   /** host key SHA-256 摘要桩(hostTag 派生源);缺省 null=未捕获(退隔离,现状行为)。 */
   hostKeyFingerprint?: Buffer | null;
 }
 
 export interface RoutedSsh extends SshConnectionLike {
   execCalls: string[];
+  execWithStdinCalls: Array<{ cmd: string; stdin: string }>;
   execDetachedCalls: Array<{ cmd: string; stdin: string }>;
   closed: boolean;
   /** 测试用:模拟底层 ssh2 连接层断开(A2),触发所有经 onClose 注册的回调。 */
@@ -63,12 +79,14 @@ export interface RoutedSsh extends SshConnectionLike {
 
 export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
   const execCalls: string[] = [];
+  const execWithStdinCalls: Array<{ cmd: string; stdin: string }> = [];
   const execDetachedCalls: Array<{ cmd: string; stdin: string }> = [];
   let closed = false;
   const closeListeners: Array<(err?: Error) => void> = [];
 
   return {
     execCalls,
+    execWithStdinCalls,
     execDetachedCalls,
     get closed() {
       return closed;
@@ -92,6 +110,18 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
       }
       return { code: 0, stdout: '', stderr: '' };
     }),
+    execWithStdin: vi.fn(
+      async (cmd: string, stdin: string): Promise<ExecResult> => {
+        execWithStdinCalls.push({ cmd, stdin });
+        return (
+          opts.execWithStdin?.(cmd, stdin) ?? {
+            code: 0,
+            stdout: '',
+            stderr: '',
+          }
+        );
+      },
+    ),
     execDetached: vi.fn(async (cmd: string, stdin: string): Promise<void> => {
       execDetachedCalls.push({ cmd, stdin });
     }),
@@ -116,17 +146,28 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
       if (opts.sftpRename) opts.sftpRename(from, to);
     }),
     forwardOut: vi.fn((localPort: number, remotePort: number) => {
-      const server = opts.forwardOut ? opts.forwardOut(localPort, remotePort) : new FakeServer();
+      const server = opts.forwardOut
+        ? opts.forwardOut(localPort, remotePort)
+        : new FakeServer();
       return asNetServer(server);
     }),
     openOutbound: vi.fn((dstHost: string, dstPort: number): Promise<Duplex> => {
       if (opts.openOutbound) return opts.openOutbound(dstHost, dstPort);
-      return Promise.reject(new Error('RoutedSsh: openOutbound not configured for this test'));
+      return Promise.reject(
+        new Error('RoutedSsh: openOutbound not configured for this test'),
+      );
     }),
     forwardInToLocal: vi.fn(
-      (localPort: number, remotePort: number): Promise<ReverseForwardHandle> => {
-        if (opts.forwardInToLocal) return opts.forwardInToLocal(localPort, remotePort);
-        return Promise.resolve({ remotePort: remotePort || 39217, close: vi.fn() });
+      (
+        localPort: number,
+        remotePort: number,
+      ): Promise<ReverseForwardHandle> => {
+        if (opts.forwardInToLocal)
+          return opts.forwardInToLocal(localPort, remotePort);
+        return Promise.resolve({
+          remotePort: remotePort || 39217,
+          close: vi.fn(),
+        });
       },
     ),
     close: vi.fn(() => {
@@ -137,14 +178,22 @@ export function createRoutedSsh(opts: RoutedSshOptions = {}): RoutedSsh {
 }
 
 /** 便捷:node 探测 → v20.x @ /usr/bin/node,`uname -sm` → Darwin arm64,其余走默认(code0 空输出)。 */
-export function healthyExecHandlers(overrides: ExecHandler[] = []): ExecHandler[] {
+export function healthyExecHandlers(
+  overrides: ExecHandler[] = [],
+): ExecHandler[] {
   return [
-    (cmd) => (cmd === 'echo $HOME' ? { code: 0, stdout: '/home/tester\n', stderr: '' } : null),
+    (cmd) =>
+      cmd === 'echo $HOME'
+        ? { code: 0, stdout: '/home/tester\n', stderr: '' }
+        : null,
     (cmd) =>
       cmd.includes('command -v node')
         ? { code: 0, stdout: 'v20.11.0 /usr/bin/node\n', stderr: '' }
         : null,
-    (cmd) => (cmd === 'uname -sm' ? { code: 0, stdout: 'Darwin arm64\n', stderr: '' } : null),
+    (cmd) =>
+      cmd === 'uname -sm'
+        ? { code: 0, stdout: 'Darwin arm64\n', stderr: '' }
+        : null,
     ...overrides,
   ];
 }

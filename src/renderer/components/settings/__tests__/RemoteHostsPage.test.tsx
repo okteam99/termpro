@@ -3,7 +3,14 @@
 // BL-003 RemoteHostsPage(移植自 docs/design/preview-project · ARCH-B6)。
 // hostRegistry 全 mock(避免真实 WebSocket/PTY 依赖),window.okwork.remoteHost 用内存态假桥。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 
 expect.extend(matchers);
@@ -21,6 +28,7 @@ import type {
   RemoteEvent,
   RemoteHostConfig,
   RemoteHostConfigInput,
+  RemoteHostDeleteResult,
   TestResult,
 } from '../../../../shared/remoteHost';
 import type { HostInfo } from '../../../../shared/protocol';
@@ -60,7 +68,9 @@ vi.mock('../../../services/reconnectWiring', () => ({
   reconnectController: reconnectControllerMock,
 }));
 
-function makeConfig(overrides: Partial<RemoteHostConfig> = {}): RemoteHostConfig {
+function makeConfig(
+  overrides: Partial<RemoteHostConfig> = {},
+): RemoteHostConfig {
   return {
     id: 'cfg-1',
     alias: 'mini-pc',
@@ -102,9 +112,12 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
           username: payload.config.username,
           authType: payload.config.authType,
           privateKeyPath: payload.config.privateKeyPath,
-          hasPassword: !!payload.password || (idx >= 0 ? !!configs[idx].hasPassword : false),
+          hasPassword:
+            !!payload.password ||
+            (idx >= 0 ? !!configs[idx].hasPassword : false),
           hasPassphrase:
-            !!payload.passphrase || (idx >= 0 ? !!configs[idx].hasPassphrase : false),
+            !!payload.passphrase ||
+            (idx >= 0 ? !!configs[idx].hasPassphrase : false),
           lastUsed: idx >= 0 ? configs[idx].lastUsed : undefined,
           createdAt: idx >= 0 ? configs[idx].createdAt : Date.now(),
         };
@@ -113,10 +126,13 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
         return record;
       },
     ),
-    delete: vi.fn(async (payload: { id: string }): Promise<void> => {
-      const idx = configs.findIndex((c) => c.id === payload.id);
-      if (idx >= 0) configs.splice(idx, 1);
-    }),
+    delete: vi.fn(
+      async (payload: { id: string }): Promise<RemoteHostDeleteResult> => {
+        const idx = configs.findIndex((c) => c.id === payload.id);
+        if (idx >= 0) configs.splice(idx, 1);
+        return { status: 'deleted' };
+      },
+    ),
     test: vi.fn(async (): Promise<TestResult> => ({ ok: true })),
     capabilities: vi.fn(async () => ({ encryptionAvailable: true })),
     connect: vi.fn(),
@@ -141,7 +157,11 @@ function makeRemoteHostBridge(initial: RemoteHostConfig[] = []) {
 
 async function renderPage(
   initial: RemoteHostConfig[] = [],
-  opts?: { encryptionAvailable?: boolean; version?: string },
+  opts?: {
+    encryptionAvailable?: boolean;
+    version?: string;
+    onOpenBrowserProfiles?: () => void;
+  },
 ) {
   const { bridge, emit, configs } = makeRemoteHostBridge(initial);
   if (opts?.encryptionAvailable === false) {
@@ -154,7 +174,12 @@ async function renderPage(
     configurable: true,
   });
   const onClose = vi.fn();
-  const utils = render(<RemoteHostsPage onClose={onClose} />);
+  const utils = render(
+    <RemoteHostsPage
+      onClose={onClose}
+      onOpenBrowserProfiles={opts?.onOpenBrowserProfiles}
+    />,
+  );
   // 等首次 list() 落地(否则空态引导会短暂闪现,导致后续查询抓错元素)
   await waitFor(() => expect(bridge.list).toHaveBeenCalled());
   return { ...utils, bridge, emit, configs, onClose };
@@ -190,7 +215,9 @@ describe('test_AC1_settings_list_live_update', () => {
   it('adding a host via the form updates the manual list in place', async () => {
     const { bridge } = await renderPage([]);
 
-    expect(screen.getByText('No remote hosts yet · Click below to add one')).toBeInTheDocument();
+    expect(
+      screen.getByText('No remote hosts yet · Click below to add one'),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByText('Add remote host'));
 
     fireEvent.change(screen.getByPlaceholderText('alias'), {
@@ -206,7 +233,9 @@ describe('test_AC1_settings_list_live_update', () => {
       target: { value: '2222' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Password' }));
-    const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+    const passwordInput = document.querySelector(
+      'input[type="password"]',
+    ) as HTMLInputElement;
     fireEvent.change(passwordInput, { target: { value: 'secret123' } });
 
     fireEvent.click(screen.getByText('Save'));
@@ -223,13 +252,22 @@ describe('test_AC1_settings_list_live_update', () => {
     expect(payload.password).toBe('secret123');
 
     // 保存后:表单收起,列表(不重开弹层)直接反映新主机
-    await waitFor(() => expect(screen.getByText('gpu-box')).toBeInTheDocument());
-    expect(screen.queryByText('No remote hosts yet · Click below to add one')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByText('gpu-box')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText('No remote hosts yet · Click below to add one'),
+    ).toBeNull();
     expect(bridge.list).toHaveBeenCalledTimes(2); // 挂载一次 + save 后刷新一次
   });
 
   it('editing a host does not resend an unchanged placeholder password', async () => {
-    const config = makeConfig({ id: 'cfg-1', alias: 'mini-pc', authType: 'password', hasPassword: true });
+    const config = makeConfig({
+      id: 'cfg-1',
+      alias: 'mini-pc',
+      authType: 'password',
+      hasPassword: true,
+    });
     const { bridge } = await renderPage([config]);
 
     fireEvent.click(screen.getByText('Edit'));
@@ -255,7 +293,9 @@ describe('test_AC7_recent_area_one_click_connect', () => {
     expect(screen.getByText('Recently used')).toBeInTheDocument();
     const sections = container.querySelectorAll('.remote-hosts__section');
     const recentSection = sections[0];
-    const recentButtons = within(recentSection as HTMLElement).getAllByRole('button');
+    const recentButtons = within(recentSection as HTMLElement).getAllByRole(
+      'button',
+    );
     // 紧凑模式:只保留主操作,无测试连接/编辑/删除
     expect(recentButtons).toHaveLength(1);
     expect(recentButtons[0]).toHaveTextContent('Connect');
@@ -275,13 +315,27 @@ describe('test_AC7_recent_area_one_click_connect', () => {
   // 是组件内部 recentHosts useMemo 的 sort 结果,而非传入顺序的巧合。 ---
   it('renders recent hosts sorted by lastUsed descending, independent of list() order (Q3)', async () => {
     const now = Date.now();
-    const a = makeConfig({ id: 'a', alias: 'a', lastUsed: now - 3 * 3_600_000 }); // 3h 前(最旧)
-    const b = makeConfig({ id: 'b', alias: 'b', lastUsed: now - 1 * 3_600_000 }); // 1h 前(最新)
-    const c = makeConfig({ id: 'c', alias: 'c', lastUsed: now - 2 * 3_600_000 }); // 2h 前(居中)
+    const a = makeConfig({
+      id: 'a',
+      alias: 'a',
+      lastUsed: now - 3 * 3_600_000,
+    }); // 3h 前(最旧)
+    const b = makeConfig({
+      id: 'b',
+      alias: 'b',
+      lastUsed: now - 1 * 3_600_000,
+    }); // 1h 前(最新)
+    const c = makeConfig({
+      id: 'c',
+      alias: 'c',
+      lastUsed: now - 2 * 3_600_000,
+    }); // 2h 前(居中)
     // 刻意乱序传入(a, c, b),渲染顺序不应等于传入顺序
     const { container } = await renderPage([a, c, b]);
 
-    const recentSection = container.querySelectorAll('.remote-hosts__section')[0] as HTMLElement;
+    const recentSection = container.querySelectorAll(
+      '.remote-hosts__section',
+    )[0] as HTMLElement;
     const renderedAliases = Array.from(
       recentSection.querySelectorAll('.remote-hosts__alias'),
     ).map((el) => el.textContent);
@@ -296,18 +350,30 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     const config = makeConfig({ id: 'gpu-box', alias: 'gpu-box' });
     const { emit, container } = await renderPage([config]);
 
-    emit({ configId: 'gpu-box', stage: 'deploying', percent: 25, arch: 'darwin-arm64' });
+    emit({
+      configId: 'gpu-box',
+      stage: 'deploying',
+      percent: 25,
+      arch: 'darwin-arm64',
+    });
 
     await waitFor(() =>
-      expect(screen.getByText('Detected remote arch · darwin-arm64')).toBeInTheDocument(),
+      expect(
+        screen.getByText('Detected remote arch · darwin-arm64'),
+      ).toBeInTheDocument(),
     );
     expect(screen.getByText('Upload bundle')).toBeInTheDocument();
-    const percentEl = container.querySelector('.remote-hosts__progress-percent');
+    const percentEl = container.querySelector(
+      '.remote-hosts__progress-percent',
+    );
     expect(percentEl?.textContent?.trim()).toBe('25%');
   });
 
   it('fastPath claiming/verifying shows a single-line claim message, not the stepper', async () => {
-    const config = makeConfig({ id: 'dev-server', lastUsed: Date.now() - 1000 });
+    const config = makeConfig({
+      id: 'dev-server',
+      lastUsed: Date.now() - 1000,
+    });
     await renderPage([config]);
 
     useRemoteHostRuntimeStore.getState().applyEvent({
@@ -317,7 +383,9 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByText('Found a running host process · Claiming…')).toBeInTheDocument(),
+      expect(
+        screen.getByText('Found a running host process · Claiming…'),
+      ).toBeInTheDocument(),
     );
     expect(screen.queryByText('Upload bundle')).toBeNull();
   });
@@ -352,7 +420,9 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     expect(fakeRemoteClient.reconnect).toHaveBeenCalledWith({
       wsUrl: 'ws://127.0.0.1:4321?token=tok-1',
     });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
   });
 
   // --- A3(code review MAJOR):main 可能在同一同步栈背靠背 emit verifying 紧跟 ready
@@ -406,14 +476,18 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       tunnel: { localPort: 1, token: 't' },
     });
 
-    await waitFor(() => expect(screen.getByText('✗ Incompatible version')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✗ Incompatible version')).toBeInTheDocument(),
+    );
   });
 
   it('ready → disconnect returns to idle, notifies main, and drops the remote client', async () => {
     const config = makeConfig({ id: 'mini-pc' });
     const { bridge, emit } = await renderPage([config]);
     emit({ configId: 'mini-pc', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
 
     fireEvent.click(screen.getByText('Disconnect'));
 
@@ -436,7 +510,9 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     const { emit } = await renderPage([config]);
 
     emit({ configId: 'gpu-box', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
 
     fireEvent.click(screen.getByText('Disconnect'));
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('gpu-box');
@@ -446,7 +522,12 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     // 断开之后,残余的在途编排事件才抵达(排队延迟 / 时序竞态):deploying → verifying{tunnel} → ready
     vi.clearAllMocks();
     hostRegistryMock.getOrCreateRemote.mockReturnValue(fakeRemoteClient);
-    emit({ configId: 'gpu-box', stage: 'deploying', percent: 80, arch: 'linux-x64' });
+    emit({
+      configId: 'gpu-box',
+      stage: 'deploying',
+      percent: 80,
+      arch: 'linux-x64',
+    });
     emit({
       configId: 'gpu-box',
       stage: 'verifying',
@@ -466,9 +547,13 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
     const { bridge, emit } = await renderPage([config]);
 
     emit({ configId: 'gpu-box', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByText('Disconnect'));
-    await waitFor(() => expect(screen.getByText('Connect')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('Connect')).toBeInTheDocument(),
+    );
 
     // 用户重新点「连接」→ 应解除"已弃"标记,后续 verifying 恢复正常握手
     fireEvent.click(screen.getByText('Connect'));
@@ -495,7 +580,9 @@ describe('connection_lifecycle_renders_from_onEvent', () => {
       'gpu-box',
       'ws://127.0.0.1:4321?token=fresh-tok',
     );
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
   });
 });
 
@@ -517,7 +604,9 @@ describe('host_version_and_upgrade', () => {
     };
 
     emit({ configId: 'gpu-box', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
 
     expect(screen.getByText('v0.3.90')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Update host'));
@@ -550,7 +639,9 @@ describe('host_version_and_upgrade', () => {
     };
 
     emit({ configId: 'gpu-box', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
 
     expect(screen.getByText('v0.3.100')).toBeInTheDocument();
     expect(screen.queryByText('Update host')).toBeNull();
@@ -564,7 +655,9 @@ describe('host_version_and_upgrade', () => {
       alias: 'gpu-box',
       lastUsed: Date.now() - 1000, // 落入「最近使用」紧凑区
     });
-    const { emit, container } = await renderPage([config], { version: '0.3.100' });
+    const { emit, container } = await renderPage([config], {
+      version: '0.3.100',
+    });
     fakeRemoteClient.info = {
       hostId: 'local',
       protocolVersion: 1,
@@ -577,7 +670,9 @@ describe('host_version_and_upgrade', () => {
 
     emit({ configId: 'gpu-box', stage: 'ready' });
     // 同一台机器在「最近使用」与「手动添加」各渲染一行,两处徽标都会落地
-    await waitFor(() => expect(screen.getAllByText('✓ Connected')).toHaveLength(2));
+    await waitFor(() =>
+      expect(screen.getAllByText('✓ Connected')).toHaveLength(2),
+    );
 
     const sections = container.querySelectorAll('.remote-hosts__section');
     const recentSection = sections[0] as HTMLElement;
@@ -607,7 +702,9 @@ describe('host_version_and_upgrade', () => {
     };
 
     emit({ configId: 'gpu-box', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
 
     fireEvent.click(screen.getByText('Update host'));
     expect(screen.getByText(/^Upgrade host on gpu-box/)).toBeInTheDocument();
@@ -615,7 +712,9 @@ describe('host_version_and_upgrade', () => {
     // 确认行开着的时候机器断线
     emit({ configId: 'gpu-box', stage: 'disconnected' });
 
-    await waitFor(() => expect(screen.queryByText(/^Upgrade host on gpu-box/)).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByText(/^Upgrade host on gpu-box/)).toBeNull(),
+    );
     expect(screen.queryByText('Yes')).toBeNull();
     // 回落普通行:断线徽标可见,行为等价"确认从未发生过"
     expect(screen.getByText('⚠ Connection lost')).toBeInTheDocument();
@@ -630,7 +729,9 @@ describe('failure_classification_and_retry', () => {
 
     emit({ configId: 'vps-hk', stage: 'failed', reason: 'auth' });
 
-    await waitFor(() => expect(screen.getByText('✗ Authentication failed')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✗ Authentication failed')).toBeInTheDocument(),
+    );
     expect(screen.getByText(/Permission denied/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Retry'));
@@ -643,7 +744,9 @@ describe('failure_classification_and_retry', () => {
 
     emit({ configId: 'mini-pc', stage: 'disconnected' });
 
-    await waitFor(() => expect(screen.getByText('⚠ Connection lost')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('⚠ Connection lost')).toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByText('Reconnect'));
     expect(bridge.connect).toHaveBeenCalledWith({ id: 'mini-pc' });
   });
@@ -652,7 +755,9 @@ describe('failure_classification_and_retry', () => {
     const config = makeConfig({ id: 'gpu-box' });
     const { bridge, emit, container } = await renderPage([config]);
     emit({ configId: 'gpu-box', stage: 'connecting' });
-    await waitFor(() => expect(screen.getByText('Connecting…')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('Connecting…')).toBeInTheDocument(),
+    );
     const row = container.querySelector('.remote-hosts__row') as HTMLElement;
     const btns = within(row).queryAllByRole('button');
     expect(btns).toHaveLength(1);
@@ -670,7 +775,7 @@ describe('failure_classification_and_retry', () => {
 describe('test_connection_badge_states', () => {
   it('idle test button shows pending → ok', async () => {
     const config = makeConfig({ id: 'vps-hk' });
-    let resolveTest: (r: TestResult) => void = () => {};
+    let resolveTest: (r: TestResult) => void = () => undefined;
     const { bridge } = await renderPage([config]);
     bridge.test.mockImplementationOnce(
       () => new Promise<TestResult>((resolve) => (resolveTest = resolve)),
@@ -680,7 +785,9 @@ describe('test_connection_badge_states', () => {
     expect(screen.getByText('Testing connection…')).toBeInTheDocument();
 
     resolveTest({ ok: true });
-    await waitFor(() => expect(screen.getByText('✓ Reachable')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Reachable')).toBeInTheDocument(),
+    );
   });
 
   it('idle test button shows pending → fail with classified reason', async () => {
@@ -689,7 +796,9 @@ describe('test_connection_badge_states', () => {
     bridge.test.mockResolvedValueOnce({ ok: false, reason: 'timeout' });
 
     fireEvent.click(screen.getByText('Test connection'));
-    await waitFor(() => expect(screen.getByText(/✗ Timed out/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/✗ Timed out/)).toBeInTheDocument(),
+    );
   });
 });
 
@@ -701,7 +810,9 @@ describe('delete_confirmation_credential_and_active_connection_copy', () => {
 
     fireEvent.click(screen.getByText('Delete'));
     expect(
-      screen.getByText('Delete mini-pc? Stored credentials will also be removed'),
+      screen.getByText(
+        'Delete mini-pc? Stored credentials will also be removed',
+      ),
     ).toBeInTheDocument();
   });
 
@@ -709,15 +820,21 @@ describe('delete_confirmation_credential_and_active_connection_copy', () => {
     const config = makeConfig({ id: 'mini-pc', alias: 'mini-pc' });
     const { bridge, emit } = await renderPage([config]);
     emit({ configId: 'mini-pc', stage: 'ready' });
-    await waitFor(() => expect(screen.getByText('✓ Connected')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('✓ Connected')).toBeInTheDocument(),
+    );
 
     fireEvent.click(screen.getByText('Delete'));
     expect(
-      screen.getByText('Delete mini-pc? Stored credentials will also be removed · Current connection will be disconnected first'),
+      screen.getByText(
+        'Delete mini-pc? Stored credentials will also be removed · Current connection will be disconnected first',
+      ),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Yes'));
-    await waitFor(() => expect(bridge.delete).toHaveBeenCalledWith({ id: 'mini-pc' }));
+    await waitFor(() =>
+      expect(bridge.delete).toHaveBeenCalledWith({ id: 'mini-pc' }),
+    );
     expect(hostRegistryMock.drop).toHaveBeenCalledWith('mini-pc');
     await waitFor(() => expect(screen.queryByText('mini-pc')).toBeNull());
   });
@@ -733,6 +850,37 @@ describe('delete_confirmation_credential_and_active_connection_copy', () => {
     expect(bridge.delete).not.toHaveBeenCalled();
     expect(hostRegistryMock.drop).not.toHaveBeenCalled();
   });
+
+  it('test_AC8_dependency_blocked_delete_lists_profiles_and_recovery_action', async () => {
+    const config = makeConfig({ id: 'mini-pc', alias: 'mini-pc' });
+    const onOpenBrowserProfiles = vi.fn();
+    const { bridge, configs } = await renderPage([config], {
+      onOpenBrowserProfiles,
+    });
+    bridge.delete.mockResolvedValueOnce({
+      status: 'blocked',
+      dependencies: [
+        {
+          profileId: 'a'.repeat(32),
+          profileName: 'Work account',
+          type: 'current_storage',
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getByText('Yes'));
+
+    expect(
+      await screen.findByText('mini-pc is still used by Browser Profiles'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Work account')).toBeInTheDocument();
+    expect(screen.getByText('Current storage location')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Open Browser Profiles'));
+    expect(onOpenBrowserProfiles).toHaveBeenCalledTimes(1);
+    expect(hostRegistryMock.drop).not.toHaveBeenCalled();
+    expect(configs).toHaveLength(1);
+  });
 });
 
 // --- 0.3.59 实测回归:save reject(典型:钥匙串授权被拒 → A9 抛「加密不可用」)
@@ -747,10 +895,16 @@ describe('save_failure_surfaces_in_form', () => {
     );
 
     fireEvent.click(screen.getByText('Add remote host'));
-    fireEvent.change(screen.getByPlaceholderText('alias'), { target: { value: 'kc-box' } });
-    fireEvent.change(screen.getByPlaceholderText('192.168.1.10'), { target: { value: 'h.lan' } });
+    fireEvent.change(screen.getByPlaceholderText('alias'), {
+      target: { value: 'kc-box' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('192.168.1.10'), {
+      target: { value: 'h.lan' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Password' }));
-    const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+    const passwordInput = document.querySelector(
+      'input[type="password"]',
+    ) as HTMLInputElement;
     fireEvent.change(passwordInput, { target: { value: 'pw' } });
     fireEvent.click(screen.getByText('Save'));
 
@@ -766,7 +920,9 @@ describe('save_failure_surfaces_in_form', () => {
     // 故障恢复后重试成功 → 错误条清除、表单收起、列表出现新主机
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(screen.getByText('kc-box')).toBeInTheDocument());
-    expect(screen.queryByText(/Local credential encryption is unavailable/)).toBeNull();
+    expect(
+      screen.queryByText(/Local credential encryption is unavailable/),
+    ).toBeNull();
     expect(screen.queryByText('Save')).toBeNull();
   });
 });
@@ -777,7 +933,9 @@ describe('credential_encryption_unavailable_banner', () => {
     await renderPage([], { encryptionAvailable: false });
     await waitFor(() =>
       expect(
-        screen.getByText('Credential encryption unavailable — keychain access was denied'),
+        screen.getByText(
+          'Credential encryption unavailable — keychain access was denied',
+        ),
       ).toBeInTheDocument(),
     );
   });
@@ -786,7 +944,9 @@ describe('credential_encryption_unavailable_banner', () => {
     const { bridge } = await renderPage([]);
     await waitFor(() => expect(bridge.capabilities).toHaveBeenCalled());
     expect(
-      screen.queryByText('Credential encryption unavailable — keychain access was denied'),
+      screen.queryByText(
+        'Credential encryption unavailable — keychain access was denied',
+      ),
     ).toBeNull();
   });
 });

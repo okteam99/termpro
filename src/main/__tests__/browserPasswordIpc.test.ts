@@ -16,70 +16,134 @@ vi.mock('electron', () => {
     private readonly onceListeners = new Map<string, () => void>();
     constructor(_options: unknown) {
       this.webContents = {
-        id: nextWebContentsId++, send: vi.fn(), setWindowOpenHandler: vi.fn(), on: vi.fn(),
+        id: nextWebContentsId++,
+        send: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+        on: vi.fn(),
         executeJavaScript: vi.fn().mockResolvedValue(true),
       };
       windows.push(this);
       byWebContents.set(this.webContents, this);
     }
-    isDestroyed(): boolean { return false; }
+    isDestroyed(): boolean {
+      return false;
+    }
     show = vi.fn();
     focus = vi.fn();
     close = vi.fn();
     loadURL = vi.fn();
     loadFile = vi.fn();
-    once(event: string, listener: () => void): void { this.onceListeners.set(event, listener); }
-    static fromWebContents(sender: unknown): unknown { return byWebContents.get(sender) ?? null; }
+    once(event: string, listener: () => void): void {
+      this.onceListeners.set(event, listener);
+    }
+    static fromWebContents(sender: unknown): unknown {
+      return byWebContents.get(sender) ?? null;
+    }
   }
   return {
     BrowserWindow: FakeBrowserWindow,
     Menu: { buildFromTemplate: vi.fn(() => ({ popup: vi.fn() })) },
-    ipcMain: { handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler)), __handlers: handlers },
+    ipcMain: {
+      handle: vi.fn(
+        (channel: string, handler: (...args: unknown[]) => unknown) =>
+          handlers.set(channel, handler),
+      ),
+      __handlers: handlers,
+    },
     __electronTest: { windows, byWebContents, handlers },
   };
 });
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { registerPasswordVaultIpc } from '../passwordVaultIpc';
-import { PasswordVaultController, type PasswordGuestSender, type PasswordVaultPort } from '../passwordVaultController';
-import { ClipboardSecretLease, type SecretClipboard } from '../clipboardSecretLease';
-import { PASSWORD_TRUSTED_CHANNELS, PASSWORD_VAULT_CHANNELS } from '../../shared/passwordVault';
+import {
+  PasswordVaultController,
+  type PasswordGuestSender,
+  type PasswordVaultPort,
+} from '../passwordVaultController';
+import {
+  ClipboardSecretLease,
+  type SecretClipboard,
+} from '../clipboardSecretLease';
+import {
+  PASSWORD_TRUSTED_CHANNELS,
+  PASSWORD_VAULT_CHANNELS,
+} from '../../shared/passwordVault';
 
-interface FakeIpcMain { __handlers: Map<string, (...args: unknown[]) => unknown>; }
+interface FakeIpcMain {
+  __handlers: Map<string, (...args: unknown[]) => unknown>;
+}
 interface ElectronTest {
-  windows: Array<{ webContents: { id: number }; close: ReturnType<typeof vi.fn> }>;
+  windows: Array<{
+    webContents: { id: number };
+    close: ReturnType<typeof vi.fn>;
+  }>;
   byWebContents: Map<unknown, unknown>;
   handlers: Map<string, (...args: unknown[]) => unknown>;
 }
-const electronTest = (await import('electron') as unknown as { __electronTest: ElectronTest }).__electronTest;
+const electronTest = (
+  (await import('electron')) as unknown as { __electronTest: ElectronTest }
+).__electronTest;
 
 const PROFILE = 'a'.repeat(32);
 const SECRET = 'BL006-ipc-secret-sentinel';
 const entry = {
-  id: 'entry-1', profileId: PROFILE, origin: 'https://accounts.example.test', username: 'alice',
-  password: SECRET, createdAt: 1, updatedAt: 1, lastUsedAt: 1,
+  id: 'entry-1',
+  profileId: PROFILE,
+  origin: 'https://accounts.example.test',
+  username: 'alice',
+  password: SECRET,
+  createdAt: 1,
+  updatedAt: 1,
+  lastUsedAt: 1,
 };
 
 class Guest implements PasswordGuestSender {
-  constructor(readonly id: number, readonly url = 'https://accounts.example.test/login') {}
-  getURL(): string { return this.url; }
-  isDestroyed(): boolean { return false; }
+  constructor(
+    readonly id: number,
+    readonly url = 'https://accounts.example.test/login',
+  ) {}
+  getURL(): string {
+    return this.url;
+  }
+  isDestroyed(): boolean {
+    return false;
+  }
   send = vi.fn();
-  once(): unknown { return undefined; }
+  once(): unknown {
+    return undefined;
+  }
 }
 
 function vault(): PasswordVaultPort {
   return {
     isAvailable: () => true,
-    listMetadata: () => [{ ...entry, password: undefined } as unknown as Omit<typeof entry, 'password'>],
-    lookup: () => [entry],
-    getDecrypted: (id) => {
-      if (id !== entry.id) throw Object.assign(new Error('not found'), { code: 'VAULT_ENTRY_NOT_FOUND' });
+    listMetadata: async () => ({
+      entries: [
+        { ...entry, password: undefined } as unknown as Omit<
+          typeof entry,
+          'password'
+        >,
+      ],
+      unavailableProfiles: [],
+    }),
+    lookup: async () => [entry],
+    getDecrypted: async (profileId, id) => {
+      if (profileId !== entry.profileId || id !== entry.id)
+        throw Object.assign(new Error('not found'), {
+          code: 'VAULT_ENTRY_NOT_FOUND',
+        });
       return entry;
     },
-    upsert: () => ({ kind: 'saved', metadata: { ...entry, password: undefined } as unknown as Omit<typeof entry, 'password'> }),
-    deleteEntry: () => true,
-    deleteProfile: () => true,
+    upsert: async () => ({
+      kind: 'saved',
+      metadata: { ...entry, password: undefined } as unknown as Omit<
+        typeof entry,
+        'password'
+      >,
+    }),
+    deleteEntry: async () => true,
+    deleteProfile: async () => true,
   };
 }
 
@@ -110,99 +174,258 @@ describe('browser password IPC sender allowlists', () => {
   it('test_AC8_rejects_untrusted_vault_access_while_preserving_entry-bound_trusted_access', async () => {
     const mainSender = { id: 10 };
     const mainWindow = makeWindow(mainSender);
-    const controller = new PasswordVaultController({ vault: vault(), isProfileActive: () => true, onMetadataChanged: vi.fn() });
+    const controller = new PasswordVaultController({
+      vault: vault(),
+      isProfileActive: () => true,
+      onMetadataChanged: vi.fn(),
+    });
     const ownerGuest = new Guest(50);
     const otherOwnerGuest = new Guest(51);
     controller.registerGuest(ownerGuest, PROFILE, mainSender.id);
     controller.registerGuest(otherOwnerGuest, PROFILE, 77);
     const copy = vi.fn(() => ({ expiresAt: 999 }));
-    registerPasswordVaultIpc({ vault: vault(), controller, clipboardLease: { copy }, isProfileActive: () => true, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
+    registerPasswordVaultIpc({
+      vault: vault(),
+      controller,
+      clipboardLease: { copy },
+      isProfileActive: () => true,
+      getMainWindow: () => mainWindow as never,
+      rendererName: 'main_window',
+    });
     const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
     const untrusted = { id: 99 };
 
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.capabilities)!({ sender: untrusted })).toEqual({ encryptionAvailable: false });
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({ sender: untrusted })).toEqual([]);
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.deleteEntry)!({ sender: untrusted }, { id: entry.id })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: untrusted }, { id: entry.id })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.actionGrant)!({ sender: untrusted }, { action: 'reveal' })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!({ sender: untrusted }, { proof: 'forged' })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!({ sender: untrusted }, { proof: 'forged' })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.capabilities)!({
+        sender: untrusted,
+      }),
+    ).toEqual({ encryptionAvailable: false });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({
+        sender: untrusted,
+      }),
+    ).resolves.toEqual({ entries: [], unavailableProfiles: [] });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.deleteEntry)!(
+        { sender: untrusted },
+        { profileId: PROFILE, id: entry.id },
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!(
+        { sender: untrusted },
+        { profileId: PROFILE, id: entry.id },
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.actionGrant)!(
+        { sender: untrusted },
+        { action: 'reveal' },
+      ),
+    ).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!(
+        { sender: untrusted },
+        { proof: 'forged' },
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!(
+        { sender: untrusted },
+        { proof: 'forged' },
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
     expect(copy).not.toHaveBeenCalled();
 
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openAccountMenu)!({ sender: mainSender }, { guestWebContentsId: otherOwnerGuest.id })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openAccountMenu)!({ sender: mainSender }, { guestWebContentsId: ownerGuest.id })).toEqual({ ok: true });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.openAccountMenu)!(
+        { sender: mainSender },
+        { guestWebContentsId: otherOwnerGuest.id },
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.openAccountMenu)!(
+        { sender: mainSender },
+        { guestWebContentsId: ownerGuest.id },
+      ),
+    ).resolves.toEqual({ ok: true });
 
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id })).toEqual({ ok: true });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!(
+        { sender: mainSender },
+        { profileId: PROFILE, id: entry.id },
+      ),
+    ).resolves.toEqual({ ok: true });
     const trustedSender = electronTest.windows.at(-1)!.webContents;
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.context)!({ sender: trustedSender })).toMatchObject({ metadata: { id: entry.id, username: 'alice' } });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.context)!({
+        sender: trustedSender,
+      }),
+    ).resolves.toMatchObject({ metadata: { id: entry.id, username: 'alice' } });
     const revealGrant = grant(handlers, trustedSender, 'reveal');
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!({ sender: trustedSender }, revealGrant)).toMatchObject({ ok: true, password: SECRET });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!(
+        { sender: trustedSender },
+        revealGrant,
+      ),
+    ).resolves.toMatchObject({ ok: true, password: SECRET });
     // The proof is consumed even if replayed from the same trusted sender.
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!({ sender: trustedSender }, revealGrant)).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!(
+        { sender: trustedSender },
+        revealGrant,
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
     const copyGrant = grant(handlers, trustedSender, 'copy');
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!({ sender: trustedSender }, copyGrant)).toEqual({ ok: true, expiresAt: 999 });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!(
+        { sender: trustedSender },
+        copyGrant,
+      ),
+    ).resolves.toEqual({ ok: true, expiresAt: 999 });
     expect(copy).toHaveBeenCalledWith(SECRET);
   });
 
   it('does not grant a second trusted window access to the first window entry', async () => {
     const mainSender = { id: 10 };
     const mainWindow = makeWindow(mainSender);
-    const secondEntry = { ...entry, id: 'entry-2', username: 'bob', password: 'second-secret' };
+    const secondEntry = {
+      ...entry,
+      id: 'entry-2',
+      username: 'bob',
+      password: 'second-secret',
+    };
     const twoEntryVault = vault();
-    twoEntryVault.listMetadata = () => [entry, secondEntry].map(({ password: _password, ...metadata }) => metadata);
-    twoEntryVault.getDecrypted = (id) => id === entry.id ? entry : secondEntry;
-    const controller = new PasswordVaultController({ vault: twoEntryVault, isProfileActive: () => true, onMetadataChanged: vi.fn() });
-    registerPasswordVaultIpc({ vault: twoEntryVault, controller, clipboardLease: { copy: vi.fn(() => ({ expiresAt: 1 })) }, isProfileActive: () => true, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
+    twoEntryVault.listMetadata = async () => ({
+      entries: [entry, secondEntry].map(
+        ({ password: _password, ...metadata }) => metadata,
+      ),
+      unavailableProfiles: [],
+    });
+    twoEntryVault.getDecrypted = async (_profileId, id) =>
+      id === entry.id ? entry : secondEntry;
+    const controller = new PasswordVaultController({
+      vault: twoEntryVault,
+      isProfileActive: () => true,
+      onMetadataChanged: vi.fn(),
+    });
+    registerPasswordVaultIpc({
+      vault: twoEntryVault,
+      controller,
+      clipboardLease: { copy: vi.fn(() => ({ expiresAt: 1 })) },
+      isProfileActive: () => true,
+      getMainWindow: () => mainWindow as never,
+      rendererName: 'main_window',
+    });
     const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
-    handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id });
-    handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: secondEntry.id });
+    await handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!(
+      { sender: mainSender },
+      { profileId: PROFILE, id: entry.id },
+    );
+    await handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!(
+      { sender: mainSender },
+      { profileId: PROFILE, id: secondEntry.id },
+    );
     const firstTrustedSender = electronTest.windows[0].webContents;
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.context)!({ sender: firstTrustedSender })).toMatchObject({ metadata: { id: entry.id, username: 'alice' } });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.context)!({
+        sender: firstTrustedSender,
+      }),
+    ).resolves.toMatchObject({ metadata: { id: entry.id, username: 'alice' } });
     const revealGrant = grant(handlers, firstTrustedSender, 'reveal');
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!({ sender: firstTrustedSender }, revealGrant)).toMatchObject({ password: SECRET });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!(
+        { sender: firstTrustedSender },
+        revealGrant,
+      ),
+    ).resolves.toMatchObject({ password: SECRET });
   });
 
   it('test_AC6_copy_requires_isolated_user_action_and_conditionally_clears_clipboard', async () => {
     vi.useFakeTimers();
     try {
-    const mainSender = { id: 10 };
-    const mainWindow = makeWindow(mainSender);
-    const clipboard: SecretClipboard & { value: string; clearCalls: number } = {
-      value: '', clearCalls: 0,
-      writeText(value: string) { this.value = value; },
-      readText() { return this.value; },
-      clear() { this.clearCalls += 1; this.value = ''; },
-    };
-    const lease = new ClipboardSecretLease({ clipboard, now: () => Date.now() });
-    const controller = new PasswordVaultController({ vault: vault(), isProfileActive: () => true, onMetadataChanged: vi.fn() });
-    registerPasswordVaultIpc({ vault: vault(), controller, clipboardLease: lease, isProfileActive: () => true, getMainWindow: () => mainWindow as never, rendererName: 'main_window' });
-    const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
-    handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id });
-    const trustedSender = electronTest.windows.at(-1)!.webContents;
+      const mainSender = { id: 10 };
+      const mainWindow = makeWindow(mainSender);
+      const clipboard: SecretClipboard & { value: string; clearCalls: number } =
+        {
+          value: '',
+          clearCalls: 0,
+          writeText(value: string) {
+            this.value = value;
+          },
+          readText() {
+            return this.value;
+          },
+          clear() {
+            this.clearCalls += 1;
+            this.value = '';
+          },
+        };
+      const lease = new ClipboardSecretLease({
+        clipboard,
+        now: () => Date.now(),
+      });
+      const controller = new PasswordVaultController({
+        vault: vault(),
+        isProfileActive: () => true,
+        onMetadataChanged: vi.fn(),
+      });
+      registerPasswordVaultIpc({
+        vault: vault(),
+        controller,
+        clipboardLease: lease,
+        isProfileActive: () => true,
+        getMainWindow: () => mainWindow as never,
+        rendererName: 'main_window',
+      });
+      const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
+      await handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!(
+        { sender: mainSender },
+        { profileId: PROFILE, id: entry.id },
+      );
+      const trustedSender = electronTest.windows.at(-1)!.webContents;
 
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!({ sender: trustedSender }, { proof: 'forged' })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    const wrongActionGrant = grant(handlers, trustedSender, 'reveal');
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!({ sender: trustedSender }, wrongActionGrant)).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    expect(clipboard.value).toBe('');
+      await expect(
+        handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!(
+          { sender: trustedSender },
+          { proof: 'forged' },
+        ),
+      ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+      const wrongActionGrant = grant(handlers, trustedSender, 'reveal');
+      await expect(
+        handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!(
+          { sender: trustedSender },
+          wrongActionGrant,
+        ),
+      ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+      expect(clipboard.value).toBe('');
 
-    const copyGrant = grant(handlers, trustedSender, 'copy');
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!({ sender: trustedSender }, copyGrant)).toMatchObject({ ok: true });
-    expect(clipboard.value).toBe(SECRET);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(clipboard.value).toBe('');
+      const copyGrant = grant(handlers, trustedSender, 'copy');
+      await expect(
+        handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!(
+          { sender: trustedSender },
+          copyGrant,
+        ),
+      ).resolves.toMatchObject({ ok: true });
+      expect(clipboard.value).toBe(SECRET);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(clipboard.value).toBe('');
 
-    const secondCopyGrant = grant(handlers, trustedSender, 'copy');
-    handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!({ sender: trustedSender }, secondCopyGrant);
-    clipboard.value = 'later user clipboard value';
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(clipboard.value).toBe('later user clipboard value');
-    expect(clipboard.clearCalls).toBe(1);
+      const secondCopyGrant = grant(handlers, trustedSender, 'copy');
+      await handlers.get(PASSWORD_TRUSTED_CHANNELS.copy)!(
+        { sender: trustedSender },
+        secondCopyGrant,
+      );
+      clipboard.value = 'later user clipboard value';
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(clipboard.value).toBe('later user clipboard value');
+      expect(clipboard.clearCalls).toBe(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('test_AC7_inactive_profile_hides_metadata_and_revokes_trusted_password_access', () => {
+  it('test_AC7_inactive_profile_hides_metadata_and_revokes_trusted_password_access', async () => {
     const mainSender = { id: 10 };
     const mainWindow = makeWindow(mainSender);
     let active = true;
@@ -223,19 +446,51 @@ describe('browser password IPC sender allowlists', () => {
     });
     const handlers = (ipcMain as unknown as FakeIpcMain).__handlers;
 
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({ sender: mainSender })).toHaveLength(1);
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id })).toEqual({ ok: true });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({
+        sender: mainSender,
+      }),
+    ).resolves.toMatchObject({ entries: [{ id: entry.id }] });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!(
+        { sender: mainSender },
+        { profileId: PROFILE, id: entry.id },
+      ),
+    ).resolves.toEqual({ ok: true });
     const trustedWindow = electronTest.windows.at(-1)!;
     const trustedSender = trustedWindow.webContents;
     const issuedBeforeDeletion = grant(handlers, trustedSender, 'reveal');
 
     // markDeleting/delete_failed makes the Profile inactive before cleanup starts.
     active = false;
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({ sender: mainSender })).toEqual([]);
-    expect(handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!({ sender: mainSender }, { id: entry.id })).toEqual({ ok: false, code: 'VAULT_PROFILE_INACTIVE' });
-    expect(() => handlers.get(PASSWORD_TRUSTED_CHANNELS.context)!({ sender: trustedSender })).toThrow();
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.actionGrant)!({ sender: trustedSender }, { action: 'copy' })).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
-    expect(handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!({ sender: trustedSender }, issuedBeforeDeletion)).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.listMetadata)!({
+        sender: mainSender,
+      }),
+    ).resolves.toEqual({ entries: [], unavailableProfiles: [] });
+    await expect(
+      handlers.get(PASSWORD_VAULT_CHANNELS.openTrusted)!(
+        { sender: mainSender },
+        { profileId: PROFILE, id: entry.id },
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_PROFILE_INACTIVE' });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.context)!({
+        sender: trustedSender,
+      }),
+    ).rejects.toThrow();
+    expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.actionGrant)!(
+        { sender: trustedSender },
+        { action: 'copy' },
+      ),
+    ).toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
+    await expect(
+      handlers.get(PASSWORD_TRUSTED_CHANNELS.reveal)!(
+        { sender: trustedSender },
+        issuedBeforeDeletion,
+      ),
+    ).resolves.toEqual({ ok: false, code: 'VAULT_FORBIDDEN' });
     expect(copy).not.toHaveBeenCalled();
 
     ipc.closeProfileTrustedWindows(PROFILE);
@@ -246,5 +501,7 @@ describe('browser password IPC sender allowlists', () => {
 // The ordinary preload has no API capable of returning a password. This is intentionally
 // a contract assertion on public channel names, not an implementation-detail snapshot.
 it('ordinary password-vault channels contain no reveal, copy, or decrypt operation', () => {
-  expect(Object.keys(PASSWORD_VAULT_CHANNELS).join(',')).not.toMatch(/reveal|copy|decrypt/i);
+  expect(Object.keys(PASSWORD_VAULT_CHANNELS).join(',')).not.toMatch(
+    /reveal|copy|decrypt/i,
+  );
 });

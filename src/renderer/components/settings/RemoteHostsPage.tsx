@@ -23,9 +23,13 @@ import {
   type RemoteEvent,
   type RemoteHostConfig,
   type RemoteHostConfigInput,
+  type RemoteHostDependency,
   type RemoteStage,
 } from '../../../shared/remoteHost';
-import { compareAppVersions, ProtocolIncompatibleError } from '../../../shared/versionCompat';
+import {
+  compareAppVersions,
+  ProtocolIncompatibleError,
+} from '../../../shared/versionCompat';
 import { hostRegistry } from '../../services/hostRegistry';
 import { reconnectController } from '../../services/reconnectWiring';
 import {
@@ -80,7 +84,8 @@ function hostDotModifier(
   runtime: RemoteEvent | undefined,
 ): 'connected' | 'disconnected' | 'active' | 'fail' {
   if (!runtime) return 'disconnected';
-  if (runtime.stage === 'failed' || runtime.stage === 'disconnected') return 'fail';
+  if (runtime.stage === 'failed' || runtime.stage === 'disconnected')
+    return 'fail';
   if (isActiveStage(runtime.stage)) return 'active';
   if (runtime.stage === 'ready') return 'connected';
   return 'disconnected';
@@ -111,9 +116,12 @@ function formatRelativeTime(ts: number, now: number = Date.now()): string {
   const hour = 60 * minute;
   const day = 24 * hour;
   if (diff < minute) return t('Just now');
-  if (diff < hour) return t('{minutes} min ago', { minutes: Math.floor(diff / minute) });
-  if (diff < day) return t('{hours} hr ago', { hours: Math.floor(diff / hour) });
-  if (diff < 7 * day) return t('{days} d ago', { days: Math.floor(diff / day) });
+  if (diff < hour)
+    return t('{minutes} min ago', { minutes: Math.floor(diff / minute) });
+  if (diff < day)
+    return t('{hours} hr ago', { hours: Math.floor(diff / hour) });
+  if (diff < 7 * day)
+    return t('{days} d ago', { days: Math.floor(diff / day) });
   return new Date(ts).toLocaleDateString();
 }
 
@@ -153,15 +161,24 @@ function omitKey<T>(obj: Record<string, T>, key: string): Record<string, T> {
 
 export interface RemoteHostsPageProps {
   onClose(): void;
+  onOpenBrowserProfiles?(): void;
 }
 
 /** 「远程机」管理弹层:最近使用快捷区(一键连接)+ 手动添加区(增/改/删/测试连接/连接生命周期)。 */
-export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
+export function RemoteHostsPage({
+  onClose,
+  onOpenBrowserProfiles,
+}: RemoteHostsPageProps) {
   const [configs, setConfigs] = useState<RemoteHostConfig[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [testState, setTestState] = useState<Record<string, TestStatus>>({});
-  const [testFailReason, setTestFailReason] = useState<Record<string, FailReason>>({});
+  const [testFailReason, setTestFailReason] = useState<
+    Record<string, FailReason>
+  >({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteDependencies, setDeleteDependencies] = useState<
+    Record<string, RemoteHostDependency[]>
+  >({});
   const [upgradeConfirmId, setUpgradeConfirmId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
   const [formHostId, setFormHostId] = useState<string | null>(null);
@@ -169,7 +186,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   /** save IPC 失败的表单内呈现(此前无 catch → 点 Save 静默无反应,0.3.59 实测踩雷) */
   const [formError, setFormError] = useState<string | null>(null);
   /** null=未知(查询在途);false → 常驻警示横幅(密码存不进也读不出,自救指引) */
-  const [encryptionAvailable, setEncryptionAvailable] = useState<boolean | null>(null);
+  const [encryptionAvailable, setEncryptionAvailable] = useState<
+    boolean | null
+  >(null);
 
   const runtimeMap = useRemoteHostRuntimeStore((s) => s.runtime);
   const applyEvent = useRemoteHostRuntimeStore((s) => s.applyEvent);
@@ -227,7 +246,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   // beginHandshake 定义在 effect 内部:其依赖(applyEvent/refreshList)已在 deps 数组里,
   // 不存在闭包过期风险,也不需要额外的 exhaustive-deps 抑制。
   useEffect(() => {
-    function beginHandshake(configId: string, tunnel: { localPort: number; token: string }) {
+    function beginHandshake(
+      configId: string,
+      tunnel: { localPort: number; token: string },
+    ) {
       // 🔴 弃用闸②(OKWORK-F260805033051 · 与 Sidebar 同款):已放弃的机器绝不开新 ws。
       // 本页与 Sidebar 各有一份 beginHandshake(重复实现,尚未收敛),两处都要设闸。
       // 🔴 **先查弃用、后占去重槽**(REVIEW F2):反过来这条早退会漏掉刚占上的槽位。
@@ -251,7 +273,8 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
             // 🔴 REVIEW F3:对**捕获到的这个 client** 收尾 —— 按 id 查表有两种失灵:
             // 该 id 已被更早的 drop 删掉(no-op,该关的 ws 没人管),或表里已换新一代 client(误杀)。
-            if (hostRegistry.forHostId(configId) === client) hostRegistry.drop(configId);
+            if (hostRegistry.forHostId(configId) === client)
+              hostRegistry.drop(configId);
             else client.dispose();
             return;
           }
@@ -267,7 +290,8 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           if (useRemoteHostRuntimeStore.getState().isAbandoned(configId)) {
             // 🔴 REVIEW F3:对**捕获到的这个 client** 收尾 —— 按 id 查表有两种失灵:
             // 该 id 已被更早的 drop 删掉(no-op,该关的 ws 没人管),或表里已换新一代 client(误杀)。
-            if (hostRegistry.forHostId(configId) === client) hostRegistry.drop(configId);
+            if (hostRegistry.forHostId(configId) === client)
+              hostRegistry.drop(configId);
             else client.dispose();
             return;
           }
@@ -340,7 +364,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     // 且 main 仍在收尾(orchestrator.disconnect 最长等 5s),这条 connect 会被在途去重
     // 吞进那条正被拆掉的 promise —— AC-13 的「点了没反应」换个入口原样复现。
     // resume 由 requestConnect 在兑现点执行(与发 IPC 同步紧邻,见 F1)。
-    requestConnect(config.id, () => window.okwork.remoteHost.connect({ id: config.id }));
+    requestConnect(config.id, () =>
+      window.okwork.remoteHost.connect({ id: config.id }),
+    );
   }
 
   /**
@@ -417,7 +443,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
    */
   function ipcErrorMessage(err: unknown): string {
     const raw = err instanceof Error ? err.message : String(err);
-    return raw.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
+    return raw.replace(
+      /^Error invoking remote method '[^']+':\s*(Error:\s*)?/,
+      '',
+    );
   }
 
   async function saveForm() {
@@ -470,16 +499,27 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   }
 
   function requestDelete(id: string) {
+    setDeleteDependencies((previous) => omitKey(previous, id));
     setDeleteConfirmId(id);
   }
 
   function cancelDelete() {
+    if (deleteConfirmId) {
+      setDeleteDependencies((previous) => omitKey(previous, deleteConfirmId));
+    }
     setDeleteConfirmId(null);
   }
 
   /** AC-14:删机随删清凭据(main 侧执行);renderer 同步清运行态/测试态,防孤儿展示态。 */
   async function confirmDelete(id: string) {
-    await window.okwork.remoteHost.delete({ id });
+    const result = await window.okwork.remoteHost.delete({ id });
+    if (result?.status === 'blocked') {
+      setDeleteDependencies((previous) => ({
+        ...previous,
+        [id]: result.dependencies,
+      }));
+      return;
+    }
     // 评审 P2-4:终止在途重连编排(controller 模块级容器不归 forget 管)——不撤则悬挂
     // 退避到点仍会对已删配置发起重连。
     reconnectController.cancel(id);
@@ -490,6 +530,17 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     setTestFailReason((prev) => omitKey(prev, id));
     setDeleteConfirmId(null);
     await refreshList();
+  }
+
+  function dependencyLabel(type: RemoteHostDependency['type']): string {
+    const labels: Record<RemoteHostDependency['type'], string> = {
+      current_storage: t('Current storage location'),
+      migration_source: t('Migration source'),
+      migration_target: t('Migration target'),
+      delete_cleanup: t('Profile deletion cleanup'),
+      source_cleanup: t('Previous location cleanup'),
+    };
+    return labels[type];
   }
 
   function renderStageBadge(config: RemoteHostConfig, runtime: RemoteEvent) {
@@ -513,7 +564,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       const outdated = isHostOutdated(hostVersion);
       return (
         <>
-          <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Connected')}</span>
+          <span className="remote-hosts__badge remote-hosts__badge--ok">
+            {t('✓ Connected')}
+          </span>
           {hostVersion && (
             <span
               className={`remote-hosts__host-version${outdated ? ' remote-hosts__host-version--outdated' : ''}`}
@@ -673,7 +726,11 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         );
       }
       if (status === 'ok') {
-        return <span className="remote-hosts__badge remote-hosts__badge--ok">{t('✓ Reachable')}</span>;
+        return (
+          <span className="remote-hosts__badge remote-hosts__badge--ok">
+            {t('✓ Reachable')}
+          </span>
+        );
       }
       if (status === 'fail') {
         const reason = failReasonCopy(testFailReason[config.id], 'auth');
@@ -728,13 +785,24 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                 <span
                   className={`remote-hosts__progress-step remote-hosts__progress-step--${state}`}
                 >
-                  {state === 'done' && <span className="remote-hosts__progress-check">✓</span>}
-                  {state === 'active' && <span className="add-ws__spinner add-ws__spinner--sm" />}
-                  {state === 'pending' && <span className="remote-hosts__progress-dot-pending" />}
-                  {s.label}
-                  {state === 'active' && s.key === 'upload' && typeof runtime.percent === 'number' && (
-                    <span className="remote-hosts__progress-percent"> {runtime.percent}%</span>
+                  {state === 'done' && (
+                    <span className="remote-hosts__progress-check">✓</span>
                   )}
+                  {state === 'active' && (
+                    <span className="add-ws__spinner add-ws__spinner--sm" />
+                  )}
+                  {state === 'pending' && (
+                    <span className="remote-hosts__progress-dot-pending" />
+                  )}
+                  {s.label}
+                  {state === 'active' &&
+                    s.key === 'upload' &&
+                    typeof runtime.percent === 'number' && (
+                      <span className="remote-hosts__progress-percent">
+                        {' '}
+                        {runtime.percent}%
+                      </span>
+                    )}
                 </span>
               </Fragment>
             );
@@ -761,7 +829,11 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
     // runtime ready 前置(评审 P2):确认行打开后机器可能断线/进入其它态——此时「在跑
     // 会话将被终止」的承诺已不成立,不能再放行升级;回落普通行(残留的 confirmId 无害,
     // 用户重新点 Update 时会重置)。
-    if (!compact && upgradeConfirmId === config.id && runtime?.stage === 'ready') {
+    if (
+      !compact &&
+      upgradeConfirmId === config.id &&
+      runtime?.stage === 'ready'
+    ) {
       return (
         <div key={config.id} className="remote-hosts__entry">
           <div className="remote-hosts__row">
@@ -790,28 +862,70 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
       );
     }
     if (!compact && deleteConfirmId === config.id) {
+      const dependencies = deleteDependencies[config.id] ?? [];
       const activeConn = !!runtime && runtime.stage !== 'idle';
       return (
         <div key={config.id} className="remote-hosts__entry">
-          <div className="remote-hosts__row">
-            <span className="remote-hosts__confirm">
-              <span className="remote-hosts__confirm-text">
-                {t('Delete {alias}? Stored credentials will also be removed', {
+          {dependencies.length > 0 ? (
+            <div className="remote-hosts__dependency-block" role="alert">
+              <strong>
+                {t('{alias} is still used by Browser Profiles', {
                   alias: config.alias,
                 })}
-                {activeConn ? t(' · Current connection will be disconnected first') : ''}
+              </strong>
+              <span>
+                {t(
+                  'Move or finish cleanup for these Profiles before deleting the Remote Host.',
+                )}
               </span>
-              <button
-                className="remote-hosts__action remote-hosts__action--danger"
-                onClick={() => confirmDelete(config.id)}
-              >
-                {t('Yes')}
-              </button>
-              <button className="remote-hosts__action" onClick={cancelDelete}>
-                {t('No')}
-              </button>
-            </span>
-          </div>
+              <ul>
+                {dependencies.map((dependency) => (
+                  <li key={`${dependency.profileId}:${dependency.type}`}>
+                    <b>{dependency.profileName}</b>
+                    <span>{dependencyLabel(dependency.type)}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="remote-hosts__confirm-actions">
+                {onOpenBrowserProfiles && (
+                  <button
+                    className="remote-hosts__action remote-hosts__action--primary"
+                    onClick={onOpenBrowserProfiles}
+                  >
+                    {t('Open Browser Profiles')}
+                  </button>
+                )}
+                <button className="remote-hosts__action" onClick={cancelDelete}>
+                  {t('Close')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="remote-hosts__row">
+              <span className="remote-hosts__confirm">
+                <span className="remote-hosts__confirm-text">
+                  {t(
+                    'Delete {alias}? Stored credentials will also be removed',
+                    {
+                      alias: config.alias,
+                    },
+                  )}
+                  {activeConn
+                    ? t(' · Current connection will be disconnected first')
+                    : ''}
+                </span>
+                <button
+                  className="remote-hosts__action remote-hosts__action--danger"
+                  onClick={() => confirmDelete(config.id)}
+                >
+                  {t('Yes')}
+                </button>
+                <button className="remote-hosts__action" onClick={cancelDelete}>
+                  {t('No')}
+                </button>
+              </span>
+            </div>
+          )}
         </div>
       );
     }
@@ -825,17 +939,27 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           <span className="remote-hosts__addr">
             {config.username}@{config.host}:{config.port}
           </span>
-          <span className="remote-hosts__identity">{config.privateKeyPath || '—'}</span>
+          <span className="remote-hosts__identity">
+            {config.privateKeyPath || '—'}
+          </span>
           <span className="remote-hosts__auth">
             {config.authType === 'password' ? t('Password') : t('Key')}
           </span>
           {compact && config.lastUsed && (
-            <span className="remote-hosts__last-used">{formatRelativeTime(config.lastUsed)}</span>
+            <span className="remote-hosts__last-used">
+              {formatRelativeTime(config.lastUsed)}
+            </span>
           )}
           {renderStatusArea(config, runtime, compact)}
         </div>
-        {!compact && runtime && hasProgressPanel(runtime.stage) && renderProgressPanel(runtime)}
-        {!compact && runtime && runtime.stage === 'failed' && renderFailDetail(runtime)}
+        {!compact &&
+          runtime &&
+          hasProgressPanel(runtime.stage) &&
+          renderProgressPanel(runtime)}
+        {!compact &&
+          runtime &&
+          runtime.stage === 'failed' &&
+          renderFailDetail(runtime)}
       </div>
     );
   }
@@ -847,7 +971,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="remote-hosts__card" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="remote-hosts__card"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="remote-hosts__header">
           <div>
             <div className="remote-hosts__title">{t('Remote Hosts')}</div>
@@ -857,7 +984,11 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
               )}
             </div>
           </div>
-          <button className="remote-hosts__close" onClick={onClose} title={t('Close')}>
+          <button
+            className="remote-hosts__close"
+            onClick={onClose}
+            title={t('Close')}
+          >
             ×
           </button>
         </div>
@@ -866,7 +997,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
           {encryptionAvailable === false && (
             <div className="remote-hosts__crypto-banner" role="alert">
               <div className="remote-hosts__crypto-banner-title">
-                {t('Credential encryption unavailable — keychain access was denied')}
+                {t(
+                  'Credential encryption unavailable — keychain access was denied',
+                )}
               </div>
               <div>
                 {t(
@@ -891,7 +1024,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
             <>
               {recentHosts.length > 0 && (
                 <div className="remote-hosts__section">
-                  <div className="remote-hosts__section-title">{t('Recently used')}</div>
+                  <div className="remote-hosts__section-title">
+                    {t('Recently used')}
+                  </div>
                   <div className="remote-hosts__list">
                     {recentHosts.map((config) => renderRow(config, true))}
                   </div>
@@ -899,7 +1034,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
               )}
 
               <div className="remote-hosts__section">
-                <div className="remote-hosts__section-title">{t('Manually added')}</div>
+                <div className="remote-hosts__section-title">
+                  {t('Manually added')}
+                </div>
                 <div className="remote-hosts__list">
                   {configs.map((config) => renderRow(config, false))}
                   {configs.length === 0 && (
@@ -913,7 +1050,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
               {formMode ? (
                 <div className="remote-hosts__form">
                   <div className="remote-hosts__form-title">
-                    {formMode === 'edit' ? t('Edit remote host') : t('Add remote host')}
+                    {formMode === 'edit'
+                      ? t('Edit remote host')
+                      : t('Add remote host')}
                   </div>
                   <div className="remote-hosts__form-grid">
                     <label className="remote-hosts__field">
@@ -921,7 +1060,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                       <input
                         value={formValues.alias}
                         onChange={(e) =>
-                          setFormValues({ ...formValues, alias: e.target.value })
+                          setFormValues({
+                            ...formValues,
+                            alias: e.target.value,
+                          })
                         }
                         placeholder="alias"
                       />
@@ -941,7 +1083,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                       <input
                         value={formValues.username}
                         onChange={(e) =>
-                          setFormValues({ ...formValues, username: e.target.value })
+                          setFormValues({
+                            ...formValues,
+                            username: e.target.value,
+                          })
                         }
                         placeholder="root"
                       />
@@ -962,14 +1107,21 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                         <button
                           type="button"
                           className={`file-panel__seg-btn${formValues.authType === 'key' ? ' file-panel__seg-btn--active' : ''}`}
-                          onClick={() => setFormValues({ ...formValues, authType: 'key' })}
+                          onClick={() =>
+                            setFormValues({ ...formValues, authType: 'key' })
+                          }
                         >
                           {t('SSH Key')}
                         </button>
                         <button
                           type="button"
                           className={`file-panel__seg-btn${formValues.authType === 'password' ? ' file-panel__seg-btn--active' : ''}`}
-                          onClick={() => setFormValues({ ...formValues, authType: 'password' })}
+                          onClick={() =>
+                            setFormValues({
+                              ...formValues,
+                              authType: 'password',
+                            })
+                          }
                         >
                           {t('Password')}
                         </button>
@@ -982,7 +1134,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                           type="password"
                           value={formValues.password}
                           onChange={(e) =>
-                            setFormValues({ ...formValues, password: e.target.value })
+                            setFormValues({
+                              ...formValues,
+                              password: e.target.value,
+                            })
                           }
                         />
                         <span className="remote-hosts__field-hint">
@@ -998,7 +1153,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                           <input
                             value={formValues.privateKeyPath}
                             onChange={(e) =>
-                              setFormValues({ ...formValues, privateKeyPath: e.target.value })
+                              setFormValues({
+                                ...formValues,
+                                privateKeyPath: e.target.value,
+                              })
                             }
                             placeholder={t('e.g. ~/.ssh/id_ed25519')}
                           />
@@ -1009,7 +1167,10 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
                             type="password"
                             value={formValues.passphrase}
                             onChange={(e) =>
-                              setFormValues({ ...formValues, passphrase: e.target.value })
+                              setFormValues({
+                                ...formValues,
+                                passphrase: e.target.value,
+                              })
                             }
                           />
                           <span className="remote-hosts__field-hint">

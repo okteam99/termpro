@@ -4,17 +4,21 @@ import type {
   RemoteHostCapabilities,
   RemoteHostConfig,
   RemoteHostConfigInput,
+  RemoteHostDeleteResult,
   RemoteStage,
   RemoteTunnelInfo,
   TestResult,
 } from '../shared/remoteHost';
 import type {
-  BrowserProfile,
+  BrowserProfileSummary,
   BrowserProfileDeletionResult,
   BrowserProfileInput,
+  ProfileStorageChangePlan,
+  ProfileStorageChangeResult,
+  ProfileStorageRef,
 } from '../shared/browserProfile';
 import type {
-  PasswordCredentialMetadata,
+  PasswordMetadataSnapshot,
   PasswordMetadataQuery,
   PasswordVaultActionResult,
   PasswordVaultCapabilities,
@@ -73,7 +77,11 @@ declare global {
       /** AI 浏览器控制桥(main↔renderer):main MCP server ↔ 渲染层 browserControl */
       browserControl: {
         onInvoke(
-          callback: (req: { requestId: string; method: string; args: unknown[] }) => void,
+          callback: (req: {
+            requestId: string;
+            method: string;
+            args: unknown[];
+          }) => void,
         ): () => void;
         sendResult(payload: {
           requestId: string;
@@ -99,14 +107,19 @@ declare global {
         }): void;
         getState(terminalTabId: string): Promise<unknown>;
         sync(terminalTabId: string, pane: unknown): void;
-        onSync(callback: (terminalTabId: string, pane: unknown) => void): () => void;
+        onSync(
+          callback: (terminalTabId: string, pane: unknown) => void,
+        ): () => void;
         addTab(
           terminalTabId: string,
           url: string,
           opts?: { netHostId?: string; preview?: true },
         ): void;
         onAddTab(
-          callback: (url: string, opts?: { netHostId?: string; preview?: true }) => void,
+          callback: (
+            url: string,
+            opts?: { netHostId?: string; preview?: true },
+          ) => void,
         ): () => void;
         list(): Promise<string[]>;
         focus(terminalTabId: string): void;
@@ -116,9 +129,15 @@ declare global {
         close(terminalTabId: string): void;
         onClosed(callback: (terminalTabId: string) => void): () => void;
         /** 壳窗:工作区编辑保存 → 主窗权威 store 应用(改名走 host RPC,绑定持久化) */
-        workspaceEdit(terminalTabId: string, patch: { name: string; profileId: string }): void;
+        workspaceEdit(
+          terminalTabId: string,
+          patch: { name: string; profileId: string },
+        ): void;
         onWorkspaceEdit(
-          callback: (terminalTabId: string, patch: { name?: string; profileId?: string }) => void,
+          callback: (
+            terminalTabId: string,
+            patch: { name?: string; profileId?: string },
+          ) => void,
         ): () => void;
         /** 主窗:profile 绑定变更推给已弹出壳窗(壳窗换分区重挂 webview) */
         setProfile(terminalTabId: string, profileId: string): void;
@@ -136,7 +155,11 @@ declare global {
       openPath(path: string): void;
       showItemInFolder(path: string): void;
       onViewerAddTab(
-        callback: (tab: { path: string; kind: 'file' | 'dir'; previewRoot?: string }) => void,
+        callback: (tab: {
+          path: string;
+          kind: 'file' | 'dir';
+          previewRoot?: string;
+        }) => void,
       ): () => void;
       /** 取拖入 File 的真实磁盘路径(Electron webUtils) */
       getPathForFile(file: File): string;
@@ -152,8 +175,7 @@ declare global {
           password?: string;
           passphrase?: string;
         }): Promise<RemoteHostConfig>;
-        delete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
-        retryDelete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
+        delete(payload: { id: string }): Promise<RemoteHostDeleteResult>;
         test(payload: { id: string }): Promise<TestResult>;
         connect(payload: { id: string }): void;
         /** ⚠️ 即发即忘 · 渲染层现已**零调用点**(评审 P2-3):设置页/Sidebar 的断开走
@@ -190,20 +212,42 @@ declare global {
       /** 浏览器 Profile(每工作区独立存储 + UA;权威在 main) */
       browserProfile: {
         /** 全部自定义 profile(默认 profile 是虚拟实体,UI 自行置顶展示) */
-        list(): Promise<BrowserProfile[]>;
+        list(): Promise<BrowserProfileSummary[]>;
         /** 新建(省略 id)或更新(id 命中既有);默认 profile 恒拒绝 */
-        save(input: BrowserProfileInput): Promise<BrowserProfile>;
+        save(input: BrowserProfileInput): Promise<BrowserProfileSummary>;
         delete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
-        retryDelete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
+        retryDelete(payload: {
+          id: string;
+        }): Promise<BrowserProfileDeletionResult>;
         /** 订阅列表变更(增/删/改),返回退订函数 */
-        onChanged(callback: (profiles: BrowserProfile[]) => void): () => void;
+        planStorageChange(payload: {
+          profileId: string;
+          target: ProfileStorageRef;
+        }): Promise<ProfileStorageChangePlan>;
+        confirmStorageChange(payload: {
+          planId: string;
+        }): Promise<ProfileStorageChangeResult>;
+        retryStorageChange(payload: {
+          operationId: string;
+        }): Promise<ProfileStorageChangeResult>;
+        onChanged(
+          callback: (profiles: BrowserProfileSummary[]) => void,
+        ): () => void;
       };
       /** Password Vault ordinary surface: deliberately metadata-only. */
       passwordVault: {
         capabilities(): Promise<PasswordVaultCapabilities>;
-        listMetadata(query?: PasswordMetadataQuery): Promise<PasswordCredentialMetadata[]>;
-        deleteEntry(payload: { id: string }): Promise<PasswordVaultActionResult>;
-        openTrusted(payload: { id: string }): Promise<PasswordVaultActionResult>;
+        listMetadata(
+          query?: PasswordMetadataQuery,
+        ): Promise<PasswordMetadataSnapshot>;
+        deleteEntry(payload: {
+          profileId: string;
+          id: string;
+        }): Promise<PasswordVaultActionResult>;
+        openTrusted(payload: {
+          profileId: string;
+          id: string;
+        }): Promise<PasswordVaultActionResult>;
         openAccountMenu(payload: {
           guestWebContentsId: number;
         }): Promise<PasswordVaultActionResult>;
@@ -246,7 +290,10 @@ declare global {
           mtimeMs: number;
         }>;
         /** 结束传输:写票 commit=true 落地(覆盖式)/false 放弃;读票忽略 commit,只释放 fd */
-        finish(payload: { ticket: string; commit: boolean }): Promise<{ path: string | null }>;
+        finish(payload: {
+          ticket: string;
+          commit: boolean;
+        }): Promise<{ path: string | null }>;
       };
     };
     /** Exists only in the isolated trusted password BrowserWindow. */

@@ -19,13 +19,20 @@ vi.mock('../../terminal/terminalRegistry', () => ({
 import { useAppStore } from '../store';
 import type { PersistedStateV2, WorkspaceState } from '../store';
 import { serialize } from '../persistence';
-import type { BrowserProfile } from '../../../shared/browserProfile';
+import type { BrowserProfileSummary } from '../../../shared/browserProfile';
 
 const PID = 'a'.repeat(32);
 const PID2 = 'b'.repeat(32);
 
-function profile(id: string, name = 'p'): BrowserProfile {
-  return { id, name, createdAt: 1 };
+function profile(id: string, name = 'p'): BrowserProfileSummary {
+  return {
+    id,
+    name,
+    createdAt: 1,
+    storage: { kind: 'local' },
+    storageLabel: 'This device',
+    availability: 'ready',
+  };
 }
 
 function ws(

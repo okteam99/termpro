@@ -33,7 +33,11 @@ vi.mock('electron', () => {
 import { ipcMain } from 'electron';
 import { registerRemoteHostIpc } from '../remoteHostIpc';
 import { RemoteHostOrchestrator } from '../orchestrator';
-import { CredentialStore, HostConfigStore, type SafeStorageLike } from '../credentialStore';
+import {
+  CredentialStore,
+  HostConfigStore,
+  type SafeStorageLike,
+} from '../credentialStore';
 import { REMOTE_HOST_CHANNELS } from '../../../shared/remoteHost';
 import { createRoutedSsh } from './testKit';
 
@@ -62,7 +66,10 @@ function makeSafeStorage(available: boolean): SafeStorageLike {
   };
 }
 
-function makeOrchestrator(credentials: CredentialStore, configStore: HostConfigStore) {
+function makeOrchestrator(
+  credentials: CredentialStore,
+  configStore: HostConfigStore,
+) {
   return new RemoteHostOrchestrator({
     connectSsh: async () => createRoutedSsh(),
     credentials,
@@ -75,7 +82,10 @@ function makeOrchestrator(credentials: CredentialStore, configStore: HostConfigS
 describe('A9 remoteHostIpc.save 前置校验 safeStorage 可用性', () => {
   it('不可用 + 请求存密码 → 整个 save 拒绝,不落半成品配置(无「声称已存密码但实际无密文」的记录)', async () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(false) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(false),
+    });
     const orchestrator = makeOrchestrator(credentials, configStore);
     registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
 
@@ -89,7 +99,13 @@ describe('A9 remoteHostIpc.save 前置校验 safeStorage 可用性', () => {
       saveHandler(
         {},
         {
-          config: { alias: 'a', host: 'h', port: 22, username: 'root', authType: 'password' },
+          config: {
+            alias: 'a',
+            host: 'h',
+            port: 22,
+            username: 'root',
+            authType: 'password',
+          },
           password: 'secret',
         },
       ),
@@ -100,7 +116,10 @@ describe('A9 remoteHostIpc.save 前置校验 safeStorage 可用性', () => {
 
   it('不可用 + 仅私钥认证(无密码/passphrase)→ 正常保存(私钥路径不需要加密)', async () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(false) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(false),
+    });
     const orchestrator = makeOrchestrator(credentials, configStore);
     registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
 
@@ -125,7 +144,10 @@ describe('A9 remoteHostIpc.save 前置校验 safeStorage 可用性', () => {
 
   it('可用时正常 save + setSecret 往返', async () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
     const orchestrator = makeOrchestrator(credentials, configStore);
     registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
 
@@ -134,7 +156,13 @@ describe('A9 remoteHostIpc.save 前置校验 safeStorage 可用性', () => {
     const saved = (await saveHandler(
       {},
       {
-        config: { alias: 'a', host: 'h', port: 22, username: 'root', authType: 'password' },
+        config: {
+          alias: 'a',
+          host: 'h',
+          port: 22,
+          username: 'root',
+          authType: 'password',
+        },
         password: 'secret',
       },
     )) as { id: string; hasPassword?: boolean };
@@ -168,7 +196,10 @@ describe('remoteHostIpc.capabilities 凭据面能力查询', () => {
 describe('E8 remoteHost:event 只推给 getMainWindow() 返回的窗口', () => {
   it('事件送到 getMainWindow() 返回的窗口(隧道 token 不会经此广播到任意窗口——实现已不再调用 getAllWindows)', async () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
     configStore.save({
       id: 'vps-hk',
       alias: 'vps-hk',
@@ -191,9 +222,16 @@ describe('E8 remoteHost:event 只推给 getMainWindow() 返回的窗口', () => 
     const mainSent: unknown[] = [];
     const mainWin = {
       isDestroyed: () => false,
-      webContents: { send: (_channel: string, event: unknown) => mainSent.push(event) },
+      webContents: {
+        send: (_channel: string, event: unknown) => mainSent.push(event),
+      },
     };
-    registerRemoteHostIpc(orchestrator, credentials, configStore, () => mainWin as never);
+    registerRemoteHostIpc(
+      orchestrator,
+      credentials,
+      configStore,
+      () => mainWin as never,
+    );
 
     await orchestrator.connect('vps-hk');
 
@@ -205,7 +243,10 @@ describe('E8 remoteHost:event 只推给 getMainWindow() 返回的窗口', () => 
 
   it('getMainWindow() 返回 null(主窗口未就绪/已关闭)→ 事件安静丢弃,不抛错', async () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
     configStore.save({
       id: 'vps-hk',
       alias: 'vps-hk',
@@ -241,12 +282,23 @@ describe('remoteHost:upgrade 用户显式升级服务端(forceRedeploy · Remote
 
   function setup(getMainWindow: () => unknown) {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
     const orchestrator = makeOrchestrator(credentials, configStore);
-    const connectSpy = vi.spyOn(orchestrator, 'connect').mockResolvedValue(undefined);
-    registerRemoteHostIpc(orchestrator, credentials, configStore, getMainWindow as never);
+    const connectSpy = vi
+      .spyOn(orchestrator, 'connect')
+      .mockResolvedValue(undefined);
+    registerRemoteHostIpc(
+      orchestrator,
+      credentials,
+      configStore,
+      getMainWindow as never,
+    );
     const fake = ipcMain as unknown as FakeIpcMain;
-    const upgradeListeners = fake.__onListeners.get(REMOTE_HOST_CHANNELS.upgrade) ?? [];
+    const upgradeListeners =
+      fake.__onListeners.get(REMOTE_HOST_CHANNELS.upgrade) ?? [];
     expect(upgradeListeners).toHaveLength(1);
     return { connectSpy, upgrade: upgradeListeners[0] };
   }
@@ -295,12 +347,22 @@ describe('remoteHost:upgrade 用户显式升级服务端(forceRedeploy · Remote
 
   it('dispose 后 upgrade listener 被移除(照 connect/disconnect 同族反注册)', () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
     const orchestrator = makeOrchestrator(credentials, configStore);
-    const dispose = registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
+    const dispose = registerRemoteHostIpc(
+      orchestrator,
+      credentials,
+      configStore,
+      () => null,
+    );
 
     const fake = ipcMain as unknown as FakeIpcMain;
-    expect(fake.__onListeners.get(REMOTE_HOST_CHANNELS.upgrade)).toHaveLength(1);
+    expect(fake.__onListeners.get(REMOTE_HOST_CHANNELS.upgrade)).toHaveLength(
+      1,
+    );
 
     dispose();
 
@@ -311,7 +373,10 @@ describe('remoteHost:upgrade 用户显式升级服务端(forceRedeploy · Remote
 describe('remoteHost:tunnel 请求方归属校验(P2-1 纵深防御)', () => {
   it('谓词拒绝的请求方拿到 null(不触达 orchestrator);放行的请求方走 tunnelFor', () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
     const orchestrator = makeOrchestrator(credentials, configStore);
     const tunnelFor = vi
       .spyOn(orchestrator, 'tunnelFor')
@@ -323,7 +388,8 @@ describe('remoteHost:tunnel 请求方归属校验(P2-1 纵深防御)', () => {
       credentials,
       configStore,
       () => null,
-      (sender, configId) => sender === (allowedSender as never) && configId === 'cfg-1',
+      (sender, configId) =>
+        sender === (allowedSender as never) && configId === 'cfg-1',
     );
     const fake = ipcMain as unknown as FakeIpcMain;
     const tunnelHandler = fake.__handlers.get(REMOTE_HOST_CHANNELS.tunnel)!;
@@ -331,7 +397,9 @@ describe('remoteHost:tunnel 请求方归属校验(P2-1 纵深防御)', () => {
     // 非归属窗口(sender 不匹配)→ null,且不泄露「会话是否存在」(不触达 tunnelFor)
     expect(tunnelHandler({ sender: { id: 2 } }, { id: 'cfg-1' })).toBeNull();
     // 归属窗口但请求别台机器的 token(configId 不匹配)→ null
-    expect(tunnelHandler({ sender: allowedSender }, { id: 'cfg-2' })).toBeNull();
+    expect(
+      tunnelHandler({ sender: allowedSender }, { id: 'cfg-2' }),
+    ).toBeNull();
     expect(tunnelFor).not.toHaveBeenCalled();
 
     // 归属窗口 + 本机器 → 放行到 tunnelFor
@@ -344,7 +412,10 @@ describe('remoteHost:tunnel 请求方归属校验(P2-1 纵深防御)', () => {
 
   it('未传谓词(测试桩场景)→ 不校验,直接走 tunnelFor', () => {
     const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
-    const credentials = new CredentialStore({ userDataDir: () => tmpDir, safeStorage: makeSafeStorage(true) });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
     const orchestrator = makeOrchestrator(credentials, configStore);
     vi.spyOn(orchestrator, 'tunnelFor').mockReturnValue(null);
     registerRemoteHostIpc(orchestrator, credentials, configStore, () => null);
@@ -353,5 +424,90 @@ describe('remoteHost:tunnel 请求方归属校验(P2-1 纵深防御)', () => {
     const tunnelHandler = fake.__handlers.get(REMOTE_HOST_CHANNELS.tunnel)!;
     expect(tunnelHandler({ sender: {} }, { id: 'cfg-1' })).toBeNull();
     expect(orchestrator.tunnelFor).toHaveBeenCalledWith('cfg-1');
+  });
+});
+
+describe('BL-007 remoteHost:delete Profile 存储依赖硬门', () => {
+  function setupDelete(dependenciesForHost: (hostId: string) => unknown) {
+    const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
+    const credentials = new CredentialStore({
+      userDataDir: () => tmpDir,
+      safeStorage: makeSafeStorage(true),
+    });
+    configStore.save({
+      id: 'host-a',
+      alias: 'Host A',
+      host: 'a.example',
+      port: 22,
+      username: 'root',
+      authType: 'password',
+      hasPassword: true,
+    });
+    credentials.setSecret('cred:host-a:password', 'do-not-delete-when-blocked');
+    const orchestrator = makeOrchestrator(credentials, configStore);
+    const disconnect = vi
+      .spyOn(orchestrator, 'disconnect')
+      .mockResolvedValue(undefined);
+    const onDeleted = vi.fn();
+    registerRemoteHostIpc(
+      orchestrator,
+      credentials,
+      configStore,
+      () => null,
+      undefined,
+      onDeleted,
+      undefined,
+      { dependenciesForHost: dependenciesForHost as never },
+    );
+    const fake = ipcMain as unknown as FakeIpcMain;
+    const deleteHandler = fake.__handlers.get(REMOTE_HOST_CHANNELS.delete)!;
+    return { configStore, credentials, disconnect, onDeleted, deleteHandler };
+  }
+
+  it('有依赖 → 返回 blocked，且绝不 disconnect / 删除配置 / 删除凭据 / 调删除钩子', async () => {
+    const dependency = {
+      profileId: 'p-1',
+      profileName: 'Work',
+      type: 'current_storage' as const,
+    };
+    const ctx = setupDelete(async () => [dependency]);
+
+    await expect(ctx.deleteHandler({}, { id: 'host-a' })).resolves.toEqual({
+      status: 'blocked',
+      dependencies: [dependency],
+    });
+    expect(ctx.disconnect).not.toHaveBeenCalled();
+    expect(ctx.configStore.get('host-a')).not.toBeNull();
+    expect(ctx.credentials.getSecret('cred:host-a:password')).toBe(
+      'do-not-delete-when-blocked',
+    );
+    expect(ctx.onDeleted).not.toHaveBeenCalled();
+  });
+
+  it('依赖查询失败 → fail-closed reject，且零删除副作用', async () => {
+    const ctx = setupDelete(async () => {
+      throw new Error('catalog temporarily unreadable');
+    });
+
+    await expect(ctx.deleteHandler({}, { id: 'host-a' })).rejects.toThrow(
+      /catalog temporarily unreadable/,
+    );
+    expect(ctx.disconnect).not.toHaveBeenCalled();
+    expect(ctx.configStore.get('host-a')).not.toBeNull();
+    expect(ctx.credentials.getSecret('cred:host-a:password')).toBe(
+      'do-not-delete-when-blocked',
+    );
+  });
+
+  it('无依赖 → 维持原先 disconnect-first 删除顺序并返回 deleted', async () => {
+    const ctx = setupDelete(() => []);
+
+    await expect(ctx.deleteHandler({}, { id: 'host-a' })).resolves.toEqual({
+      status: 'deleted',
+    });
+    expect(ctx.disconnect).toHaveBeenCalledWith('host-a');
+    expect(ctx.configStore.get('host-a')).toBeNull();
+    expect(ctx.credentials.getSecret('cred:host-a:password')).toBeNull();
+    expect(ctx.onDeleted).toHaveBeenCalledWith('host-a');
   });
 });

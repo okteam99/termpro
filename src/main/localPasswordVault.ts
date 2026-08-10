@@ -18,7 +18,8 @@ const MAX_QUERY_LENGTH = 4_096;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const BASE64_RE =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 export interface PasswordVaultSafeStorage {
   isEncryptionAvailable(): boolean;
@@ -80,6 +81,14 @@ const ERROR_MESSAGES: Record<PasswordVaultErrorCode, string> = {
   VAULT_INSECURE_ORIGIN: 'Password-vault origin is not allowed',
   VAULT_IO_FAILED: 'Password-vault storage operation failed',
   VAULT_PROFILE_INACTIVE: 'Password-vault profile is inactive',
+  VAULT_REMOTE_AUTHORITY_OFFLINE: 'Remote password-vault storage is offline',
+  VAULT_REMOTE_TIMEOUT: 'Remote password-vault storage timed out',
+  VAULT_MIGRATION_IN_PROGRESS: 'Password-vault migration is in progress',
+  VAULT_REMOTE_ENCRYPTION_UNAVAILABLE:
+    'Remote password-vault encryption is unavailable',
+  VAULT_REMOTE_CORRUPT: 'Remote password-vault data is invalid',
+  VAULT_PROFILE_MISMATCH: 'Password-vault profile does not match',
+  VAULT_REMOTE_INCOMPATIBLE: 'Remote password-vault version is incompatible',
 };
 
 export class PasswordVaultError extends Error {
@@ -93,18 +102,26 @@ export class PasswordVaultError extends Error {
 }
 
 const DEFAULT_LOGGER: PasswordVaultLogger = {
-  warn: (message, context) => console.warn(`[passwordVault] ${message}`, context),
-  error: (message, context) => console.error(`[passwordVault] ${message}`, context),
+  warn: (message, context) =>
+    console.warn(`[passwordVault] ${message}`, context),
+  error: (message, context) =>
+    console.error(`[passwordVault] ${message}`, context),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+function hasExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+  return (
+    actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+  );
 }
 
 function isTimestamp(value: unknown): value is number {
@@ -137,7 +154,8 @@ function isCanonicalHttpOrigin(value: unknown): value is string {
 }
 
 function isStrictBase64(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.length % 4 !== 0) return false;
+  if (typeof value !== 'string' || value.length === 0 || value.length % 4 !== 0)
+    return false;
   if (!BASE64_RE.test(value)) return false;
   try {
     const decoded = Buffer.from(value, 'base64');
@@ -151,7 +169,10 @@ function isNodeErrorCode(error: unknown, code: string): boolean {
   return isRecord(error) && error.code === code;
 }
 
-function metadataOf(profileId: string, entry: VaultEntryV1): PasswordCredentialMetadata {
+function metadataOf(
+  profileId: string,
+  entry: VaultEntryV1,
+): PasswordCredentialMetadata {
   return {
     id: entry.id,
     profileId,
@@ -163,9 +184,9 @@ function metadataOf(profileId: string, entry: VaultEntryV1): PasswordCredentialM
   };
 }
 
-function sortByRecent<T extends Pick<PasswordCredentialMetadata, 'lastUsedAt' | 'updatedAt' | 'id'>>(
-  entries: T[],
-): T[] {
+function sortByRecent<
+  T extends Pick<PasswordCredentialMetadata, 'lastUsedAt' | 'updatedAt' | 'id'>,
+>(entries: T[]): T[] {
   return entries.sort(
     (left, right) =>
       right.lastUsedAt - left.lastUsedAt ||
@@ -197,13 +218,16 @@ export class LocalPasswordVault {
     }
   }
 
-  listMetadata(query: PasswordMetadataQuery = {}): PasswordCredentialMetadata[] {
+  listMetadata(
+    query: PasswordMetadataQuery = {},
+  ): PasswordCredentialMetadata[] {
     if (query === null || typeof query !== 'object' || Array.isArray(query)) {
       this.invalidInput('query');
     }
-    const profileIds = query.profileId !== undefined
-      ? [this.requireProfileId(query.profileId)]
-      : this.listProfileIds();
+    const profileIds =
+      query.profileId !== undefined
+        ? [this.requireProfileId(query.profileId)]
+        : this.listProfileIds();
     if (query.query !== undefined && typeof query.query !== 'string') {
       this.invalidInput('query');
     }
@@ -235,15 +259,19 @@ export class LocalPasswordVault {
     return sortByRecent(candidates);
   }
 
-  getDecrypted(id: string): DecryptedPasswordCredential {
+  getDecrypted(profileId: string, id: string): DecryptedPasswordCredential {
+    const validProfileId = this.requireProfileId(profileId);
     const validId = this.requireEntryId(id);
     this.requireEncryption();
-    for (const profileId of this.listProfileIds()) {
-      const document = this.readDocument(profileId);
-      const entry = document.entries.find((candidate) => candidate.id === validId);
-      if (entry) return this.decryptEntry(profileId, entry);
-    }
-    this.logger.warn('entry lookup missed', { code: 'VAULT_ENTRY_NOT_FOUND', entryId: validId });
+    const document = this.readDocument(validProfileId);
+    const entry = document.entries.find(
+      (candidate) => candidate.id === validId,
+    );
+    if (entry) return this.decryptEntry(validProfileId, entry);
+    this.logger.warn('entry lookup missed', {
+      code: 'VAULT_ENTRY_NOT_FOUND',
+      entryId: validId,
+    });
     throw new PasswordVaultError('VAULT_ENTRY_NOT_FOUND');
   }
 
@@ -270,7 +298,11 @@ export class LocalPasswordVault {
       const existing = document.entries[existingIndex];
       const currentPassword = this.decryptPassword(profileId, existing);
       const changed = currentPassword !== password;
-      const effectiveNow = Math.max(now, existing.updatedAt, existing.lastUsedAt);
+      const effectiveNow = Math.max(
+        now,
+        existing.updatedAt,
+        existing.lastUsedAt,
+      );
       nextEntry = {
         ...existing,
         encryptedPassword: changed
@@ -299,16 +331,66 @@ export class LocalPasswordVault {
     return { kind, metadata: metadataOf(profileId, nextEntry) };
   }
 
-  deleteEntry(id: string): boolean {
+  deleteEntry(profileId: string, id: string): boolean {
+    const validProfileId = this.requireProfileId(profileId);
     const validId = this.requireEntryId(id);
-    for (const profileId of this.listProfileIds()) {
-      const document = this.readDocument(profileId);
-      const nextEntries = document.entries.filter((entry) => entry.id !== validId);
-      if (nextEntries.length === document.entries.length) continue;
-      this.writeDocument({ ...document, entries: nextEntries });
-      return true;
-    }
-    return false;
+    const document = this.readDocument(validProfileId);
+    const nextEntries = document.entries.filter(
+      (entry) => entry.id !== validId,
+    );
+    if (nextEntries.length === document.entries.length) return false;
+    this.writeDocument({ ...document, entries: nextEntries });
+    return true;
+  }
+
+  exportProfile(profileId: string): DecryptedPasswordCredential[] {
+    const validProfileId = this.requireProfileId(profileId);
+    this.requireEncryption();
+    return this.readDocument(validProfileId).entries.map((entry) =>
+      this.decryptEntry(validProfileId, entry),
+    );
+  }
+
+  replaceProfile(
+    profileId: string,
+    credentials: DecryptedPasswordCredential[],
+  ): void {
+    const validProfileId = this.requireProfileId(profileId);
+    if (!Array.isArray(credentials)) this.invalidInput('credentials');
+    this.requireEncryption();
+    const seen = new Set<string>();
+    const entries: VaultEntryV1[] = credentials.map((credential) => {
+      if (!credential || credential.profileId !== validProfileId) {
+        throw new PasswordVaultError('VAULT_PROFILE_MISMATCH');
+      }
+      const id = this.requireEntryId(credential.id);
+      if (seen.has(id)) this.invalidInput('credential.id');
+      seen.add(id);
+      const origin = this.requireOrigin(credential.origin);
+      const username = this.requireUsername(credential.username);
+      const password = this.requirePassword(credential.password);
+      if (
+        !isTimestamp(credential.createdAt) ||
+        !isTimestamp(credential.updatedAt) ||
+        !isTimestamp(credential.lastUsedAt)
+      ) {
+        this.invalidInput('credential.timestamp');
+      }
+      return {
+        id,
+        origin,
+        username,
+        encryptedPassword: this.encryptPassword(validProfileId, password),
+        createdAt: credential.createdAt,
+        updatedAt: credential.updatedAt,
+        lastUsedAt: credential.lastUsedAt,
+      };
+    });
+    this.writeDocument({
+      version: VAULT_VERSION,
+      profileId: validProfileId,
+      entries,
+    });
   }
 
   deleteProfile(profileId: string): boolean {
@@ -354,7 +436,8 @@ export class LocalPasswordVault {
     try {
       fs.mkdirSync(directory, { recursive: true, mode: DIRECTORY_MODE });
       const stat = fs.lstatSync(directory);
-      if (!stat.isDirectory() || stat.isSymbolicLink()) this.ioFailed('validateDirectory');
+      if (!stat.isDirectory() || stat.isSymbolicLink())
+        this.ioFailed('validateDirectory');
       fs.chmodSync(directory, DIRECTORY_MODE);
       return directory;
     } catch (error) {
@@ -390,7 +473,8 @@ export class LocalPasswordVault {
     let serialized: string;
     try {
       const stat = fs.lstatSync(file);
-      if (!stat.isFile() || stat.isSymbolicLink()) this.corrupt('validateDocumentFile', profileId);
+      if (!stat.isFile() || stat.isSymbolicLink())
+        this.corrupt('validateDocumentFile', profileId);
       serialized = fs.readFileSync(file, 'utf8');
       fs.chmodSync(file, FILE_MODE);
     } catch (error) {
@@ -410,7 +494,10 @@ export class LocalPasswordVault {
     return this.parseDocument(raw, profileId);
   }
 
-  private parseDocument(raw: unknown, expectedProfileId: string): VaultDocumentV1 {
+  private parseDocument(
+    raw: unknown,
+    expectedProfileId: string,
+  ): VaultDocumentV1 {
     if (
       !isRecord(raw) ||
       !hasExactKeys(raw, ['version', 'profileId', 'entries']) ||
@@ -454,7 +541,8 @@ export class LocalPasswordVault {
         this.corrupt('validateEntry', expectedProfileId);
       }
       const accountKey = `${rawEntry.origin}\0${rawEntry.username}`;
-      if (accountKeys.has(accountKey)) this.corrupt('validateAccountKey', expectedProfileId);
+      if (accountKeys.has(accountKey))
+        this.corrupt('validateAccountKey', expectedProfileId);
       ids.add(rawEntry.id);
       accountKeys.add(accountKey);
       entries.push({
@@ -538,7 +626,10 @@ export class LocalPasswordVault {
     }
   }
 
-  private decryptEntry(profileId: string, entry: VaultEntryV1): DecryptedPasswordCredential {
+  private decryptEntry(
+    profileId: string,
+    entry: VaultEntryV1,
+  ): DecryptedPasswordCredential {
     return {
       ...metadataOf(profileId, entry),
       password: this.decryptPassword(profileId, entry),
@@ -594,7 +685,10 @@ export class LocalPasswordVault {
   private requireUsername(username: string): string {
     if (typeof username !== 'string') this.invalidInput('username');
     const normalized = username.trim();
-    if (normalized.length === 0 || normalized.length > MAX_PASSWORD_USERNAME_LENGTH) {
+    if (
+      normalized.length === 0 ||
+      normalized.length > MAX_PASSWORD_USERNAME_LENGTH
+    ) {
       this.invalidInput('username');
     }
     return normalized;
@@ -612,12 +706,16 @@ export class LocalPasswordVault {
   }
 
   private requireEntryId(id: string): string {
-    if (typeof id !== 'string' || !UUID_RE.test(id)) this.invalidInput('entryId');
+    if (typeof id !== 'string' || !UUID_RE.test(id))
+      this.invalidInput('entryId');
     return id;
   }
 
   private invalidInput(field: string): never {
-    this.logger.warn('invalid input rejected', { code: 'VAULT_INVALID_INPUT', field });
+    this.logger.warn('invalid input rejected', {
+      code: 'VAULT_INVALID_INPUT',
+      field,
+    });
     throw new PasswordVaultError('VAULT_INVALID_INPUT');
   }
 

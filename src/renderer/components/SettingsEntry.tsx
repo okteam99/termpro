@@ -6,7 +6,6 @@ import { BrowserSettingsPage } from './settings/BrowserSettingsPage';
 import { LanguagePage } from './settings/LanguagePage';
 import { RemoteHostsPage } from './settings/RemoteHostsPage';
 import { SavedPasswordsPage } from './settings/SavedPasswordsPage';
-import { DEFAULT_PROFILE_ID } from '../../shared/browserProfile';
 
 // 应用图标(About 弹窗 logo)· Vite 把资源打进 renderer bundle(dev + 打包均生效)
 const appIconUrl = new URL('../../../assets/icon.png', import.meta.url).href;
@@ -108,7 +107,15 @@ function BottomBarIcon() {
       aria-hidden="true"
     >
       <rect x="1.8" y="2.5" width="11.4" height="10" rx="1.5" />
-      <rect x="1.8" y="9.5" width="11.4" height="3" rx="0" fill="currentColor" stroke="none" />
+      <rect
+        x="1.8"
+        y="9.5"
+        width="11.4"
+        height="3"
+        rx="0"
+        fill="currentColor"
+        stroke="none"
+      />
     </svg>
   );
 }
@@ -122,7 +129,9 @@ interface AboutModalProps {
 
 /** About 弹窗:展示应用名 + 当前版本(version 为空 → 「版本未知」)。Esc / 遮罩 / × 关闭。 */
 export function AboutModal({ version, onClose }: AboutModalProps) {
-  const versionText = version ? t('Version {version}', { version }) : t('Version unknown');
+  const versionText = version
+    ? t('Version {version}', { version })
+    : t('Version unknown');
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -169,7 +178,12 @@ function localePrefLabel(pref: LocalePref): string {
 
 /** 菜单项挂载的弹层(互斥单选;null = 都不开)。设置项一律独立 modal,
  *  不再行内展开(用户指令 2026-07-20)。 */
-type SettingsPage = 'language' | 'browser' | 'passwords' | 'remoteHosts' | 'about';
+type SettingsPage =
+  | 'language'
+  | 'browser'
+  | 'passwords'
+  | 'remoteHosts'
+  | 'about';
 
 /** 浏览器设置:指针点击链接轮廓 */
 function LinkIcon() {
@@ -241,7 +255,7 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
     // 焦点返还(AC-6):打开弹窗前捕获当前聚焦元素
     prevFocusRef.current = document.activeElement as HTMLElement | null;
     setMenuOpen(false); // 菜单先关
-    setPage(next);      // 弹窗后开(两态不共存)
+    setPage(next); // 弹窗后开(两态不共存)
   }
 
   function handleClosePage() {
@@ -304,14 +318,18 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
               <GlobeIcon />
             </span>
             <span className="settings-menu-label">{t('Language')}</span>
-            <span className="settings-menu-value">{localePrefLabel(localePref)}</span>
+            <span className="settings-menu-value">
+              {localePrefLabel(localePref)}
+            </span>
           </button>
           <button
             className="settings-menu-item"
             role="menuitem"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => openPage('browser')}
-            title={t('Where terminal links open, and how the built-in browser opens.')}
+            title={t(
+              'Where terminal links open, and how the built-in browser opens.',
+            )}
           >
             <span className="settings-menu-icon">
               <LinkIcon />
@@ -324,7 +342,9 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => openPage('passwords')}
           >
-            <span className="settings-menu-icon" aria-hidden="true">◇</span>
+            <span className="settings-menu-icon" aria-hidden="true">
+              ◇
+            </span>
             <span className="settings-menu-label">{t('Saved Passwords')}</span>
           </button>
           <button
@@ -367,7 +387,9 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
         {devChannel && (
           <span
             className="sidebar-dev-badge"
-            title={t('Dev-channel build, separate data directory, no update checks')}
+            title={t(
+              'Dev-channel build, separate data directory, no update checks',
+            )}
           >
             {t('DEV')}
           </span>
@@ -375,7 +397,9 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
         <span className="settings-entry-chevron">⌄</span>
       </button>
 
-      {page === 'about' && <AboutModal version={version} onClose={handleClosePage} />}
+      {page === 'about' && (
+        <AboutModal version={version} onClose={handleClosePage} />
+      )}
       {page === 'language' && <LanguagePage onClose={handleClosePage} />}
       {page === 'browser' && (
         <BrowserSettingsPage
@@ -393,14 +417,19 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
           <SavedPasswordsPage
             onBack={() => setPage('browser')}
             onClose={handleClosePage}
-            profiles={[
-              { id: DEFAULT_PROFILE_ID, name: t('OkWork (built-in)') },
-              ...browserProfiles.map((profile) => ({ id: profile.id, name: profile.name })),
-            ]}
+            profiles={browserProfiles.map((profile) => ({
+              id: profile.id,
+              name: profile.name,
+            }))}
           />
         </div>
       )}
-      {page === 'remoteHosts' && <RemoteHostsPage onClose={handleClosePage} />}
+      {page === 'remoteHosts' && (
+        <RemoteHostsPage
+          onClose={handleClosePage}
+          onOpenBrowserProfiles={() => setPage('browser')}
+        />
+      )}
     </div>
   );
 }
