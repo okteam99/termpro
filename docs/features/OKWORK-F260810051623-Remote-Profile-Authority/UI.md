@@ -67,6 +67,7 @@ pages_changed:
 | 日期 | 变更 | 影响的全景源码 |
 |------|------|----------------|
 | 2026-08-10 | BL-007 初稿：在四个既有 route 叠加 authority、迁移、断线与 Host 删除保护 | `preview-project/src/main.jsx`、`latest-ui-sync.css` |
+| 2026-08-10 | 用户反馈：移除说明气泡与面向用户的 Authority 标识，改用普通“存储位置/密码存储”文本 | `preview-project/src/main.jsx`、`latest-ui-sync.css` |
 
 ## Designer 自查报告
 

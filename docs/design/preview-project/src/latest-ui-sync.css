@@ -375,7 +375,7 @@
 @media (max-width: 900px) {
   .browser-profile__card--settings { width: min(520px, calc(100vw - 32px)); }
   .password-flow__network,
-  .password-flow__toolbar .browser-profile__notice-chip:not(.browser-profile__notice-chip--agent) { display: none; }
+  .password-flow__storage-location { display: none; }
 }
 
 /* ---- BL-007 Remote Profile authority panorama increment ---- */
@@ -419,22 +419,11 @@
 }
 
 .browser-profile__authority {
-  min-width: 72px;
+  min-width: 82px;
   display: inline-flex;
   flex: none;
-  flex-direction: column;
-  gap: 1px;
-  padding: 3px 6px;
+  align-items: center;
   color: var(--fg-dim);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.browser-profile__authority small {
-  font-size: 7.8px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .browser-profile__authority strong {
@@ -446,12 +435,7 @@
   white-space: nowrap;
 }
 
-.browser-profile__authority--remote {
-  border-color: color-mix(in srgb, var(--amber) 34%, var(--border));
-}
-
 .browser-profile__authority--remote strong { color: var(--amber); }
-.browser-profile__authority--offline { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); }
 .browser-profile__authority--offline strong { color: var(--red); }
 
 .browser-profile__row-actions button:disabled,
@@ -727,7 +711,14 @@
 
 .browser-passwords__profile strong { color: var(--accent); font-size: 9.8px; }
 .browser-passwords__profile small { color: var(--amber); font-size: 8.5px; }
-.browser-profile__notice-chip--offline { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, var(--border)); }
+.password-flow__storage-location {
+  flex: none;
+  color: var(--fg-dim);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.password-flow__storage-location--offline { color: var(--red); }
 
 .browser-passwords__remote-offline {
   align-items: flex-start;
@@ -769,17 +760,6 @@
 }
 
 .password-flow__notice-actions button { margin-left: 0; }
-
-.remote-hosts__authority-dependency {
-  flex: none;
-  padding: 2px 6px;
-  color: var(--amber);
-  background: color-mix(in srgb, var(--amber) 6%, transparent);
-  border: 1px solid color-mix(in srgb, var(--amber) 25%, var(--border));
-  border-radius: 9px;
-  font-size: 8.6px;
-  white-space: nowrap;
-}
 
 .remote-hosts__dependency-block {
   width: 100%;

@@ -1691,7 +1691,7 @@ const BROWSER_PROFILE_STATE_PRESETS = [
   { key: 'ready', label: '正常' },
   { key: 'loading', label: '加载中' },
   { key: 'empty', label: '无自定义 Profile' },
-  { key: 'authority-offline', label: '远程 authority 离线' },
+  { key: 'authority-offline', label: '远程存储离线' },
   { key: 'migration-error', label: '迁移失败 · 源仍有效' },
   { key: 'cleanup-pending', label: '源清理待重试' },
   { key: 'encryption-unavailable', label: '系统加密不可用' },
@@ -1702,7 +1702,7 @@ const PASSWORD_STATE_PRESETS = [
   { key: 'ready', label: '正常' },
   { key: 'loading', label: '加载中' },
   { key: 'empty', label: '空态' },
-  { key: 'remote-offline', label: '远程 authority 离线' },
+  { key: 'remote-offline', label: '远程密码库离线' },
   { key: 'trusted-offline', label: '受信任窗口打开后断线' },
   { key: 'error', label: '加载失败' },
   { key: 'encryption-unavailable', label: '系统加密不可用' },
@@ -1719,7 +1719,7 @@ const PASSWORD_FLOW_STATE_PRESETS = [
   { key: 'other-profile', label: 'Profile 隔离' },
   { key: 'uncertain', label: '无法确认 · 未保存' },
   { key: 'auth-failed', label: '登录失败 · 未覆盖' },
-  { key: 'remote-offline', label: '远程 authority 离线' },
+  { key: 'remote-offline', label: '远程密码库离线' },
   { key: 'encryption-unavailable', label: '系统加密不可用' },
   { key: 'insecure-origin', label: '普通 HTTP · 已停用' },
 ];
@@ -1786,18 +1786,15 @@ function BrowserSettingGroups() {
   );
 }
 
-function BrowserPasswordScope({ unavailable = false }) {
+function BrowserPasswordScope() {
   return (
-    <div className={`browser-profile__scope${unavailable ? ' browser-profile__scope--danger' : ''}`}>
+    <div className="browser-profile__scope browser-profile__scope--danger">
       <div>
-        <div className="browser-profile__scope-title">{unavailable ? '密码保护暂不可用' : 'Profile authority'}</div>
+        <div className="browser-profile__scope-title">密码保护暂不可用</div>
         <div className="browser-profile__scope-copy">
-          {unavailable
-            ? '系统钥匙串未授权。OkWork 不会明文保存、填充、显示或复制密码。'
-            : '每个 Profile 的配置与密码库只认一个存储位置；浏览器网络出口单独设置，不会改变 authority。'}
+          系统钥匙串未授权。OkWork 不会明文保存、填充、显示或复制密码。
         </div>
       </div>
-      <span className="browser-profile__scope-badge">{unavailable ? '已停用' : '单一权威'}</span>
     </div>
   );
 }
@@ -1855,15 +1852,15 @@ function AuthorityChangeDialog({ profile, currentAuthority, onCommit, onClose })
       <section className="authority-dialog" role="dialog" aria-modal="true" aria-labelledby="authority-dialog-title">
         <header className="authority-dialog__header">
           <div>
-            <strong id="authority-dialog-title">Change authority · {profile.name}</strong>
+            <strong id="authority-dialog-title">更改存储位置 · {profile.name}</strong>
             <span>配置与密码 Vault 将一起迁移；网络出口不变。</span>
           </div>
-          <button onClick={onClose} disabled={migrating} aria-label="Close authority dialog">×</button>
+          <button onClick={onClose} disabled={migrating} aria-label="关闭存储位置对话框">×</button>
         </header>
 
         {phase === 'choose' ? (
           <div className="authority-dialog__body">
-            <div className="authority-dialog__route" aria-label="Authority migration route">
+            <div className="authority-dialog__route" aria-label="存储位置迁移路径">
               <span><small>当前</small><strong>{authorityName(currentAuthority)}</strong></span>
               <b aria-hidden="true">→</b>
               <span><small>目标</small><strong>{target?.label}</strong></span>
@@ -1878,7 +1875,7 @@ function AuthorityChangeDialog({ profile, currentAuthority, onCommit, onClose })
                 </label>
               ))}
             </fieldset>
-            <div className="authority-dialog__excluded" aria-label="Unavailable authority targets">
+            <div className="authority-dialog__excluded" aria-label="不可用的存储位置">
               <strong>未列入可选目标</strong>
               <span>{EXCLUDED_AUTHORITY_TARGETS.map((choice) => <em key={choice.id}>{choice.label} · {choice.reason}</em>)}</span>
             </div>
@@ -1891,10 +1888,10 @@ function AuthorityChangeDialog({ profile, currentAuthority, onCommit, onClose })
             <ol className="authority-dialog__plan" aria-label="Migration plan">
               <li><b>1</b><span><strong>Copy</strong><small>复制配置与加密 Vault；此时仍从 {authorityName(currentAuthority)} 读取。</small></span></li>
               <li><b>2</b><span><strong>Verify</strong><small>读回并完整性校验目标副本。</small></span></li>
-              <li><b>3</b><span><strong>Switch</strong><small>仅校验通过后原子切换唯一 authority。</small></span></li>
+              <li><b>3</b><span><strong>Switch</strong><small>仅校验通过后原子切换唯一存储位置。</small></span></li>
             </ol>
             <div className="authority-dialog__safety">
-              迁移期间保存、更新、删除和 Profile 编辑暂停；列表、显示、复制与填充继续从源读取。提交前失败会保留源 authority，不会使用不完整副本。
+              迁移期间保存、更新、删除和 Profile 编辑暂停；列表、显示、复制与填充继续从原位置读取。提交前失败会保留原位置，不会使用不完整副本。
             </div>
             <footer className="authority-dialog__actions">
               <button onClick={onClose}>取消</button>
@@ -1904,15 +1901,15 @@ function AuthorityChangeDialog({ profile, currentAuthority, onCommit, onClose })
         ) : phase === 'success' ? (
           <div className="authority-dialog__result" role="status" aria-live="polite">
             <span className="authority-dialog__result-icon">✓</span>
-            <strong>Authority 已切换到 {authorityName(targetId)}</strong>
+            <strong>存储位置已切换到 {authorityName(targetId)}</strong>
             <p>目标已校验并成为唯一读写源。源副本将在后台安全清理。</p>
             <button className="authority-dialog__primary" onClick={onClose}>完成</button>
           </div>
         ) : (
           <div className="authority-dialog__progress" role="status" aria-live="polite">
             <span className="add-ws__spinner" aria-hidden="true" />
-            <strong>{phase === 'copying' ? '正在复制…' : phase === 'verifying' ? '正在校验…' : '正在切换 authority…'}</strong>
-            <p>当前 authority：{authorityName(currentAuthority)} · mutations 已暂停 · reads from source</p>
+            <strong>{phase === 'copying' ? '正在复制…' : phase === 'verifying' ? '正在校验…' : '正在切换存储位置…'}</strong>
+            <p>当前位置：{authorityName(currentAuthority)} · 编辑操作已暂停 · 仍从原位置读取</p>
             <div className="authority-dialog__stepper">
               {['Copy', 'Verify', 'Switch'].map((label, index) => (
                 <span key={label} className={index < activeStep ? 'authority-dialog__step authority-dialog__step--done' : index === activeStep ? 'authority-dialog__step authority-dialog__step--active' : 'authority-dialog__step'}>
@@ -1964,16 +1961,16 @@ function BrowserProfilesModal({ state, onClose, onOpenPasswords, onOpenRemoteHos
         <div className="browser-profile__body">
           <BrowserSettingGroups />
           <div className="browser-settings__divider" />
-          <BrowserPasswordScope unavailable={unavailable} />
+          {unavailable && <BrowserPasswordScope />}
 
           <div className="browser-profile__section-head">
-            <div><div className="browser-profile__section-title">Browser profiles</div><p>每个 Profile 隔离 Cookie、网站存储、缓存和已保存密码。</p></div>
+            <div><div className="browser-profile__section-title">Browser profiles</div><p>每个 Profile 隔离 Cookie、网站存储、缓存和已保存密码；存储位置不影响浏览器网络出口。</p></div>
             <button className="remote-hosts__action" onClick={onOpenPasswords}>管理已保存密码</button>
           </div>
 
           {remoteOffline && (
             <div className="browser-profile__global-alert" role="alert">
-              <div><strong>mini-pc 当前离线</strong><span>使用该 authority 的 Profile 已暂停配置修改与全部密码能力；不会回退本机 Vault。</span></div>
+              <div><strong>mini-pc 当前离线</strong><span>数据存放在这台机器的 Profile 已暂停配置修改与全部密码能力；不会回退本机 Vault。</span></div>
               <button onClick={onOpenRemoteHosts}>前往 Remote Hosts</button>
             </div>
           )}
@@ -1988,13 +1985,12 @@ function BrowserProfilesModal({ state, onClose, onOpenPasswords, onOpenRemoteHos
                       <div><strong>{profile.name}</strong>{profile.builtIn && <span className="browser-profile__tag">Built-in</span>}</div>
                       <span>{profile.meta}</span>
                     </div>
-                    <span className={`browser-profile__authority${displayedAuthority(profile.id) !== 'local' ? ' browser-profile__authority--remote' : ''}${remoteOffline && displayedAuthority(profile.id) !== 'local' ? ' browser-profile__authority--offline' : ''}`}>
-                      <small>Authority</small>
+                    <span className={`browser-profile__authority${displayedAuthority(profile.id) !== 'local' ? ' browser-profile__authority--remote' : ''}${remoteOffline && displayedAuthority(profile.id) !== 'local' ? ' browser-profile__authority--offline' : ''}`} aria-label={`存储位置：${authorityName(displayedAuthority(profile.id))}`}>
                       <strong>{authorityName(displayedAuthority(profile.id))}</strong>
                     </span>
                     <span className="browser-profile__count">{profile.count} 个密码</span>
                     <span className="browser-profile__row-actions">
-                      <button disabled={remoteOffline && displayedAuthority(profile.id) !== 'local'} aria-label={`Change authority for ${profile.name}`} onClick={() => setAuthorityDialogId(profile.id)}>Change</button>
+                      <button disabled={remoteOffline && displayedAuthority(profile.id) !== 'local'} aria-label={`更改 ${profile.name} 的存储位置`} onClick={() => setAuthorityDialogId(profile.id)}>更改位置</button>
                       {!profile.builtIn && <button disabled={remoteOffline && displayedAuthority(profile.id) !== 'local'} onClick={() => setFormDraft({ id: profile.id, name: profile.name, ua: profile.meta.startsWith('Chrome') ? 'Mozilla/5.0 Chrome/127' : '' })}>编辑</button>}
                       {!profile.builtIn && <button disabled={remoteOffline && displayedAuthority(profile.id) !== 'local'} onClick={() => setDeleteTarget(profile.id)}>删除</button>}
                     </span>
@@ -2016,21 +2012,21 @@ function BrowserProfilesModal({ state, onClose, onOpenPasswords, onOpenRemoteHos
                   {remoteOffline && displayedAuthority(profile.id) !== 'local' && (
                     <div className="browser-profile__detail browser-profile__detail--danger" role="alert">
                       <span className="browser-profile__detail-dot browser-profile__detail-dot--danger" />
-                      <div><strong>Remote authority unavailable</strong><span>页面 Cookie 可能继续，但密码列表、保存、填充、显示、复制、删除与 Profile 修改均暂停。</span></div>
+                      <div><strong>远程存储不可用</strong><span>页面 Cookie 可能继续，但密码列表、保存、填充、显示、复制、删除与 Profile 修改均暂停。</span></div>
                       <button className="remote-hosts__action" onClick={onOpenRemoteHosts}>Retry / 查看 Host</button>
                     </div>
                   )}
                   {migrationError && profile.id === 'work' && (
                     <div className="browser-profile__detail browser-profile__detail--danger" role="alert">
                       <span className="browser-profile__detail-dot browser-profile__detail-dot--danger" />
-                      <div><strong>Verify 失败 · mini-pc 仍是 authority</strong><span>目标副本未启用，源数据未减少。可重新开始迁移。</span></div>
+                      <div><strong>Verify 失败 · 数据仍存于 mini-pc</strong><span>目标副本未启用，源数据未减少。可重新开始迁移。</span></div>
                       <button className="remote-hosts__action" onClick={() => setAuthorityDialogId(profile.id)}>Retry</button>
                     </div>
                   )}
                   {cleanupPending && profile.id === 'work' && (
                     <div className="browser-profile__detail browser-profile__detail--warn" role="status">
                       <span className="browser-profile__detail-dot browser-profile__detail-dot--warn" />
-                      <div><strong>Authority 已切换到 build-mac · source cleanup pending</strong><span>待清理旧源是 mini-pc，且永不再读取。删除 mini-pc 前必须完成清理。</span></div>
+                      <div><strong>已切换到 build-mac · 原位置待清理</strong><span>待清理位置是 mini-pc，且永不再读取。删除 mini-pc 前必须完成清理。</span></div>
                       <button className="remote-hosts__action">重试清理</button>
                     </div>
                   )}
@@ -2054,10 +2050,6 @@ function BrowserProfilesModal({ state, onClose, onOpenPasswords, onOpenRemoteHos
             <button className="browser-profile__add" onClick={() => setFormDraft({ id: null, name: '', ua: '' })}>+ 新建 Profile</button>
           )}
 
-          <div className="browser-profile__notice-row browser-profile__notice-row--disclosure">
-            <span>Authority 管理配置与 Vault；Cookie 和网络出口仍属于浏览器本机会话。密码填入网页后，网站与连接 OkBrowser 的 Agent 都可能读取。</span>
-            <span className="browser-profile__notice-chip browser-profile__notice-chip--agent">Agent 可读填充值</span>
-          </div>
         </div>
         <div className="browser-profile__footer"><button onClick={onClose}>完成</button></div>
         {activeDialogProfile && (
@@ -2113,10 +2105,10 @@ function TrustedPasswordSurface({ row, mode, authorityOnline = true, onRetry, on
       <div className="trusted-password__window" role="dialog" aria-modal="true" aria-label="Trusted password window">
         <div className="trusted-password__titlebar"><span>受信任密码窗口</span><button onClick={onClose} aria-label="Close trusted password window">×</button></div>
         <div className="trusted-password__seal">隔离呈现 · 普通 OkWork 页面无法读取或触发解密</div>
-        <div className="trusted-password__meta"><strong>{row.origin}</strong><span>{row.username} · {row.profile} · Authority: {row.authority}</span></div>
+        <div className="trusted-password__meta"><strong>{row.origin}</strong><span>{row.username} · {row.profile} · 存于 {row.authority}</span></div>
         {!authorityOnline ? (
           <div className="trusted-password__offline" role="alert" aria-live="assertive">
-            <strong>Remote authority 已失效</strong>
+            <strong>远程密码库连接已失效</strong>
             <span>mini-pc 在此窗口打开后离线。旧 secret 已立即清除；不会显示缓存值或回退本机 Vault。</span>
             <div><button className="trusted-password__primary" onClick={onRetry}>Retry</button><button className="trusted-password__cancel" onClick={onClose}>关闭</button></div>
           </div>
@@ -2170,18 +2162,18 @@ function PasswordsModal({ state, onClose, onBack, onOpenRemoteHosts, onRetry }) 
           <div>
             <button className="browser-passwords__back" onClick={onBack}>‹ Browser Settings</button>
             <div className="browser-profile__title">Saved Passwords</div>
-            <div className="browser-profile__subtitle">列表只显示脱敏元数据。密码与 Profile、scheme、host、port 精确绑定，并只从该 Profile 的 authority 读取。</div>
+            <div className="browser-profile__subtitle">列表只显示脱敏元数据。密码与 Profile、scheme、host、port 精确绑定，并只从该 Profile 的存储位置读取。</div>
           </div>
           <button className="remote-hosts__close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="browser-profile__body">
-          {unavailable && <BrowserPasswordScope unavailable />}
+          {unavailable && <BrowserPasswordScope />}
           {state === 'error' && (
             <div className="browser-passwords__status browser-passwords__status--danger"><strong>无法读取密码列表</strong><span>本机 Vault 暂时不可用。没有密码被返回或修改。</span><button>重试</button></div>
           )}
           {remoteOffline && (
             <div className="browser-passwords__status browser-passwords__status--danger browser-passwords__remote-offline" role="alert">
-              <div><strong>Work 的 Remote authority 离线</strong><span>mini-pc 未通过当前连接代校验。未显示任何陈旧条目，密码保存、填充、显示、复制与删除全部暂停，也不会回退本机 Vault。</span><small>已打开页面的 Chromium Cookie / session 可能继续工作；这不代表密码库可用。</small></div>
+              <div><strong>Work 的远程密码库离线</strong><span>mini-pc 未通过当前连接代校验。未显示任何陈旧条目，密码保存、填充、显示、复制与删除全部暂停，也不会回退本机 Vault。</span><small>已打开页面的 Chromium Cookie / session 可能继续工作；这不代表密码库可用。</small></div>
               <span className="browser-passwords__status-actions"><button onClick={onRetry}>Retry</button><button onClick={onOpenRemoteHosts}>前往 Remote Hosts</button></span>
             </div>
           )}
@@ -2190,7 +2182,6 @@ function PasswordsModal({ state, onClose, onBack, onOpenRemoteHosts, onRetry }) 
             <select aria-label="Profile filter" value={profileFilter} onChange={(event) => setProfileFilter(event.target.value)} disabled={state === 'loading' || state === 'error' || remoteOffline}>
               <option value="all">全部 Profile</option><option value="Work">Work</option><option value="Personal">Personal</option>
             </select>
-            <span className={`browser-profile__notice-chip browser-profile__notice-chip--host${remoteOffline ? ' browser-profile__notice-chip--offline' : ''}`}>Authority · mini-pc{remoteOffline ? ' · offline' : ''}</span>
           </div>
 
           {state === 'loading' ? <PasswordListSkeleton /> : filtered.length ? (
@@ -2215,7 +2206,7 @@ function PasswordsModal({ state, onClose, onBack, onOpenRemoteHosts, onRetry }) 
               ))}
             </div>
           ) : remoteOffline ? (
-            <div className="browser-passwords__empty browser-passwords__empty--offline" role="status"><BrowserIdentityIcon /><strong>远程条目未显示</strong><span>连接并重新校验 mini-pc 后，列表才会重新从 authority 加载。</span></div>
+            <div className="browser-passwords__empty browser-passwords__empty--offline" role="status"><BrowserIdentityIcon /><strong>远程条目未显示</strong><span>连接并重新校验 mini-pc 后，列表才会从远程密码库重新加载。</span></div>
           ) : (
             <div className="browser-passwords__empty"><BrowserIdentityIcon /><strong>{visibleRows.length ? '没有匹配结果' : '还没有已保存密码'}</strong><span>{visibleRows.length ? '尝试搜索其他站点、用户名或 Profile。' : '在 OkBrowser 成功登录后，密码会自动保存到当前 Profile。'}</span></div>
           )}
@@ -2244,9 +2235,9 @@ function BrowserPasswordsPage({ currentPath, onNavigate }) {
 
 function PasswordFlowNotice({ state, onOpenAccounts, onRetry, onOpenRemoteHosts }) {
   const notices = {
-    autofilled: ['✓', '已从 Work 静默填充', 'liam@example.com · Authority: mini-pc'],
-    loading: ['…', '正在连接 Work 密码库', '等待 mini-pc authority 校验；不会使用本机缓存填充'],
-    empty: ['–', 'Work 中还没有已保存密码', '成功登录后会保存到 mini-pc authority'],
+    autofilled: ['✓', '已从 Work 静默填充', 'liam@example.com · 存于 mini-pc'],
+    loading: ['…', '正在连接 Work 密码库', '等待 mini-pc 校验；不会使用本机缓存填充'],
+    empty: ['–', 'Work 中还没有已保存密码', '成功登录后会保存到 mini-pc'],
     saved: ['✓', '新密码已自动保存', 'https://github.com · Work · mini-pc'],
     updated: ['✓', '密码已自动更新', '旧密码已替换 · Work · mini-pc'],
     multi: ['2', '已填充最近成功使用的账号', 'liam@example.com · 此站点共 2 个账号'],
@@ -2254,7 +2245,7 @@ function PasswordFlowNotice({ state, onOpenAccounts, onRetry, onOpenRemoteHosts 
     'other-profile': ['↔', 'Profile 隔离生效', 'Personal 中有密码；当前 Work 不会读取'],
     uncertain: ['?', '无法确认登录结果 · 未保存', '现有密码保持不变'],
     'auth-failed': ['!', '登录失败 · 未覆盖旧密码', '修正密码后可再次尝试'],
-    'remote-offline': ['!', 'Work 的 Remote authority 离线', '密码能力已暂停且不回退本机 Vault；页面 Cookie / session 可能继续'],
+    'remote-offline': ['!', 'Work 的远程密码库离线', '密码能力已暂停且不回退本机 Vault；页面 Cookie / session 可能继续'],
     'encryption-unavailable': ['!', '密码保护暂不可用', '系统钥匙串未授权；不会保存或填充'],
     'insecure-origin': ['!', '普通 HTTP 页面已停用密码功能', '仅 HTTPS 与本机 loopback HTTP 可保存和填充'],
   };
@@ -2302,8 +2293,7 @@ function PasswordFlowPage({ currentPath, onNavigate }) {
             <div className={`password-flow__address${insecure ? ' password-flow__address--insecure' : ''}`}>{insecure ? 'ⓘ http://example.test/login' : '🔒 https://github.com/login'}</div>
             <button className="password-flow__nav-action" title="在系统浏览器中打开">↗</button>
             <button className="password-flow__network" title="网络出口" aria-label="Network exit: this device">◉ 此设备 ▾</button>
-            <span className={`browser-profile__notice-chip browser-profile__notice-chip--host${state === 'remote-offline' ? ' browser-profile__notice-chip--offline' : ''}`} aria-label={`Password authority: mini-pc${state === 'remote-offline' ? ', offline' : ''}`}>密码库 · mini-pc{state === 'remote-offline' ? ' · offline' : ''}</span>
-            <span className="browser-profile__notice-chip browser-profile__notice-chip--agent">Agent 可读填充值</span>
+            <span className={`password-flow__storage-location${state === 'remote-offline' ? ' password-flow__storage-location--offline' : ''}`}>密码存储：mini-pc{state === 'remote-offline' ? ' · 离线' : ''}</span>
           </div>
           <PasswordFlowNotice state={state} onOpenAccounts={() => setAccountsOpen((value) => !value)} onRetry={() => setState('autofilled')} onOpenRemoteHosts={() => onNavigate('/settings/remote-hosts')} />
           {accountsOpen && (
@@ -2320,7 +2310,7 @@ function PasswordFlowPage({ currentPath, onNavigate }) {
               <label>Username or email address<input value={username} onChange={(e) => setUsername(e.target.value)} /></label>
               <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
               <button className="password-flow__signin" onClick={() => { if (state !== 'remote-offline') setState(state === 'autofilled' ? 'updated' : 'saved'); }}>Sign in</button>
-              <div className="password-flow__page-foot">{state === 'remote-offline' ? 'Page remains usable · password save/fill paused' : filled ? 'Filled by OkWork · Work profile' : 'No saved password used'}</div>
+              <div className="password-flow__page-foot">{state === 'remote-offline' ? 'Page remains usable · password save/fill paused' : filled ? 'Filled by OkWork · Work profile · 页面与 Agent 可读取填充值' : 'No saved password used'}</div>
             </div>
           </div>
         </div>
@@ -2433,8 +2423,8 @@ function beginHostConnect(host, setHostRuntime, onReady) {
 
 const PROFILE_AUTHORITY_DEPENDENCIES = {
   'mini-pc': [
-    { profile: 'OkWork', type: '当前 authority' },
-    { profile: 'Work', type: '当前 authority' },
+    { profile: 'OkWork', type: '当前存储位置' },
+    { profile: 'Work', type: '当前存储位置' },
   ],
 };
 
@@ -2661,7 +2651,7 @@ function RemoteHostsModal({
                             dependencies.length ? (
                               <div className="remote-hosts__dependency-block" role="alert" aria-labelledby={`host-dependency-${h.id}`}>
                                 <div className="remote-hosts__dependency-head">
-                                  <span><strong id={`host-dependency-${h.id}`}>无法删除 {h.alias}</strong><small>此 Remote Host 仍被 Profile authority 使用。系统不会自动把数据迁回本机，也不会调用删除动作。</small></span>
+                                  <span><strong id={`host-dependency-${h.id}`}>无法删除 {h.alias}</strong><small>仍有 Profile 的数据存放在此 Remote Host。系统不会自动迁回本机，也不会调用删除动作。</small></span>
                                   <span className="remote-hosts__dependency-count">{dependencies.length} 个依赖</span>
                                 </div>
                                 <div className="remote-hosts__dependency-list">
@@ -2689,7 +2679,6 @@ function RemoteHostsModal({
                               <span className="remote-hosts__addr">{h.user}@{h.host}:{h.port}</span>
                               <span className="remote-hosts__identity">{h.identityFile || '—'}</span>
                               <span className="remote-hosts__auth">{h.auth === 'password' ? '密码' : '密钥'}</span>
-                              {dependencies.length > 0 && <span className="remote-hosts__authority-dependency" title="Profile authority dependencies">{dependencies.length} Profile authority</span>}
                               {renderStatusArea(h, runtime, false)}
                             </>
                           )}
