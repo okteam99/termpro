@@ -65,7 +65,7 @@
       "process_satisfied": false,
       "output_satisfied": false,
       "started_at": "2026-08-10T06:04:52Z",
-      "await_minutes": 28
+      "await_minutes": 366
     }
   },
   "completed_stages": [
@@ -90,9 +90,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T06:48:16Z",
+  "updated_at": "2026-08-10T12:26:56Z",
   "updated_by": "pause-mark",
-  "_state_checksum": "sha256:7c96968abed158e421108103c624a456d3b25093750a213b8b2e1950f1af8cd2",
+  "_state_checksum": "sha256:2459840150473de1ad1ece782eb88e39f02859f6a46f37e3d2696d63e583ca51",
   "legal_next_stages": [
     "panorama_sync",
     "blueprint"
