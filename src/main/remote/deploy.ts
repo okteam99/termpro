@@ -210,7 +210,13 @@ export async function deployBundle(opts: DeployOptions): Promise<DeployResult> {
       );
     }
   } finally {
-    await releaseMkdirLock(opts.ssh, lockDirPath(opts.dataDir, opts.appVersion));
+    try {
+      await releaseMkdirLock(opts.ssh, lockDirPath(opts.dataDir, opts.appVersion));
+    } catch {
+      // 评审 2026-08-10:部署中途连接被拆(断线/重连拆除)时 release 必然失败——锁目录
+      // 留待 staleMs 自然过期即可;这里绝不能让 release 的 reject 顶掉 try 块里真正的
+      // 部署错误(finally 内 await 抛出会替换原异常)。
+    }
   }
 
   return { skipped: !iAmWinner };

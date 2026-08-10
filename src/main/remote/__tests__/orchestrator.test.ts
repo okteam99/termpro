@@ -913,6 +913,53 @@ describe('AC-12 认证失败改配置重试 / 断开后手动重连', () => {
   });
 });
 
+describe('评审 P2-1(2026-08-10):disconnect 意图翻转判据只对「等待期间新出现」的 connect 让路', () => {
+  it('在途 connect + 后排 test() 时 disconnect:入口就在的在途 connect 被作废、陈旧去重槽被清——再点 Connect 走全新编排(不再蒸发)', async () => {
+    // 复现评审场景:mutex 被 test() 覆写为 test 的 tracked,connectInflight 仍是更早在途
+    // connect 的 tracked。旧判据 currentInflight !== pending → 提前放行:不拆传输、不清
+    // 去重槽 → 下一次 connect 命中僵尸 promise 零事件(正是 2026-08-10 蒸发路径)。
+    let resolveHung!: (ssh: RoutedSsh) => void;
+    const hung = new Promise<RoutedSsh>((r) => {
+      resolveHung = r;
+    });
+    const zombieSsh = createFreshDeploySsh('vps-hk');
+    let call = 0;
+    const h = makeHarness({
+      connectSshImpl: async () => {
+        call++;
+        if (call === 1) return hung; // 首个 connect:黑洞在途
+        return createFreshDeploySsh('vps-hk'); // 重连 / 迟到 runTest
+      },
+    });
+    saveConfig(h.configStore);
+
+    // 1) connect 黑洞在途(mutex=inflight=connect 的 tracked)
+    const p1 = h.orchestrator.connect('vps-hk');
+    void p1.catch(() => undefined);
+    await flushMicrotasks();
+    expect(h.events.map((e) => e.stage)).toEqual(['connecting']);
+
+    // 2) test() 排进 mutex(在黑洞 connect 之后)→ mutex 被覆写为 test 的 tracked
+    const t = h.orchestrator.test('vps-hk');
+    void t.catch(() => undefined);
+
+    // 3) disconnect:必须作废入口就在的在途 connect + 清它的陈旧去重槽
+    await h.orchestrator.disconnect('vps-hk');
+
+    // 4) 再点 Connect:全新编排到 ready(旧实现命中陈旧去重槽 → 永不 resolve,测试超时变红)
+    await h.orchestrator.connect('vps-hk');
+    expect(h.events.at(-1)?.stage).toBe('ready');
+    const readyCount = h.events.filter((e) => e.stage === 'ready').length;
+
+    // 5) 黑洞迟到握手成功:僵尸经身份校验自弃关连接,不污染已 ready 的新会话
+    resolveHung(zombieSsh);
+    await flushMicrotasks(10);
+    expect(zombieSsh.closed).toBe(true);
+    expect(h.orchestrator.stages()['vps-hk']).toBe('ready');
+    expect(h.events.filter((e) => e.stage === 'ready').length).toBe(readyCount);
+  });
+});
+
 describe('AC-14 删除随删清凭据 + 活跃连接先断开', () => {
   it('T-030 ready 态删除:先 best-effort disconnect,再清配置+凭据', async () => {
     const routed = createFreshDeploySsh('vps-hk');
@@ -1137,7 +1184,6 @@ describe('🔴 force + 排队 connect 作废(评审 P2-1)', () => {
     const testSshPromise = new Promise<RoutedSsh>((r) => {
       resolveTestSsh = r;
     });
-    const staleConnectSsh = createRoutedSsh({ execHandlers: healthyDefaults() });
 
     let killed = false;
     let started = false;
@@ -1180,8 +1226,9 @@ describe('🔴 force + 排队 connect 作废(评审 P2-1)', () => {
       connectSshImpl: async () => {
         callCount++;
         if (callCount === 1) return testSshPromise; // test() 的调用,先挂起(占 mutex)
-        if (callCount === 2) return staleConnectSsh; // 排队的常规 connect() 的调用
-        return forceSsh; // force connect 的调用
+        // 🔴 评审 2026-08-10 入口守卫后:排队的旧常规 connect 在 runConnect 首行即自弃,
+        // **一次拨号都不发生**——第二次拨号已属 force 编排。
+        return forceSsh;
       },
     });
     saveConfig(h.configStore, configId);
@@ -1203,7 +1250,9 @@ describe('🔴 force + 排队 connect 作废(评审 P2-1)', () => {
 
     expect(h.orchestrator.stages()[configId]).toBe('ready');
     expect(killed).toBe(true); // 证明确实走了 force 的 reapThenDeploy(而非常规 connect 的 claim)
-    expect(staleConnectSsh.close).toHaveBeenCalled(); // 排队的旧 connect 关掉了自己那条连接
+    // 🔴 评审 2026-08-10 入口守卫:排队的旧 connect 自弃于 runConnect 首行,连 SSH 都不拨
+    // (旧行为:白拨一条连接再 close)。全程恰两次拨号:test + force。
+    expect(callCount).toBe(2);
   });
 });
 
