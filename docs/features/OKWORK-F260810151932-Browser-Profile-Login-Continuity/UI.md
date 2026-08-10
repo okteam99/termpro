@@ -26,7 +26,7 @@ pages_changed:
 
 ## 状态
 
-待评审
+已确认（2026-08-11）
 
 ## UI-AC-COVERAGE（PRD AC 覆盖声明）
 
@@ -48,6 +48,7 @@ pages_changed:
 | 日期 | 变更 | 影响的全景文件 |
 |------|------|----------------|
 | 2026-08-11 | v0.1：在 BL-007 最新全景上增量加入 BL-008 的发现/加入、登录连续性状态、脱敏报告、hydration gate 与全局迁移删除确认 | `docs/design/preview-project/src/main.jsx`、`src/latest-ui-sync.css` |
+| 2026-08-11 | v0.2：用户确认两个预览页面；设计状态锁定，进入 L1 panorama_sync | 无视觉改动 |
 
 ---
 
@@ -97,6 +98,8 @@ preview-project：
 ### 自查结论
 
 ✅ 自查通过 · 可进入用户确认设计稿
+
+用户已于 2026-08-11 确认该设计稿。
 
 ## 🧩 补充洞察
 

@@ -87,9 +87,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T16:07:37Z",
-  "updated_by": "review-preventability",
-  "_state_checksum": "sha256:487e3d862bd9b8050cb06b9957ea4c20be0b7277f970e81572eb048f431d4d3d",
+  "updated_at": "2026-08-10T16:13:45Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:d5017fe56672b3f40965152c5a82b79e1807ca6aba1fe7f2461e44b4cc946e64",
   "legal_next_stages": [
     "panorama_sync",
     "blueprint"
@@ -124,5 +124,10 @@
       "note": "",
       "at": "2026-08-10T16:07:36Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "ui_design",
+    "label": "UI Design 最终确认",
+    "started_at": "2026-08-10T16:13:45Z"
+  }
 }
