@@ -1,12 +1,12 @@
 ---
 feature_id: "OKWORK-F260810151932-Browser-Profile-Login-Continuity"
 author: QA
-status: unconfirmed
+status: confirmed
 prd_ref: PRD.md (v0.3)
 tc_ref: TC.md (confirmed)
-test_run_at: "2026-08-10T19:06:12Z"
+test_run_at: "2026-08-10T19:11:52Z"
 evidence:
-  integration_test_exit_code: 1
+  integration_test_exit_code: 0
   e2e_test_exit_code: 0
   ac_coverage_verify: pass
 revision_history:
@@ -14,6 +14,10 @@ revision_history:
     date: "2026-08-11"
     author: QA
     summary: "真实 Host RPC API-E2E 与全量门禁首轮记录；package/Vitest 未绿，故不确认。"
+  - version: v0.2
+    date: "2026-08-11"
+    author: QA
+    summary: "完整依赖冻结树复验：全量 Vitest 重跑绿、package 绿、API-E2E 两轮绿，确认报告。"
 ---
 
 # Browser Profile 3A 登录连续性漫游 - Test Report
@@ -42,16 +46,16 @@ npm test
 ### 2.2 stdout 摘录(关键段 · 已脱敏)
 
 ```text
-✓ src/main/__tests__/browserGuestNavigationGuard.test.ts (10 tests) 310ms
-Test Files  1 failed | 194 passed | 1 skipped (196)
-Tests  7 failed | 1938 passed | 6 skipped (1951)
+✓ src/main/__tests__/browserGuestNavigationGuard.test.ts (10 tests) 338ms
+Test Files  195 passed | 1 skipped (196)
+Tests  1945 passed | 6 skipped (1951)
 ```
 
-F1 navigation guard 回归证据：`browserGuestNavigationGuard.test.ts` 的 10 tests 通过。全量失败集中于 `src/host/__tests__/portFile.test.ts` 的 7 个用例：临时 Host bundle 无法解析 `node-pty`。这不属于 `project-specs/test-baseline.md` 中已登记的 WS/PTY flake 条目，故未按“仅基线失败”条件重跑。
+F1 navigation guard 回归证据：`browserGuestNavigationGuard.test.ts` 两轮均为 10 tests 通过。冻结树首轮出现两条已登记的 `fs.watch` 时序 flake（`wsMultiClientIsolation` T-042、`wsRpcParity` T-032），按项目差分基线规则完整重跑一次；第二轮全量为绿，没有新增失败。Feature worktree 预验证时的 `portFile`/package `node-pty` 缺失由隔离树的完整依赖消除，不登记成测试基线。
 
 ### 2.3 exit-code
 
-`exit-code = 1`（未通过；194 passed / 1 failed / 1 skipped suites，1938 passed / 7 failed / 6 skipped cases）。
+`Round 1 exit-code = 1`（仅两条已登记 WS 时序 flake）；`Round 2 exit-code = 0`（195 passed / 1 skipped suites，1945 passed / 6 skipped cases）。
 
 ## §3 api-e2e 结果
 
@@ -73,6 +77,7 @@ python3 docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/e2e/
 
 ```text
 PASS: capability describes continuity v1
+PASS: grant authorizes profile save
 PASS: persistent Cookie push is idempotent
 PASS: fresh Host process restores continuity record
 PASS: wrong capability is fixed forbidden without stderr leak
@@ -123,8 +128,8 @@ python3 /Users/liam/apps/okok/teamwork/skills/teamwork/templates/verify-ac.py \
 
 | 测试集 | 范围 | 结果 |
 |---|---|---|
-| package | Electron Forge package（含 Host bundle 构建） | ❌ exit 1：最终 native `node-pty` copy 缺失 |
-| 全量 integration | `npm test` 单进程 Vitest | ❌ exit 1：194 passed / 1 failed / 1 skipped suites；1938 passed / 7 failed / 6 skipped cases |
+| package | Electron Forge package（含 Host bundle 构建） | ✅ exit 0：native dependencies 1/1，成品含 `pty.node` + `spawn-helper` |
+| 全量 integration | `npm test` 单进程 Vitest | ✅ Round 2 exit 0：195 passed / 1 skipped suites；1945 passed / 6 skipped cases |
 | critical-path 回归 | `browserGuestNavigationGuard.test.ts` | ✅ 10 passed |
 | typecheck | `npm run typecheck` | ✅ exit 0 |
 | API-E2E | 两轮真实多进程 Host RPC | ✅ exit 0 / exit 0 |
@@ -133,27 +138,28 @@ python3 /Users/liam/apps/okok/teamwork/skills/teamwork/templates/verify-ac.py \
 
 ## §6 fix-retry 历史(若 round > 1)
 
-> 未启动 Vitest round 2：round 1 的 7 项 `portFile.test.ts` 失败不全属于 `project-specs/test-baseline.md` 已登记 WS/PTY flake，重跑条件不成立。
+> 产品代码未进入 test-fix。冻结树 Round 1 只出现项目已登记的 WS/fs.watch 时序 flake，因此按基线规则完整重跑一次；Round 2 全绿。
 
 | Round | test_commit | integration_exit | e2e_exit | fix_commit | addresses_findings | 备注 |
 |---|---|---:|---:|---|---|---|
-| 1 | 未提交验证 worktree | 1 | 0 | - | - | package 亦为 1；Host 临时 bundle 缺 `node-pty`，总门禁未绿 |
+| 1 | `62d97bd` | 1 | 0 | - | - | T-042/T-032 已登记时序 flake；触发一次完整重跑 |
+| 2 | `62d97bd` | 0 | 0 | - | - | 195 suites passed，package/API-E2E/AC 全绿 |
 
 ## §7 已知问题(不阻塞 · audit 留痕)
 
 | ID | 描述 | 严重度 | 决定 | 跟踪 |
 |---|---|---|---|---|
-| QA-1 | Forge package 与 `portFile.test.ts` 的临时 Host bundle 缺失 `node-pty`；不是已登记 baseline flake。 | 阻塞确认 | 不确认 test stage，待实现/环境 owner 修复后重跑完整门禁。 | `01-package.log`, `03-npm-test-round-1.log` |
+| - | 无 Feature 阻塞问题；首轮 WS 时序 flake 已按项目基线完整重跑并自愈。 | - | - | `frozen-62d97bd.log` |
 
 ## §8 评审记录
 
 | 日期 | 评审人 | 结论 | 备注 |
 |---|---|---|---|
-| 2026-08-11 | QA | ❌ unconfirmed | API-E2E 与其余检查通过；package/full integration 未绿。 |
+| 2026-08-11 | QA | ✅ confirmed | 完整依赖冻结树：integration/package/API-E2E/AC 全绿。 |
 
 ## §9 原始执行日志
 
-所有路径均为完整 stdout/stderr 与追加的 exit-code 记录；本报告只摘取了脱敏行。
+所有路径均为完整 stdout/stderr 与追加的 exit-code 记录；本报告只摘取了脱敏行。预验证日志保留环境差异，最终确认以冻结树日志为权威。
 
 | 项 | exit | 日志 |
 |---|---:|---|
@@ -166,3 +172,4 @@ python3 /Users/liam/apps/okok/teamwork/skills/teamwork/templates/verify-ac.py \
 | py_compile | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/07-py-compile.log` |
 | API-E2E 第二次 | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/08-api-e2e-second.log` |
 | diff-check | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/09-diff-check.log` |
+| 最终冻结预确认（全量两轮/package/API-E2E 两轮/AC） | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/frozen-62d97bd.log` |
