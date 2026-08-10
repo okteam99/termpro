@@ -217,6 +217,10 @@ export function Sidebar() {
       // 机器组常驻 Sidebar、其 remoteWorkspaceSync 悬挂订阅不退)。
       for (const id of knownIds) {
         if (!nextIds.has(id)) {
+          // 评审 P2-4:先终止在途重连编排(退避/看门狗计时器 + backoff/代际表)——forget 只清
+          // store,controller 的模块级容器够不着;不撤则悬挂退避到点仍会对已删配置发
+          // disconnectAwait+connect(main 报 config not found)并再挂一条看门狗。
+          reconnectController.cancel(id);
           stopRemoteWorkspaceSync(id);
           // 配置已删除 → forget 一次性销毁全部痕迹(五张表 + 握手槽 + 排队意图)。
           // REVIEW F6:此前这里还先调了一次 clear,forget 扩容后成为冗余(多一次 set = 多一次渲染)。
@@ -333,6 +337,9 @@ export function Sidebar() {
       // 位置必须在**首行** —— 它同时挡住两件事:把残余事件写进 store,以及下面那个
       // 「残余 verifying → beginHandshake」的副作用。只在 store 内设闸挡不住后者。
       if (useRemoteHostRuntimeStore.getState().isAbandoned(e.configId)) return;
+      // 评审 P1-4(无活动狗):main 有阶段事件 = 编排在进展,重置该机在途尝试的看门狗
+      // (无在途尝试时是廉价 no-op)。合法慢路径(部署上传进度等)由此免于误杀。
+      reconnectController.noteProgress(e.configId);
       applyRuntimeEvent(e);
       if (e.stage === 'verifying' && e.tunnel) {
         beginHandshake(e.configId, e.tunnel);

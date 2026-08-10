@@ -83,3 +83,17 @@ export function readReconnectBudgetEnv(): ReconnectBudgetConfig {
     budget: readNumEnv('OKWORK_RECONNECT_BUDGET', DEFAULT_RECONNECT_BUDGET.budget),
   };
 }
+
+/** 单次重连尝试看门狗超时(2026-08-10·无活动口径:main 每个阶段事件都重置计时,见
+ *  reconnectController.noteProgress)。默认 150s:合法**零事件**等待的最长档是部署锁输家
+ *  waitForPeer 的 120s(deploy.ts·多设备同屏抢首启锁),150s 留 30s 余量;ssh 10s、单
+ *  exec 30s、start 15s 皆远低于此。150s 无任何事件只可能是 main 侧静默搁浅(评审 P1-4)。 */
+export const DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS = 150_000;
+
+/** 从 env 读单次尝试看门狗超时(测试/调优免等真实 90s)。 */
+export function readReconnectAttemptTimeoutEnv(): number {
+  return readNumEnv(
+    'OKWORK_RECONNECT_ATTEMPT_TIMEOUT_MS',
+    DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS,
+  );
+}

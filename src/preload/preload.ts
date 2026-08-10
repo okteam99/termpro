@@ -329,8 +329,8 @@ contextBridge.exposeInMainWorld('okwork', {
     disconnect(payload: { id: string }): void {
       ipcRenderer.send(REMOTE_HOST_CHANNELS.disconnect, payload);
     },
-    /** 可等待的断开(需要排队/等待语义时用此;旧 disconnect 即发即忘,调用点见 types.d.ts 注释
-     *  ——reconnectController disconnect-first + 设置页同步拆除路径)。 */
+    /** 可等待的断开(需要排队/等待语义时用此;旧 disconnect 即发即忘,渲染层现已零调用点,
+     *  见 types.d.ts 注释——断开 UI 与 reconnectController disconnect-first 均走本通道)。 */
     disconnectAwait(payload: { id: string }): Promise<void> {
       return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.disconnectAwait, payload);
     },

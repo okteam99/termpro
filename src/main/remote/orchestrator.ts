@@ -422,6 +422,13 @@ export class RemoteHostOrchestrator {
 
   async disconnect(configId: string): Promise<void> {
     const pending = this.mutex.get(configId);
+    // 🔴 评审 P2-1(2026-08-10):mutex 与 connectInflight 是两张语义不同的表——重连期间
+    // 用户点「测试连接」时 mutex=test 的 tracked、connectInflight=更早在途 connect 的
+    // tracked,旧判据 `currentInflight !== pending` 会把**入口时就存在**的在途 connect
+    // 误判为「等待期间用户又点了连接」而提前放行:既不拆传输,也不清它的陈旧去重槽 →
+    // 紧随的 connect 命中去重返回僵尸 promise、零事件(正是本次事故的蒸发路径)。
+    // 记录入口快照,只对等待期间**新出现**的 connect 让路。
+    const inflightAtEntry = this.connectInflight.get(configId);
     if (pending) {
       // 🔴 E9:在途编排(部署/启动)不安全中断,best-effort 等它自然结束,但不能
       // 无界阻塞调用方(IPC handler)——超时后放弃等待,直接强制收尾本地资源
@@ -432,7 +439,9 @@ export class RemoteHostOrchestrator {
     // disconnect-vs-connect 竞态:等待期间用户可能又点了 Connect(新 tracked 进
     // connectInflight)——意图已翻转为「要连」,放手让新编排跑,绝不清它的会话/去重槽。
     const currentInflight = this.connectInflight.get(configId);
-    if (currentInflight && currentInflight !== pending) return;
+    if (currentInflight && currentInflight !== pending && currentInflight !== inflightAtEntry) {
+      return;
+    }
 
     const session = this.sessions.get(configId);
     if (!session) return;
@@ -453,7 +462,12 @@ export class RemoteHostOrchestrator {
     //   直接置 stage 属「新对象初始化」而非状态转移,不经 emit 的转移守卫。
     this.sessions.delete(configId);
     this.ensureSession(configId).stage = 'disconnected';
-    if (this.connectInflight.get(configId) === pending) this.connectInflight.delete(configId);
+    // 🔴 评审 P2-1:入口时就在的陈旧去重槽同样要清(=== pending 只覆盖「mutex 与 inflight
+    // 同源」的常规形),否则上面刚作废的在途 connect 留下的槽会吞掉下一次 connect。
+    const inflightNow = this.connectInflight.get(configId);
+    if (inflightNow !== undefined && (inflightNow === pending || inflightNow === inflightAtEntry)) {
+      this.connectInflight.delete(configId);
+    }
     if (this.mutex.get(configId) === pending) this.mutex.delete(configId);
   }
 
@@ -863,10 +877,22 @@ export class RemoteHostOrchestrator {
     // 此后本(僵尸)尝试的 session 引用 !== 当前 map 里的会话。任何会改状态/发事件的
     // 动作前都据此自弃,杜绝僵尸编排污染接管的新会话(用户指令 2026-07-20 · 完整修复)。
     const isCurrent = () => this.sessions.get(configId) === session;
+    // 🔴 评审 2026-08-10:runConnect 全程的失败广播一律经此守卫。被作废的僵尸尝试(其
+    // sftp/exec 因连接被拆而迟到 reject)不得把死讯 emit 到接管的新会话——后继大概率已在
+    // connecting,connecting→failed 是合法边,污染其 stage 会让它下一次 emit 撞非法转移
+    // 抛出自杀;renderer 侧则多收一次 failed 又拆一轮重连(级联耗预算)。
+    const failIfCurrent = (reason: FailReason, detail?: string) => {
+      if (isCurrent()) this.failSession(configId, reason, detail);
+    };
+
+    // 🔴 评审 2026-08-10:排队期间(mutex 尾随)就被 disconnect/新 connect 作废 → 整条编排
+    // 静默弃跑。不挡则首行 emit('connecting') 落在**新当值会话**上(disconnected→connecting
+    // 合法边),把它推进一个没有编排跟进的假 connecting。
+    if (!isCurrent()) return;
 
     const config = this.deps.configStore.get(configId);
     if (!config) {
-      this.failSession(configId, 'internal', 'config not found');
+      failIfCurrent('internal', 'config not found');
       return;
     }
 
@@ -883,7 +909,7 @@ export class RemoteHostOrchestrator {
       });
     } catch (err) {
       if (!isCurrent()) return; // 已作废:静默,不把失败 emit 到接管的新会话
-      this.failSession(configId, classifyConnectError(err), sanitizeDetail(err));
+      failIfCurrent(classifyConnectError(err), sanitizeDetail(err));
       return;
     }
     // 🔴 连上后先验当值:cancel/断开最常发生在 connectSsh 在途(黑洞连接 10s 才超时),
@@ -902,7 +928,7 @@ export class RemoteHostOrchestrator {
       const homeRes = await ssh.exec('echo $HOME');
       const home = homeRes.stdout.trim();
       if (!home) {
-        this.failSession(configId, 'internal', 'empty remote $HOME');
+        failIfCurrent('internal', 'empty remote $HOME');
         ssh.close();
         return;
       }
@@ -915,13 +941,12 @@ export class RemoteHostOrchestrator {
       const nodeRes = await ssh.exec(NODE_PROBE_COMMAND);
       const nodeBest = pickBestNode(nodeRes.stdout);
       if (nodeBest === null) {
-        this.failSession(configId, 'nodeMissing');
+        failIfCurrent('nodeMissing');
         ssh.close();
         return;
       }
       if (nodeBest.major < MIN_NODE_MAJOR) {
-        this.failSession(
-          configId,
+        failIfCurrent(
           'nodeMissing',
           t('Found node {version} ({path}), but ≥ {major} is required', {
             version: nodeBest.version,
@@ -936,7 +961,7 @@ export class RemoteHostOrchestrator {
       const unameRes = await ssh.exec('uname -sm');
       const arch = detectArch(unameRes.stdout);
       if (arch === null) {
-        this.failSession(configId, 'archUnsupported');
+        failIfCurrent('archUnsupported');
         ssh.close();
         return;
       }
@@ -976,7 +1001,7 @@ export class RemoteHostOrchestrator {
             },
           });
         } catch (err) {
-          this.failSession(configId, 'deployFailed', sanitizeDetail(err));
+          failIfCurrent('deployFailed', sanitizeDetail(err));
           ssh.close();
           return;
         }
@@ -1041,8 +1066,7 @@ export class RemoteHostOrchestrator {
       // 让用户/自动重连稍后重试;届时隧道稳则 claim 挂回,in-flight 的 codex/agent 存活。
       if (residency.decision.action === 'abortLiveUnreachable') {
         ssh.close();
-        this.failSession(
-          configId,
+        failIfCurrent(
           'unreachable',
           'host still running but unreachable (transient network); kept alive to protect running sessions — retry to re-attach',
         );
@@ -1073,7 +1097,7 @@ export class RemoteHostOrchestrator {
           },
         });
       } catch (err) {
-        this.failSession(configId, 'deployFailed', sanitizeDetail(err));
+        failIfCurrent('deployFailed', sanitizeDetail(err));
         ssh.close();
         return;
       }
@@ -1087,7 +1111,7 @@ export class RemoteHostOrchestrator {
       try {
         await ssh.exec(`mkdir -p "${hostDir}"`);
       } catch (err) {
-        this.failSession(configId, 'startFailed', sanitizeDetail(err));
+        failIfCurrent('startFailed', sanitizeDetail(err));
         ssh.close();
         return;
       }
@@ -1112,8 +1136,7 @@ export class RemoteHostOrchestrator {
           if (portRaw) {
             const peerToken = await this.readPeerToken(ssh, identityFile, hostTag);
             if (!peerToken) {
-              this.failSession(
-                configId,
+              failIfCurrent(
                 'startFailed',
                 'peer host running but identity token unreadable',
               );
@@ -1137,7 +1160,7 @@ export class RemoteHostOrchestrator {
                 newToken,
               );
             } catch (err) {
-              this.failSession(configId, 'startFailed', sanitizeDetail(err));
+              failIfCurrent('startFailed', sanitizeDetail(err));
               ssh.close();
               return;
             }
@@ -1159,7 +1182,7 @@ export class RemoteHostOrchestrator {
               } catch {
                 /* 日志读取失败不掩盖超时主因 */
               }
-              this.failSession(configId, 'startFailed', detail);
+              failIfCurrent('startFailed', detail);
               ssh.close();
               return;
             }
@@ -1174,8 +1197,7 @@ export class RemoteHostOrchestrator {
         // waitForPeer(锁被另一设备持有):等赢家端口文件出现 → 读服务端身份 token 认领
         portRaw = await pollPortFile(ssh, portFilePath, startTimeoutMs, sleep);
         if (!portRaw) {
-          this.failSession(
-            configId,
+          failIfCurrent(
             'startFailed',
             'peer start did not produce port file before timeout',
           );
@@ -1186,8 +1208,7 @@ export class RemoteHostOrchestrator {
         if (!peerToken) {
           // fail-closed:有端口无可读 token(隔离模式双实例竞速/崩溃残局)——
           // 不臆造 token 去探测;失败可重试,下次 connect 走 residency 认领路径。
-          this.failSession(
-            configId,
+          failIfCurrent(
             'startFailed',
             'peer host started but identity token unreadable',
           );
@@ -1215,14 +1236,14 @@ export class RemoteHostOrchestrator {
         // 可重试)。拆两支:探测本身没跑通(!ok)→ startFailed;探测跑通但版本判定
         // 不兼容(ok 且 compatible===false)→ incompatible。
         if (probeResult.ok && probeResult.compatible === false) {
-          this.failSession(configId, 'incompatible', probeResult.detail);
+          failIfCurrent('incompatible', probeResult.detail);
           tunnel.server.close();
           session.forwardServer = null;
           ssh.close();
           return;
         }
         if (!probeResult.ok) {
-          this.failSession(configId, 'startFailed', probeResult.detail);
+          failIfCurrent('startFailed', probeResult.detail);
           tunnel.server.close();
           session.forwardServer = null;
           ssh.close();
@@ -1257,7 +1278,7 @@ export class RemoteHostOrchestrator {
         }
         return;
       }
-      this.failSession(configId, 'internal', sanitizeDetail(err));
+      failIfCurrent('internal', sanitizeDetail(err));
       ssh.close();
     }
   }

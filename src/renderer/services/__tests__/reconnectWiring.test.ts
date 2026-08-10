@@ -4,8 +4,9 @@
 // (findTab → useAppStore.updateTab)零测,导致「重连收养 exited 会话 → 徽标点亮」是幽灵覆盖。
 // 本测直驱真实 reconcileBadge,断言 store 的 tab.exited/exitCode/activity 真被落地——删掉 exited 分支
 // 或 findTab 接线,本测即变红。用 __setInstForTest 注册 (hostId,sessionId) → tabId 反查映射。
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { reconcileBadge } from '../reconnectWiring';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { reconcileBadge, reconnectController } from '../reconnectWiring';
+import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
 import {
   __clearRegistryForTest,
   __setInstForTest,
@@ -112,5 +113,29 @@ describe('reconcileBadge 生产接线落 store(A3/Q2)', () => {
     reconcileBadge('cfg-1', 's1', snap({ status: 'exited', exitCode: 0 }));
 
     expect(tab('tab-1').exited).toBeFalsy(); // 未被误改
+  });
+});
+
+describe('生产接线:disconnect-first 走 disconnectAwait(2026-08-10 事故根因行)', () => {
+  it('onDisconnected → disconnectAwait(可等待),绝不再走即发即忘 disconnect', async () => {
+    vi.useFakeTimers();
+    useRemoteHostRuntimeStore.setState({ runtime: {}, reconnecting: {} });
+    const disconnectAwait = vi.fn(() => Promise.resolve());
+    const legacyDisconnect = vi.fn();
+    const connect = vi.fn();
+    (window as unknown as { okwork: unknown }).okwork = {
+      remoteHost: { connect, disconnect: legacyDisconnect, disconnectAwait },
+    };
+    try {
+      reconnectController.onDisconnected('wire-cfg-1');
+      expect(disconnectAwait).toHaveBeenCalledWith({ id: 'wire-cfg-1' });
+      expect(legacyDisconnect).not.toHaveBeenCalled(); // 回退成旧通道 → 本断言变红
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(connect).toHaveBeenCalledWith({ id: 'wire-cfg-1' }); // 且在 await 之后才发
+    } finally {
+      reconnectController.cancel('wire-cfg-1'); // 清退避/看门狗计时器,不泄漏到其它测试
+      vi.useRealTimers();
+    }
   });
 });

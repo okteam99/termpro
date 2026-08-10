@@ -42,6 +42,8 @@ const { reconnectControllerMock } = vi.hoisted(() => ({
     onAttemptFailed: vi.fn(),
     onDisconnected: vi.fn(),
     manualRetry: vi.fn(),
+    noteProgress: vi.fn(),
+    cancel: vi.fn(),
     isActive: vi.fn(() => false),
   },
 }));

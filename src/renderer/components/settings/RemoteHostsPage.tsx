@@ -480,6 +480,9 @@ export function RemoteHostsPage({ onClose }: RemoteHostsPageProps) {
   /** AC-14:删机随删清凭据(main 侧执行);renderer 同步清运行态/测试态,防孤儿展示态。 */
   async function confirmDelete(id: string) {
     await window.okwork.remoteHost.delete({ id });
+    // 评审 P2-4:终止在途重连编排(controller 模块级容器不归 forget 管)——不撤则悬挂
+    // 退避到点仍会对已删配置发起重连。
+    reconnectController.cancel(id);
     // REVIEW F6:forget 已销毁全部痕迹(五张表 + 握手槽 + 排队意图),此前紧邻的 clear 成为冗余。
     forget(id);
     hostRegistry.drop(id);

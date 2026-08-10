@@ -156,13 +156,16 @@ declare global {
         retryDelete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
         test(payload: { id: string }): Promise<TestResult>;
         connect(payload: { id: string }): void;
-        /** ⚠️ 即发即忘 · 现有两个调用点:`reconnectController` 的 disconnect-first(`reconnectWiring.ts`,
-         *  🔴 不可换成 `disconnectAwait`,换了自动重连会等自己)与设置页 `RemoteHostsPage.handleDisconnect`
-         *  的同步拆除路径(不需要排队语义)。**需要排队/等待语义的新代码用 `disconnectAwait`** */
+        /** ⚠️ 即发即忘 · 渲染层现已**零调用点**(评审 P2-3):设置页/Sidebar 的断开走
+         *  `disconnectAwait`(trackDisconnect 排队),`reconnectController` 的 disconnect-first
+         *  也已改走 `disconnectAwait`(2026-08-10 事故:即发即忘与紧随的 connect 在 main 侧
+         *  竞态,尝试蒸发/僵尸误杀;顺序 disconnect→connect 等到的只是上一代编排,有界 5s,
+         *  不存在「等自己」)。通道保留待用,新代码一律用 `disconnectAwait`。 */
         disconnect(payload: { id: string }): void;
-        /** 可等待的断开(需要排队语义时用此;不需要等待的用旧 `disconnect`,见其注释的两个调用点)。
-         *  resolve ≠ "已断开"语义(TECH R4)——本方案只用它做
-         *  排队排序,真正的本地拆除须在调用方 await 之前已同步完成。 */
+        /** 可等待的断开(需要排队/排序语义时用此)。现存调用点:`reconnectController` 的
+         *  disconnect-first(`reconnectWiring.ts`)+ 设置页/Sidebar 的断开(trackDisconnect)。
+         *  resolve ≠ "已断开"语义(TECH R4)——只用它做排队排序,真正的本地拆除须在
+         *  调用方 await 之前已同步完成。 */
         disconnectAwait(payload: { id: string }): Promise<void>;
         /** 用户显式升级远端 host(强制 reap+重部署当前版本 bundle);进度经 onEvent 呈现 */
         upgrade(payload: { id: string }): void;

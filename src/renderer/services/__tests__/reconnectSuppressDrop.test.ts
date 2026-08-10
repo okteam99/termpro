@@ -14,6 +14,12 @@ import { useRemoteHostRuntimeStore } from '../../state/remoteHostStore';
 
 const DISCONNECT_PANEL_MS = 900;
 
+/** fireAttempt 现为 async(await disconnect 后才 connect)——冲掉在途微任务再断言 connect。 */
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   useRemoteHostRuntimeStore.setState({ runtime: {}, reconnecting: {} });
@@ -43,7 +49,7 @@ function makeDeps(overrides?: Partial<Parameters<typeof createReconnectControlle
 }
 
 describe('transient_disconnect_suppresses_full_drop_keeps_terminal_and_workspace (T-030)', () => {
-  it('心跳判断线 → 同步先占 reconnecting 再 disconnect-first(顺序不可换·CR-1 ①)', () => {
+  it('心跳判断线 → 同步先占 reconnecting 再 disconnect-first(顺序不可换·CR-1 ①)', async () => {
     const { controller, connect, disconnect } = makeDeps();
     const order: string[] = [];
     // 探测顺序:disconnect 被调用时 reconnecting 必须已为 true
@@ -55,17 +61,21 @@ describe('transient_disconnect_suppresses_full_drop_keeps_terminal_and_workspace
     controller.onDisconnected('cfg-1');
 
     expect(useRemoteHostRuntimeStore.getState().isReconnecting('cfg-1')).toBe(true);
-    expect(order).toEqual(['disconnect(reconnecting=true)', 'connect']); // disconnect-first
+    expect(order).toEqual(['disconnect(reconnecting=true)']); // disconnect 同步先行
+    await flushMicrotasks();
+    expect(order).toEqual(['disconnect(reconnecting=true)', 'connect']); // disconnect-first·串行
   });
 
-  it('disconnect-first 自发 disconnected 再入守卫:不重复 begin(不 loop)', () => {
+  it('disconnect-first 自发 disconnected 再入守卫:不重复 begin(不 loop)', async () => {
     const { controller, disconnect, connect } = makeDeps();
     controller.onDisconnected('cfg-1');
+    await flushMicrotasks();
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(connect).toHaveBeenCalledTimes(1);
 
     // 自发 disconnected 再次进入 → reconnecting 已 true → 再入守卫忽略
     controller.onDisconnected('cfg-1');
+    await flushMicrotasks();
     expect(disconnect).toHaveBeenCalledTimes(1); // 未再触发
     expect(connect).toHaveBeenCalledTimes(1);
   });
