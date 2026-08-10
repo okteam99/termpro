@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "f161367",
   "worktree": {
@@ -107,17 +107,45 @@
       "active_minutes": 7
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T17:20:53Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "/tmp/bl008-validation-6cdcc32.log"
+      },
+      "completed_at": "2026-08-10T18:40:55Z",
+      "auto_commit": "6cdcc32066505fced9a875a4031f665f7e3e93a6",
+      "artifacts": [
+        "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/TECH.md",
+        "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/dev-visual-evidence.md",
+        "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/real-app-browser-settings.png",
+        "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/panorama-browser-profiles.png",
+        "src/shared/profileContinuity.ts",
+        "src/host/profileContinuityStore.ts",
+        "src/main/profileContinuityController.ts",
+        "src/renderer/components/BrowserPanel.tsx",
+        "src/host/__tests__/remoteProfileStore.test.ts",
+        "src/main/__tests__/remoteProfileAuthority.test.ts",
+        "src/renderer/components/__tests__/BrowserPanel.test.tsx"
+      ],
+      "duration_minutes": 80,
+      "active_minutes": 37
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T17:20:53Z"
+      "started_at": "2026-08-10T18:40:55Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
     "panorama_sync",
-    "blueprint"
+    "blueprint",
+    "dev"
   ],
   "created_at": "2026-08-10T15:20:31Z",
   "stage_review_roles": {
@@ -138,11 +166,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T17:21:04Z",
+  "updated_at": "2026-08-10T18:41:10Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:08bf8dc34a4d4b5fb5d46e4871dfb834e5f08a5114d72b279b124865ca12d09b",
+  "_state_checksum": "sha256:fc5daf755096b666189385d8c4d6fce131d73dfb81ca6af7d5725d3f1a0c5643",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
