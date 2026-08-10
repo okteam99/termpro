@@ -134,15 +134,12 @@
       "active_minutes": 37
     },
     "review": {
-      "input_satisfied": true,
-      "process_satisfied": true,
-      "output_satisfied": true,
-      "started_at": "2026-08-10T18:40:55Z",
-      "evidence": {
-        "verdict": "NEEDS_REVISION"
-      },
-      "completed_at": "2026-08-10T18:46:10Z",
-      "auto_commit": "9dc1d2f7de2606e999bcc96a68f99f7555115d1c",
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-10T18:55:25Z",
+      "evidence": {},
+      "auto_commit": "a876eb9550611f1a888c4a0da90d3b77fdb0aac8",
       "artifacts": [
         "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/REVIEW.md"
       ],
@@ -154,7 +151,19 @@
           "review_commit": "9dc1d2f7de2606e999bcc96a68f99f7555115d1c",
           "verdict": "NEEDS_REVISION",
           "new_findings_count": 1,
-          "carried_open_count": 0
+          "carried_open_count": 0,
+          "fix_commit": "a876eb9550611f1a888c4a0da90d3b77fdb0aac8",
+          "fix_at": "2026-08-10T18:55:25Z",
+          "addresses_findings": [
+            "F1"
+          ]
+        },
+        {
+          "round": 2,
+          "review_commit": null,
+          "fix_commit": null,
+          "started_at": "2026-08-10T18:55:25Z",
+          "verdict": null
         }
       ],
       "findings_ledger": [
@@ -168,8 +177,7 @@
           "round_opened": 1
         }
       ],
-      "duration_minutes": 5,
-      "active_minutes": 5
+      "await_minutes": 0
     }
   },
   "completed_stages": [
@@ -198,9 +206,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T18:46:10Z",
+  "updated_at": "2026-08-10T18:55:25Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:e0e5b2c71d65833ebc1c1807387d554c0ec3d8ddd363ae89b36ae83f7af1fcf7",
+  "_state_checksum": "sha256:5eaa84332ab3950607408944455f3a0faf1ba913aae5744139de6387dc157ccf",
   "legal_next_stages": [
     "test",
     "dev"
