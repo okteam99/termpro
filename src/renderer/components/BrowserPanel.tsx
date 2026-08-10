@@ -874,14 +874,16 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     if (!activeTermTabId || !activeTab) return;
     const url = normalizeUrlInput(raw);
     if (!url) return;
-    try {
-      if (!(await prepareActiveNavigation())) return;
-    } catch {
-      handleNavChange(activeTab.id, {
-        loading: false,
-        errorText: `PROFILE_CONTINUITY_OFFLINE · ${t('No website request was sent.')}`,
-      });
-      return;
+    if (activeProfile?.storage.kind === 'remote') {
+      try {
+        if (!(await prepareActiveNavigation())) return;
+      } catch {
+        handleNavChange(activeTab.id, {
+          loading: false,
+          errorText: `PROFILE_CONTINUITY_OFFLINE · ${t('No website request was sent.')}`,
+        });
+        return;
+      }
     }
     // 立即回写 store:地址栏/标签名马上反映目标地址。加载失败(SSL/DNS 错)时
     // did-navigate 不会来,不写这步地址栏会退回旧地址(用户报告 2026-07-23)。

@@ -151,6 +151,77 @@ describe('Remote Profile login-continuity hydration gate', () => {
     expect(document.body.textContent).not.toContain('cookie-name-secret');
     expect(document.body.textContent).not.toContain('cookie-value-secret');
   });
+
+  it('does not commit manual navigation until Remote Profile hydration is ready', async () => {
+    let resolvePrepare!: (result: {
+      ready: true;
+      syncedCount: number;
+      skippedCount: number;
+    }) => void;
+    const pendingPrepare = new Promise<{
+      ready: true;
+      syncedCount: number;
+      skippedCount: number;
+    }>((resolve) => {
+      resolvePrepare = resolve;
+    });
+    const prepareContinuity = vi.fn().mockReturnValue(pendingPrepare);
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserProfile: { prepareContinuity },
+    };
+    seedWorkspace({
+      tabs: [{ id: 'remote-empty', url: '' }],
+      activeTabId: 'remote-empty',
+    });
+    useAppStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({
+        ...workspace,
+        browserProfileId: 'remote-profile',
+      })),
+      browserProfilesLoaded: true,
+      browserProfiles: [
+        {
+          id: 'remote-profile',
+          name: 'Shared work',
+          createdAt: 1,
+          storage: { kind: 'remote', hostId: 'host-a' },
+          storageLabel: 'Remote A',
+          availability: 'ready',
+        },
+      ],
+    }));
+    render(<BrowserPanel />);
+    const input = document.querySelector<HTMLInputElement>(
+      '.browser-panel__address-input',
+    )!;
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'aon.pro' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(prepareContinuity).toHaveBeenCalledWith({
+      profileId: 'remote-profile',
+      netHostId: 'local',
+    });
+    expect(document.querySelector('webview')).toBeNull();
+    expect(
+      useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url,
+    ).toBe('');
+
+    await act(async () => {
+      resolvePrepare({ ready: true, syncedCount: 1, skippedCount: 0 });
+      await pendingPrepare;
+    });
+    await waitFor(() =>
+      expect(document.querySelector('webview')).toHaveAttribute(
+        'src',
+        'https://aon.pro',
+      ),
+    );
+    expect(
+      useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url,
+    ).toBe('https://aon.pro');
+  });
 });
 
 describe('BrowserPanel', () => {
