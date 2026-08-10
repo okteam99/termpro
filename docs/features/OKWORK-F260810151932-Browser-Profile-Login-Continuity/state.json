@@ -189,18 +189,12 @@
       "active_minutes": 4
     },
     "test": {
-      "input_satisfied": true,
-      "process_satisfied": true,
-      "output_satisfied": true,
-      "started_at": "2026-08-10T18:59:46Z",
-      "evidence": {
-        "integration_diff_clean": false,
-        "integration_test_exit_code": 1,
-        "e2e_test_exit_code": 0,
-        "current_failures": "src/host/__tests__/portFile.test.ts > AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag} > T-016 listening 后写端口文件:openSync(path,\"wx\",0o600) + 内容 {port,pid,hostTag} 可回读"
-      },
-      "completed_at": "2026-08-10T19:17:30Z",
-      "auto_commit": "501cfc0ae988e0c58c8e60688129962bb7a470c9",
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-10T19:21:53Z",
+      "evidence": {},
+      "auto_commit": "5678a38792ab533c4be463c63833080a67af8378",
       "artifacts": [
         "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/TEST-REPORT.md",
         "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/e2e/profile_continuity_rpc_e2e.py"
@@ -214,11 +208,22 @@
           "integration_test_exit_code": 1,
           "e2e_test_exit_code": 0,
           "integration_diff_clean": false,
-          "current_failures": "src/host/__tests__/portFile.test.ts > AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag} > T-016 listening 后写端口文件:openSync(path,\"wx\",0o600) + 内容 {port,pid,hostTag} 可回读"
+          "current_failures": "src/host/__tests__/portFile.test.ts > AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag} > T-016 listening 后写端口文件:openSync(path,\"wx\",0o600) + 内容 {port,pid,hostTag} 可回读",
+          "fix_commit": "5678a38792ab533c4be463c63833080a67af8378",
+          "fix_at": "2026-08-10T19:21:50Z"
+        },
+        {
+          "round": 2,
+          "test_commit": null,
+          "fix_commit": null,
+          "started_at": "2026-08-10T19:21:53Z",
+          "integration_test_exit_code": null,
+          "e2e_test_exit_code": null,
+          "integration_diff_clean": null,
+          "current_failures": null
         }
       ],
-      "duration_minutes": 17,
-      "active_minutes": 17
+      "await_minutes": 0
     }
   },
   "completed_stages": [
@@ -248,9 +253,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T19:17:31Z",
+  "updated_at": "2026-08-10T19:21:53Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:210f0514f9002307a446800c589e205f89a6fe029e9eb1f67c70cf75b8786d58",
+  "_state_checksum": "sha256:2092a3c054ac8403de34f7fe487144ccba87304ce608fa1359a25a52453ed65b",
   "legal_next_stages": [
     "browser_e2e",
     "pm_acceptance"
