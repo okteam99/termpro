@@ -366,6 +366,48 @@ export class ProfileCatalogStore {
     });
   }
 
+  /**
+   * Explicitly bind a Profile discovered on a Remote Host to this device.
+   *
+   * Unlike ensureProfile(), this is an authority transition boundary: an ID
+   * already routed to another storage location must never be silently
+   * rebound merely because a second Host advertises the same ID. Repeating a
+   * join against the same active Remote Host is intentionally idempotent.
+   */
+  joinRemoteProfile(
+    profile: BrowserProfile,
+    storage: Extract<ProfileStorageRef, { kind: 'remote' }>,
+  ): ProfileCatalogEntryV1 {
+    if (
+      profile.id === DEFAULT_PROFILE_ID ||
+      !isProfileId(profile.id) ||
+      !isStorageRef(storage) ||
+      storage.kind !== 'remote'
+    ) {
+      throw new ProfileCatalogError('PROFILE_CATALOG_INVALID_TRANSITION');
+    }
+    const existing = this.document.profiles.find(
+      (entry) => entry.profileId === profile.id,
+    );
+    if (existing) {
+      if (
+        existing.lifecycle !== 'active' ||
+        this.getMigration(profile.id) ||
+        !profileStorageRefEquals(existing.storage, storage)
+      ) {
+        throw new ProfileCatalogError('PROFILE_CATALOG_INVALID_TRANSITION');
+      }
+      this.updateProfileHints(profile);
+      return this.getEntry(profile.id)!;
+    }
+    const joined = entryOf(profile, storage);
+    this.commit({
+      ...this.document,
+      profiles: [...this.document.profiles, joined],
+    });
+    return clone(joined);
+  }
+
   updateProfileHints(profile: BrowserProfile): void {
     const index = this.document.profiles.findIndex(
       (entry) => entry.profileId === profile.id,

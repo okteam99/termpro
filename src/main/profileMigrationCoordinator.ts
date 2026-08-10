@@ -42,6 +42,21 @@ export interface ProfileMigrationCoordinatorDeps {
   newOperationId?: () => string;
   randomNonce?: () => Buffer;
   logger?: { warn(message: string): void; error(message: string): void };
+  continuity?: ProfileContinuityMigrationPort;
+}
+
+/**
+ * High-level Cookie-plane seam. Its implementation owns bounded page staging,
+ * source freeze/final-delta verification and target prepared state; the
+ * coordinator owns the cross-plane durable commit order.
+ */
+export interface ProfileContinuityMigrationPort {
+  prepareMigration(record: ProfileMigrationRecordV1): Promise<void>;
+  activateMigration(
+    record: ProfileMigrationRecordV1,
+    committedSourceEpoch: number,
+  ): Promise<void>;
+  completeMigration(record: ProfileMigrationRecordV1): void | Promise<void>;
 }
 
 const STORAGE_CODES = new Set<ProfileStorageErrorCode>([
@@ -186,8 +201,13 @@ export class ProfileMigrationCoordinator {
     ) {
       throw new ProfileMigrationError('PROFILE_STORAGE_TARGET_UNAVAILABLE');
     }
+    // `switching` is the durable point at which both target planes have been
+    // verified. A Remote source may already have accepted the idempotent
+    // moved epoch while its response was lost, so retry must never go back to
+    // copying or attempt to revive it.
+    const resumeSwitch = record.phase === 'switching';
     this.deps.catalog.updateMigration(operationId, {
-      phase: 'copying',
+      phase: resumeSwitch ? 'switching' : 'copying',
       ...(record.source.kind === 'remote'
         ? { sourceGeneration: this.requireGeneration(source) }
         : {}),
@@ -228,40 +248,79 @@ export class ProfileMigrationCoordinator {
     const source = this.provider(initial.source);
     const target = this.provider(initial.target);
     try {
-      const bundle = await source.readBundle(initial.profileId);
-      this.assertCurrent(initial, source, target);
+      if (initial.phase !== 'switching') {
+        const bundle = await source.readBundle(initial.profileId);
+        this.assertCurrent(initial, source, target);
 
-      await target.stage(initial.operationId, bundle);
-      this.assertCurrent(initial, source, target);
+        await target.stage(initial.operationId, bundle);
+        this.assertCurrent(initial, source, target);
 
-      this.deps.catalog.updateMigration(initial.operationId, {
-        phase: 'verifying',
-        errorCode: undefined,
-        updatedAt: this.now(),
-      });
-      this.changed();
-      const nonce = this.randomNonce();
-      if (!Buffer.isBuffer(nonce) || nonce.length < 16) {
-        throw new ProfileMigrationError('PROFILE_STORAGE_IO_FAILED');
+        this.deps.catalog.updateMigration(initial.operationId, {
+          phase: 'verifying',
+          errorCode: undefined,
+          updatedAt: this.now(),
+        });
+        this.changed();
+        const nonce = this.randomNonce();
+        if (!Buffer.isBuffer(nonce) || nonce.length < 16) {
+          throw new ProfileMigrationError('PROFILE_STORAGE_IO_FAILED');
+        }
+        const expected = profileBundleVerificationDigest(bundle, nonce);
+        const actual = await target.verify(initial.operationId, nonce);
+        this.assertCurrent(initial, source, target);
+        if (
+          actual.length !== expected.length ||
+          !timingSafeEqual(actual, expected)
+        ) {
+          throw new ProfileMigrationError('PROFILE_STORAGE_CORRUPT');
+        }
+
+        this.deps.catalog.updateMigration(initial.operationId, {
+          phase: 'switching',
+          errorCode: undefined,
+          updatedAt: this.now(),
+        });
+        this.changed();
       }
-      const expected = profileBundleVerificationDigest(bundle, nonce);
-      const actual = await target.verify(initial.operationId, nonce);
-      this.assertCurrent(initial, source, target);
-      if (
-        actual.length !== expected.length ||
-        !timingSafeEqual(actual, expected)
-      ) {
-        throw new ProfileMigrationError('PROFILE_STORAGE_CORRUPT');
-      }
 
-      this.deps.catalog.updateMigration(initial.operationId, {
-        phase: 'switching',
-        errorCode: undefined,
-        updatedAt: this.now(),
-      });
-      this.changed();
-      await target.publish(initial.operationId, initial.profileId);
-      this.assertCurrent(initial, source, target);
+      // A Remote source's moved epoch is the global commit point. Persist it
+      // before changing the local catalog so every other device is fenced by
+      // the old authority even if this process exits immediately afterwards.
+      if (initial.source.kind === 'remote') {
+        if (!this.deps.continuity) {
+          throw new ProfileMigrationError('PROFILE_STORAGE_INCOMPATIBLE');
+        }
+        // This call is deliberately replayed for every switching-phase run.
+        // It is responsible for idempotently reaching target-prepared even if
+        // the previous process stopped after freezing the source.
+        await this.deps.continuity.prepareMigration(initial);
+        this.assertCurrent(initial, source, target);
+        if (!source.retireAfterMigration) {
+          throw new ProfileMigrationError('PROFILE_STORAGE_INCOMPATIBLE');
+        }
+        const committedSourceEpoch = await source.retireAfterMigration(
+          initial.profileId,
+          initial.operationId,
+          initial.target.kind,
+        );
+        this.assertCurrent(initial, source, target);
+        await target.publish(initial.operationId, initial.profileId);
+        this.assertCurrent(initial, source, target);
+        await this.deps.continuity.activateMigration(
+          initial,
+          committedSourceEpoch,
+        );
+        this.assertCurrent(initial, source, target);
+        // Rebind and confirm every post-freeze pending Cookie operation while
+        // the catalog still routes all external consumers to the old source.
+        // This is replayed on switching restart and therefore safe if the
+        // process exits before the following atomic catalog commit.
+        await this.deps.continuity.completeMigration(initial);
+        this.assertCurrent(initial, source, target);
+      } else {
+        await target.publish(initial.operationId, initial.profileId);
+        this.assertCurrent(initial, source, target);
+      }
 
       const committed = this.deps.catalog.commitMigration(
         initial.operationId,
@@ -280,6 +339,18 @@ export class ProfileMigrationCoordinator {
       if (current.committed) {
         this.deps.catalog.updateMigration(operationId, {
           phase: 'cleanup_pending',
+          errorCode: code,
+          updatedAt: this.now(),
+        });
+      } else if (
+        current.phase === 'switching' &&
+        current.source.kind === 'remote'
+      ) {
+        // The source retire response may have been lost after its durable
+        // epoch write. Preserve the verified switching state and retry the
+        // same operationId; never recopy from or revive the former authority.
+        this.deps.catalog.updateMigration(operationId, {
+          phase: 'switching',
           errorCode: code,
           updatedAt: this.now(),
         });
@@ -302,7 +373,25 @@ export class ProfileMigrationCoordinator {
     if (!record.committed)
       throw new ProfileMigrationError('PROFILE_STORAGE_INVALID_INPUT');
     try {
-      await this.provider(record.source).deleteProfile(record.profileId);
+      const source = this.provider(record.source);
+      if (record.source.kind === 'remote') {
+        if (!source.retireAfterMigration) {
+          throw new ProfileMigrationError('PROFILE_STORAGE_INCOMPATIBLE');
+        }
+        await source.retireAfterMigration(
+          record.profileId,
+          record.operationId,
+          record.target.kind,
+        );
+      } else {
+        await source.deleteProfile(record.profileId);
+      }
+      // Local publish deliberately keeps encrypted staging until the durable
+      // catalog switch so a switching-phase restart can replay it safely.
+      if (record.target.kind === 'local') {
+        await this.provider(record.target).discard(record.operationId);
+      }
+      await this.deps.continuity?.completeMigration(record);
       this.deps.catalog.completeMigration(record.operationId);
       this.changed();
       return null;

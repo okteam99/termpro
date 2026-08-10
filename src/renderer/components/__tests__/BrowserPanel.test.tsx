@@ -9,7 +9,14 @@
 // seedWorkspace)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 
 expect.extend(matchers);
@@ -49,7 +56,101 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  useAppStore.setState({ workspaces: [], activeWorkspaceId: null, browserPanelOpen: false });
+  useAppStore.setState({
+    workspaces: [],
+    activeWorkspaceId: null,
+    browserPanelOpen: false,
+    browserProfiles: [],
+    browserProfilesLoaded: false,
+  });
+});
+
+describe('Remote Profile login-continuity hydration gate', () => {
+  it('test_AC9_browser_reports_restored_or_paused_without_cookie_details', async () => {
+    let resolvePrepare!: (result: {
+      ready: false;
+      reason: 'PROFILE_CONTINUITY_OFFLINE';
+      canRetry: true;
+    }) => void;
+    const pendingPrepare = new Promise<{
+      ready: false;
+      reason: 'PROFILE_CONTINUITY_OFFLINE';
+      canRetry: true;
+    }>((resolve) => {
+      resolvePrepare = resolve;
+    });
+    const prepareContinuity = vi
+      .fn()
+      .mockReturnValueOnce(pendingPrepare)
+      .mockResolvedValueOnce({ ready: true, syncedCount: 4, skippedCount: 1 });
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserProfile: { prepareContinuity },
+    };
+
+    seedWorkspace({
+      tabs: [{ id: 'remote-tab', url: 'https://example.com', title: 'Example' }],
+      activeTabId: 'remote-tab',
+    });
+    useAppStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({
+        ...workspace,
+        browserProfileId: 'remote-profile',
+      })),
+      browserProfilesLoaded: true,
+      browserProfiles: [
+        {
+          id: 'remote-profile',
+          name: 'Shared work',
+          createdAt: 1,
+          storage: { kind: 'remote', hostId: 'host-a' },
+          storageLabel: 'Remote A',
+          availability: 'ready',
+          loginContinuity: {
+            state: 'paused',
+            syncedCount: 0,
+            pendingCount: 1,
+            skippedCount: 0,
+            conflictCount: 0,
+            reasons: ['PROFILE_CONTINUITY_OFFLINE'],
+            canRetry: true,
+          },
+        },
+      ],
+    }));
+
+    const { rerender } = render(<BrowserPanel />);
+    await waitFor(() => expect(prepareContinuity).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Restoring login status…')).toBeInTheDocument();
+    expect(document.querySelector('webview')).toBeNull();
+
+    await act(async () => {
+      resolvePrepare({
+        ready: false,
+        reason: 'PROFILE_CONTINUITY_OFFLINE',
+        canRetry: true,
+      });
+      await pendingPrepare;
+    });
+    expect(screen.getAllByText('Login continuity is paused').length).toBeGreaterThan(0);
+    expect(screen.getByText(/No website request was sent\./)).toBeInTheDocument();
+    expect(document.querySelector('webview')).toBeNull();
+
+    useAppStore.setState((state) => ({
+      browserProfiles: state.browserProfiles.map((profile) => ({
+        ...profile,
+        loginContinuity: profile.loginContinuity
+          ? { ...profile.loginContinuity, state: 'synced', pendingCount: 0 }
+          : undefined,
+      })),
+    }));
+    rerender(<BrowserPanel />);
+    fireEvent.click(screen.getByText('Retry'));
+
+    await waitFor(() => expect(document.querySelector('webview')).not.toBeNull());
+    expect(screen.getByText('Login status restored')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('cookie-name-secret');
+    expect(document.body.textContent).not.toContain('cookie-value-secret');
+  });
 });
 
 describe('BrowserPanel', () => {

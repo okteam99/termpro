@@ -51,6 +51,15 @@ function mockBridge(
     save?: (input: BrowserProfileInput) => Promise<BrowserProfile>;
     delete?: (payload: { id: string }) => Promise<void>;
     storageTargets?: () => Promise<ProfileStorageTargetStatus[]>;
+    remoteAvailable?: () => Promise<
+      Array<{
+        hostId: string;
+        profileId: string;
+        name: string;
+        createdAt: number;
+        epoch: number;
+      }>
+    >;
   } = {},
 ) {
   let remoteEventListener: (() => void) | null = null;
@@ -90,6 +99,14 @@ function mockBridge(
     retryStorageChange: vi.fn(async () => ({
       accepted: true as const,
       operationId: 'operation-1',
+    })),
+    listRemoteAvailable: vi.fn(overrides.remoteAvailable ?? (async () => [])),
+    joinRemote: vi.fn(async () => profile()),
+    retryContinuity: vi.fn(async () => undefined),
+    prepareContinuity: vi.fn(async () => ({
+      ready: true as const,
+      syncedCount: 0,
+      skippedCount: 0,
     })),
     onChanged: vi.fn(() => () => undefined),
   };
@@ -146,7 +163,7 @@ describe('BrowserProfilesSection', () => {
 
     expect(screen.getByText('OkWork (built-in)')).toBeInTheDocument();
     expect(screen.getByText('Built-in')).toBeInTheDocument();
-    expect(screen.getAllByText('Password storage: This device')).toHaveLength(
+    expect(screen.getAllByText('Storage location: This device')).toHaveLength(
       3,
     );
 
@@ -366,7 +383,7 @@ describe('BrowserProfilesSection', () => {
     render(<BrowserProfilesSection />);
 
     expect(
-      screen.getByText('Password storage: build-box · Offline'),
+      screen.getByText('Storage location: build-box · Offline'),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/The page session may continue with local cookies/),
@@ -402,5 +419,64 @@ describe('BrowserProfilesSection', () => {
         operationId: 'operation-1',
       }),
     );
+  });
+
+  it('test_AC9_renders_sanitized_login_continuity_summary_and_recovery_actions', async () => {
+    const bridge = mockBridge({
+      remoteAvailable: async () => [
+        {
+          hostId: 'host-1',
+          profileId: 'b'.repeat(32),
+          name: 'Shared browsing',
+          createdAt: 2,
+          epoch: 0,
+        },
+      ],
+    });
+    useAppStore.setState({
+      browserProfiles: [
+        profile({
+          storage: { kind: 'remote', hostId: 'host-1' },
+          storageLabel: 'build-box',
+          loginContinuity: {
+            state: 'attention',
+            syncedCount: 12,
+            pendingCount: 2,
+            skippedCount: 3,
+            conflictCount: 1,
+            reasons: ['COOKIE_SESSION_POLICY'],
+            canRetry: true,
+          },
+        }),
+      ],
+    });
+    render(<BrowserProfilesSection />);
+
+    expect(screen.getByText('Storage location: build-box')).toBeInTheDocument();
+    expect(
+      screen.getByText('Login continuity · Needs attention'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/12 synced · 2 pending · 3 skipped · 1 conflicts/)).toBeInTheDocument();
+    expect(
+      screen.getByText('Session-only cookie kept on this device'),
+    ).toBeInTheDocument();
+
+    const useButton = await screen.findByText('Use on this device');
+    expect(screen.getByText('Shared browsing')).toBeInTheDocument();
+    fireEvent.click(useButton);
+    await waitFor(() =>
+      expect(bridge.joinRemote).toHaveBeenCalledWith({
+        hostId: 'host-1',
+        profileId: 'b'.repeat(32),
+      }),
+    );
+
+    fireEvent.click(screen.getByText('Retry'));
+    await waitFor(() =>
+      expect(bridge.retryContinuity).toHaveBeenCalledWith({ profileId: 'p1' }),
+    );
+    expect(screen.queryByText(/AUTHORITY/i)).toBeNull();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(screen.queryByText(/example\.com|session-token|cookie-value/i)).toBeNull();
   });
 });

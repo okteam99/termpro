@@ -32,6 +32,7 @@ import {
 const STAGING_DIRECTORY = 'browser-profile-migration-staging';
 const DEFAULT_PROFILE_FILE = 'browser-default-profile.json';
 const STAGING_VERSION = 1 as const;
+const PUBLISHED_RECEIPT_VERSION = 1 as const;
 const DEFAULT_PROFILE_DOCUMENT_VERSION = 1 as const;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -40,6 +41,11 @@ interface LocalStagingEnvelopeV1 {
   version: typeof STAGING_VERSION;
   algorithm: 'safe-storage';
   encryptedBundle: string;
+}
+
+interface LocalPublishedReceiptV1 {
+  version: typeof PUBLISHED_RECEIPT_VERSION;
+  profileId: string;
 }
 
 interface DefaultProfileDocumentV1 {
@@ -281,6 +287,7 @@ export class LocalProfileProvider implements ProfileDataProvider {
   }
 
   async publish(operationId: string, profileId: string): Promise<void> {
+    if (this.hasPublishedReceipt(operationId, profileId)) return;
     const bundle = this.readStagedBundle(operationId);
     if (!validBundle(bundle, profileId)) {
       throw new LocalProfileProviderError('PROFILE_STORAGE_PROFILE_MISMATCH');
@@ -290,6 +297,17 @@ export class LocalProfileProvider implements ProfileDataProvider {
         this.writeDefaultProfile(bundle.profile);
       else this.deps.profiles.replaceProfile(bundle.profile);
       this.deps.vault.replaceProfile(profileId, bundle.credentials);
+      const receipt: LocalPublishedReceiptV1 = {
+        version: PUBLISHED_RECEIPT_VERSION,
+        profileId,
+      };
+      // Persist the non-secret receipt before consuming encrypted staging so
+      // a switching-phase restart can distinguish an accepted publish from a
+      // missing/corrupt staging envelope.
+      this.writePrivateFile(
+        this.publishedReceiptPath(operationId),
+        JSON.stringify(receipt),
+      );
       this.deletePrivateFile(this.stagingPath(operationId));
     } catch (error) {
       if (error instanceof LocalProfileProviderError) throw error;
@@ -303,6 +321,32 @@ export class LocalProfileProvider implements ProfileDataProvider {
       throw new LocalProfileProviderError('PROFILE_STORAGE_INVALID_INPUT');
     }
     this.deletePrivateFile(this.stagingPath(operationId));
+    this.deletePrivateFile(this.publishedReceiptPath(operationId));
+  }
+
+  private hasPublishedReceipt(
+    operationId: string,
+    profileId: string,
+  ): boolean {
+    if (!UUID_RE.test(operationId) || !isProfileId(profileId)) {
+      throw new LocalProfileProviderError('PROFILE_STORAGE_INVALID_INPUT');
+    }
+    try {
+      const raw = JSON.parse(
+        fs.readFileSync(this.publishedReceiptPath(operationId), 'utf8'),
+      ) as Partial<LocalPublishedReceiptV1>;
+      if (
+        raw.version !== PUBLISHED_RECEIPT_VERSION ||
+        raw.profileId !== profileId
+      ) {
+        throw new LocalProfileProviderError('PROFILE_STORAGE_CORRUPT');
+      }
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      if (error instanceof LocalProfileProviderError) throw error;
+      throw new LocalProfileProviderError('PROFILE_STORAGE_CORRUPT');
+    }
   }
 
   private readStagedBundle(operationId: string): ProfileBundleV1 {
@@ -444,6 +488,14 @@ export class LocalProfileProvider implements ProfileDataProvider {
 
   private stagingPath(operationId: string): string {
     return path.join(this.root(), STAGING_DIRECTORY, `${operationId}.json`);
+  }
+
+  private publishedReceiptPath(operationId: string): string {
+    return path.join(
+      this.root(),
+      STAGING_DIRECTORY,
+      `${operationId}.published.json`,
+    );
   }
 
   private defaultProfilePath(): string {

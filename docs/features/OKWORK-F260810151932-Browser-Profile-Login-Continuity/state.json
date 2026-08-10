@@ -20,9 +20,9 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "blueprint",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "f161367",
   "worktree": {
     "strategy": "auto",
     "branch": "feature/okwork-f260810151932-browser-profile-login-continuity",
@@ -92,16 +92,32 @@
       "active_minutes": 1
     },
     "blueprint": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T17:12:57Z",
+      "evidence": {},
+      "completed_at": "2026-08-10T17:20:53Z",
+      "auto_commit": "f161367",
+      "artifacts": [
+        "TC.md",
+        "TECH.md"
+      ],
+      "duration_minutes": 7,
+      "active_minutes": 7
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T17:12:57Z"
+      "started_at": "2026-08-10T17:20:53Z"
     }
   },
   "completed_stages": [
     "goal",
     "ui_design",
-    "panorama_sync"
+    "panorama_sync",
+    "blueprint"
   ],
   "created_at": "2026-08-10T15:20:31Z",
   "stage_review_roles": {
@@ -122,11 +138,11 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T17:13:05Z",
+  "updated_at": "2026-08-10T17:21:04Z",
   "updated_by": "add-concern",
-  "_state_checksum": "sha256:33aa5e7f57f8e4bac8f54e8e12c07eabec95d654b0c9c3e7f0a7adc13116dd7c",
+  "_state_checksum": "sha256:08bf8dc34a4d4b5fb5d46e4871dfb834e5f08a5114d72b279b124865ca12d09b",
   "legal_next_stages": [
-    "dev"
+    "review"
   ],
   "execution_hints": {
     "ui_design_needed": true,

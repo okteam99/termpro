@@ -20,12 +20,30 @@ import {
   type PasswordMetadataQuery,
 } from '../shared/passwordVault';
 import {
+  PROFILE_CONTINUITY_ITEM_MAX_BYTES,
+  PROFILE_CONTINUITY_PAGE_MAX_BYTES,
+  PROFILE_CONTINUITY_VERSION,
+  type ContinuityMigrationDiscardResult,
+  type ContinuityMigrationFreezeResult,
+  type ContinuityMigrationStageResult,
+  type ContinuityMigrationVerifyResult,
+  type ContinuityOperationResult,
+  type ContinuityPage,
+  type ProfileContinuityLifecycleResult,
+  type ProfileRetireResult,
+  type RemoteProfileDiscoverySummary,
+} from '../shared/profileContinuity';
+import {
   REMOTE_PROFILE_BUNDLE_VERSION,
   REMOTE_PROFILE_RPC_VERSION,
   type DecryptedProfileCredential,
   type ProfileBundleV1,
   type RemoteProfileDescription,
 } from '../shared/remoteProfileStore';
+import {
+  ProfileContinuityStore,
+  ProfileContinuityStoreError,
+} from './profileContinuityStore';
 import {
   RemoteProfileCrypto,
   RemoteProfileStoreError,
@@ -336,10 +354,12 @@ export class RemoteProfileStore {
   readonly rootDirectory: string;
   readonly profilesDirectory: string;
   readonly stagingDirectory: string;
+  readonly continuityDirectory: string;
   readonly grantsPath: string;
 
   private readonly now: () => number;
   private readonly crypto: RemoteProfileCrypto;
+  private readonly continuity: ProfileContinuityStore;
 
   constructor(deps: RemoteProfileStoreDeps) {
     if (!path.isAbsolute(deps.dataDir)) {
@@ -348,6 +368,7 @@ export class RemoteProfileStore {
     this.rootDirectory = path.join(deps.dataDir, 'profile-store');
     this.profilesDirectory = path.join(this.rootDirectory, 'profiles');
     this.stagingDirectory = path.join(this.rootDirectory, 'staging');
+    this.continuityDirectory = path.join(this.rootDirectory, 'continuity');
     this.grantsPath = path.join(this.rootDirectory, 'grants.json');
     this.now = deps.now ?? Date.now;
     ensurePrivateDirectory(this.rootDirectory);
@@ -356,6 +377,10 @@ export class RemoteProfileStore {
     this.crypto = new RemoteProfileCrypto(this.rootDirectory, () =>
       this.hasCiphertext(),
     );
+    this.continuity = new ProfileContinuityStore({
+      rootDirectory: this.rootDirectory,
+      now: this.now,
+    });
   }
 
   describe(): RemoteProfileDescription {
@@ -363,7 +388,56 @@ export class RemoteProfileStore {
       protocolVersion: REMOTE_PROFILE_RPC_VERSION,
       bundleVersion: REMOTE_PROFILE_BUNDLE_VERSION,
       encryption: 'aes-256-gcm',
+      continuity: {
+        version: PROFILE_CONTINUITY_VERSION,
+        pageMaxBytes: PROFILE_CONTINUITY_PAGE_MAX_BYTES,
+        itemMaxBytes: PROFILE_CONTINUITY_ITEM_MAX_BYTES,
+      },
     };
+  }
+
+  discoverProfiles(
+    clientId: string,
+    generation: string,
+  ): RemoteProfileDiscoverySummary[] {
+    if (
+      !isRemoteProfileClientId(clientId) ||
+      !isRemoteProfileGeneration(generation)
+    ) {
+      throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
+    }
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(this.profilesDirectory, {
+        withFileTypes: true,
+      });
+    } catch (error) {
+      if (!isRecord(error) || error.code !== 'ENOENT') {
+        throw new RemoteProfileStoreError('PROFILE_RPC_IO_FAILED');
+      }
+      return [];
+    }
+    const summaries: RemoteProfileDiscoverySummary[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith('.json'))
+        continue;
+      const profileId = entry.name.slice(0, -'.json'.length);
+      if (!isRemoteProfileId(profileId)) continue;
+      const lifecycle = this.continuity.lifecycle(profileId);
+      if (lifecycle.lifecycle !== 'active') continue;
+      const profile = this.readBundle(profileId).profile;
+      summaries.push({
+        profileId,
+        name: profile.name,
+        createdAt: profile.createdAt,
+        epoch: lifecycle.epoch,
+      });
+    }
+    return summaries.sort(
+      (left, right) =>
+        left.createdAt - right.createdAt ||
+        left.profileId.localeCompare(right.profileId),
+    );
   }
 
   issueGrant(
@@ -440,10 +514,12 @@ export class RemoteProfileStore {
   }
 
   getProfile(profileId: string): BrowserProfile {
+    this.continuity.assertActive(profileId);
     return this.readBundle(profileId).profile;
   }
 
   saveProfile(profileId: string, profile: unknown): BrowserProfile {
+    this.continuity.assertActive(profileId);
     let parsedProfile: BrowserProfile;
     try {
       parsedProfile = parseProfile(profile, profileId);
@@ -480,6 +556,7 @@ export class RemoteProfileStore {
     profileId: string,
     query: PasswordMetadataQuery = {},
   ): PasswordCredentialMetadata[] {
+    this.continuity.assertActive(profileId);
     if (!isRecord(query) || !hasOnlyKeys(query, ['profileId', 'query'])) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
     }
@@ -505,6 +582,7 @@ export class RemoteProfileStore {
   }
 
   lookupVault(profileId: string, origin: string): DecryptedProfileCredential[] {
+    this.continuity.assertActive(profileId);
     if (!isCanonicalHttpOrigin(origin)) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
     }
@@ -516,6 +594,7 @@ export class RemoteProfileStore {
   }
 
   getVaultEntry(profileId: string, id: string): DecryptedProfileCredential {
+    this.continuity.assertActive(profileId);
     if (!isRemoteProfileEntryId(id)) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
     }
@@ -535,6 +614,7 @@ export class RemoteProfileStore {
       now?: unknown;
     },
   ): { kind: 'saved' | 'updated'; metadata: PasswordCredentialMetadata } {
+    this.continuity.assertActive(profileId);
     if (
       !isCanonicalHttpOrigin(input.origin) ||
       typeof input.username !== 'string' ||
@@ -591,6 +671,7 @@ export class RemoteProfileStore {
   }
 
   deleteVaultEntry(profileId: string, id: string): boolean {
+    this.continuity.assertActive(profileId);
     if (!isRemoteProfileEntryId(id)) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
     }
@@ -602,6 +683,7 @@ export class RemoteProfileStore {
   }
 
   exportBundle(profileId: string): ProfileBundleV1 {
+    this.continuity.assertActive(profileId);
     return this.readBundle(profileId);
   }
 
@@ -610,6 +692,7 @@ export class RemoteProfileStore {
     profileId: string,
     bundle: unknown,
   ): void {
+    this.continuity.assertActive(profileId);
     if (!isRemoteProfileOperationId(operationId)) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
     }
@@ -637,6 +720,7 @@ export class RemoteProfileStore {
     profileId: string,
     nonce: string,
   ): string {
+    this.continuity.assertActive(profileId);
     if (!isRemoteProfileOperationId(operationId)) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
     }
@@ -664,9 +748,15 @@ export class RemoteProfileStore {
     if (!isRemoteProfileOperationId(operationId)) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
     }
+    this.continuity.assertBundlePublishAllowed(profileId, operationId);
     const stagedFile = this.stagingPath(operationId);
     const serialized = readPrivateFile(stagedFile);
-    if (!serialized) throw new RemoteProfileStoreError('PROFILE_RPC_NOT_FOUND');
+    if (!serialized) {
+      // Switching retries after the first atomic publish are idempotent while
+      // the matching continuity target remains prepared.
+      this.readBundle(profileId);
+      return;
+    }
     // Decrypt before publish so corrupt/mis-scoped staging can never become live.
     parseRemoteProfileBundle(
       this.crypto.decrypt(profileId, serialized.toString('utf8')),
@@ -674,6 +764,12 @@ export class RemoteProfileStore {
     );
     ensurePrivateDirectory(this.profilesDirectory);
     atomicWritePrivateFile(this.profilePath(profileId), serialized);
+    try {
+      this.continuity.assertBundlePublishAllowed(profileId, operationId);
+    } catch (error) {
+      deletePrivateFile(this.profilePath(profileId));
+      throw error;
+    }
     deletePrivateFile(stagedFile);
   }
 
@@ -687,9 +783,102 @@ export class RemoteProfileStore {
     return deletePrivateFile(this.stagingPath(operationId));
   }
 
+  getProfileLifecycle(profileId: string): ProfileContinuityLifecycleResult {
+    const lifecycle = this.continuity.lifecycle(profileId);
+    if (lifecycle.lifecycle === 'active') this.readBundle(profileId);
+    return lifecycle;
+  }
+
+  pullContinuity(profileId: string, input: unknown): ContinuityPage {
+    // A grant for a not-yet-created migration target cannot manufacture a
+    // Cookie authority without the strict v1 Profile bundle.
+    this.readBundle(profileId);
+    return this.continuity.pull(profileId, input);
+  }
+
+  pushContinuity(profileId: string, input: unknown): ContinuityOperationResult {
+    this.continuity.assertActive(profileId);
+    this.readBundle(profileId);
+    return this.continuity.push(profileId, input);
+  }
+
+  stageContinuityMigration(
+    profileId: string,
+    input: unknown,
+  ): ContinuityMigrationStageResult {
+    if (
+      !this.continuity.hasDocument(profileId) &&
+      readPrivateFile(this.profilePath(profileId))
+    ) {
+      throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
+    }
+    return this.continuity.stageMigration(profileId, input);
+  }
+
+  verifyContinuityMigration(
+    profileId: string,
+    input: unknown,
+  ): ContinuityMigrationVerifyResult {
+    return this.continuity.verifyMigration(profileId, input);
+  }
+
+  freezeContinuityMigration(
+    profileId: string,
+    input: unknown,
+  ): ContinuityMigrationFreezeResult {
+    this.readBundle(profileId);
+    return this.continuity.freezeMigration(profileId, input);
+  }
+
+  publishContinuityMigration(
+    profileId: string,
+    input: unknown,
+  ): ContinuityMigrationFreezeResult {
+    return this.continuity.publishMigration(profileId, input);
+  }
+
+  activateContinuityMigration(
+    profileId: string,
+    input: unknown,
+  ): ProfileContinuityLifecycleResult {
+    this.readBundle(profileId);
+    return this.continuity.activateMigration(profileId, input);
+  }
+
+  discardContinuityMigration(
+    profileId: string,
+    input: unknown,
+  ): ContinuityMigrationDiscardResult {
+    const result = this.continuity.discardContinuityMigration(profileId, input);
+    if (result.role === 'target') {
+      deletePrivateFile(this.profilePath(profileId));
+      this.continuity.finalizeTargetMigrationDiscard(
+        profileId,
+        result.operationId,
+      );
+    }
+    return result;
+  }
+
+  retireProfile(profileId: string, input: unknown): ProfileRetireResult {
+    const lifecycle = this.continuity.lifecycle(profileId);
+    if (lifecycle.lifecycle === 'active') this.readBundle(profileId);
+    const result = this.continuity.retire(profileId, input);
+    // The epoch is durable before either physical plane is cleaned. A failure
+    // here leaves a retryable retired document and never restores authority.
+    deletePrivateFile(this.profilePath(profileId));
+    this.continuity.finalizeRetire(profileId, result.operationId);
+    return result;
+  }
+
   deleteProfile(profileId: string): boolean {
     if (!isRemoteProfileId(profileId)) {
       throw new RemoteProfileStoreError('PROFILE_RPC_INVALID_INPUT');
+    }
+    if (this.continuity.hasDocument(profileId)) {
+      throw new ProfileContinuityStoreError(
+        'PROFILE_CONTINUITY_LEGACY_DELETE_FORBIDDEN',
+      );
     }
     // Revoke first. If bundle cleanup subsequently fails, no previously
     // issued client can keep reading the profile during delete_failed recovery.
@@ -737,15 +926,27 @@ export class RemoteProfileStore {
 
   private writeBundle(profileId: string, bundle: ProfileBundleV1): void {
     const parsed = parseRemoteProfileBundle(bundle, profileId);
+    this.continuity.assertActive(profileId);
     ensurePrivateDirectory(this.profilesDirectory);
     atomicWritePrivateFile(
       this.profilePath(profileId),
       this.crypto.encrypt(profileId, parsed),
     );
+    try {
+      this.continuity.assertActive(profileId);
+    } catch (error) {
+      deletePrivateFile(this.profilePath(profileId));
+      throw error;
+    }
   }
 
   private hasCiphertext(): boolean {
-    for (const directory of [this.profilesDirectory, this.stagingDirectory]) {
+    for (const directory of [
+      this.profilesDirectory,
+      this.stagingDirectory,
+      this.continuityDirectory,
+      this.continuity.migrationDirectory,
+    ]) {
       try {
         if (
           fs

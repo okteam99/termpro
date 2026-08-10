@@ -351,39 +351,39 @@ sequenceDiagram
 
 | TC 用例 | 测试方法名 | 状态 |
 |---------|-----------|------|
-| T-001 | `test_AC1_catalog_lists_joinable_profiles_and_rejects_fixed_join_outcomes` | ☐ |
-| T-002 | `test_AC1_hydration_gate_blocks_navigation_until_current_generation_finishes` | ☐ |
-| T-003 | `test_AC2_cookie_identity_is_stable_across_profile_partitions` | ☐ |
-| T-004 | `test_AC2_applies_authoritative_persistent_cookie_once_and_skips_session_cookie` | ☐ |
-| T-005 | `test_AC3_cookie_operations_are_idempotent_and_converge_by_host_revision` | ☐ |
-| T-006 | `test_AC4_tombstone_rejects_stale_cookie_without_treating_eviction_as_delete` | ☐ |
-| T-007 | `test_AC5_v1_bundle_remains_usable_and_cookie_capability_is_explicit` | ☐ |
-| T-008 | `test_AC5_cookie_seed_and_migration_resume_by_confirmed_cursor_under_payload_limit` | ☐ |
-| T-009 | `test_AC6_offline_cookie_changes_survive_restart_and_commit_after_reconnect` | ☐ |
-| T-010 | `test_AC6_late_generation_response_is_ignored_and_new_navigation_remains_gated` | ☐ |
-| T-011 | `test_AC7_cookie_payloads_are_redacted_from_renderer_dtos_and_logs` | ☐ |
-| T-012 | `test_AC7_cookie_authority_and_pending_journal_are_encrypted_with_private_permissions` | ☐ |
-| T-013 | `test_AC8_invalid_or_oversize_cookie_is_skipped_without_rolling_back_confirmed_pages` | ☐ |
-| T-014 | `test_AC9_renders_sanitized_login_continuity_summary_and_recovery_actions` | ☐ |
-| T-015 | `test_AC9_browser_reports_restored_or_paused_without_cookie_details` | ☐ |
-| T-016 | `test_AC10_delete_move_epoch_prevents_stale_catalog_or_journal_revival` | ☐ |
-| T-017 | `test_AC10_remote_to_local_ends_sharing_and_cleanup_is_retryable_after_commit` | ☐ |
+| T-001 | `test_AC1_catalog_lists_joinable_profiles_and_rejects_fixed_join_outcomes` | ✅ |
+| T-002 | `test_AC1_hydration_gate_blocks_navigation_until_current_generation_finishes` | ✅ |
+| T-003 | `test_AC2_cookie_identity_is_stable_across_profile_partitions` | ✅ |
+| T-004 | `test_AC2_applies_authoritative_persistent_cookie_once_and_skips_session_cookie` | ✅ |
+| T-005 | `test_AC3_cookie_operations_are_idempotent_and_converge_by_host_revision` | ✅ |
+| T-006 | `test_AC4_tombstone_rejects_stale_cookie_without_treating_eviction_as_delete` | ✅ |
+| T-007 | `test_AC5_v1_bundle_remains_usable_and_cookie_capability_is_explicit` | ✅ |
+| T-008 | `test_AC5_cookie_seed_and_migration_resume_by_confirmed_cursor_under_payload_limit` | ✅ |
+| T-009 | `test_AC6_offline_cookie_changes_survive_restart_and_commit_after_reconnect` | ✅ |
+| T-010 | `test_AC6_late_generation_response_is_ignored_and_new_navigation_remains_gated` | ✅ |
+| T-011 | `test_AC7_cookie_payloads_are_redacted_from_renderer_dtos_and_logs` | ✅ |
+| T-012 | `test_AC7_cookie_authority_and_pending_journal_are_encrypted_with_private_permissions` | ✅ |
+| T-013 | `test_AC8_invalid_or_oversize_cookie_is_skipped_without_rolling_back_confirmed_pages` | ✅ |
+| T-014 | `test_AC9_renders_sanitized_login_continuity_summary_and_recovery_actions` | ✅ |
+| T-015 | `test_AC9_browser_reports_restored_or_paused_without_cookie_details` | ✅ |
+| T-016 | `test_AC10_delete_move_epoch_prevents_stale_catalog_or_journal_revival` | ✅ |
+| T-017 | `test_AC10_remote_to_local_ends_sharing_and_cleanup_is_retryable_after_commit` | ✅ |
 
 ### 实现步骤
 
 | # | 步骤 | 类型 | 验证方式 | 状态 |
 |---|------|------|----------|------|
-| 1 | 新增 shared continuity 类型、identity/支持矩阵、分页常量 | contract | T-003 + typecheck | ☐ |
-| 2 | 以测试先锁定 v1 bundle 不变和 additive capability/RPC parser | contract | T-007 | ☐ |
-| 3 | 实现 Host 加密 continuity store、profile lock、revision/幂等/tombstone | backend | T-005, T-006, T-012 | ☐ |
-| 4 | 实现 Host discover/lifecycle/pull/push 与有界分页 | backend | T-001, T-013 | ☐ |
-| 5 | 实现 main safeStorage journal 与 Electron Cookie adapter/reducer | main | T-004, T-009, T-012 | ☐ |
-| 6 | 实现 controller seed/pull/push、generation、回声抑制与脱敏 summary | main | T-004, T-009, T-010, T-011, T-013 | ☐ |
-| 7 | 接入 discover/join IPC 与 catalog authority 冲突检查 | integration | T-001 | ☐ |
-| 8 | 接入 prepare + webview attach 双门及 reload/recover 调用面 | integration/UI | T-002, T-010, T-015 | ☐ |
-| 9 | 扩展迁移/删除为 continuity stage/freeze/retire/activate/cleanup | workflow | T-008, T-016, T-017 | ☐ |
-| 10 | 按已确认全景实现 Browser Profiles/OkBrowser 状态与确认文案 | UI | T-014, T-015 + 设计核对 | ☐ |
-| 11 | 跑定向测试、全量 test/typecheck/lint、verify-ac、Electron E2E | verification | 全门禁 | ☐ |
+| 1 | 新增 shared continuity 类型、identity/支持矩阵、分页常量 | contract | T-003 + typecheck | ✅ |
+| 2 | 以测试先锁定 v1 bundle 不变和 additive capability/RPC parser | contract | T-007 | ✅ |
+| 3 | 实现 Host 加密 continuity store、profile lock、revision/幂等/tombstone | backend | T-005, T-006, T-012 | ✅ |
+| 4 | 实现 Host discover/lifecycle/pull/push 与有界分页 | backend | T-001, T-013 | ✅ |
+| 5 | 实现 main safeStorage journal 与 Electron Cookie adapter/reducer | main | T-004, T-009, T-012 | ✅ |
+| 6 | 实现 controller seed/pull/push、generation、回声抑制与脱敏 summary | main | T-004, T-009, T-010, T-011, T-013 | ✅ |
+| 7 | 接入 discover/join IPC 与 catalog authority 冲突检查 | integration | T-001 | ✅ |
+| 8 | 接入 prepare + webview attach 双门及 reload/recover 调用面 | integration/UI | T-002, T-010, T-015 | ✅ |
+| 9 | 扩展迁移/删除为 continuity stage/freeze/retire/activate/cleanup | workflow | T-008, T-016, T-017 | ✅ |
+| 10 | 按已确认全景实现 Browser Profiles/OkBrowser 状态与确认文案 | UI | T-014, T-015 + 设计核对 | ✅ |
+| 11 | 跑定向测试、全量 test/typecheck/lint、verify-ac、Electron E2E | verification | 全门禁 | ✅ |
 
 ## 风险与缓解
 
@@ -413,20 +413,20 @@ sequenceDiagram
 
 **对照本 TECH 的设计落地:**
 
-- [ ] **现状基线**: 实现中关键前提仍成立
-- [ ] **§错误处理/异常路径**: 每条失败路径已实现并有测试
-- [ ] **错误/异常有 WARN/ERROR 日志**: 且日志不含 Cookie identity/value
-- [ ] **§依赖与影响**: 消费方经 typecheck/grep 收敛
-- [ ] **§数据结构**: shared ↔ Host ↔ main ↔ renderer 字段一致
-- [ ] **§数据库变更**: N-A，无 DB/SQL
-- [ ] **涉 SQL 查询**: N-A，无 SQL
-- [ ] **§测试策略**: Host RPC/main/renderer 契约与 E2E 均已覆盖
+- [x] **现状基线**: 实现中关键前提仍成立；Cookie plane 独立于严格 bundle v1，Profile authority 仍由 catalog/provider 路由
+- [x] **§错误处理/异常路径**: capability mismatch、offline、generation stale、分页恢复、retire/migration retry 均有 T-001～T-017 覆盖
+- [x] **错误/异常有 WARN/ERROR 日志**: renderer DTO/日志只有固定码和计数；T-011 锁定不含 Cookie identity/value
+- [x] **§依赖与影响**: shared/Host/main/preload/renderer 消费方已同步，最终由 typecheck 与全量测试收敛
+- [x] **§数据结构**: shared ↔ Host ↔ main ↔ renderer 使用同一 parser/DTO，renderer 仅接收 sanitized summary
+- [x] **§数据库变更**: N-A，无 DB/SQL；Host 使用加密原子文件与 profile lock
+- [x] **涉 SQL 查询**: N-A，无 SQL
+- [x] **§测试策略**: Host RPC/main/renderer 契约、Electron 实际启动与 hydration 浏览器行为均已覆盖
 
 **通用质量门:**
 
-- [ ] 规范符合 DEV-RULES / HARD-RULES
-- [ ] build/typecheck/lint/test 通过
-- [ ] UI 设计↔实际一致性核对完成
+- [x] 规范符合 DEV-RULES / HARD-RULES；敏感数据边界、稳定 operationId、epoch/generation 均显式实现
+- [x] build/typecheck/lint/test 通过；最终结果与代码指纹记录在独立验证日志
+- [x] UI 设计↔实际一致性核对完成，证据见 `dev-visual-evidence.md`
 
 ## 🧩 补充洞察
 

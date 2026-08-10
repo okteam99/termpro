@@ -159,6 +159,27 @@
   color: var(--red);
 }
 
+.browser-panel__continuity-status {
+  flex: none;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  font-size: 10px;
+}
+
+.browser-panel__continuity-status--paused,
+.browser-panel__continuity-status--moved {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+}
+
+.browser-panel__continuity-status--host_upgrade,
+.browser-panel__continuity-status--attention {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 7%, transparent);
+}
+
 /* ── 网络出口选择器(session 级,所有标签共享同一出口) ── */
 .browser-panel__net {
   position: relative;
@@ -281,6 +302,40 @@
   position: relative;
   flex: 1;
   overflow: hidden;
+}
+
+.browser-panel__continuity-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--fg-dim);
+  background: var(--bg-panel);
+  text-align: center;
+  font-size: 11px;
+}
+
+.browser-panel__continuity-gate strong {
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.browser-panel__continuity-gate--blocked {
+  color: var(--red);
+}
+
+.browser-panel__continuity-gate button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  background: var(--bg-hover);
+  cursor: pointer;
 }
 
 .browser-panel__empty {

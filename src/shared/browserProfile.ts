@@ -165,7 +165,57 @@ export interface BrowserProfileSummary extends BrowserProfile {
   storageLabel: string;
   availability: ProfileStorageAvailability;
   migration?: ProfileMigrationStatus;
+  /** Renderer-safe aggregate. Cookie identity and payload are forbidden here. */
+  loginContinuity?: LoginContinuitySummary;
 }
+
+export type LoginContinuityState =
+  | 'not_available'
+  | 'host_upgrade'
+  | 'hydrating'
+  | 'syncing'
+  | 'synced'
+  | 'paused'
+  | 'attention'
+  | 'moved';
+
+export type LoginContinuityReasonCode =
+  | 'HOST_UPGRADE_REQUIRED'
+  | 'PROFILE_CONTINUITY_OFFLINE'
+  | 'PROFILE_CONTINUITY_TIMEOUT'
+  | 'CONTINUITY_JOURNAL_UNAVAILABLE'
+  | 'CONTINUITY_JOURNAL_CORRUPT'
+  | 'COOKIE_SESSION_POLICY'
+  | 'COOKIE_UNSUPPORTED'
+  | 'COOKIE_TOO_LARGE'
+  | 'COOKIE_APPLY_FAILED'
+  | 'COOKIE_CONFLICT_RESOLVED'
+  | 'PROFILE_MOVED'
+  | 'PROFILE_DELETED';
+
+/** Counts and fixed reason categories are the only continuity data ordinary renderers receive. */
+export interface LoginContinuitySummary {
+  state: LoginContinuityState;
+  syncedCount: number;
+  pendingCount: number;
+  skippedCount: number;
+  conflictCount: number;
+  reasons: LoginContinuityReasonCode[];
+  canRetry: boolean;
+}
+
+/** Active Remote Profile summary returned before the user explicitly joins it. */
+export interface RemoteBrowserProfileSummary {
+  hostId: string;
+  profileId: string;
+  name: string;
+  createdAt: number;
+  epoch: number;
+}
+
+export type BrowserContinuityPrepareResult =
+  | { ready: true; syncedCount: number; skippedCount: number }
+  | { ready: false; reason: LoginContinuityReasonCode; canRetry: boolean };
 
 export interface ProfileStorageChangePlan {
   planId: string;
@@ -242,6 +292,10 @@ export const BROWSER_PROFILE_CHANNELS = {
   planStorageChange: 'browserProfile:planStorageChange',
   confirmStorageChange: 'browserProfile:confirmStorageChange',
   retryStorageChange: 'browserProfile:retryStorageChange',
+  listRemoteAvailable: 'browserProfile:listRemoteAvailable',
+  joinRemote: 'browserProfile:joinRemote',
+  retryContinuity: 'browserProfile:retryContinuity',
+  prepareContinuity: 'browserProfile:prepareContinuity',
   /** 快照变更推送(main→renderer 各窗口):增/删/改后广播全量列表。 */
   changed: 'browserProfile:changed',
 } as const;

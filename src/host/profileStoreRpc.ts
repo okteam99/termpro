@@ -3,11 +3,12 @@ import * as path from 'node:path';
 import {
   REMOTE_PROFILE_RPC_MAX_BYTES,
   REMOTE_PROFILE_RPC_VERSION,
-  type RemoteProfileRpcErrorCode,
   type RemoteProfileRpcOperation,
   type RemoteProfileRpcRequest,
   type RemoteProfileRpcResponse,
+  type RemoteProfileRpcResponseErrorCode,
 } from '../shared/remoteProfileStore';
+import { ProfileContinuityStoreError } from './profileContinuityStore';
 import {
   RemoteProfileStore,
   isRemoteProfileOperationId,
@@ -16,8 +17,10 @@ import { RemoteProfileStoreError } from './remoteProfileCrypto';
 
 const RPC_OPERATIONS = new Set<RemoteProfileRpcOperation>([
   'describe',
+  'profile.discover',
   'grant',
   'profile.get',
+  'profile.lifecycle',
   'profile.save',
   'vault.list',
   'vault.lookup',
@@ -29,6 +32,15 @@ const RPC_OPERATIONS = new Set<RemoteProfileRpcOperation>([
   'migration.verify',
   'migration.publish',
   'migration.discard',
+  'continuity.pull',
+  'continuity.push',
+  'continuity.migration.stage',
+  'continuity.migration.verify',
+  'continuity.migration.freeze',
+  'continuity.migration.publish',
+  'continuity.migration.activate',
+  'continuity.migration.discard',
+  'profile.retire',
   'profile.delete',
   'grant.revoke',
 ]);
@@ -49,7 +61,7 @@ function hasOnlyKeys(
 
 function fixedError(
   requestId: string,
-  code: RemoteProfileRpcErrorCode,
+  code: RemoteProfileRpcResponseErrorCode,
 ): RemoteProfileRpcResponse {
   return { ok: false, requestId, code };
 }
@@ -186,6 +198,22 @@ export function handleRemoteProfileRpc(
       );
     }
 
+    if (request.op === 'profile.discover') {
+      if (
+        typeof request.clientId !== 'string' ||
+        typeof request.generation !== 'string' ||
+        request.profileId !== undefined ||
+        request.capability !== undefined
+      ) {
+        invalidInput(requestId);
+      }
+      requireEmptyPayload(request.payload, requestId);
+      return response(
+        requestId,
+        store.discoverProfiles(request.clientId, request.generation),
+      );
+    }
+
     // Every non-bootstrap operation crosses the same capability gate first.
     // Missing, malformed, wrong-scope, expired and wrong-generation requests
     // deliberately share one response and do not reveal profile existence.
@@ -209,6 +237,9 @@ export function handleRemoteProfileRpc(
       case 'profile.get':
         requireEmptyPayload(request.payload, requestId);
         return response(requestId, store.getProfile(profileId));
+      case 'profile.lifecycle':
+        requireEmptyPayload(request.payload, requestId);
+        return response(requestId, store.getProfileLifecycle(profileId));
       case 'profile.save': {
         const payload = requireObjectPayload(request.payload, requestId, [
           'profile',
@@ -346,6 +377,51 @@ export function handleRemoteProfileRpc(
           ),
         });
       }
+      case 'continuity.pull':
+        return response(
+          requestId,
+          store.pullContinuity(profileId, request.payload),
+        );
+      case 'continuity.push':
+        return response(
+          requestId,
+          store.pushContinuity(profileId, request.payload),
+        );
+      case 'continuity.migration.stage':
+        return response(
+          requestId,
+          store.stageContinuityMigration(profileId, request.payload),
+        );
+      case 'continuity.migration.verify':
+        return response(
+          requestId,
+          store.verifyContinuityMigration(profileId, request.payload),
+        );
+      case 'continuity.migration.freeze':
+        return response(
+          requestId,
+          store.freezeContinuityMigration(profileId, request.payload),
+        );
+      case 'continuity.migration.publish':
+        return response(
+          requestId,
+          store.publishContinuityMigration(profileId, request.payload),
+        );
+      case 'continuity.migration.activate':
+        return response(
+          requestId,
+          store.activateContinuityMigration(profileId, request.payload),
+        );
+      case 'continuity.migration.discard':
+        return response(
+          requestId,
+          store.discardContinuityMigration(profileId, request.payload),
+        );
+      case 'profile.retire':
+        return response(
+          requestId,
+          store.retireProfile(profileId, request.payload),
+        );
       case 'profile.delete':
         requireEmptyPayload(request.payload, requestId);
         return response(requestId, { deleted: store.deleteProfile(profileId) });
@@ -360,6 +436,9 @@ export function handleRemoteProfileRpc(
     const requestId =
       activeRequestId === 'invalid' ? requestIdFrom(error) : activeRequestId;
     if (error instanceof RemoteProfileStoreError) {
+      return fixedError(requestId, error.code);
+    }
+    if (error instanceof ProfileContinuityStoreError) {
       return fixedError(requestId, error.code);
     }
     return fixedError(requestId, 'PROFILE_RPC_IO_FAILED');
@@ -407,6 +486,8 @@ export async function runRemoteProfileRpc(
       requestIdFrom(error),
       error instanceof RemoteProfileStoreError
         ? error.code
+        : error instanceof ProfileContinuityStoreError
+          ? error.code
         : 'PROFILE_RPC_IO_FAILED',
     );
   }

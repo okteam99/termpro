@@ -64,6 +64,16 @@ export interface ProfileDataProvider {
   upsert(input: PasswordUpsertInput): Promise<PasswordUpsertResult>;
   deleteEntry(profileId: string, entryId: string): Promise<boolean>;
   deleteProfile(profileId: string): Promise<boolean>;
+  /**
+   * A Remote migration must retire its former authority as `moved`, not reuse
+   * the destructive delete path. The migration operation id is the durable
+   * idempotency key used again after a cleanup_pending restart.
+   */
+  retireAfterMigration?(
+    profileId: string,
+    operationId: string,
+    movedTo: 'remote' | 'local',
+  ): Promise<number>;
   stage(operationId: string, bundle: ProfileBundleV1): Promise<void>;
   verify(operationId: string, nonce: Buffer): Promise<Buffer>;
   publish(operationId: string, profileId: string): Promise<void>;

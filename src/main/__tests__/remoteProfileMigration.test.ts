@@ -25,6 +25,7 @@ import { ProfileCatalogStore } from '../profileCatalogStore';
 import {
   ProfileMigrationCoordinator,
   canonicalProfileBundleJson,
+  type ProfileContinuityMigrationPort,
 } from '../profileMigrationCoordinator';
 
 const PROFILE_ID = 'b'.repeat(32);
@@ -57,6 +58,16 @@ class MigrationProvider implements ProfileDataProvider {
   generation: string | null;
   failStage = false;
   failCleanup = false;
+  failRetireResponseOnce = false;
+  readonly retireCalls: Array<{
+    profileId: string;
+    operationId: string;
+    movedTo: 'remote' | 'local';
+  }> = [];
+  private readonly retired = new Map<
+    string,
+    { operationId: string; movedTo: 'remote' | 'local' }
+  >();
   blockRead: (() => void) | null = null;
   readStarted: (() => void) | null = null;
 
@@ -139,6 +150,34 @@ class MigrationProvider implements ProfileDataProvider {
       });
     return this.live.delete(profileId);
   }
+  async retireAfterMigration(
+    profileId: string,
+    operationId: string,
+    movedTo: 'remote' | 'local',
+  ): Promise<number> {
+    this.retireCalls.push({ profileId, operationId, movedTo });
+    const retired = this.retired.get(profileId);
+    if (retired) {
+      if (
+        retired.operationId !== operationId ||
+        retired.movedTo !== movedTo
+      ) {
+        throw Object.assign(new Error('fixed'), {
+          code: 'PROFILE_STORAGE_FORBIDDEN',
+        });
+      }
+      return 1;
+    }
+    this.retired.set(profileId, { operationId, movedTo });
+    this.live.delete(profileId);
+    if (this.failRetireResponseOnce) {
+      this.failRetireResponseOnce = false;
+      throw Object.assign(new Error('response lost after durable move'), {
+        code: 'PROFILE_STORAGE_OFFLINE',
+      });
+    }
+    return 1;
+  }
   async stage(operationId: string, value: ProfileBundleV1): Promise<void> {
     if (this.failStage)
       throw Object.assign(new Error('secret must not escape'), {
@@ -157,7 +196,6 @@ class MigrationProvider implements ProfileDataProvider {
     const staged = this.staged.get(operationId);
     if (!staged) throw new Error('missing staging');
     this.live.set(profileId, structuredClone(staged));
-    this.staged.delete(operationId);
   }
   async discard(operationId: string): Promise<void> {
     this.staged.delete(operationId);
@@ -198,6 +236,11 @@ afterEach(() => {
 function coordinator(
   logger?: { warn(message: string): void; error(message: string): void },
   onChanged?: () => void,
+  continuity: ProfileContinuityMigrationPort = {
+    prepareMigration: async () => undefined,
+    activateMigration: async () => undefined,
+    completeMigration: async () => undefined,
+  },
 ) {
   return new ProfileMigrationCoordinator({
     catalog,
@@ -206,6 +249,7 @@ function coordinator(
     randomNonce: () => Buffer.alloc(32, 7),
     logger,
     onChanged,
+    continuity,
   });
 }
 
@@ -322,5 +366,161 @@ describe('Profile migration authority switch', () => {
     });
     expect(catalog.getEntry(PROFILE_ID)?.storage).toEqual({ kind: 'local' });
     expect(target.live.has(PROFILE_ID)).toBe(false);
+  });
+
+  it('test_AC10_delete_move_epoch_prevents_stale_catalog_or_journal_revival', async () => {
+    // Establish the Remote authority first, then migrate it back to this
+    // device. The second migration uses the same durable coordinator record
+    // that production resumes after restart.
+    expect(
+      await coordinator().migrate(PROFILE_ID, {
+        kind: 'remote',
+        hostId: HOST_ID,
+      }),
+    ).toBeNull();
+    expect(catalog.getEntry(PROFILE_ID)?.storage).toEqual({
+      kind: 'remote',
+      hostId: HOST_ID,
+    });
+
+    target.failRetireResponseOnce = true;
+    const first = await coordinator().migrate(PROFILE_ID, { kind: 'local' });
+    expect(first).toMatchObject({
+      operationId: OPERATION_ID,
+      phase: 'switching',
+      committed: false,
+      errorCode: 'PROFILE_STORAGE_OFFLINE',
+    });
+    // The source accepted the moved epoch even though its response was lost;
+    // the local catalog therefore stays on the old authority until the same
+    // operation can finish, and the old Remote bundle cannot be revived.
+    expect(catalog.getEntry(PROFILE_ID)?.storage).toEqual({
+      kind: 'remote',
+      hostId: HOST_ID,
+    });
+    expect(target.live.has(PROFILE_ID)).toBe(false);
+    expect(source.live.has(PROFILE_ID)).toBe(false);
+    expect(source.staged.get(OPERATION_ID)).toEqual(bundle());
+
+    expect(await coordinator().retry(OPERATION_ID)).toBeNull();
+    expect(catalog.getEntry(PROFILE_ID)?.storage).toEqual({ kind: 'local' });
+    expect(source.live.get(PROFILE_ID)).toEqual(bundle());
+    expect(target.live.has(PROFILE_ID)).toBe(false);
+    expect(target.retireCalls).toEqual([
+      { profileId: PROFILE_ID, operationId: OPERATION_ID, movedTo: 'local' },
+      { profileId: PROFILE_ID, operationId: OPERATION_ID, movedTo: 'local' },
+      { profileId: PROFILE_ID, operationId: OPERATION_ID, movedTo: 'local' },
+    ]);
+  });
+
+  it('test_AC5_cookie_seed_and_migration_resume_by_confirmed_cursor_under_payload_limit', async () => {
+    await coordinator().migrate(PROFILE_ID, {
+      kind: 'remote',
+      hostId: HOST_ID,
+    });
+
+    const pageBytes = [400 * 1024, 400 * 1024, 128 * 1024];
+    let confirmedCursor = 0;
+    let interruptOnce = true;
+    const resumedFrom: number[] = [];
+    const continuity: ProfileContinuityMigrationPort = {
+      prepareMigration: async () => {
+        resumedFrom.push(confirmedCursor);
+        while (confirmedCursor < pageBytes.length) {
+          expect(pageBytes[confirmedCursor]).toBeLessThanOrEqual(512 * 1024);
+          confirmedCursor += 1;
+          if (interruptOnce) {
+            interruptOnce = false;
+            throw Object.assign(new Error('fixed'), {
+              code: 'PROFILE_STORAGE_OFFLINE',
+            });
+          }
+        }
+      },
+      activateMigration: async () => undefined,
+      completeMigration: async () => undefined,
+    };
+
+    const first = await coordinator(undefined, undefined, continuity).migrate(
+      PROFILE_ID,
+      { kind: 'local' },
+    );
+    expect(first).toMatchObject({
+      phase: 'switching',
+      committed: false,
+      errorCode: 'PROFILE_STORAGE_OFFLINE',
+    });
+    expect(catalog.getEntry(PROFILE_ID)?.storage).toEqual({
+      kind: 'remote',
+      hostId: HOST_ID,
+    });
+    expect(confirmedCursor).toBe(1);
+
+    expect(
+      await coordinator(undefined, undefined, continuity).retry(OPERATION_ID),
+    ).toBeNull();
+    expect(resumedFrom).toEqual([0, 1]);
+    expect(confirmedCursor).toBe(pageBytes.length);
+    expect(catalog.getEntry(PROFILE_ID)?.storage).toEqual({ kind: 'local' });
+  });
+
+  it('rebinds continuity before a Remote target catalog switch can be observed', async () => {
+    await coordinator().migrate(PROFILE_ID, {
+      kind: 'remote',
+      hostId: HOST_ID,
+    });
+    const secondHostId = 'migration-host-2';
+    const secondTarget = new MigrationProvider(
+      { kind: 'remote', hostId: secondHostId },
+      'g2',
+    );
+    const secondOperationId = '10000000-0000-4000-8000-000000000002';
+    const completeCatalogAuthorities: ProfileStorageRef[] = [];
+    let reboundBeforeExposure = false;
+    const continuity: ProfileContinuityMigrationPort = {
+      prepareMigration: async () => undefined,
+      activateMigration: async () => undefined,
+      completeMigration: async (record) => {
+        if (
+          record.target.kind === 'remote' &&
+          record.target.hostId === secondHostId
+        ) {
+          const current = catalog.getEntry(PROFILE_ID);
+          if (!current) throw new Error('missing migration profile');
+          completeCatalogAuthorities.push(current.storage);
+          reboundBeforeExposure = true;
+        }
+      },
+    };
+    const runner = new ProfileMigrationCoordinator({
+      catalog,
+      resolveProvider: (storage) => {
+        if (storage.kind === 'local') return source;
+        return storage.hostId === HOST_ID ? target : secondTarget;
+      },
+      newOperationId: () => secondOperationId,
+      randomNonce: () => Buffer.alloc(32, 8),
+      continuity,
+      onChanged: () => {
+        const storage = catalog.getEntry(PROFILE_ID)?.storage;
+        if (
+          storage?.kind === 'remote' &&
+          storage.hostId === secondHostId
+        ) {
+          expect(reboundBeforeExposure).toBe(true);
+        }
+      },
+    });
+
+    await expect(
+      runner.migrate(PROFILE_ID, {
+        kind: 'remote',
+        hostId: secondHostId,
+      }),
+    ).resolves.toBeNull();
+    expect(completeCatalogAuthorities).toEqual([
+      { kind: 'remote', hostId: HOST_ID },
+      { kind: 'remote', hostId: secondHostId },
+    ]);
   });
 });

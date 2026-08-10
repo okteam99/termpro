@@ -58,6 +58,11 @@ import {
 import { ProfileMigrationCoordinator } from './profileMigrationCoordinator';
 import { RemoteProfileProvider } from './remoteProfileProvider';
 import { RemoteProfileDependencies } from './remoteProfileDependencies';
+import { ProfileContinuityJournal } from './profileContinuityJournal';
+import {
+  ProfileContinuityController,
+  type ContinuityCookieStorePort,
+} from './profileContinuityController';
 import { ClipboardSecretLease } from './clipboardSecretLease';
 import { PasswordVaultController } from './passwordVaultController';
 import { registerPasswordVaultIpc } from './passwordVaultIpc';
@@ -84,6 +89,13 @@ import {
   type PasswordLoginResultEvidence,
 } from '../shared/passwordVault';
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
+import {
+  continuityCookieIdentityKey,
+  normalizeContinuityCookieIdentity,
+  parseContinuityCookieChange,
+  type ContinuityCookieChange,
+  type ContinuityCookieIdentity,
+} from '../shared/profileContinuity';
 import { encodeClipboardImage } from './clipboardImage';
 import { migrateLegacyUserData } from './userDataMigration';
 import {
@@ -303,11 +315,6 @@ const profileAuthority = new ProfileAuthorityService({
       ? t('This device')
       : (remoteHostConfigStore.get(storage.hostId)?.alias ?? storage.hostId),
 });
-const profileMigration = new ProfileMigrationCoordinator({
-  catalog: profileCatalog,
-  resolveProvider: resolveProfileProvider,
-  onChanged: () => void broadcastBrowserProfiles(),
-});
 const remoteProfileDependencies = new RemoteProfileDependencies(() =>
   profileCatalog.snapshot(),
 );
@@ -335,6 +342,94 @@ const browserPartitionPolicy = createBrowserPartitionPolicy({
       )
       .map((entry) => entry.profileId),
 });
+function isContinuityIdentity(
+  value: unknown,
+): value is ContinuityCookieIdentity {
+  try {
+    normalizeContinuityCookieIdentity(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function isContinuityChange(value: unknown): value is ContinuityCookieChange {
+  try {
+    parseContinuityCookieChange(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+const profileContinuityJournal = new ProfileContinuityJournal<
+  ContinuityCookieIdentity,
+  ContinuityCookieChange
+>({
+  userDataDir: () => app.getPath('userData'),
+  safeStorage,
+  validateIdentity: isContinuityIdentity,
+  identityKey: continuityCookieIdentityKey,
+  validateChange: isContinuityChange,
+  // Journals may legitimately remember a partition whose network-exit config
+  // was removed later. Validate the browser-partition namespace here; the
+  // current whitelist is enforced separately before any Cookie store access.
+  validatePartition: (partition, profileId) =>
+    parseBrowserPartition(partition)?.profileId === profileId,
+});
+const profileContinuity = new ProfileContinuityController({
+  clientId: profileCatalog.clientId,
+  getCatalogEntry: (profileId) => profileCatalog.getEntry(profileId),
+  getMigrationPhase: (profileId) =>
+    profileCatalog.getMigration(profileId)?.phase ?? null,
+  remoteProvider: (hostId) =>
+    resolveProfileProvider({ kind: 'remote', hostId }) as RemoteProfileProvider,
+  partitionsOfProfile: (profileId) =>
+    browserPartitionPolicy.partitionsOfProfile(
+      profileId,
+      remoteHostConfigStore.list().map((config) => config.id),
+    ),
+  isKnownPartition: (partition) => browserPartitionPolicy.isKnown(partition),
+  cookiesForPartition: (partition) =>
+    session.fromPartition(partition).cookies as unknown as ContinuityCookieStorePort,
+  journal: profileContinuityJournal,
+  onSummaryChanged: () => void broadcastBrowserProfiles(),
+  onRetired: async (profileId, lifecycle, cleanupPartitions) => {
+    if (profileCatalog.getMigration(profileId)) return;
+    passwordVaultController.closeProfileGuests(profileId);
+    passwordVaultIpc.closeProfileTrustedWindows(profileId);
+    if (lifecycle.lifecycle === 'moved' && lifecycle.movedTo === 'remote') {
+      await broadcastBrowserProfiles();
+      broadcastPasswordVaultChanged();
+      return;
+    }
+    if (lifecycle.lifecycle === 'deleted') {
+      // Any device that observes the global delete epoch can replay the same
+      // deterministic retire operation to finish interrupted Host cleanup.
+      await profileAuthority.deleteProfile(profileId);
+    }
+    for (const partition of cleanupPartitions) {
+      if (parseBrowserPartition(partition)?.profileId !== profileId) {
+        throw Object.assign(new Error('fixed'), {
+          code: 'PROFILE_STORAGE_INVALID_INPUT',
+        });
+      }
+      await session.fromPartition(partition).clearStorageData();
+      await session.fromPartition(partition).clearCache();
+    }
+    profileCatalog.removeProfile(profileId);
+    await browserNetwork.onProfilesChanged(
+      remoteHostConfigStore.list().map((config) => config.id),
+    );
+    await broadcastBrowserProfiles();
+    broadcastPasswordVaultChanged();
+  },
+});
+const profileMigration = new ProfileMigrationCoordinator({
+  catalog: profileCatalog,
+  resolveProvider: resolveProfileProvider,
+  continuity: profileContinuity,
+  onChanged: () => void broadcastBrowserProfiles(),
+});
+app.on('before-quit', () => profileContinuity.dispose());
 const clipboardSecretLease = new ClipboardSecretLease({ clipboard });
 let broadcastPasswordVaultChanged = (): void => undefined;
 const passwordVaultController = new PasswordVaultController({
@@ -427,14 +522,13 @@ const browserProfileDeletion = new BrowserProfileDeletionCoordinator({
     await profileAuthority.deleteProfile(profileId);
   },
   partitionsForProfile: (profileId) =>
-    browserPartitionPolicy.partitionsOfProfile(
-      profileId,
-      remoteHostConfigStore.list().map((config) => config.id),
-    ),
+    profileContinuity.partitionsForCleanup(profileId),
   clearPartitionStorage: (partition) =>
     session.fromPartition(partition).clearStorageData(),
   clearPartitionCache: (partition) =>
     session.fromPartition(partition).clearCache(),
+  finalizeProfileCleanup: (profileId) =>
+    profileContinuity.forgetProfile(profileId),
   notifyProfilesChanged: () => broadcastBrowserProfiles(),
   logger: {
     warn: (event) => console.warn('[browser-profile-delete]', event),
@@ -533,6 +627,7 @@ void browserNetwork.preseal(remoteHostConfigStore.list().map((c) => c.id));
 remoteHostOrchestrator.onEvent((e) => {
   if (e.stage === 'disconnected' || e.stage === 'failed') {
     browserNetwork.onHostDown(e.configId);
+    profileContinuity.invalidateHost(e.configId);
     const affected = profileAuthority.invalidateRemoteHost(e.configId);
     for (const profileId of affected) {
       passwordVaultController.suspendProfileGuests(profileId);
@@ -546,7 +641,8 @@ remoteHostOrchestrator.onEvent((e) => {
     browserNetwork.onHostUp(e.configId);
     void profileAuthority
       .listSummaries()
-      .then((summaries) => {
+      .then(async (summaries) => {
+        const continuityRetries: Promise<void>[] = [];
         for (const profile of summaries) {
           if (
             profile.storage.kind === 'remote' &&
@@ -554,8 +650,10 @@ remoteHostOrchestrator.onEvent((e) => {
             profile.availability === 'ready'
           ) {
             passwordVaultController.resumeProfileGuests(profile.id);
+            continuityRetries.push(profileContinuity.retry(profile.id));
           }
         }
+        await Promise.allSettled(continuityRetries);
         return broadcastBrowserProfiles();
       })
       .then(() => profileMigration.resumeAll())
@@ -639,10 +737,23 @@ ipcMain.handle(
 let browserProfileBroadcastGeneration = 0;
 async function listBrowserProfileSummaries(): Promise<BrowserProfileSummary[]> {
   const profiles = await profileAuthority.listSummaries();
-  return profiles.map((profile) =>
-    profile.id === DEFAULT_PROFILE_ID
-      ? { ...profile, name: t('OkWork (built-in)') }
-      : profile,
+  return Promise.all(
+    profiles.map(async (profile) => {
+      const named =
+        profile.id === DEFAULT_PROFILE_ID
+          ? { ...profile, name: t('OkWork (built-in)') }
+          : profile;
+      if (profile.storage.kind !== 'remote') {
+        return {
+          ...named,
+          loginContinuity: profileContinuity.summary(profile.id),
+        };
+      }
+      return {
+        ...named,
+        loginContinuity: await profileContinuity.probe(profile.id),
+      };
+    }),
   );
 }
 async function broadcastBrowserProfiles(): Promise<void> {
@@ -657,6 +768,110 @@ async function broadcastBrowserProfiles(): Promise<void> {
 }
 ipcMain.handle(BROWSER_PROFILE_CHANNELS.list, () =>
   listBrowserProfileSummaries(),
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.listRemoteAvailable,
+  async (event, payload: { hostId?: unknown }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw Object.assign(new Error('main window only'), {
+        code: 'PROFILE_STORAGE_FORBIDDEN',
+      });
+    }
+    const hostId = typeof payload?.hostId === 'string' ? payload.hostId : '';
+    if (!hostId || remoteHostConfigStore.get(hostId) === null) {
+      throw Object.assign(new Error('invalid Remote Host'), {
+        code: 'PROFILE_STORAGE_INVALID_INPUT',
+      });
+    }
+    const provider = resolveProfileProvider({
+      kind: 'remote',
+      hostId,
+    }) as RemoteProfileProvider;
+    const discovered = await provider.discoverProfiles();
+    return discovered.map((profile) => ({ ...profile, hostId }));
+  },
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.joinRemote,
+  async (
+    event,
+    payload: { hostId?: unknown; profileId?: unknown },
+  ): Promise<BrowserProfileSummary> => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw Object.assign(new Error('main window only'), {
+        code: 'PROFILE_STORAGE_FORBIDDEN',
+      });
+    }
+    const hostId = typeof payload?.hostId === 'string' ? payload.hostId : '';
+    const profileId =
+      typeof payload?.profileId === 'string' ? payload.profileId : '';
+    if (!hostId || !profileId || remoteHostConfigStore.get(hostId) === null) {
+      throw Object.assign(new Error('invalid join request'), {
+        code: 'PROFILE_STORAGE_INVALID_INPUT',
+      });
+    }
+    const provider = resolveProfileProvider({
+      kind: 'remote',
+      hostId,
+    }) as RemoteProfileProvider;
+    const discovered = await provider.discoverProfiles();
+    if (!discovered.some((profile) => profile.profileId === profileId)) {
+      throw Object.assign(new Error('Profile is not joinable'), {
+        code: 'PROFILE_STORAGE_INVALID_INPUT',
+      });
+    }
+    const profile = await provider.getProfile(profileId);
+    profileCatalog.joinRemoteProfile(profile, { kind: 'remote', hostId });
+    await browserNetwork.onProfilesChanged(
+      remoteHostConfigStore.list().map((config) => config.id),
+    );
+    await broadcastBrowserProfiles();
+    const joined = (await listBrowserProfileSummaries()).find(
+      (candidate) => candidate.id === profileId,
+    );
+    if (!joined) {
+      throw Object.assign(new Error('Profile join failed'), {
+        code: 'PROFILE_STORAGE_IO_FAILED',
+      });
+    }
+    return joined;
+  },
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.retryContinuity,
+  async (event, payload: { profileId?: unknown }): Promise<void> => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw Object.assign(new Error('main window only'), {
+        code: 'PROFILE_STORAGE_FORBIDDEN',
+      });
+    }
+    const profileId =
+      typeof payload?.profileId === 'string' ? payload.profileId : '';
+    await profileContinuity.retry(profileId);
+    await broadcastBrowserProfiles();
+  },
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.prepareContinuity,
+  async (
+    event,
+    payload: { profileId?: unknown; netHostId?: unknown },
+  ) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (
+      senderWindow !== mainWin &&
+      (senderWindow === null || ![...paneWins.values()].includes(senderWindow))
+    ) {
+      throw Object.assign(new Error('browser window only'), {
+        code: 'PROFILE_STORAGE_FORBIDDEN',
+      });
+    }
+    const profileId =
+      typeof payload?.profileId === 'string' ? payload.profileId : '';
+    const netHostId =
+      typeof payload?.netHostId === 'string' ? payload.netHostId : '';
+    return profileContinuity.prepare(profileId, netHostId);
+  },
 );
 ipcMain.handle(
   BROWSER_PROFILE_CHANNELS.listStorageTargets,
@@ -1993,6 +2208,23 @@ function wireBrowserWebviewPolicies(
       if (entry?.storage.kind === 'remote' && !profile) {
         event.preventDefault();
         return;
+      }
+      if (entry?.storage.kind === 'remote') {
+        const provider = resolveProfileProvider(
+          entry.storage,
+        ) as RemoteProfileProvider;
+        const generation = provider.currentGeneration();
+        if (
+          !generation ||
+          !profileContinuity.isHydrated(
+            parsed.profileId,
+            params.partition!,
+            generation,
+          )
+        ) {
+          event.preventDefault();
+          return;
+        }
       }
       const ua = profile?.userAgent;
       session

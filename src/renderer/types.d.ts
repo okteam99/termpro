@@ -13,10 +13,12 @@ import type {
   BrowserProfileSummary,
   BrowserProfileDeletionResult,
   BrowserProfileInput,
+  BrowserContinuityPrepareResult,
   ProfileStorageChangePlan,
   ProfileStorageChangeResult,
   ProfileStorageRef,
   ProfileStorageTargetStatus,
+  RemoteBrowserProfileSummary,
 } from '../shared/browserProfile';
 import type {
   PasswordMetadataSnapshot,
@@ -232,6 +234,18 @@ declare global {
         retryStorageChange(payload: {
           operationId: string;
         }): Promise<ProfileStorageChangeResult>;
+        listRemoteAvailable(payload: {
+          hostId: string;
+        }): Promise<RemoteBrowserProfileSummary[]>;
+        joinRemote(payload: {
+          hostId: string;
+          profileId: string;
+        }): Promise<BrowserProfileSummary>;
+        retryContinuity(payload: { profileId: string }): Promise<void>;
+        prepareContinuity(payload: {
+          profileId: string;
+          netHostId: string;
+        }): Promise<BrowserContinuityPrepareResult>;
         onChanged(
           callback: (profiles: BrowserProfileSummary[]) => void,
         ): () => void;

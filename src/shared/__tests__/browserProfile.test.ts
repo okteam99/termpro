@@ -10,6 +10,10 @@ import {
   parseBrowserPartition,
 } from '../browserProfile';
 import { partitionOf } from '../remoteHost';
+import {
+  continuityCookieIdentityKey,
+  normalizeContinuityCookieIdentity,
+} from '../profileContinuity';
 
 const PID = 'a'.repeat(32); // 合法 32 位 hex
 const CFG = 'k7_x-9Qz4AbC'; // base64url 形状(可含 - _)
@@ -91,5 +95,38 @@ describe('isReservedNetHostId(评审 P2-A 命名空间守卫)', () => {
     expect(isReservedNetHostId('prof-nothex')).toBe(false); // 非 32hex → 旧形态 default
     expect(isReservedNetHostId(`prof-${'A'.repeat(32)}`)).toBe(false); // 大写非法形状
     expect(isReservedNetHostId('local')).toBe(false);
+  });
+});
+
+describe('Profile-level Cookie identity', () => {
+  it('test_AC2_cookie_identity_is_stable_across_profile_partitions', () => {
+    const fromLocalPartition = normalizeContinuityCookieIdentity({
+      domain: '.Example.Test',
+      hostOnly: false,
+      path: '/account',
+      name: 'session-id',
+    });
+    const fromRemotePartition = normalizeContinuityCookieIdentity({
+      domain: 'example.test',
+      hostOnly: false,
+      path: '/account',
+      name: 'session-id',
+    });
+
+    expect(continuityCookieIdentityKey(fromLocalPartition)).toBe(
+      continuityCookieIdentityKey(fromRemotePartition),
+    );
+    expect(
+      continuityCookieIdentityKey({
+        ...fromRemotePartition,
+        hostOnly: true,
+      }),
+    ).not.toBe(continuityCookieIdentityKey(fromRemotePartition));
+    expect(
+      continuityCookieIdentityKey({ ...fromRemotePartition, path: '/' }),
+    ).not.toBe(continuityCookieIdentityKey(fromRemotePartition));
+    expect(
+      continuityCookieIdentityKey({ ...fromRemotePartition, name: 'other' }),
+    ).not.toBe(continuityCookieIdentityKey(fromRemotePartition));
   });
 });

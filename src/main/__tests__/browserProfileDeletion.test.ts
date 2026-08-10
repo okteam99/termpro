@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -14,6 +15,14 @@ import {
 } from '../browserProfileDeletion';
 import { BrowserProfileStore } from '../browserProfileStore';
 import { JsonFileSettingsStore } from '../settingsStore';
+import type { ProfileDataProvider } from '../profileAuthorityService';
+import { ProfileCatalogStore } from '../profileCatalogStore';
+import {
+  ProfileMigrationCoordinator,
+  canonicalProfileBundleJson,
+  type ProfileContinuityMigrationPort,
+} from '../profileMigrationCoordinator';
+import type { ProfileBundleV1 } from '../../shared/remoteProfileStore';
 
 let tmpDir: string;
 let profiles: BrowserProfileStore;
@@ -83,6 +92,134 @@ function makeHarness(
 }
 
 describe('BrowserProfileDeletionCoordinator', () => {
+  it('test_AC10_remote_to_local_ends_sharing_and_cleanup_is_retryable_after_commit', async () => {
+    const profileId = 'e'.repeat(32);
+    const bundle: ProfileBundleV1 = {
+      version: 1,
+      profile: { id: profileId, name: 'Roaming', createdAt: 1 },
+      credentials: [],
+    };
+    const catalog = new ProfileCatalogStore({
+      userDataDir: tmpDir,
+      localProfiles: () => [bundle.profile],
+    });
+    const localState = {
+      live: structuredClone(bundle) as ProfileBundleV1 | null,
+      staged: new Map<string, ProfileBundleV1>(),
+    };
+    const remoteState = {
+      live: null as ProfileBundleV1 | null,
+      staged: new Map<string, ProfileBundleV1>(),
+    };
+    let sharingActive = true;
+
+    const makeProvider = (
+      storage: { kind: 'local' } | { kind: 'remote'; hostId: string },
+      state: typeof localState,
+    ): ProfileDataProvider =>
+      ({
+        storage,
+        availability: () => 'ready',
+        currentGeneration: () =>
+          storage.kind === 'remote' ? 'generation-1' : null,
+        readBundle: async () => {
+          if (!state.live) throw new Error('missing bundle');
+          return structuredClone(state.live);
+        },
+        stage: async (operationId: string, value: ProfileBundleV1) => {
+          state.staged.set(operationId, structuredClone(value));
+        },
+        verify: async (operationId: string, nonce: Buffer) => {
+          const staged = state.staged.get(operationId);
+          if (!staged) throw new Error('missing staging');
+          return createHmac('sha256', nonce)
+            .update(canonicalProfileBundleJson(staged))
+            .digest();
+        },
+        publish: async (operationId: string) => {
+          const staged = state.staged.get(operationId);
+          if (!staged) throw new Error('missing staging');
+          state.live = structuredClone(staged);
+        },
+        discard: async (operationId: string) => {
+          state.staged.delete(operationId);
+        },
+        deleteProfile: async () => {
+          const existed = state.live !== null;
+          state.live = null;
+          return existed;
+        },
+        retireAfterMigration: async () => {
+          sharingActive = false;
+          state.live = null;
+          return 1;
+        },
+      }) as unknown as ProfileDataProvider;
+
+    const local = makeProvider({ kind: 'local' }, localState);
+    const remote = makeProvider(
+      { kind: 'remote', hostId: 'remote-source' },
+      remoteState,
+    );
+    const operationIds = [
+      '30000000-0000-4000-8000-000000000001',
+      '30000000-0000-4000-8000-000000000002',
+    ];
+    let localCompleteCalls = 0;
+    const initiatingPartition = { signedInCookie: 'preserved-local-copy' };
+    const continuity: ProfileContinuityMigrationPort = {
+      prepareMigration: async () => undefined,
+      activateMigration: async () => undefined,
+      completeMigration: async (record) => {
+        if (record.target.kind !== 'local') return;
+        localCompleteCalls += 1;
+        if (localCompleteCalls === 2) {
+          throw Object.assign(new Error('fixed'), {
+            code: 'PROFILE_STORAGE_IO_FAILED',
+          });
+        }
+      },
+    };
+    const migration = new ProfileMigrationCoordinator({
+      catalog,
+      resolveProvider: (storage) =>
+        storage.kind === 'local' ? local : remote,
+      newOperationId: () => {
+        const operationId = operationIds.shift();
+        if (!operationId) throw new Error('operation id fixture exhausted');
+        return operationId;
+      },
+      randomNonce: () => Buffer.alloc(32, 4),
+      continuity,
+      logger: { warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(
+      migration.migrate(profileId, {
+        kind: 'remote',
+        hostId: 'remote-source',
+      }),
+    ).resolves.toBeNull();
+    sharingActive = true;
+
+    const first = await migration.migrate(profileId, { kind: 'local' });
+    expect(first).toMatchObject({
+      committed: true,
+      phase: 'cleanup_pending',
+      errorCode: 'PROFILE_STORAGE_IO_FAILED',
+    });
+    expect(catalog.getEntry(profileId)?.storage).toEqual({ kind: 'local' });
+    expect(sharingActive).toBe(false);
+    expect(initiatingPartition.signedInCookie).toBe('preserved-local-copy');
+
+    await expect(
+      migration.retry('30000000-0000-4000-8000-000000000002'),
+    ).resolves.toBeNull();
+    expect(catalog.getMigration(profileId)).toBeNull();
+    expect(sharingActive).toBe(false);
+    expect(initiatingPartition.signedInCookie).toBe('preserved-local-copy');
+  });
+
   it('test_AC7_remote_authority_profile_deletion_revokes_access_and_resumes_after_restart', async () => {
     const target = profiles.save({ name: 'A' });
     const untouched = profiles.save({ name: 'B' });
@@ -158,6 +295,61 @@ describe('BrowserProfileDeletionCoordinator', () => {
     });
     expect(profiles.get(target.id)).toBeNull();
     expect(profiles.get(untouched.id)).not.toBeNull();
+  });
+
+  it('snapshots historical partitions before vault cleanup and retains them for retry', async () => {
+    const target = profiles.save({ name: 'Historical remote partition' });
+    const historicalPartition = `persist:profile-${target.id}-removed-host`;
+    const events: string[] = [];
+    let cleanupHistoryRetained = true;
+    let failStorage = true;
+    const h = makeHarness({
+      partitionsForProfile: () => {
+        events.push(`list:${cleanupHistoryRetained ? 'retained' : 'forgotten'}`);
+        return cleanupHistoryRetained ? [historicalPartition] : [];
+      },
+      clearVault: () => {
+        events.push('vault');
+      },
+      clearPartitionStorage: (partition) => {
+        events.push(`storage:${partition}`);
+        if (failStorage) throw new Error('fixed fixture failure');
+      },
+      clearPartitionCache: (partition) => {
+        events.push(`cache:${partition}`);
+      },
+      finalizeProfileCleanup: () => {
+        events.push('finalize');
+        cleanupHistoryRetained = false;
+      },
+    });
+
+    await expect(h.coordinator.deleteProfile(target.id)).resolves.toMatchObject({
+      status: 'delete_failed',
+      errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.storageClearFailed,
+    });
+    expect(events).toEqual([
+      'list:retained',
+      'vault',
+      `storage:${historicalPartition}`,
+    ]);
+    expect(cleanupHistoryRetained).toBe(true);
+
+    failStorage = false;
+    await expect(
+      h.coordinator.retryProfileDeletion(target.id),
+    ).resolves.toEqual({ status: 'deleted', profileId: target.id });
+    expect(events).toEqual([
+      'list:retained',
+      'vault',
+      `storage:${historicalPartition}`,
+      'list:retained',
+      'vault',
+      `storage:${historicalPartition}`,
+      `cache:${historicalPartition}`,
+      'finalize',
+    ]);
+    expect(cleanupHistoryRetained).toBe(false);
   });
 
   it('Vault cleanup failure leaves the Profile persistently inactive before partition cleanup', async () => {

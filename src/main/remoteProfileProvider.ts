@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   DEFAULT_PROFILE_ID,
   PROFILE_ID_RE,
@@ -23,6 +23,29 @@ import {
   type RemoteProfileRpcRequest,
   type RemoteProfileRpcResponse,
 } from '../shared/remoteProfileStore';
+import {
+  PROFILE_CONTINUITY_ITEM_MAX_BYTES,
+  PROFILE_CONTINUITY_PAGE_MAX_BYTES,
+  PROFILE_CONTINUITY_VERSION,
+  parseContinuityCookieRecord,
+  type ContinuityMigrationActivateRequest,
+  type ContinuityMigrationDiscardResult,
+  type ContinuityMigrationFreezeRequest,
+  type ContinuityMigrationFreezeResult,
+  type ContinuityMigrationPublishRequest,
+  type ContinuityMigrationStageRequest,
+  type ContinuityMigrationStageResult,
+  type ContinuityMigrationVerifyRequest,
+  type ContinuityMigrationVerifyResult,
+  type ContinuityOperation,
+  type ContinuityOperationResult,
+  type ContinuityPage,
+  type ContinuityPullRequest,
+  type ProfileContinuityLifecycleResult,
+  type ProfileRetireRequest,
+  type ProfileRetireResult,
+  type RemoteProfileDiscoverySummary,
+} from '../shared/profileContinuity';
 import type {
   PasswordUpsertInput,
   PasswordUpsertResult,
@@ -64,6 +87,25 @@ interface CapabilityLease {
 interface OperationScope {
   profileId: string;
   generation: string;
+}
+
+function stableRetireOperationId(
+  profileId: string,
+  kind: 'deleted',
+): string {
+  const bytes = createHash('sha256')
+    .update('termpro-profile-retire-v1\0', 'utf8')
+    .update(profileId, 'utf8')
+    .update('\0', 'utf8')
+    .update(kind, 'utf8')
+    .digest()
+    .subarray(0, 16);
+  // RFC 9562 UUIDv8 layout for an application-defined deterministic value.
+  // No renderer-visible or Cookie material participates in the identifier.
+  bytes[6] = (bytes[6] & 0x0f) | 0x80;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function isProfileId(value: unknown): value is string {
@@ -141,6 +183,146 @@ function validBundle(
   );
 }
 
+function isSafeRevision(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function validDiscoverySummary(
+  value: unknown,
+): value is RemoteProfileDiscoverySummary {
+  if (!value || typeof value !== 'object') return false;
+  const summary = value as Partial<RemoteProfileDiscoverySummary>;
+  return (
+    isProfileId(summary.profileId) &&
+    typeof summary.name === 'string' &&
+    summary.name.trim().length > 0 &&
+    summary.name.length <= 100 &&
+    isFiniteTimestamp(summary.createdAt) &&
+    isSafeRevision(summary.epoch)
+  );
+}
+
+function validLifecycle(
+  value: unknown,
+  profileId: string,
+): value is ProfileContinuityLifecycleResult {
+  if (!value || typeof value !== 'object') return false;
+  const lifecycle = value as Partial<ProfileContinuityLifecycleResult>;
+  if (
+    lifecycle.profileId !== profileId ||
+    !isSafeRevision(lifecycle.epoch) ||
+    (lifecycle.lifecycle !== 'active' &&
+      lifecycle.lifecycle !== 'moving' &&
+      lifecycle.lifecycle !== 'moved' &&
+      lifecycle.lifecycle !== 'deleted')
+  ) {
+    return false;
+  }
+  return lifecycle.lifecycle === 'moved'
+    ? lifecycle.movedTo === 'remote' || lifecycle.movedTo === 'local'
+    : lifecycle.movedTo === undefined;
+}
+
+function validContinuityRecord(value: unknown): boolean {
+  try {
+    parseContinuityCookieRecord(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validContinuityPage(
+  value: unknown,
+  profileId: string,
+  fromRevision: number,
+): value is ContinuityPage {
+  if (!value || typeof value !== 'object') return false;
+  const page = value as Partial<ContinuityPage>;
+  if (
+    page.profileId !== profileId ||
+    !isSafeRevision(page.epoch) ||
+    page.fromRevision !== fromRevision ||
+    !Array.isArray(page.records) ||
+    !page.records.every(validContinuityRecord) ||
+    !isSafeRevision(page.nextRevision) ||
+    page.nextRevision < fromRevision ||
+    typeof page.hasMore !== 'boolean'
+  ) {
+    return false;
+  }
+  let previous = fromRevision;
+  for (const record of page.records) {
+    if (record.revision <= previous || record.revision > page.nextRevision) {
+      return false;
+    }
+    previous = record.revision;
+  }
+  return true;
+}
+
+function validOperationResult(
+  value: unknown,
+  operationId: string,
+): value is ContinuityOperationResult {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Partial<ContinuityOperationResult>;
+  return (
+    result.operationId === operationId &&
+    isSafeRevision(result.revision) &&
+    (result.outcome === 'accepted' ||
+      result.outcome === 'conflict_won' ||
+      result.outcome === 'stale_rejected' ||
+      result.outcome === 'duplicate') &&
+    validContinuityRecord(result.current) &&
+    result.current?.revision === result.revision
+  );
+}
+
+function validMigrationStageResult(
+  value: unknown,
+  operationId: string,
+): value is ContinuityMigrationStageResult {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Partial<ContinuityMigrationStageResult>;
+  return (
+    result.operationId === operationId &&
+    isSafeRevision(result.confirmedRevision) &&
+    isSafeRevision(result.stagedCount) &&
+    typeof result.duplicate === 'boolean'
+  );
+}
+
+function validMigrationVerifyResult(
+  value: unknown,
+  operationId: string,
+): value is ContinuityMigrationVerifyResult {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Partial<ContinuityMigrationVerifyResult>;
+  return (
+    result.operationId === operationId &&
+    isSafeRevision(result.revision) &&
+    typeof result.digest === 'string' &&
+    /^[A-Za-z0-9_-]{43}$/.test(result.digest)
+  );
+}
+
+function validMigrationFreezeResult(
+  value: unknown,
+  operationId: string,
+  profileId: string,
+): value is ContinuityMigrationFreezeResult {
+  if (!validLifecycle(value, profileId)) return false;
+  const result = value as Partial<ContinuityMigrationFreezeResult>;
+  return (
+    result.operationId === operationId &&
+    result.lifecycle === 'moving' &&
+    isSafeRevision(result.revision) &&
+    typeof result.digest === 'string' &&
+    /^[A-Za-z0-9_-]{43}$/.test(result.digest)
+  );
+}
+
 function transportFailureCode(error: unknown): ProfileStorageErrorCode {
   switch ((error as { code?: unknown } | null)?.code) {
     case 'timeout':
@@ -168,6 +350,15 @@ function responseFailureCode(code: string): ProfileStorageErrorCode {
       return 'PROFILE_STORAGE_CORRUPT';
     case 'PROFILE_RPC_PROFILE_MISMATCH':
       return 'PROFILE_STORAGE_PROFILE_MISMATCH';
+    case 'PROFILE_CONTINUITY_BUSY':
+      return 'PROFILE_STORAGE_TIMEOUT';
+    case 'PROFILE_CONTINUITY_ITEM_TOO_LARGE':
+      return 'PROFILE_STORAGE_INVALID_INPUT';
+    case 'PROFILE_CONTINUITY_STALE_EPOCH':
+    case 'PROFILE_CONTINUITY_LEGACY_DELETE_FORBIDDEN':
+    case 'PROFILE_MOVED':
+    case 'PROFILE_DELETED':
+      return 'PROFILE_STORAGE_FORBIDDEN';
     default:
       return 'PROFILE_STORAGE_IO_FAILED';
   }
@@ -222,6 +413,206 @@ export class RemoteProfileProvider implements ProfileDataProvider {
     }
     this.describedGenerations.add(transport.generation);
     return data as RemoteProfileDescription;
+  }
+
+  async describeContinuity(): Promise<
+    NonNullable<RemoteProfileDescription['continuity']>
+  > {
+    const description = await this.describe();
+    const continuity = description.continuity;
+    if (
+      !continuity ||
+      continuity.version !== PROFILE_CONTINUITY_VERSION ||
+      continuity.pageMaxBytes !== PROFILE_CONTINUITY_PAGE_MAX_BYTES ||
+      continuity.itemMaxBytes !== PROFILE_CONTINUITY_ITEM_MAX_BYTES
+    ) {
+      throw new RemoteProfileProviderError('PROFILE_STORAGE_INCOMPATIBLE');
+    }
+    return continuity;
+  }
+
+  async discoverProfiles(): Promise<RemoteProfileDiscoverySummary[]> {
+    const transport = this.requireTransport();
+    await this.describeContinuity();
+    if (this.currentGeneration() !== transport.generation) {
+      throw new RemoteProfileProviderError('PROFILE_STORAGE_OFFLINE');
+    }
+    const data = await this.bootstrapInvoke(transport, 'profile.discover');
+    if (!Array.isArray(data) || !data.every(validDiscoverySummary)) {
+      this.invalidResponse('profile.discover');
+    }
+    return structuredClone(data as RemoteProfileDiscoverySummary[]);
+  }
+
+  async getContinuityLifecycle(
+    profileId: string,
+  ): Promise<ProfileContinuityLifecycleResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(profileId, 'profile.lifecycle');
+    if (!validLifecycle(data, profileId)) {
+      this.invalidResponse('profile.lifecycle');
+    }
+    return structuredClone(data as ProfileContinuityLifecycleResult);
+  }
+
+  async pullContinuity(
+    profileId: string,
+    request: ContinuityPullRequest,
+  ): Promise<ContinuityPage> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.pull',
+      request,
+    );
+    if (!validContinuityPage(data, profileId, request.fromRevision)) {
+      this.invalidResponse('continuity.pull');
+    }
+    return structuredClone(data as ContinuityPage);
+  }
+
+  async pushContinuity(
+    profileId: string,
+    operation: ContinuityOperation,
+  ): Promise<ContinuityOperationResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.push',
+      operation,
+    );
+    if (!validOperationResult(data, operation.operationId)) {
+      this.invalidResponse('continuity.push');
+    }
+    return structuredClone(data as ContinuityOperationResult);
+  }
+
+  async stageContinuityMigration(
+    profileId: string,
+    request: ContinuityMigrationStageRequest,
+  ): Promise<ContinuityMigrationStageResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.migration.stage',
+      request,
+    );
+    if (!validMigrationStageResult(data, request.operationId)) {
+      this.invalidResponse('continuity.migration.stage');
+    }
+    return structuredClone(data as ContinuityMigrationStageResult);
+  }
+
+  async verifyContinuityMigration(
+    profileId: string,
+    request: ContinuityMigrationVerifyRequest,
+  ): Promise<ContinuityMigrationVerifyResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.migration.verify',
+      request,
+    );
+    if (!validMigrationVerifyResult(data, request.operationId)) {
+      this.invalidResponse('continuity.migration.verify');
+    }
+    return structuredClone(data as ContinuityMigrationVerifyResult);
+  }
+
+  async freezeContinuityMigration(
+    profileId: string,
+    request: ContinuityMigrationFreezeRequest,
+  ): Promise<ContinuityMigrationFreezeResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.migration.freeze',
+      request,
+    );
+    if (!validMigrationFreezeResult(data, request.operationId, profileId)) {
+      this.invalidResponse('continuity.migration.freeze');
+    }
+    return structuredClone(data as ContinuityMigrationFreezeResult);
+  }
+
+  async publishContinuityMigration(
+    profileId: string,
+    request: ContinuityMigrationPublishRequest,
+  ): Promise<ContinuityMigrationFreezeResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.migration.publish',
+      request,
+    );
+    if (!validMigrationFreezeResult(data, request.operationId, profileId)) {
+      this.invalidResponse('continuity.migration.publish');
+    }
+    return structuredClone(data as ContinuityMigrationFreezeResult);
+  }
+
+  async activateContinuityMigration(
+    profileId: string,
+    request: ContinuityMigrationActivateRequest,
+  ): Promise<ProfileContinuityLifecycleResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.migration.activate',
+      request,
+    );
+    if (!validLifecycle(data, profileId)) {
+      this.invalidResponse('continuity.migration.activate');
+    }
+    const lifecycle = data as ProfileContinuityLifecycleResult;
+    if (lifecycle.lifecycle !== 'active' || lifecycle.epoch !== request.epoch) {
+      this.invalidResponse('continuity.migration.activate');
+    }
+    this.operationScopes.delete(request.operationId);
+    return structuredClone(lifecycle);
+  }
+
+  async discardContinuityMigration(
+    profileId: string,
+    operationId: string,
+  ): Promise<ContinuityMigrationDiscardResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'continuity.migration.discard',
+      { operationId },
+    );
+    const result = data as Partial<ContinuityMigrationDiscardResult> | null;
+    if (
+      !result ||
+      typeof result.discarded !== 'boolean' ||
+      (result.role !== undefined &&
+        result.role !== 'source' &&
+        result.role !== 'target')
+    ) {
+      this.invalidResponse('continuity.migration.discard');
+    }
+    return structuredClone(result as ContinuityMigrationDiscardResult);
+  }
+
+  async retireProfile(
+    profileId: string,
+    request: ProfileRetireRequest,
+  ): Promise<ProfileRetireResult> {
+    await this.describeContinuity();
+    const data = await this.authorizedInvoke(
+      profileId,
+      'profile.retire',
+      request,
+    );
+    if (
+      !validLifecycle(data, profileId) ||
+      (data as Partial<ProfileRetireResult>).operationId !== request.operationId
+    ) {
+      this.invalidResponse('profile.retire');
+    }
+    this.capabilities.delete(profileId);
+    return structuredClone(data as ProfileRetireResult);
   }
 
   /** UI target eligibility, always scoped to the transport generation observed by this check. */
@@ -394,6 +785,28 @@ export class RemoteProfileProvider implements ProfileDataProvider {
 
   async deleteProfile(profileId: string): Promise<boolean> {
     try {
+      const description = await this.describe();
+      if (description.continuity) {
+        const lifecycle = await this.getContinuityLifecycle(profileId);
+        const operationId = stableRetireOperationId(profileId, 'deleted');
+        if (lifecycle.lifecycle === 'deleted') {
+          const retired = await this.retireProfile(profileId, {
+            operationId,
+            expectedEpoch: Math.max(0, lifecycle.epoch - 1),
+            kind: 'deleted',
+          });
+          return retired.lifecycle === 'deleted';
+        }
+        if (lifecycle.lifecycle !== 'active') {
+          throw new RemoteProfileProviderError('PROFILE_STORAGE_FORBIDDEN');
+        }
+        const retired = await this.retireProfile(profileId, {
+          operationId,
+          expectedEpoch: lifecycle.epoch,
+          kind: 'deleted',
+        });
+        return retired.lifecycle === 'deleted';
+      }
       const data = await this.authorizedInvoke(profileId, 'profile.delete');
       const deleted = (data as { deleted?: unknown } | null)?.deleted;
       if (typeof deleted !== 'boolean') this.invalidResponse('profile.delete');
@@ -406,6 +819,40 @@ export class RemoteProfileProvider implements ProfileDataProvider {
           this.operationScopes.delete(operationId);
       }
     }
+  }
+
+  async retireAfterMigration(
+    profileId: string,
+    operationId: string,
+    movedTo: 'remote' | 'local',
+  ): Promise<number> {
+    await this.describeContinuity();
+    const lifecycle = await this.getContinuityLifecycle(profileId);
+    if (lifecycle.lifecycle === 'moved') {
+      if (lifecycle.movedTo === movedTo) {
+        const retired = await this.retireProfile(profileId, {
+          operationId,
+          expectedEpoch: Math.max(0, lifecycle.epoch - 1),
+          kind: 'moved',
+          movedTo,
+        });
+        return retired.epoch;
+      }
+      throw new RemoteProfileProviderError('PROFILE_STORAGE_FORBIDDEN');
+    }
+    if (lifecycle.lifecycle !== 'active' && lifecycle.lifecycle !== 'moving') {
+      throw new RemoteProfileProviderError('PROFILE_STORAGE_FORBIDDEN');
+    }
+    const retired = await this.retireProfile(profileId, {
+      operationId,
+      expectedEpoch: lifecycle.epoch,
+      kind: 'moved',
+      movedTo,
+    });
+    if (retired.lifecycle !== 'moved' || retired.movedTo !== movedTo) {
+      this.invalidResponse('profile.retire');
+    }
+    return retired.epoch;
   }
 
   async stage(operationId: string, bundle: ProfileBundleV1): Promise<void> {
@@ -441,14 +888,16 @@ export class RemoteProfileProvider implements ProfileDataProvider {
   }
 
   async publish(operationId: string, profileId: string): Promise<void> {
-    const scope = this.requireOperationScope(operationId);
-    if (scope.profileId !== profileId) {
+    const scope = this.operationScopes.get(operationId);
+    if (scope && scope.profileId !== profileId) {
       throw new RemoteProfileProviderError('PROFILE_STORAGE_PROFILE_MISMATCH');
     }
+    // A switching-phase restart intentionally has no in-memory operation
+    // scope. The durable catalog still supplies profileId + operationId and
+    // the Host validates both against encrypted staging/prepared state.
     await this.authorizedInvoke(profileId, 'migration.publish', {
       operationId,
     });
-    this.operationScopes.delete(operationId);
   }
 
   async discard(operationId: string): Promise<void> {
@@ -550,7 +999,7 @@ export class RemoteProfileProvider implements ProfileDataProvider {
 
   private async bootstrapInvoke(
     transport: RemoteProfileTransportPort,
-    op: 'describe' | 'grant',
+    op: 'describe' | 'grant' | 'profile.discover',
     payload?: unknown,
     profileId?: string,
   ): Promise<unknown> {
@@ -565,6 +1014,11 @@ export class RemoteProfileProvider implements ProfileDataProvider {
             profileId,
             generation: transport.generation,
           }
+        : op === 'profile.discover'
+          ? {
+              clientId: this.deps.clientId,
+              generation: transport.generation,
+            }
         : {}),
       ...(payload === undefined ? {} : { payload }),
     });
