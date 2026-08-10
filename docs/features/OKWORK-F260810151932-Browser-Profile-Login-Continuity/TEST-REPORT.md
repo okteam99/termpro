@@ -4,7 +4,7 @@ author: QA
 status: confirmed
 prd_ref: PRD.md (v0.3)
 tc_ref: TC.md (confirmed)
-test_run_at: "2026-08-10T19:11:52Z"
+test_run_at: "2026-08-10T19:30:39Z"
 evidence:
   integration_test_exit_code: 0
   e2e_test_exit_code: 0
@@ -18,6 +18,10 @@ revision_history:
     date: "2026-08-11"
     author: QA
     summary: "完整依赖冻结树复验：全量 Vitest 重跑绿、package 绿、API-E2E 两轮绿，确认报告。"
+  - version: v0.3
+    date: "2026-08-11"
+    author: QA
+    summary: "记录正式 test-fix/retry：修复 port-file 测试读取竞态与测试 lint；最终冻结提交全量原始绿。"
 ---
 
 # Browser Profile 3A 登录连续性漫游 - Test Report
@@ -33,7 +37,7 @@ revision_history:
 | integration(进程内集成) | 单进程全量 Vitest：shared、Host、main、preload、renderer 回归 | `npm test` | QA |
 | api-e2e(live 跨进程) | 真实 Node Host bundle、每个 RPC 独立子进程、真实 stdin/stdout 与临时远端 data dir | `e2e/profile_continuity_rpc_e2e.py` | QA |
 
-`integration` 指单进程全量 Vitest；`api-e2e` 指多次真实 `node .vite/build/host.js --profile-store-rpc` 子进程，不冒充 browser-e2e。
+`integration` 指单进程全量 Vitest；`api-e2e` 指多次真实 `node .vite/build/host.js --profile-store-rpc` 子进程，与浏览器 UI 端到端验证分层记录。
 
 ## §2 integration 结果
 
@@ -47,15 +51,18 @@ npm test
 
 ```text
 ✓ src/main/__tests__/browserGuestNavigationGuard.test.ts (10 tests) 338ms
+✓ src/host/__tests__/portFile.test.ts (7 tests)
 Test Files  195 passed | 1 skipped (196)
 Tests  1945 passed | 6 skipped (1951)
 ```
 
-F1 navigation guard 回归证据：`browserGuestNavigationGuard.test.ts` 两轮均为 10 tests 通过。冻结树首轮出现两条已登记的 `fs.watch` 时序 flake（`wsMultiClientIsolation` T-042、`wsRpcParity` T-032），按项目差分基线规则完整重跑一次；第二轮全量为绿，没有新增失败。Feature worktree 预验证时的 `portFile`/package `node-pty` 缺失由隔离树的完整依赖消除，不登记成测试基线。
+F1 navigation guard 回归证据：`browserGuestNavigationGuard.test.ts` 10 tests 通过。正式 Round 1 的零信任复验捕获 `portFile.test.ts` 在“文件已创建、JSON 尚未写完”窗口读取空内容；该路径虽早于本 Feature 存在，仍直接修复测试夹具，没有登记成基线。修复后该套件 10 个独立轮次共 70 cases 全绿，最终冻结提交 `dfb0d63` 的全量首轮原始为绿，`portFile.test.ts` 7/7 通过且未再出现 JSON 截断。
+
+Round 2 的中间预确认 `08f66b1` 曾在两次全量运行中仅命中已登记的 `wsRpcParity` T-032 `fs.watch` 时序项，同时发现 `BrowserPanel.test.tsx` 一条既有 no-op mock 的 lint error；清理 lint 后，在同一完整依赖隔离树上以 `dfb0d63` 重跑，测试首轮原始绿且 targeted ESLint 为 0 errors。
 
 ### 2.3 exit-code
 
-`Round 1 exit-code = 1`（仅两条已登记 WS 时序 flake）；`Round 2 exit-code = 0`（195 passed / 1 skipped suites，1945 passed / 6 skipped cases）。
+`Round 1 exit-code = 1`（`portFile.test.ts` 测试夹具读取竞态）；`Round 2 最终 exit-code = 0`（195 passed / 1 skipped suites，1945 passed / 6 skipped cases）。
 
 ## §3 api-e2e 结果
 
@@ -131,31 +138,34 @@ python3 /Users/liam/apps/okok/teamwork/skills/teamwork/templates/verify-ac.py \
 | package | Electron Forge package（含 Host bundle 构建） | ✅ exit 0：native dependencies 1/1，成品含 `pty.node` + `spawn-helper` |
 | 全量 integration | `npm test` 单进程 Vitest | ✅ Round 2 exit 0：195 passed / 1 skipped suites；1945 passed / 6 skipped cases |
 | critical-path 回归 | `browserGuestNavigationGuard.test.ts` | ✅ 10 passed |
+| port-file 夹具回归 | `portFile.test.ts` | ✅ 最终 7 passed；修复后独立 10 轮共 70 passed |
 | typecheck | `npm run typecheck` | ✅ exit 0 |
+| targeted lint | BL-008 涉及的 35 个 TS/TSX 文件 | ✅ exit 0：0 errors / 28 warnings |
 | API-E2E | 两轮真实多进程 Host RPC | ✅ exit 0 / exit 0 |
 | Python 编译 | `python3 -m py_compile`（pycache 定向 `/tmp`） | ✅ exit 0 |
 | diff | `git diff --check` | ✅ exit 0 |
 
 ## §6 fix-retry 历史(若 round > 1)
 
-> 产品代码未进入 test-fix。冻结树 Round 1 只出现项目已登记的 WS/fs.watch 时序 flake，因此按基线规则完整重跑一次；Round 2 全绿。
+> 产品实现未进入 test-fix；两处变化均为测试可靠性/质量修复。Round 1 的 port-file 竞态没有基线化；Round 2 最终在新冻结提交上全量原始绿。
 
 | Round | test_commit | integration_exit | e2e_exit | fix_commit | addresses_findings | 备注 |
 |---|---|---:|---:|---|---|---|
-| 1 | `62d97bd` | 1 | 0 | - | - | T-042/T-032 已登记时序 flake；触发一次完整重跑 |
-| 2 | `62d97bd` | 0 | 0 | - | - | 195 suites passed，package/API-E2E/AC 全绿 |
+| 1 | `501cfc0` | 1 | 0 | `5678a38` | `portFile.test.ts` T-016 读取竞态 | 存在后、写入前的空文件窗口；改为等待非空、可解析且结构有效的记录，10 轮定向全绿 |
+| 2 | `dfb0d63` | 0 | 0 | `dfb0d63` | `BrowserPanel.test.tsx` no-op mock lint | 中间提交 `08f66b1` 暴露 1 lint error；等价 no-op 清理后，195 suites / 1945 cases 通过，package/API-E2E/AC 全绿 |
 
 ## §7 已知问题(不阻塞 · audit 留痕)
 
 | ID | 描述 | 严重度 | 决定 | 跟踪 |
 |---|---|---|---|---|
-| - | 无 Feature 阻塞问题；首轮 WS 时序 flake 已按项目基线完整重跑并自愈。 | - | - | `frozen-62d97bd.log` |
+| - | 无 Feature 阻塞问题；中间预确认命中的 T-032 属项目已登记时序项，最终冻结提交首轮未复现。 | - | - | `project-specs/test-baseline.md`、`preconfirm-dfb0d63.log` |
 
 ## §8 评审记录
 
 | 日期 | 评审人 | 结论 | 备注 |
 |---|---|---|---|
 | 2026-08-11 | QA | ✅ confirmed | 完整依赖冻结树：integration/package/API-E2E/AC 全绿。 |
+| 2026-08-11 | QA | ✅ confirmed v0.3 | test-fix/retry 后 `dfb0d63`：全量首轮原始绿，lint 0 errors，双轮 API-E2E 与 AC 10/10。 |
 
 ## §9 原始执行日志
 
@@ -172,4 +182,9 @@ python3 /Users/liam/apps/okok/teamwork/skills/teamwork/templates/verify-ac.py \
 | py_compile | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/07-py-compile.log` |
 | API-E2E 第二次 | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/08-api-e2e-second.log` |
 | diff-check | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/09-diff-check.log` |
-| 最终冻结预确认（全量两轮/package/API-E2E 两轮/AC） | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/frozen-62d97bd.log` |
+| 早期冻结预确认（全量两轮/package/API-E2E 两轮/AC） | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/frozen-62d97bd.log` |
+| 正式 Round 1 零信任复验（捕获 port-file 读取竞态） | 1 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/final-501cfc0.log` |
+| port-file 夹具修复（10 轮定向 + 相关回归） | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/portfile-race-fix.log` |
+| Round 2 中间预确认（捕获 1 条 targeted lint error） | 1 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/preconfirm-08f66b1.log` |
+| lint 修复定向验证 | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/lint-fix-verify.log` |
+| Round 2 最终冻结预确认（全量/package/API-E2E 两轮/AC） | 0 | `/tmp/teamwork/OKWORK-F260810151932-Browser-Profile-Login-Continuity/preconfirm-dfb0d63.log` |
