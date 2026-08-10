@@ -1,9 +1,9 @@
 ---
 feature_id: "OKWORK-F260810051623-Remote-Profile-Authority"
 author: PM
-status: draft
-decision: ""
-decided_at: ""
+status: confirmed
+decision: "approved_and_ship"
+decided_at: "2026-08-10T14:46:52Z"
 prd_ref: PRD.md (v0.4)
 test_report_ref: TEST-REPORT.md
 browser_test_report_ref: BROWSER-TEST-REPORT.md
@@ -14,6 +14,10 @@ revision_history:
     date: "2026-08-10"
     author: PM
     summary: "逐条核对 AC 与测试、Review、截图证据；等待用户发布决策"
+  - version: v0.2
+    date: "2026-08-10"
+    author: PM
+    summary: "用户选择 approved_and_ship"
 ---
 
 # Remote Host Profile 权威存储与迁移 - PM 验收说明
@@ -22,7 +26,7 @@ revision_history:
 
 | 项 | 内容 |
 |---|---|
-| 当前决策 | 等待用户在 PM 验收暂停点拍板 |
+| 当前决策 | `approved_and_ship`（用户于 2026-08-10T14:46:52Z 拍板） |
 | AC 通过数 | 9 / 9 |
 | 代码评审 | Round 2 `APPROVE`；F1、F2 均 fixed |
 | 测试依据 | 全量 Vitest、Host CLI live cross-process E2E、AC 绑定校验、真实 Electron Browser E2E |
@@ -46,7 +50,7 @@ revision_history:
 
 ## §3 用户决策
 
-等待用户选择 `approved_and_ship`、`approved_no_ship` 或 `rejected_with_feedback`。AI 未代替用户决定是否进入 Ship。
+**决策：`approved_and_ship`。** 用户选择进入 Ship；后续允许推送功能分支并创建 MR，平台合并仍由用户完成。
 
 ## §4 范围与非阻塞项
 

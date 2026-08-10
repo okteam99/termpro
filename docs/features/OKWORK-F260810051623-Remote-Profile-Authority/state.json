@@ -286,9 +286,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T14:43:06Z",
-  "updated_by": "stage-cost",
-  "_state_checksum": "sha256:5e358994d0161d7213fe13db895d740602a392907da37568f937195d5f45a336",
+  "updated_at": "2026-08-10T14:43:43Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:f3ee1e65bb4966c6f56a15db1495b21795b2f9739e13b185b2d70e42420fe5e6",
   "legal_next_stages": [
     "ship",
     "dev"
@@ -396,5 +396,10 @@
       "note": "F1 通过回归上游信任边界修正契约，F2 通过提交前兼容性闭环修复",
       "at": "2026-08-10T14:32:36Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "pm_acceptance",
+    "label": "PM 验收与发布决策",
+    "started_at": "2026-08-10T14:43:43Z"
+  }
 }
