@@ -20,8 +20,12 @@ export { reconcileBadge } from './sessionReadopt';
 
 export const reconnectController: ReconnectController = createReconnectController({
   connect: (configId) => window.okwork.remoteHost.connect({ id: configId }),
-  // disconnect-first:复位 main stage ready→disconnected(否则 connect() 在 ready 是 no-op)
-  disconnect: (configId) => window.okwork.remoteHost.disconnect({ id: configId }),
+  // disconnect-first:复位 main stage ready→disconnected(否则 connect() 在 ready 是 no-op)。
+  // 🔴 走可等待的 disconnectAwait(2026-08-10 事故):fireAttempt 等 main 拆完再 connect,
+  // 免去「connect 命中陈旧 connectInflight 去重 → 尝试蒸发 / 僵尸编排枪毙新连接」竞态。
+  // 顺序是 disconnect 在前、connect 在后——等到的只会是**上一代**编排(正是要拆的对象),
+  // orchestrator.disconnect 内有 5s 有界等待,不存在「等自己」。
+  disconnect: (configId) => window.okwork.remoteHost.disconnectAwait({ id: configId }),
   setReconnecting: (configId, on) =>
     useRemoteHostRuntimeStore.getState().setReconnecting(configId, on),
   isReconnecting: (configId) =>

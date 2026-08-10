@@ -23,8 +23,17 @@ type TimerHandle = ReturnType<typeof setTimeout>;
 export interface ReconnectControllerDeps {
   /** 触发 main 重建隧道(window.okwork.remoteHost.connect)。 */
   connect(configId: string): void;
-  /** disconnect-first:复位 main stage ready→disconnected(window.okwork.remoteHost.disconnect)。 */
-  disconnect(configId: string): void;
+  /**
+   * disconnect-first:复位 main stage ready→disconnected(window.okwork.remoteHost.disconnectAwait)。
+   * 🔴 可等待(2026-08-10 事故):返回 promise 时 fireAttempt 会 **await 它落定后才 connect**。
+   * 旧版即发即忘,两条 IPC 在 main 侧竞态——上一轮编排仍在 mutex 时,disconnect 在等它,
+   * connect 却先命中 connectInflight 去重原样返回陈旧 promise(不起新编排、不 emit 任何事件),
+   * 随后 disconnect 醒来照拆:本轮尝试凭空蒸发(reconnecting 旗永远没人摘·「重连中」僵死);
+   * 另一形:僵尸编排完成 SSH 认证后经 isCurrent 自弃 ssh.close——刚连上的连接被自己一秒枪毙。
+   * 等 main 拆完(orchestrator.disconnect 内有 5s 有界等待)再 connect,陈旧 connectInflight
+   * 必已清,去重不可能再命中僵尸。
+   */
+  disconnect(configId: string): void | Promise<void>;
   /** 同步置/清 reconnecting 态(remoteHostStore.setReconnecting)。 */
   setReconnecting(configId: string, on: boolean): void;
   /** 查询 reconnecting 态(remoteHostStore.isReconnecting)。 */
@@ -69,6 +78,10 @@ export function createReconnectController(
   const clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h));
   const backoffs = new Map<string, ReconnectBackoff>();
   const timers = new Map<string, TimerHandle>();
+  // 尝试代际号(2026-08-10):fireAttempt 在 await disconnect 期间,编排可能被 cancel、
+  // 或 manualRetry 又点起新一代尝试——旧代醒来后凭代际不符自弃,绝不补发 connect
+  // (否则一次「立即重试」会变成两条并发 connect,重蹈 main 侧去重竞态)。
+  const attemptGen = new Map<string, number>();
 
   function clearPendingTimer(configId: string): void {
     const h = timers.get(configId);
@@ -81,11 +94,18 @@ export function createReconnectController(
   function cleanup(configId: string): void {
     clearPendingTimer(configId);
     backoffs.delete(configId);
+    attemptGen.delete(configId);
     deps.setReconnecting(configId, false);
   }
 
-  /** 发起一次重连尝试:预算未尽 → disconnect-first→connect;预算耗尽 → 确定断线 drop。 */
-  function fireAttempt(configId: string): void {
+  /**
+   * 发起一次重连尝试:预算未尽 → disconnect-first→connect;预算耗尽 → 确定断线 drop。
+   * 🔴 串行化(2026-08-10 事故):**await disconnect 落定后才 connect**——否则两条 IPC 在
+   * main 侧竞态,connect 命中陈旧 connectInflight 去重 → 本轮尝试凭空蒸发(细节见
+   * deps.disconnect 注释)。等待期间编排可能被 cancel / manualRetry 顶掉,醒来后按
+   * backoff 实例身份 + 代际号双重自弃,不补发 connect。
+   */
+  async function fireAttempt(configId: string): Promise<void> {
     const b = backoffs.get(configId);
     if (!b) return;
     if (b.overBudget()) {
@@ -93,8 +113,15 @@ export function createReconnectController(
       return;
     }
     b.nextDelayMs(); // 推进预算计数(本次尝试)
+    const gen = (attemptGen.get(configId) ?? 0) + 1;
+    attemptGen.set(configId, gen);
     // 🔴 disconnect-first:先复位 main stage 再 connect(否则 ready 态 connect no-op·隧道永不重建)
-    deps.disconnect(configId);
+    try {
+      await deps.disconnect(configId);
+    } catch {
+      /* main 侧拆除异常不阻断 connect(orchestrator.disconnect 已尽力收尾) */
+    }
+    if (backoffs.get(configId) !== b || attemptGen.get(configId) !== gen) return; // 已被 cancel/顶代
     deps.connect(configId);
   }
 
@@ -110,7 +137,7 @@ export function createReconnectController(
       // 🔴 同步先占 reconnecting 态(CR-1 ①·必须在 disconnect-first 之前·Sidebar drop 计时器据此 gate)
       deps.setReconnecting(configId, true);
       backoffs.set(configId, deps.makeBackoff());
-      fireAttempt(configId); // 立即首试
+      void fireAttempt(configId); // 立即首试(异步串行 disconnect→connect)
     },
 
     onAttemptFailed(configId: string): void {
@@ -128,7 +155,7 @@ export function createReconnectController(
         configId,
         setTimer(() => {
           timers.delete(configId);
-          fireAttempt(configId);
+          void fireAttempt(configId);
         }, delay),
       );
     },
@@ -145,15 +172,15 @@ export function createReconnectController(
     },
 
     manualRetry(configId: string): void {
+      clearPendingTimer(configId);
+      // 🔴 补建守卫改按 backoff 存在性,不按 reconnecting 态(2026-08-10):两者可能分叉
+      // (如 reconnecting=true 但 backoff 已被清)——旧版此态下 fireAttempt 开头 `!b return`,
+      // 「立即重试」就是个完全静默的死按钮。
       const b = backoffs.get(configId);
       if (b) b.reset(); // 复位退避 + 重连预算(给足新窗口)
-      clearPendingTimer(configId);
-      // 若之前未在编排(如已确定断线用户点重连),补建退避 + 先占态
-      if (!deps.isReconnecting(configId)) {
-        deps.setReconnecting(configId, true);
-        backoffs.set(configId, deps.makeBackoff());
-      }
-      fireAttempt(configId);
+      else backoffs.set(configId, deps.makeBackoff());
+      if (!deps.isReconnecting(configId)) deps.setReconnecting(configId, true);
+      void fireAttempt(configId);
     },
 
     cancel(configId: string): void {

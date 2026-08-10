@@ -117,8 +117,9 @@ export function registerRemoteHostIpc(
   });
 
   // 可等待版本(需要排队/等待语义时用):不承载"已断开"语义(TECH R4)——
-  // 真正的本地拆除在调用方 await 之前已同步完成。旧 `disconnect`(ipcMain.on)保留不动,
-  // 两个调用点仍在用它:reconnectController 的 disconnect-first + 设置页同步拆除路径。
+  // 真正的本地拆除在调用方 await 之前已同步完成。旧 `disconnect`(ipcMain.on)保留:
+  // 设置页同步拆除路径仍在用;reconnectController 的 disconnect-first 已改走本通道
+  // (2026-08-10:即发即忘与紧随的 connect 竞态 → 尝试蒸发/僵尸误杀)。
   ipcMain.handle(REMOTE_HOST_CHANNELS.disconnectAwait, (_event, payload: { id: string }) => {
     return orchestrator.disconnect(payload.id);
   });
