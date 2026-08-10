@@ -35,9 +35,14 @@
 | Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
 |-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
 | BL-004 | 机器分组 Sidebar + 添加项目流程 | P0 | Sidebar 按机器分组（连接即发现该机 workspace）+ 添加项目=选择机器→远程目录浏览器→创建落该机注册表 | ① 连接远程机即列出其全部 workspace（含会话徽标） ② 远程选目录创建项目、任一客户端可见 ③ 远程 workspace 终端/文件树/git 全链路走该机 host（查看器窗口 v1 出范围·PENDING-005） | BL-001 · BL-003 | ✅ 已交付 | - | OKWORK-F260710011342 | WS-01 |
-| BL-005 | 断线重连与会话连续性 | P1 | host 侧 scrollback 环形缓冲 + 远程会话存活 + 重连回放认领 + 状态/通知对账 + 重连横幅 | ① UI 断开后远程会话继续运行 ② 重连回放屏幕并对账徽标 ③ 断线横幅 + 自动重连 + 手动重试 | BL-002 · BL-003 | 待开始 | - | - | WS-01 |
+| BL-005 | 断线重连与会话连续性 | P1 | host 侧 scrollback 环形缓冲 + 远程会话存活 + 重连回放认领 + 状态/通知对账 + 重连横幅 | ① UI 断开后远程会话继续运行 ② 重连回放屏幕并对账徽标 ③ 断线横幅 + 自动重连 + 手动重试 | BL-002 · BL-003 | ✅ 已交付 | - | OKWORK-F260710042746 | WS-01 |
 
 > ✅ 完成条件：Wave 3 全部「已完成」= M5 远程 Host 里程碑达成
+> 🎉 **已达成（2026-08-06 补翻）**：BL-001…005 全部交付 → **WS-01 / M5 远程 Host 完成**。
+> BL-005 的交付实体是 `OKWORK-F260710042746-Reconnect-Continuity`（2026-07-10 归档），当时漏翻本行；
+> 2026-08-06 逐条核验三项验收标准后补翻（① `ptyPoolDetach` + `reconnectContinuity.integration` 测试 ②
+> `terminalRegistry` renderedBytes 游标 + `bindRestoredSession`/`mirrorAttach` ③ `reconnectController`/
+> `reconnectBackoff`/`reconnectWiring` + 组头 `manualRetry`）。
 
 ## 依赖关系
 
