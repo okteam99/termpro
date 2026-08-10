@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "ui_design",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -43,13 +43,31 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T15:20:35Z",
+      "await_minutes": 26,
+      "evidence": {},
+      "completed_at": "2026-08-10T16:07:20Z",
+      "auto_commit": "cce87e8",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "duration_minutes": 46,
+      "active_minutes": 46
+    },
+    "ui_design": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T15:20:35Z"
+      "started_at": "2026-08-10T16:07:20Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal"
+  ],
   "created_at": "2026-08-10T15:20:31Z",
   "stage_review_roles": {
     "goal": [
@@ -69,16 +87,42 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T15:40:44Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:c7470bda26b5ab570685a6325fef62c910c138fb087901644afc5091c52dabfa",
+  "updated_at": "2026-08-10T16:07:37Z",
+  "updated_by": "review-preventability",
+  "_state_checksum": "sha256:487e3d862bd9b8050cb06b9957ea4c20be0b7277f970e81572eb048f431d4d3d",
   "legal_next_stages": [
-    "ui_design",
+    "panorama_sync",
     "blueprint"
   ],
-  "open_pause": {
-    "stage": "goal",
-    "label": "Goal PRD 最终确认",
-    "started_at": "2026-08-10T15:40:44Z"
-  }
+  "execution_hints": {
+    "ui_design_needed": true
+  },
+  "stage_cost": [
+    {
+      "stage": "goal",
+      "rounds": 2,
+      "overhead_rounds": 0,
+      "kinds": [
+        "无"
+      ],
+      "note": "两轮均为实质 PRD 起草、冷审修订与用户决策，不计等待和一次 whitespace 门禁修正为协调轮次",
+      "at": "2026-08-10T16:07:36Z"
+    }
+  ],
+  "authoring_preventability": [
+    {
+      "stage": "goal",
+      "preventable": 6,
+      "total": 6,
+      "missing": [
+        "既有协议容量与兼容边界",
+        "跨重启离线删除模型",
+        "全局迁移删除结果",
+        "hydration 可测放行条件",
+        "新增秘密数据面"
+      ],
+      "note": "",
+      "at": "2026-08-10T16:07:36Z"
+    }
+  ]
 }

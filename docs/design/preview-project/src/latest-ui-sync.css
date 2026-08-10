@@ -761,6 +761,199 @@
 
 .password-flow__notice-actions button { margin-left: 0; }
 
+/* ---- BL-008 Browser Profile login continuity panorama increment ---- */
+
+.browser-profile__authority {
+  min-width: 76px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.browser-profile__authority small {
+  color: var(--fg-dim);
+  font-size: 7.8px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.browser-profile__available {
+  margin-bottom: 9px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 7px;
+}
+
+.browser-profile__available-head {
+  padding: 6px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+
+.browser-profile__available-head > div,
+.browser-profile__available-row > div:nth-child(2) {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.browser-profile__available-head strong { color: var(--fg); font-size: 10.5px; }
+.browser-profile__available-head span,
+.browser-profile__available-row span { color: var(--fg-dim); font-size: 9px; line-height: 1.35; }
+
+.browser-profile__available-row {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+}
+
+.browser-profile__available-row > div:nth-child(2) > strong { font-size: 10.5px; }
+.browser-profile__available-row > button {
+  flex: none;
+  padding: 4px 8px;
+  color: #1b1b1b;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  font-size: 9.4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.browser-profile__available-row > button:disabled { opacity: 0.42; cursor: default; }
+
+.browser-profile__detail--local {
+  min-height: 39px;
+  background: color-mix(in srgb, var(--fg-dim) 3%, transparent);
+}
+
+.browser-profile__detail--syncing {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.browser-profile__sync-spinner,
+.password-flow__gate-spinner {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: bl008-spin 0.8s linear infinite;
+}
+
+@keyframes bl008-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-profile__sync-spinner,
+  .password-flow__gate-spinner { animation: none; }
+}
+
+.browser-profile__sync-report {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px 10px 9px 44px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-profile__sync-report > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.browser-profile__sync-report span,
+.browser-profile__sync-report small { color: var(--fg-dim); font-size: 8.3px; line-height: 1.3; }
+.browser-profile__sync-report strong { color: var(--fg); font-size: 12px; font-variant-numeric: tabular-nums; }
+.browser-profile__sync-report p { grid-column: 1 / -1; margin: 0; color: var(--fg-dim); font-size: 8.8px; line-height: 1.4; }
+
+.authority-dialog__global-impact {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 9px;
+  padding: 8px 9px;
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 28%, var(--border));
+  border-radius: 6px;
+}
+
+.authority-dialog__global-impact strong { color: var(--red); font-size: 10px; }
+.authority-dialog__global-impact span { color: var(--fg-dim); font-size: 9.2px; line-height: 1.45; }
+
+.password-flow__hydration-gate,
+.password-flow__restored-page {
+  width: min(410px, 100%);
+  min-height: 230px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 30px;
+  color: #24292f;
+  background: #fff;
+  border: 1px solid #d8dee4;
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(31, 35, 40, 0.09);
+  text-align: center;
+}
+
+.password-flow__hydration-gate strong,
+.password-flow__restored-page > strong { font-size: 17px; }
+.password-flow__hydration-gate p,
+.password-flow__restored-page p { max-width: 330px; margin: 0; color: #57606a; font-size: 11px; line-height: 1.5; }
+.password-flow__hydration-gate small { color: #57606a; font-size: 10px; font-variant-numeric: tabular-nums; }
+.password-flow__gate-spinner { width: 24px; height: 24px; }
+.password-flow__gate-error {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #cf222e;
+  background: #ffebe9;
+  border-radius: 50%;
+  font-weight: 750;
+}
+
+.password-flow__hydration-gate button {
+  min-height: 30px;
+  padding: 0 13px;
+  color: #fff;
+  background: #2da44e;
+  border: 1px solid #2c974b;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.password-flow__restored-page > div:last-child {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px 22px;
+  width: 230px;
+  padding: 12px;
+  color: #57606a;
+  background: #f6f8fa;
+  border: 1px solid #d8dee4;
+  border-radius: 7px;
+  font-size: 10.5px;
+  text-align: left;
+}
+
+.password-flow__restored-page b { color: #24292f; font-variant-numeric: tabular-nums; }
+
 .remote-hosts__dependency-block {
   width: 100%;
   display: flex;
@@ -814,6 +1007,9 @@
 
 .authority-dialog button:focus-visible,
 .browser-profile__global-alert button:focus-visible,
+.browser-profile__available button:focus-visible,
+.browser-profile__detail button:focus-visible,
+.password-flow__hydration-gate button:focus-visible,
 .remote-hosts__dependency-block button:focus-visible,
 .trusted-password__offline button:focus-visible {
   outline: 2px solid var(--accent);
@@ -824,6 +1020,7 @@
   .browser-profile__count { display: none; }
   .browser-profile__row { align-items: flex-start; }
   .browser-profile__identity { min-width: 145px; }
+  .browser-profile__sync-report { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 10px; }
   .browser-profile__row-actions { width: 100%; justify-content: flex-end; padding-left: 34px; }
   .authority-dialog__plan { grid-template-columns: 1fr; }
   .browser-passwords__status-actions { flex-direction: column; }
