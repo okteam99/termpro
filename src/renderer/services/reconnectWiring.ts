@@ -12,6 +12,7 @@ import {
   defaultBackoffFactory,
   type ReconnectController,
 } from './reconnectController';
+import { readReconnectAttemptTimeoutEnv } from './reconnectBackoff';
 import { stopRemoteWorkspaceSync } from './remoteWorkspaceSync';
 import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
 import { readoptHostSessions } from './sessionReadopt';
@@ -33,4 +34,6 @@ export const reconnectController: ReconnectController = createReconnectControlle
   stopSync: (configId) => stopRemoteWorkspaceSync(configId),
   readopt: (configId) => readoptHostSessions(configId),
   makeBackoff: defaultBackoffFactory,
+  // 单次尝试看门狗(2026-08-10 兜底闸):窗口内无定论 → 按失败推进退避,杜绝「重连中」僵死
+  attemptTimeoutMs: readReconnectAttemptTimeoutEnv(),
 });

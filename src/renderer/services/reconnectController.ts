@@ -15,7 +15,11 @@
 // 本文件只依赖 reconnectBackoff + 注入 deps(不 import terminalRegistry/remoteWorkspaceSync/window)——
 // 编排逻辑纯可测;默认实例的真实接线由调用方(Sidebar/app 入口)注入。
 
-import { ReconnectBackoff, readReconnectBudgetEnv } from './reconnectBackoff';
+import {
+  DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS,
+  ReconnectBackoff,
+  readReconnectBudgetEnv,
+} from './reconnectBackoff';
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
@@ -44,6 +48,13 @@ export interface ReconnectControllerDeps {
   readopt(configId: string): Promise<void>;
   /** 每次重连编排新建一个退避计数器(env 注入·单测控 budget)。 */
   makeBackoff(): ReconnectBackoff;
+  /**
+   * 单次尝试看门狗超时(ms·env 注入·缺省 DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS)。
+   * connect 发出后若在此窗口内没有任何定论(onReconnected / onAttemptFailed / cancel),
+   * 按尝试失败推进退避——main 侧任何静默路径(去重 no-op、僵尸自弃、safeEmit 吞非法转移)
+   * 都不再能让状态机永久搁浅在「重连中」(2026-08-10 事故的兜底闸)。
+   */
+  attemptTimeoutMs?: number;
   setTimer?(fn: () => void, ms: number): TimerHandle;
   clearTimer?(h: TimerHandle): void;
 }
@@ -76,8 +87,11 @@ export function createReconnectController(
 ): ReconnectController {
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h));
+  const attemptTimeoutMs = deps.attemptTimeoutMs ?? DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS;
   const backoffs = new Map<string, ReconnectBackoff>();
   const timers = new Map<string, TimerHandle>();
+  // 单次尝试看门狗(2026-08-10 兜底闸):connect 发出 → 计时;定论(成功/失败/取消)→ 撤销。
+  const watchdogs = new Map<string, TimerHandle>();
   // 尝试代际号(2026-08-10):fireAttempt 在 await disconnect 期间,编排可能被 cancel、
   // 或 manualRetry 又点起新一代尝试——旧代醒来后凭代际不符自弃,绝不补发 connect
   // (否则一次「立即重试」会变成两条并发 connect,重蹈 main 侧去重竞态)。
@@ -91,8 +105,17 @@ export function createReconnectController(
     }
   }
 
+  function clearWatchdog(configId: string): void {
+    const h = watchdogs.get(configId);
+    if (h !== undefined) {
+      clearTimer(h);
+      watchdogs.delete(configId);
+    }
+  }
+
   function cleanup(configId: string): void {
     clearPendingTimer(configId);
+    clearWatchdog(configId);
     backoffs.delete(configId);
     attemptGen.delete(configId);
     deps.setReconnecting(configId, false);
@@ -123,6 +146,41 @@ export function createReconnectController(
     }
     if (backoffs.get(configId) !== b || attemptGen.get(configId) !== gen) return; // 已被 cancel/顶代
     deps.connect(configId);
+    // 🔴 看门狗:本次尝试在窗口内必须有定论,否则按失败推进退避(main 侧静默路径兜底)。
+    // 先清旧再挂新——顶代场景旧狗必须撤,免得给新尝试计旧账。
+    clearWatchdog(configId);
+    watchdogs.set(
+      configId,
+      setTimer(() => {
+        watchdogs.delete(configId);
+        attemptFailed(configId);
+      }, attemptTimeoutMs),
+    );
+  }
+
+  /**
+   * 一次尝试的失败定论(真失败事件 / 看门狗超时共用):退避重试或超预算判死。
+   * 公开方法 onAttemptFailed 委托到此。
+   */
+  function attemptFailed(configId: string): void {
+    if (!deps.isReconnecting(configId)) return;
+    const b = backoffs.get(configId);
+    if (!b) return;
+    clearWatchdog(configId); // 本次尝试已定论,撤销悬挂看门狗
+    if (b.overBudget()) {
+      definite(configId);
+      return;
+    }
+    // 退避后重试(下次间隔 = 当前 attempt 的退避·fireAttempt 内再推进计数)
+    clearPendingTimer(configId);
+    const delay = b.peekDelayMs();
+    timers.set(
+      configId,
+      setTimer(() => {
+        timers.delete(configId);
+        void fireAttempt(configId);
+      }, delay),
+    );
   }
 
   function definite(configId: string): void {
@@ -141,23 +199,7 @@ export function createReconnectController(
     },
 
     onAttemptFailed(configId: string): void {
-      if (!deps.isReconnecting(configId)) return;
-      const b = backoffs.get(configId);
-      if (!b) return;
-      if (b.overBudget()) {
-        definite(configId);
-        return;
-      }
-      // 退避后重试(下次间隔 = 当前 attempt 的退避·fireAttempt 内再推进计数)
-      clearPendingTimer(configId);
-      const delay = b.peekDelayMs();
-      timers.set(
-        configId,
-        setTimer(() => {
-          timers.delete(configId);
-          void fireAttempt(configId);
-        }, delay),
-      );
+      attemptFailed(configId);
     },
 
     onReconnected(configId: string): void {

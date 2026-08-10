@@ -83,3 +83,15 @@ export function readReconnectBudgetEnv(): ReconnectBudgetConfig {
     budget: readNumEnv('OKWORK_RECONNECT_BUDGET', DEFAULT_RECONNECT_BUDGET.budget),
   };
 }
+
+/** 单次重连尝试看门狗超时(2026-08-10)。默认 90s:正常重连(claim 快路径)十几秒内定论,
+ *  ssh 10s + 单 exec 30s 的合法慢路径也覆盖;90s 仍无任何定论只可能是 main 侧静默搁浅。 */
+export const DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS = 90_000;
+
+/** 从 env 读单次尝试看门狗超时(测试/调优免等真实 90s)。 */
+export function readReconnectAttemptTimeoutEnv(): number {
+  return readNumEnv(
+    'OKWORK_RECONNECT_ATTEMPT_TIMEOUT_MS',
+    DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS,
+  );
+}
