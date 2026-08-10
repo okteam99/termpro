@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "ui_design",
+  "current_stage": "panorama_sync",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -39,7 +39,9 @@
   },
   "auto_mode": false,
   "yolo": false,
-  "concerns": [],
+  "concerns": [
+    "2026-08-10T12:28:37Z WARN L1 auto-pass: panorama change scope=四个既有节点内的远程存储位置/迁移/断线/删除保护增量, 判据=①无节点增删移或路由变化 ②无设计 token/共享视觉基线变更 ③teamwork-space+ROADMAP 冲突扫描零命中"
+  ],
   "review_round": 0,
   "stage_contracts": {
     "goal": {
@@ -61,15 +63,32 @@
       "active_minutes": 24
     },
     "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T06:04:52Z",
+      "await_minutes": 366,
+      "evidence": {
+        "panorama_changed": "true"
+      },
+      "completed_at": "2026-08-10T12:27:18Z",
+      "auto_commit": "56b44ff",
+      "artifacts": [
+        "UI.md"
+      ],
+      "duration_minutes": 382,
+      "active_minutes": 44
+    },
+    "panorama_sync": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T06:04:52Z",
-      "await_minutes": 366
+      "started_at": "2026-08-10T12:27:18Z"
     }
   },
   "completed_stages": [
-    "goal"
+    "goal",
+    "ui_design"
   ],
   "created_at": "2026-08-10T05:39:59Z",
   "stage_review_roles": {
@@ -90,16 +109,16 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T12:26:56Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:2459840150473de1ad1ece782eb88e39f02859f6a46f37e3d2696d63e583ca51",
+  "updated_at": "2026-08-10T12:28:37Z",
+  "updated_by": "add-concern",
+  "_state_checksum": "sha256:3f3e789ba853ec67c8f37810e5952144e119e79cec8f2a2e261fec4e30b55113",
   "legal_next_stages": [
-    "panorama_sync",
     "blueprint"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
-    "ui_design_needed": true
+    "ui_design_needed": true,
+    "panorama_changed": true
   },
   "stage_cost": [
     {
@@ -109,6 +128,14 @@
       "kinds": [],
       "note": "两轮均为实质 PRD 审查与修订，无纯协调轮次",
       "at": "2026-08-10T06:05:01Z"
+    },
+    {
+      "stage": "ui_design",
+      "rounds": 2,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "初版加一轮用户视觉精简反馈；无纯协调返工",
+      "at": "2026-08-10T12:27:23Z"
     }
   ],
   "authoring_preventability": [
