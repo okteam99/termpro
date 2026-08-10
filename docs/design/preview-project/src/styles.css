@@ -3309,3 +3309,326 @@ select {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
+
+/* ---- BL-006 local password vault panorama overrides ---- */
+
+.browser-profile__card--settings { width: 850px; }
+
+.browser-settings__groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.browser-settings__option {
+  min-height: 42px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.browser-settings__option--selected {
+  background: rgba(74, 141, 248, 0.055);
+  border-color: rgba(74, 141, 248, 0.24);
+}
+
+.browser-settings__radio { color: var(--accent); line-height: 17px; }
+.browser-settings__option > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.browser-settings__option strong { color: var(--fg); font-size: 11px; font-weight: 600; }
+.browser-settings__option small { color: var(--fg-dim); font-size: 9.8px; line-height: 1.35; }
+.browser-settings__divider { height: 1px; margin: 15px 0; background: var(--border); }
+
+.browser-profile__scope--danger {
+  background: rgba(224, 108, 117, 0.07);
+  border-color: rgba(224, 108, 117, 0.3);
+}
+
+.browser-profile__scope--danger .browser-profile__scope-title,
+.browser-profile__scope--danger .browser-profile__scope-badge { color: var(--red); }
+
+.browser-profile__section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+
+.browser-profile__section-head .browser-profile__section-title { margin-bottom: 3px; }
+.browser-profile__section-head p { margin: 0; color: var(--fg-dim); font-size: 10px; }
+.browser-profile__row--disabled { opacity: 0.52; }
+
+.browser-profile__row-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.browser-profile__row-actions button,
+.browser-profile__inline-confirm button,
+.browser-profile__new-form button {
+  padding: 3px 7px;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 9.5px;
+}
+
+.browser-profile__inline-confirm {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 7px 10px 7px 51px;
+  color: var(--fg-dim);
+  background: rgba(224, 108, 117, 0.055);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+}
+
+.browser-profile__inline-confirm > span { flex: 1; }
+.browser-profile__inline-confirm .browser-profile__danger-btn { color: var(--red); border-color: rgba(224, 108, 117, 0.3); }
+.browser-profile__delete-failed { padding-left: 51px; }
+
+.browser-profile__empty-row {
+  min-height: 78px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--fg-dim);
+}
+
+.browser-profile__empty-row strong { color: var(--fg); font-size: 11px; }
+.browser-profile__empty-row span { font-size: 9.8px; }
+
+.browser-profile__new-form {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr auto auto;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.browser-profile__new-form input {
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+}
+
+.browser-profile__new-form button:first-of-type { color: #dbe8ff; background: var(--accent); border-color: var(--accent); }
+
+.browser-profile__list--loading,
+.browser-passwords__list--loading { pointer-events: none; }
+
+.browser-profile__skeleton,
+.browser-passwords__skeleton {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-profile__skeleton:last-child,
+.browser-passwords__skeleton:last-child { border-bottom: 0; }
+
+.browser-profile__skeleton i,
+.browser-passwords__skeleton i { width: 30px; height: 30px; border-radius: 7px; background: var(--bg-active); }
+.browser-profile__skeleton span,
+.browser-passwords__skeleton span { width: 42%; height: 9px; border-radius: 5px; background: var(--bg-active); }
+.browser-profile__skeleton b,
+.browser-passwords__skeleton b { width: 18%; height: 9px; margin-left: auto; border-radius: 5px; background: var(--bg-active); }
+
+.browser-profile__notice-row--disclosure {
+  align-items: flex-start;
+  margin-bottom: 0;
+  padding: 9px 10px;
+  background: rgba(186, 127, 255, 0.055);
+  border: 1px solid rgba(186, 127, 255, 0.2);
+  border-radius: 6px;
+  line-height: 1.4;
+}
+
+.browser-passwords__toolbar select {
+  height: 30px;
+  padding: 0 8px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.browser-passwords__origin { width: 225px; }
+.browser-passwords__secret { width: 58px; flex: none; min-width: 0; font-family: inherit; }
+.browser-passwords__profile { width: 52px; flex: none; color: #b9d1ff; font-size: 9.8px; }
+
+.browser-passwords__status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.browser-passwords__status > span { flex: 1; color: var(--fg-dim); font-size: 10px; }
+.browser-passwords__status > strong { color: var(--fg); font-size: 10.5px; }
+.browser-passwords__status > button { color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; }
+.browser-passwords__status--danger { background: rgba(224, 108, 117, 0.06); border-color: rgba(224, 108, 117, 0.24); }
+
+.browser-passwords__disclosures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.browser-passwords__disclosures > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 9px;
+  background: rgba(186, 127, 255, 0.045);
+  border: 1px solid rgba(186, 127, 255, 0.17);
+  border-radius: 6px;
+}
+
+.browser-passwords__disclosures strong { color: #d7b8ff; font-size: 10px; }
+.browser-passwords__disclosures span { color: var(--fg-dim); font-size: 9.6px; line-height: 1.4; }
+
+.trusted-password__backdrop {
+  position: fixed;
+  inset: 34px 0 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.67);
+}
+
+.trusted-password__window {
+  width: 430px;
+  padding: 0 18px 18px;
+  overflow: hidden;
+  background: #20242a;
+  border: 1px solid rgba(74, 141, 248, 0.48);
+  border-radius: 10px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.68);
+}
+
+.trusted-password__titlebar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -18px;
+  padding: 0 13px 0 18px;
+  color: var(--fg);
+  background: #252a31;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.trusted-password__titlebar button { color: var(--fg-dim); background: transparent; border: 0; font-size: 16px; }
+
+.trusted-password__seal {
+  margin: 14px 0 12px;
+  padding: 7px 9px;
+  color: #b9d1ff;
+  background: rgba(74, 141, 248, 0.08);
+  border: 1px solid rgba(74, 141, 248, 0.25);
+  border-radius: 6px;
+  font-size: 9.8px;
+}
+
+.trusted-password__meta { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.trusted-password__meta strong { color: var(--fg); font-size: 12px; }
+.trusted-password__meta span,
+.trusted-password__window p { color: var(--fg-dim); font-size: 10px; line-height: 1.45; }
+
+.trusted-password__secret,
+.trusted-password__warning {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.trusted-password__secret { font-family: Menlo, Monaco, "SF Mono", monospace; font-size: 13px; user-select: text; }
+.trusted-password__warning { color: var(--amber); background: rgba(209, 154, 102, 0.06); border-color: rgba(209, 154, 102, 0.24); font-size: 10px; line-height: 1.4; }
+
+.trusted-password__primary,
+.trusted-password__cancel { min-height: 30px; padding: 0 12px; border-radius: 5px; cursor: pointer; }
+.trusted-password__primary { color: #fff; background: var(--accent); border: 1px solid var(--accent); }
+.trusted-password__cancel { margin-left: 7px; color: var(--fg-dim); background: transparent; border: 1px solid var(--border); }
+
+.password-flow__window { position: relative; }
+.password-flow__notice--danger { background: rgba(224, 108, 117, 0.09); border-color: rgba(224, 108, 117, 0.24); }
+.password-flow__notice--uncertain { background: rgba(157, 165, 180, 0.06); border-color: var(--border); }
+.password-flow__notice--danger .password-flow__notice-icon { color: var(--red); background: rgba(224, 108, 117, 0.13); }
+.password-flow__address--insecure { color: var(--amber); border-color: rgba(209, 154, 102, 0.3); }
+
+.password-flow__accounts {
+  position: absolute;
+  z-index: 8;
+  top: 150px;
+  right: 13px;
+  width: 270px;
+  overflow: hidden;
+  background: #252a31;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+}
+
+.password-flow__accounts button {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px 10px;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.password-flow__accounts button:last-child { min-height: 34px; color: var(--accent); border-bottom: 0; }
+.password-flow__accounts button:hover { background: var(--bg-active); }
+.password-flow__accounts strong { font-size: 10.5px; }
+.password-flow__accounts span { color: var(--fg-dim); font-size: 9.5px; }
+
+@media (max-width: 860px) {
+  .browser-settings__groups,
+  .browser-passwords__disclosures { grid-template-columns: 1fr; }
+  .browser-profile__card { max-height: calc(100vh - 56px); }
+  .browser-profile__row { flex-wrap: wrap; }
+  .browser-profile__identity { min-width: 190px; }
+  .browser-passwords__origin { width: 180px; }
+  .browser-passwords__profile,
+  .browser-passwords__changed { display: none; }
+}

@@ -8,7 +8,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { BrowserProfileStore } from '../browserProfileStore';
 import { JsonFileSettingsStore } from '../settingsStore';
-import { DEFAULT_PROFILE_ID, PROFILE_ID_RE } from '../../shared/browserProfile';
+import {
+  BROWSER_PROFILE_DELETION_ERROR_CODES,
+  DEFAULT_PROFILE_ID,
+  PROFILE_ID_RE,
+} from '../../shared/browserProfile';
 
 let tmpDir: string;
 let store: BrowserProfileStore;
@@ -53,16 +57,40 @@ describe('BrowserProfileStore', () => {
     expect(() => store.save({ id: 'f'.repeat(32), name: 'x' })).toThrow();
   });
 
-  it('默认 profile 保护:save 拒绝、delete 恒 false', () => {
+  it('默认 profile 保护:save/markDeleting 拒绝、finalizeDeletion 恒 false', () => {
     expect(() => store.save({ id: DEFAULT_PROFILE_ID, name: 'hack' })).toThrow();
-    expect(store.delete(DEFAULT_PROFILE_ID)).toBe(false);
+    expect(() => store.markDeleting(DEFAULT_PROFILE_ID)).toThrow();
+    expect(store.finalizeDeletion(DEFAULT_PROFILE_ID)).toBe(false);
   });
 
-  it('删除:命中 true 并落盘;未命中 false 幂等', () => {
+  it('删除状态先落盘并禁用，只有 deleting 能最终移除', () => {
     const p = store.save({ name: 'a' });
-    expect(store.delete(p.id)).toBe(true);
+    expect(store.isActive(p.id)).toBe(true);
+    expect(store.finalizeDeletion(p.id)).toBe(false);
+
+    expect(store.markDeleting(p.id, 100)).toMatchObject({
+      id: p.id,
+      deletionState: 'deleting',
+      deletionUpdatedAt: 100,
+    });
+    expect(store.isActive(p.id)).toBe(false);
+    expect(store.listActive()).toEqual([]);
+    expect(() => store.save({ id: p.id, name: 'renamed' })).toThrow('BROWSER_PROFILE_INACTIVE');
+
+    expect(
+      store.markDeleteFailed(p.id, BROWSER_PROFILE_DELETION_ERROR_CODES.cacheClearFailed, 200),
+    ).toMatchObject({
+      deletionState: 'delete_failed',
+      deletionErrorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.cacheClearFailed,
+      deletionUpdatedAt: 200,
+    });
+    expect(store.finalizeDeletion(p.id)).toBe(false);
+
+    const retrying = store.markDeleting(p.id, 300);
+    expect(retrying.deletionErrorCode).toBeUndefined();
+    expect(store.finalizeDeletion(p.id)).toBe(true);
     expect(store.get(p.id)).toBeNull();
-    expect(store.delete(p.id)).toBe(false);
+    expect(store.finalizeDeletion(p.id)).toBe(false);
   });
 
   it('落盘文档损坏/形状非法 → 兜底空表,坏条目静默丢弃', () => {
@@ -82,6 +110,47 @@ describe('BrowserProfileStore', () => {
       ]),
     );
     expect(store.list()).toEqual([good]);
+  });
+
+  it('旧数据无删除字段仍 active；删除字段严格清洗且跨实例保留', () => {
+    const file = path.join(tmpDir, 'browser-profiles.json');
+    const active = { id: 'a'.repeat(32), name: 'legacy', createdAt: 1 };
+    const deleting = {
+      id: 'b'.repeat(32),
+      name: 'deleting',
+      createdAt: 2,
+      deletionState: 'deleting',
+      deletionErrorCode: 'RAW_SECRET_MESSAGE',
+      deletionUpdatedAt: 20,
+    };
+    const failed = {
+      id: 'c'.repeat(32),
+      name: 'failed',
+      createdAt: 3,
+      deletionState: 'delete_failed',
+      deletionErrorCode: 'RAW_SECRET_MESSAGE',
+      deletionUpdatedAt: 'bad',
+    };
+    fs.writeFileSync(file, JSON.stringify([active, deleting, failed]));
+
+    expect(store.isActive(active.id)).toBe(true);
+    expect(store.isActive(deleting.id)).toBe(false);
+    expect(store.isActive(failed.id)).toBe(false);
+    expect(store.get(deleting.id)).toMatchObject({
+      deletionState: 'deleting',
+      deletionUpdatedAt: 20,
+    });
+    expect(store.get(deleting.id)?.deletionErrorCode).toBeUndefined();
+    expect(store.get(failed.id)).toMatchObject({
+      deletionState: 'delete_failed',
+      deletionErrorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.failed,
+      deletionUpdatedAt: 0,
+    });
+
+    const store2 = new BrowserProfileStore(
+      new JsonFileSettingsStore({ userDataDir: () => tmpDir, file: 'browser-profiles.json' }),
+    );
+    expect(store2.listActive().map((profile) => profile.id)).toEqual([active.id]);
   });
 
   it('跨实例持久化(同一文档)', () => {

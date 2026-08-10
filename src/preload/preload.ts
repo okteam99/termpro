@@ -2,7 +2,18 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseLocaleArg, parseVersionArg } from './parseVersionArg';
 import { REMOTE_HOST_CHANNELS, BROWSER_NET_CHANNELS } from '../shared/remoteHost';
 import { BROWSER_PROFILE_CHANNELS } from '../shared/browserProfile';
-import type { BrowserProfile, BrowserProfileInput } from '../shared/browserProfile';
+import type {
+  BrowserProfile,
+  BrowserProfileDeletionResult,
+  BrowserProfileInput,
+} from '../shared/browserProfile';
+import {
+  PASSWORD_VAULT_CHANNELS,
+  type PasswordCredentialMetadata,
+  type PasswordMetadataQuery,
+  type PasswordVaultActionResult,
+  type PasswordVaultCapabilities,
+} from '../shared/passwordVault';
 import type {
   BrowserNetworkSnapshot,
   RemoteEvent,
@@ -378,8 +389,11 @@ contextBridge.exposeInMainWorld('okwork', {
     save(input: BrowserProfileInput): Promise<BrowserProfile> {
       return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.save, input);
     },
-    delete(payload: { id: string }): Promise<void> {
+    delete(payload: { id: string }): Promise<BrowserProfileDeletionResult> {
       return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.delete, payload);
+    },
+    retryDelete(payload: { id: string }): Promise<BrowserProfileDeletionResult> {
+      return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.retryDelete, payload);
     },
     /** 订阅列表变更(增/删/改),返回退订函数 */
     onChanged(callback: (profiles: BrowserProfile[]) => void): () => void {
@@ -388,6 +402,29 @@ contextBridge.exposeInMainWorld('okwork', {
       return () => {
         ipcRenderer.removeListener(BROWSER_PROFILE_CHANNELS.changed, listener);
       };
+    },
+  },
+  /** Browser Password Vault ordinary management surface: metadata only, never plaintext. */
+  passwordVault: {
+    capabilities(): Promise<PasswordVaultCapabilities> {
+      return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.capabilities);
+    },
+    listMetadata(query?: PasswordMetadataQuery): Promise<PasswordCredentialMetadata[]> {
+      return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.listMetadata, query ?? {});
+    },
+    deleteEntry(payload: { id: string }): Promise<PasswordVaultActionResult> {
+      return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.deleteEntry, payload);
+    },
+    openTrusted(payload: { id: string }): Promise<PasswordVaultActionResult> {
+      return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.openTrusted, payload);
+    },
+    openAccountMenu(payload: { guestWebContentsId: number }): Promise<PasswordVaultActionResult> {
+      return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.openAccountMenu, payload);
+    },
+    onChanged(callback: () => void): () => void {
+      const listener = () => callback();
+      ipcRenderer.on(PASSWORD_VAULT_CHANNELS.changed, listener);
+      return () => ipcRenderer.removeListener(PASSWORD_VAULT_CHANNELS.changed, listener);
     },
   },
   // 远程文件传输 阶段2:本机盘票据通道。

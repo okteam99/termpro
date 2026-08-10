@@ -72,11 +72,25 @@ graph TD
 （`ipcMain.on` · 即发即忘）保留，现有两个调用点：`reconnectController` 的 disconnect-first（🔴 不可替换，
 换成可等待版会让自动重连等自己）与设置页的同步拆除路径。
 
+### Browser Profile 密码 Vault（BL-006）
+
+密码 Vault 是 Electron main 的敏感资源，不进入 HostService 通用协议，也不由普通 renderer 持有明文。
+本地持久化位于 `userData/browser-password-vault/<profileId>.json`，由 `safeStorage` 加密；系统加密不可用或
+密文损坏时 fail-closed。入口按信任域拆为三层：固定 guest preload 只处理当前 Profile + exact origin 的
+候选/保存/填充；ordinary preload 只获得脱敏元数据和打开可信窗口能力；独立 trusted window 的固定 preload
+在真实用户动作后，凭 main 签发的 sender/entry/action 绑定一次性 proof 显示或复制单条密码。
+
+Profile 删除先进入不可使用状态并撤销 guest/trusted 权限，只有 Vault、Cookie、站点存储与缓存全部清理成功
+才移除元数据。Local Vault 的领域 API 不依赖 Electron session/WebContents，为 BL-007 的第二个 Remote Host
+provider 保留抽取空间，但 BL-006 不预建远程双写或迁移协议。详细理由与不可变约束见
+**[ADR-0002](../docs/adr/ADR-0002-profile-password-vault-trust-boundaries.md)**。
+
 ### 技术设计决策（ADR）
 
 | ADR | 决策 | 状态 |
 |---|---|---|
 | [ADR-0001](../docs/adr/ADR-0001-remote-connection-orchestration-gates.md) | 远程机连接编排用「两道闸 + 意图与弃用标记分家」，状态收进 store 模块级单源 | accepted |
+| [ADR-0002](../docs/adr/ADR-0002-profile-password-vault-trust-boundaries.md) | Profile 密码 Vault 由 main 权威管理，并拆分 guest/ordinary/trusted 三层最小权限入口 | accepted |
 
 ---
 

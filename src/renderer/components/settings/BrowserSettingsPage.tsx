@@ -51,7 +51,13 @@ const SURFACE_OPTIONS: {
   },
 ];
 
-export function BrowserSettingsPage({ onClose }: { onClose(): void }) {
+export function BrowserSettingsPage({
+  onClose,
+  onOpenPasswords,
+}: {
+  onClose(): void;
+  onOpenPasswords?(): void;
+}) {
   const linkBrowserMode = useAppStore((s) => s.linkBrowserMode);
   const setLinkBrowserMode = useAppStore((s) => s.setLinkBrowserMode);
   const builtinBrowserSurface = useAppStore((s) => s.builtinBrowserSurface);
@@ -88,6 +94,18 @@ export function BrowserSettingsPage({ onClose }: { onClose(): void }) {
       </SettingsOptionGroup>
 
       <BrowserProfilesSection />
+
+      {onOpenPasswords && (
+        <button className="settings-modal__opt" onClick={onOpenPasswords}>
+          <span className="settings-modal__opt-check" aria-hidden="true">◇</span>
+          <span className="settings-modal__opt-text">
+            <span className="settings-modal__opt-label">{t('Saved Passwords')}</span>
+            <span className="settings-modal__opt-desc">
+              {t('Search masked entries and open the isolated trusted password window.')}
+            </span>
+          </span>
+        </button>
+      )}
     </SettingsModal>
   );
 }

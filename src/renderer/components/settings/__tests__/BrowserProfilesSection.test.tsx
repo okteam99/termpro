@@ -76,6 +76,11 @@ describe('BrowserProfilesSection', () => {
     expect(screen.getByText('CustomUA/1.0')).toBeInTheDocument();
     expect(screen.getByText('Personal')).toBeInTheDocument();
     expect(screen.getByText('System default User-Agent')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.',
+      ),
+    ).toBeInTheDocument();
 
     // 只有两个自定义 profile 各一对编辑/删除;内置行不贡献按钮
     expect(screen.getAllByText('Edit')).toHaveLength(2);

@@ -1060,8 +1060,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setBrowserProfiles(profiles) {
     set((s) => {
-      // 对账:绑定的 profile 已删除 → 剥离(回默认 profile;webview 随分区变化重挂)
-      const valid = new Set(profiles.map((p) => p.id));
+      // 对账:删除中/删除失败与已删除一样不得继续绑定；状态先落盘后推快照，
+      // renderer 立即回落默认 profile，webview 随分区变化重挂。
+      const valid = new Set(
+        profiles.filter((profile) => profile.deletionState === undefined).map((p) => p.id),
+      );
       let changed = false;
       const workspaces = s.workspaces.map((w) => {
         if (!w.browserProfileId || valid.has(w.browserProfileId)) return w;

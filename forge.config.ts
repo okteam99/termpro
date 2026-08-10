@@ -168,6 +168,19 @@ const config: ForgeConfig = {
           target: 'preload',
         },
         {
+          // Main-fixed preload for BrowserPanel webview guests. It is never
+          // accepted from renderer-provided webPreferences.
+          entry: 'src/preload/browserGuestPreload.ts',
+          config: 'vite.preload.config.ts',
+          target: 'preload',
+        },
+        {
+          // Narrow bridge for the isolated trusted password BrowserWindow.
+          entry: 'src/preload/passwordTrustedPreload.ts',
+          config: 'vite.preload.config.ts',
+          target: 'preload',
+        },
+        {
           // Host process: pure Node, forked via utilityProcess. Built as a
           // separate entry so it stays free of Electron imports (remote-ready).
           entry: 'src/host/host.ts',

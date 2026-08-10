@@ -45,7 +45,11 @@ afterEach(() => {
 describe('WorkspaceEditModal', () => {
   it('渲染:名称预填;select 含内置项 + 自定义 profiles;当前绑定被选中', () => {
     useAppStore.setState({
-      browserProfiles: [profile({ id: 'p1', name: 'Work' }), profile({ id: 'p2', name: 'Personal' })],
+      browserProfiles: [
+        profile({ id: 'p1', name: 'Work' }),
+        profile({ id: 'p2', name: 'Personal' }),
+        profile({ id: 'p3', name: 'Deleting', deletionState: 'deleting' }),
+      ],
     });
     render(
       <WorkspaceEditModal
@@ -58,6 +62,7 @@ describe('WorkspaceEditModal', () => {
     expect(screen.getByText('OkWork (built-in)')).toBeInTheDocument();
     expect(screen.getByText('Work')).toBeInTheDocument();
     expect(screen.getByText('Personal')).toBeInTheDocument();
+    expect(screen.queryByText('Deleting')).toBeNull();
 
     const select = screen.getByLabelText('Browser profile') as HTMLSelectElement;
     expect(select.value).toBe('p2');

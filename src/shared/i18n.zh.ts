@@ -343,8 +343,10 @@ export const zh: Record<string, string> = {
 
   // --- 设置:浏览器 Profile 管理区块(BrowserProfilesSection) ---
   'Browser profiles': '浏览器 Profile',
-  'Each profile has isolated cookies, storage and an optional custom User-Agent. Projects choose a profile in their edit dialog.':
-    '每个 profile 拥有独立的 cookie/存储空间,并可自定义 User-Agent。项目在其编辑弹层里选择使用哪个 profile。',
+  'Each Profile has isolated cookies, saved passwords, storage and an optional custom User-Agent. Projects choose a Profile in their edit dialog.':
+    '每个 Profile 拥有独立的 cookie、已保存密码与存储空间，并可自定义 User-Agent。项目在其编辑弹层里选择使用哪个 Profile。',
+  'Passwords are encrypted on this device. After filling, the website and connected OkBrowser Agents can read them.':
+    '密码已在此设备上加密。填入网页后，网站和已连接的 OkBrowser Agent 可以读取它们。',
   'OkWork (built-in)': 'OkWork(内置)',
   'Built-in': '内置',
   'Shared default storage · system User-Agent': '共享默认存储 · 系统 User-Agent',
@@ -354,8 +356,8 @@ export const zh: Record<string, string> = {
   'Random': '随机',
   'Generate a random User-Agent': '随机生成一个 User-Agent',
   // 'Edit'/'Delete' 字典已有(RemoteHostsPage 引入),不重复加
-  'Delete profile "{name}"? Its cookies, logins and cache on this device will be cleared.':
-    '删除 profile「{name}」?本机上它的 cookie、登录态与缓存将被清除。',
+  'Delete Profile "{name}"? Its saved passwords, cookies, logins and cache on this device will be cleared.':
+    '删除 Profile「{name}」？本机上它保存的密码、cookie、登录态与缓存将被清除。',
 
   // --- 浏览器 Profile(main/browserProfileStore 校验文案) ---
   'The built-in profile cannot be modified': '内置 profile 不可修改',
@@ -437,6 +439,120 @@ export const zh: Record<string, string> = {
   'Language': '语言',
   'System': '跟随系统',
   '‹ OUTLINE': '‹ 大纲',
+
+  // --- 浏览器密码库(BL-006) ---
+  'Saved Passwords': '已保存的密码',
+  'Search saved passwords': '搜索已保存的密码',
+  'Search site, username or Profile': '搜索网站、用户名或 Profile',
+  'Filter by Profile': '按 Profile 筛选',
+  'All Profiles': '全部 Profile',
+  'Loading saved passwords': '正在加载已保存的密码',
+  'No saved passwords yet': '还没有已保存的密码',
+  'A password appears here after a confirmed sign-in in OkBrowser.':
+    '在 OkBrowser 中确认登录成功后，密码会出现在这里。',
+  'No matching saved passwords': '没有匹配的已保存密码',
+  'Try another site, username or Profile filter.': '请尝试其他网站、用户名或 Profile 筛选条件。',
+  'Encrypted on this device': '已在此设备上加密',
+  'Open trusted window…': '打开受信任窗口…',
+  'Opening…': '正在打开…',
+  'Deleting…': '正在删除…',
+  'Delete this saved password?': '删除这个已保存的密码？',
+  'Could not load saved passwords': '无法加载已保存的密码',
+  'Could not delete this saved password. The entry was kept; try again.':
+    '无法删除这个已保存的密码。条目已保留，请重试。',
+  'Could not open the trusted password window. Try again.':
+    '无法打开受信任密码窗口，请重试。',
+  'System encryption is unavailable. No passwords were returned or changed.':
+    '系统加密不可用。未返回或更改任何密码。',
+  'The local vault could not be read safely. No passwords were returned or changed.':
+    '无法安全读取本地密码库。未返回或更改任何密码。',
+  'The local vault could not be opened. Try again.': '无法打开本地密码库，请重试。',
+  'The local vault is temporarily unavailable. No passwords were returned or changed.':
+    '本地密码库暂时不可用。未返回或更改任何密码。',
+  'This list contains metadata only. Passwords stay encrypted and bound to an exact site and Profile.':
+    '此列表仅包含元数据。密码保持加密，并精确绑定到网站和 Profile。',
+  'OkWork will not save, fill, reveal or copy passwords until system encryption is available.':
+    '系统加密恢复可用前，OkWork 不会保存、填充、显示或复制密码。',
+  'Disabled': '已停用',
+  'Unknown': '未知',
+
+  'Trusted password window': '受信任密码窗口',
+  'Loading saved password…': '正在加载已保存的密码…',
+  'Isolated presentation · ordinary OkWork pages cannot trigger decryption':
+    '隔离展示 · 普通 OkWork 页面无法触发解密',
+  'Password safety notes': '密码安全说明',
+  'Only your explicit click in this window can decrypt and copy this password.':
+    '只有你在此窗口中的明确点击才能解密和复制这个密码。',
+  'Reveal password': '显示密码',
+  'Revealing…': '正在显示…',
+  'Reveal for 10 seconds again': '再次显示 10 秒',
+  'Password masked': '密码已遮盖',
+  'Password revealed': '密码已显示',
+  'The password is hidden by default and is masked again after 10 seconds.':
+    '密码默认隐藏，并会在 10 秒后重新遮盖。',
+  'Visible only in this window. Masking again in {seconds} seconds.':
+    '仅在此窗口可见。将在 {seconds} 秒后重新遮盖。',
+  'Copy password': '复制密码',
+  'Copy to system clipboard': '复制到系统剪贴板',
+  'Copying…': '正在复制…',
+  'Copy again · reset 60 seconds': '再次复制 · 重新计时 60 秒',
+  'Clipboard clear lease: {seconds} seconds remaining': '剪贴板清除倒计时：剩余 {seconds} 秒',
+  'Copied. It will be cleared in {seconds} seconds only if the clipboard has not changed.':
+    '已复制。如果剪贴板内容未被更改，将在 {seconds} 秒后清除。',
+  'Copying exports the password to the system clipboard. Other apps and ordinary OkWork pages may read it.':
+    '复制会将密码导出到系统剪贴板，其他应用和普通 OkWork 页面可能读取它。',
+  'Other apps and ordinary OkWork pages may read the exported value until it is cleared.':
+    '导出的内容被清除前，其他应用和普通 OkWork 页面可能读取它。',
+  'System encryption is unavailable. The password was not released.':
+    '系统加密不可用，密码未被释放。',
+  'This password could not be decrypted. It was not released.':
+    '无法解密这个密码，密码未被释放。',
+  'This saved password no longer exists.': '这个已保存的密码已不存在。',
+  'This window is no longer authorized to access the saved password.':
+    '此窗口已无权访问这个已保存的密码。',
+  'The password action could not be completed safely. Try again.':
+    '无法安全完成密码操作，请重试。',
+
+  'Password vault · this device': '密码库 · 此设备',
+  'Filled values are readable by this page and connected OkBrowser Agents':
+    '填充值可被此页面及已连接的 OkBrowser Agent 读取',
+  'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.':
+    '用户明确复制后，其他本机应用和普通 OkWork 页面可能从系统剪贴板读取密码；仅当内容未变化时，OkWork 才会在 60 秒后清除。',
+  'Password filled from {profile}': '已从 {profile} 填充密码',
+  'Account: {username}': '账号：{username}',
+  'Saved account filled': '已填充保存的账号',
+  'A saved account was selected': '已选择一个保存的账号',
+  '{username} · more accounts are available': '{username} · 还有其他账号可用',
+  'More saved accounts are available for this site': '此网站还有其他已保存账号',
+  'Switch account': '切换账号',
+  'New password saved automatically': '新密码已自动保存',
+  '{profile} · encrypted on this device': '{profile} · 已在此设备上加密',
+  'Saved password updated': '已更新保存的密码',
+  'The previous password was replaced only after a confirmed sign-in.':
+    '仅在确认登录成功后才替换了旧密码。',
+  'Sign-in failed · saved password unchanged': '登录失败 · 已保存密码未更改',
+  'Correct the password and try again.': '请更正密码后重试。',
+  'Could not confirm sign-in · password not saved': '无法确认登录成功 · 未保存密码',
+  'Any existing saved password remains unchanged.': '现有已保存密码保持不变。',
+  'Password protection is unavailable': '密码保护不可用',
+  'OkWork will not save, fill, reveal or copy passwords.':
+    'OkWork 不会保存、填充、显示或复制密码。',
+  'Password features are disabled on this HTTP page': '此 HTTP 页面已停用密码功能',
+  'Use HTTPS or loopback HTTP to save and fill passwords.':
+    '请使用 HTTPS 或回环 HTTP 来保存和填充密码。',
+  'current Profile': '当前 Profile',
+  'Manage': '管理',
+  'After filling a web page': '填充网页后',
+  'After copying to the clipboard': '复制到剪贴板后',
+  'The website and connected OkBrowser Agents can read values in the page DOM.':
+    '网站和已连接的 OkBrowser Agent 可以读取页面 DOM 中的值。',
+  'Search masked entries and open the isolated trusted password window.':
+    '搜索遮盖的条目，并打开隔离的受信任密码窗口。',
+  'Delete failed': '删除失败',
+  'Retry cleanup': '重试清理',
+  'Profile cleanup did not finish. The profile remains disabled and can be retried.':
+    'Profile 清理未完成。该 Profile 保持停用，可再次重试。',
+  '{count} saved passwords': '{count} 个已保存密码',
 
   // --- 应用菜单(main · buildMenu) ---
   'New Tab': '新建 Tab',

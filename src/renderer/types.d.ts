@@ -8,7 +8,20 @@ import type {
   RemoteTunnelInfo,
   TestResult,
 } from '../shared/remoteHost';
-import type { BrowserProfile, BrowserProfileInput } from '../shared/browserProfile';
+import type {
+  BrowserProfile,
+  BrowserProfileDeletionResult,
+  BrowserProfileInput,
+} from '../shared/browserProfile';
+import type {
+  PasswordCredentialMetadata,
+  PasswordMetadataQuery,
+  PasswordVaultActionResult,
+  PasswordVaultCapabilities,
+  TrustedPasswordContext,
+  TrustedPasswordCopyResult,
+  TrustedPasswordRevealResult,
+} from '../shared/passwordVault';
 
 export {};
 
@@ -139,7 +152,8 @@ declare global {
           password?: string;
           passphrase?: string;
         }): Promise<RemoteHostConfig>;
-        delete(payload: { id: string }): Promise<void>;
+        delete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
+        retryDelete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
         test(payload: { id: string }): Promise<TestResult>;
         connect(payload: { id: string }): void;
         /** ⚠️ 即发即忘 · 现有两个调用点:`reconnectController` 的 disconnect-first(`reconnectWiring.ts`,
@@ -176,9 +190,21 @@ declare global {
         list(): Promise<BrowserProfile[]>;
         /** 新建(省略 id)或更新(id 命中既有);默认 profile 恒拒绝 */
         save(input: BrowserProfileInput): Promise<BrowserProfile>;
-        delete(payload: { id: string }): Promise<void>;
+        delete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
+        retryDelete(payload: { id: string }): Promise<BrowserProfileDeletionResult>;
         /** 订阅列表变更(增/删/改),返回退订函数 */
         onChanged(callback: (profiles: BrowserProfile[]) => void): () => void;
+      };
+      /** Password Vault ordinary surface: deliberately metadata-only. */
+      passwordVault: {
+        capabilities(): Promise<PasswordVaultCapabilities>;
+        listMetadata(query?: PasswordMetadataQuery): Promise<PasswordCredentialMetadata[]>;
+        deleteEntry(payload: { id: string }): Promise<PasswordVaultActionResult>;
+        openTrusted(payload: { id: string }): Promise<PasswordVaultActionResult>;
+        openAccountMenu(payload: {
+          guestWebContentsId: number;
+        }): Promise<PasswordVaultActionResult>;
+        onChanged(callback: () => void): () => void;
       };
       /**
        * 远程文件传输 阶段2:本机盘票据通道。
@@ -219,6 +245,12 @@ declare global {
         /** 结束传输:写票 commit=true 落地(覆盖式)/false 放弃;读票忽略 commit,只释放 fd */
         finish(payload: { ticket: string; commit: boolean }): Promise<{ path: string | null }>;
       };
+    };
+    /** Exists only in the isolated trusted password BrowserWindow. */
+    passwordTrusted?: {
+      context(): Promise<TrustedPasswordContext>;
+      reveal(): Promise<TrustedPasswordRevealResult>;
+      copy(): Promise<TrustedPasswordCopyResult>;
     };
   }
 }

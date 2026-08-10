@@ -19,6 +19,54 @@ export const DEFAULT_PROFILE_ID = 'default';
 /** 自定义 profile id 形状(32 位小写 hex;无 '-' 是分区名可解析的前提)。 */
 export const PROFILE_ID_RE = /^[0-9a-f]{32}$/;
 
+/** Profile 删除生命周期；缺少该字段即 active，以兼容旧落盘文档。 */
+export type BrowserProfileDeletionState = 'deleting' | 'delete_failed';
+
+/**
+ * 可持久化并展示的固定脱敏错误码。不得把底层 Error.message 写入 Profile 文档。
+ */
+export const BROWSER_PROFILE_DELETION_ERROR_CODES = {
+  failed: 'PROFILE_DELETE_FAILED',
+  accessDisableFailed: 'PROFILE_DELETE_ACCESS_DISABLE_FAILED',
+  vaultClearFailed: 'PROFILE_DELETE_VAULT_CLEAR_FAILED',
+  partitionListFailed: 'PROFILE_DELETE_PARTITION_LIST_FAILED',
+  storageClearFailed: 'PROFILE_DELETE_STORAGE_CLEAR_FAILED',
+  cacheClearFailed: 'PROFILE_DELETE_CACHE_CLEAR_FAILED',
+  metadataRemoveFailed: 'PROFILE_DELETE_METADATA_REMOVE_FAILED',
+  statePersistFailed: 'PROFILE_DELETE_STATE_PERSIST_FAILED',
+} as const;
+
+export type BrowserProfileDeletionErrorCode =
+  (typeof BROWSER_PROFILE_DELETION_ERROR_CODES)[keyof typeof BROWSER_PROFILE_DELETION_ERROR_CODES];
+
+export const BROWSER_PROFILE_DELETE_REJECTION_CODES = {
+  defaultProfile: 'PROFILE_DELETE_DEFAULT_FORBIDDEN',
+  notFound: 'PROFILE_DELETE_NOT_FOUND',
+} as const;
+
+export type BrowserProfileDeleteRejectionCode =
+  (typeof BROWSER_PROFILE_DELETE_REJECTION_CODES)[keyof typeof BROWSER_PROFILE_DELETE_REJECTION_CODES];
+
+/** main → renderer 的删除结果只含固定 code，不透传底层异常。 */
+export type BrowserProfileDeletionResult =
+  | { status: 'deleted'; profileId: string }
+  | {
+      status: 'delete_failed';
+      profileId: string;
+      errorCode: BrowserProfileDeletionErrorCode;
+      updatedAt: number;
+    }
+  | { status: 'rejected'; profileId: string; errorCode: BrowserProfileDeleteRejectionCode };
+
+export function isBrowserProfileDeletionErrorCode(
+  value: unknown,
+): value is BrowserProfileDeletionErrorCode {
+  return (
+    typeof value === 'string' &&
+    (Object.values(BROWSER_PROFILE_DELETION_ERROR_CODES) as string[]).includes(value)
+  );
+}
+
 /** 浏览器 Profile(独立 session 分区 = 独立 cookie/localStorage/缓存;可选独立 UA)。 */
 export interface BrowserProfile {
   id: string;
@@ -26,6 +74,17 @@ export interface BrowserProfile {
   /** 自定义 User-Agent;缺省 = 系统默认(Electron/Chromium 原生 UA)。 */
   userAgent?: string;
   createdAt: number;
+  /** 缺失 = active；删除中/失败均不得再参与 attach、Vault 或 Profile 选择。 */
+  deletionState?: BrowserProfileDeletionState;
+  /** 只存固定脱敏 code；不存 raw exception/message。 */
+  deletionErrorCode?: BrowserProfileDeletionErrorCode;
+  deletionUpdatedAt?: number;
+}
+
+/** 默认 Profile 恒 active；自定义 Profile 只有缺失 deletionState 时 active。 */
+export function isBrowserProfileActive(profile: BrowserProfile | null | undefined): boolean {
+  if (!profile) return false;
+  return profile.id === DEFAULT_PROFILE_ID || profile.deletionState === undefined;
 }
 
 /** save 入参:省略 id = 新建;id 命中既有 = 更新(默认 profile 恒拒绝)。 */
@@ -88,6 +147,7 @@ export const BROWSER_PROFILE_CHANNELS = {
   list: 'browserProfile:list',
   save: 'browserProfile:save',
   delete: 'browserProfile:delete',
+  retryDelete: 'browserProfile:retryDelete',
   /** 快照变更推送(main→renderer 各窗口):增/删/改后广播全量列表。 */
   changed: 'browserProfile:changed',
 } as const;
