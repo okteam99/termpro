@@ -562,8 +562,7 @@ remoteHostOrchestrator.onEvent((e) => {
       .then(() => broadcastPasswordVaultChanged())
       .catch((error) =>
         console.warn(
-          `[profile-authority] hostId=${e.configId} ready-refresh failed`,
-          error,
+          `[profile-authority] hostId=${e.configId} action=ready-refresh code=${profileStorageCode(error)}`,
         ),
       );
   }
@@ -702,11 +701,15 @@ ipcMain.handle(
 
 interface PendingProfileStoragePlan {
   profileId: string;
+  source: ProfileStorageRef;
   target: ProfileStorageRef;
+  senderId: number;
+  sourceGeneration?: string;
+  targetGeneration?: string;
   createdAt: number;
 }
 const profileStoragePlans = new Map<string, PendingProfileStoragePlan>();
-const PROFILE_STORAGE_PLAN_TTL_MS = 5 * 60_000;
+const PROFILE_STORAGE_PLAN_TTL_MS = 2 * 60_000;
 
 function profileStorageRefEquals(
   left: ProfileStorageRef,
@@ -757,20 +760,59 @@ ipcMain.handle(
         code: 'PROFILE_STORAGE_INVALID_INPUT',
       });
     }
-    const provider = resolveProfileProvider(target);
-    if (provider.availability() !== 'ready') {
+    const sourceProvider = resolveProfileProvider(entry.storage);
+    const targetProvider = resolveProfileProvider(target);
+    if (
+      sourceProvider.availability() !== 'ready' ||
+      targetProvider.availability() !== 'ready'
+    ) {
       throw Object.assign(new Error('storage target unavailable'), {
         code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE',
       });
     }
-    if (provider instanceof RemoteProfileProvider) await provider.describe();
+    const sourceGeneration =
+      entry.storage.kind === 'remote'
+        ? (sourceProvider.currentGeneration() ?? undefined)
+        : undefined;
+    const targetGeneration =
+      target.kind === 'remote'
+        ? (targetProvider.currentGeneration() ?? undefined)
+        : undefined;
+    if (sourceProvider instanceof RemoteProfileProvider)
+      await sourceProvider.describe();
+    if (targetProvider instanceof RemoteProfileProvider)
+      await targetProvider.describe();
+    if (
+      (entry.storage.kind === 'remote' &&
+        (!sourceGeneration ||
+          sourceProvider.currentGeneration() !== sourceGeneration)) ||
+      (target.kind === 'remote' &&
+        (!targetGeneration ||
+          targetProvider.currentGeneration() !== targetGeneration))
+    ) {
+      throw Object.assign(new Error('storage target changed'), {
+        code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE',
+      });
+    }
     const planId = randomUUID();
     const now = Date.now();
     for (const [id, plan] of profileStoragePlans) {
       if (plan.createdAt + PROFILE_STORAGE_PLAN_TTL_MS < now)
         profileStoragePlans.delete(id);
     }
-    profileStoragePlans.set(planId, { profileId, target, createdAt: now });
+    profileStoragePlans.set(planId, {
+      profileId,
+      source: entry.storage,
+      target,
+      senderId: event.sender.id,
+      ...(entry.storage.kind === 'remote'
+        ? { sourceGeneration }
+        : {}),
+      ...(target.kind === 'remote'
+        ? { targetGeneration }
+        : {}),
+      createdAt: now,
+    });
     return {
       planId,
       profileId,
@@ -797,8 +839,33 @@ ipcMain.handle(
     const planId = typeof payload?.planId === 'string' ? payload.planId : '';
     const plan = profileStoragePlans.get(planId);
     profileStoragePlans.delete(planId);
-    if (!plan || plan.createdAt + PROFILE_STORAGE_PLAN_TTL_MS < Date.now()) {
+    if (
+      !plan ||
+      plan.senderId !== event.sender.id ||
+      plan.createdAt + PROFILE_STORAGE_PLAN_TTL_MS < Date.now()
+    ) {
       return { accepted: false, code: 'PROFILE_STORAGE_INVALID_INPUT' };
+    }
+    const currentEntry = profileCatalog.getEntry(plan.profileId);
+    const sourceProvider = resolveProfileProvider(plan.source);
+    const targetProvider = resolveProfileProvider(plan.target);
+    if (
+      !currentEntry ||
+      currentEntry.lifecycle !== 'active' ||
+      !profileStorageRefEquals(currentEntry.storage, plan.source) ||
+      profileCatalog.getMigration(plan.profileId)
+    ) {
+      return { accepted: false, code: 'PROFILE_STORAGE_INVALID_INPUT' };
+    }
+    if (
+      sourceProvider.availability() !== 'ready' ||
+      targetProvider.availability() !== 'ready' ||
+      (plan.source.kind === 'remote' &&
+        sourceProvider.currentGeneration() !== plan.sourceGeneration) ||
+      (plan.target.kind === 'remote' &&
+        targetProvider.currentGeneration() !== plan.targetGeneration)
+    ) {
+      return { accepted: false, code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE' };
     }
     try {
       const migration = profileMigration.begin(plan.profileId, plan.target);
@@ -2115,14 +2182,18 @@ app.on('ready', () => {
   void browserProfileDeletion
     .resumeInterruptedDeletions()
     .then(() => broadcastBrowserProfiles())
-    .catch((error) =>
-      console.warn('[browser-profile-delete] resume failed', error),
+    .catch(() =>
+      console.warn(
+        '[browser-profile-delete] action=resume code=PROFILE_DELETE_FAILED',
+      ),
     );
   void profileMigration
     .resumeAll()
     .then(() => broadcastBrowserProfiles())
     .catch((error) =>
-      console.warn('[profile-migration] startup resume failed', error),
+      console.warn(
+        `[profile-migration] phase=startup-resume code=${profileStorageCode(error)}`,
+      ),
     );
   createWindow();
   // 冲刷启动前(open-file 早于 ready)入队的待打开文件

@@ -456,6 +456,9 @@ export class ProfileAuthorityService {
       this.provider({ kind: 'remote', hostId }).invalidate?.(generation);
     } catch {
       // The provider can already be absent after Host deletion; cache invalidation still succeeds.
+      this.logger.warn(
+        `[profile-authority] action=invalidate-remote hostId=${hostId} code=PROFILE_STORAGE_OFFLINE`,
+      );
     }
     if (affected.length > 0) this.deps.onRemoteInvalidated?.(affected);
     return affected;
