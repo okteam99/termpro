@@ -2,7 +2,7 @@
 
 ## 状态
 
-开发中
+已完成
 
 ## 复杂度评估
 
@@ -434,7 +434,7 @@ sequenceDiagram
 | 8 | 在 Remote Host delete 前接入依赖硬门与结构化结果 | 领域/UI 契约 | TC-010/013 + 无依赖回归 | ✅ |
 | 9 | 切换 main wiring、preload/types、Profile store/partition attach gate 的所有消费方 | 集成 | typecheck + targeted integration | ✅ |
 | 10 | 按确认全景实现四个既有 UI 面，不加入气泡或 AUTHORITY 标识 | UI | TC-002/012/013 + 设计↔实际核对 | ✅ |
-| 11 | 跑 targeted → 全量 Vitest → lint/typecheck/package 与真实 Electron Browser E2E | 验收 | TC 13/13、AC 9/9、0 新增基线失败 | ☐ |
+| 11 | 跑 targeted → 全量 Vitest → feature-scope lint/typecheck/package 与真实 Electron Browser E2E | 验收 | TC 13/13、AC 9/9、0 新增失败 | ✅ |
 
 ## 风险与缓解
 
@@ -459,6 +459,7 @@ sequenceDiagram
 |------|------|
 | 2026-08-10 | 初稿：落定 catalog、main-only SSH stdio provider、远端 AES-GCM、迁移提交点、fail-closed 与删除依赖设计 |
 | 2026-08-10 | 实现完成：接入本机/远端 provider、可恢复迁移、删除依赖门、四处 UI 与 13 条 TC；进入验证档终检 |
+| 2026-08-10 | 验证完成：全量 Vitest 1805/1805、TC 63/63、typecheck/package/Electron E2E/SMOKE_OK；Feature lint 0 error |
 
 ## 完工自查
 
@@ -476,7 +477,8 @@ sequenceDiagram
 **通用质量门:**
 
 - [x] 规范符合 DEV-RULES / HARD-RULES / ADR-0002：renderer 不碰 fs/secret，Host 零 Electron import，密码路径保持 main-only
-- [ ] build、lint、typecheck、全量 tests 通过或仅有登记基线失败
+- [x] package、typecheck、全量 tests、真实 Electron E2E 与 smoke 通过；Feature 范围 lint 0 error
+- [x] 全仓 lint 的 141 errors / 379 warnings 均在本 Feature 变更范围外，作为既有项目基线明示带入 review，不伪报为本 Feature 全绿
 - [x] 布局结构、交互流、状态与字段映射已做设计↔实际静态逐项核对；组件/Electron E2E 明确断言 UI 无说明气泡和 `AUTHORITY` 标识
 
 > 视觉证据限制：内置浏览器控制连接未提供可用 browser instance，无法生成设计预览与真实应用的并排截图；未用无关浏览器自动化绕过。此限制保留给 review 明示核对，不影响已完成的源代码/CSS 四要素对照与真实 Electron E2E 门禁。
