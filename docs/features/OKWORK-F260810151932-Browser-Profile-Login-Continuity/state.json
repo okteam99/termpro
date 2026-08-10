@@ -189,10 +189,36 @@
       "active_minutes": 4
     },
     "test": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-08-10T18:59:46Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T18:59:46Z",
+      "evidence": {
+        "integration_diff_clean": false,
+        "integration_test_exit_code": 1,
+        "e2e_test_exit_code": 0,
+        "current_failures": "src/host/__tests__/portFile.test.ts > AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag} > T-016 listening 后写端口文件:openSync(path,\"wx\",0o600) + 内容 {port,pid,hostTag} 可回读"
+      },
+      "completed_at": "2026-08-10T19:17:30Z",
+      "auto_commit": "501cfc0ae988e0c58c8e60688129962bb7a470c9",
+      "artifacts": [
+        "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/TEST-REPORT.md",
+        "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/e2e/profile_continuity_rpc_e2e.py"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-10T18:59:46Z",
+          "completed_at": "2026-08-10T19:17:30Z",
+          "test_commit": "501cfc0ae988e0c58c8e60688129962bb7a470c9",
+          "integration_test_exit_code": 1,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": false,
+          "current_failures": "src/host/__tests__/portFile.test.ts > AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag} > T-016 listening 后写端口文件:openSync(path,\"wx\",0o600) + 内容 {port,pid,hostTag} 可回读"
+        }
+      ],
+      "duration_minutes": 17,
+      "active_minutes": 17
     }
   },
   "completed_stages": [
@@ -222,16 +248,26 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T19:00:02Z",
+  "updated_at": "2026-08-10T19:17:31Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:74c782cfcf1f2b7d19d6f9ddb2674f54a9b7a22c7a49c4008bc9c8c568fd74a3",
+  "_state_checksum": "sha256:210f0514f9002307a446800c589e205f89a6fe029e9eb1f67c70cf75b8786d58",
   "legal_next_stages": [
     "browser_e2e",
     "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": true,
-    "panorama_changed": true
+    "panorama_changed": true,
+    "integration_new_failures": [
+      "src/host/__tests__/portFile.test.ts > AC-8 端口文件 wx(O_EXCL)|0600 + {port",
+      "pid",
+      "hostTag} > T-016 listening 后写端口文件:openSync(path",
+      "\"wx\"",
+      "0o600) + 内容 {port",
+      "pid",
+      "hostTag} 可回读"
+    ],
+    "integration_excluded_baseline": 0
   },
   "stage_cost": [
     {
