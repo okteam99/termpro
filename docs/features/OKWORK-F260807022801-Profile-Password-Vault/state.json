@@ -387,9 +387,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T03:18:17Z",
+  "updated_at": "2026-08-10T03:20:44Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:9a4f49f22d0355375bbad2f2be3a7a1c5d93066efd2bd6cf54bf45f0e8ff6c6f",
+  "_state_checksum": "sha256:3b748d85d5fec2c8071886d4d3e789aa263ff545dc40056aa37d7b841bfde6f8",
   "legal_next_stages": [
     "completed"
   ],
@@ -486,5 +486,21 @@
       "note": "",
       "at": "2026-08-09T18:37:44Z"
     }
-  ]
+  ],
+  "ship": {
+    "started_at": "2026-08-10T03:20:44Z",
+    "distill": {
+      "knowledge": "promoted GO-038 credential E2E fixtures must use POST and never persist plaintext in URLs/screenshots",
+      "adr": "ADR-0002 main-authoritative Profile vault with guest/ordinary/trusted least-privilege boundaries",
+      "retro": "n/a",
+      "architecture": "updated Browser Profile password Vault trust boundaries and BL-007 extension seam",
+      "db_schema": "no-change",
+      "distilled_at": "2026-08-10T03:20:44Z"
+    },
+    "sanitize_log": {
+      "residual_commits": [],
+      "cleaned_files": [],
+      "suspicious_files": []
+    }
+  }
 }
