@@ -138,15 +138,12 @@
       "active_minutes": 20
     },
     "review": {
-      "input_satisfied": true,
-      "process_satisfied": true,
-      "output_satisfied": true,
-      "started_at": "2026-08-10T13:34:18Z",
-      "evidence": {
-        "verdict": "NEEDS_REVISION"
-      },
-      "completed_at": "2026-08-10T13:42:07Z",
-      "auto_commit": "0f8f622176ded4c5c2b1367974f622c54e0863f7",
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-10T14:28:45Z",
+      "evidence": {},
+      "auto_commit": "c8e973b0ff195c75ffa1259586c7f7c72bfd891c",
       "artifacts": [
         "REVIEW.md"
       ],
@@ -158,7 +155,20 @@
           "review_commit": "0f8f622176ded4c5c2b1367974f622c54e0863f7",
           "verdict": "NEEDS_REVISION",
           "new_findings_count": 2,
-          "carried_open_count": 0
+          "carried_open_count": 0,
+          "fix_commit": "c8e973b0ff195c75ffa1259586c7f7c72bfd891c",
+          "fix_at": "2026-08-10T14:28:41Z",
+          "addresses_findings": [
+            "F1",
+            "F2"
+          ]
+        },
+        {
+          "round": 2,
+          "review_commit": null,
+          "fix_commit": null,
+          "started_at": "2026-08-10T14:28:45Z",
+          "verdict": null
         }
       ],
       "findings_ledger": [
@@ -181,8 +191,7 @@
           "round_opened": 1
         }
       ],
-      "duration_minutes": 7,
-      "active_minutes": 7
+      "await_minutes": 0
     }
   },
   "completed_stages": [
@@ -211,9 +220,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T13:47:30Z",
+  "updated_at": "2026-08-10T14:28:45Z",
   "updated_by": "pause-mark",
-  "_state_checksum": "sha256:bde12a795409cbc42f96cc1a63299c1f3f0ce470ec2ac1e5bbf0fd07b66c9068",
+  "_state_checksum": "sha256:c4c91c5646e3f85e65023c0d4a99a4a5ce1098a76ee39d86e6604d0df7590ff1",
   "legal_next_stages": [
     "test",
     "dev"
@@ -280,10 +289,5 @@
       "note": "",
       "at": "2026-08-10T12:42:04Z"
     }
-  ],
-  "open_pause": {
-    "stage": "review",
-    "label": "F1 安全信任边界裁决",
-    "started_at": "2026-08-10T13:47:30Z"
-  }
+  ]
 }

@@ -1,17 +1,17 @@
 ---
 reviewers: [fast]
-verdict: NEEDS_REVISION
+verdict: APPROVE
 coverage:
   fast: "Architect: PRD/TECH/UI and production wiring; QA: TC realism, boundary/error/reconnect cases; independent: generic Host-token security boundary, migration generation/atomicity, and UI no-bubble/no-AUTHORITY checks."
 findings:
   - id: F1
     severity: BLOCKER
-    status: open
+    status: fixed
     title: "持有既有通用 Host WebSocket token 的客户端仍可直接读取或篡改远端 profile-store 密钥与密文"
     source: arch
   - id: F2
     severity: MAJOR
-    status: open
+    status: fixed
     title: "迁移目标选择器仅按 Host ready 放行，未在提交前排除不兼容的远端 Host"
     source: qa
 ---
@@ -22,7 +22,7 @@ findings:
 
 ## 结论
 
-**NEEDS_REVISION**。目录、迁移状态机、专属 SSH stdio RPC、Host 端加密与 UI 的主路径接线整体完整，但 F1 使“旧通用 Host token 绝不能读取 profile/vault”的安全承诺不成立，可直接恢复远端密码数据，必须在合入前修复。F2 是确定的提交前 UX/兼容性缺陷；虽然后端会拒绝且不会切换存储，仍应补齐选择器判断与测试。
+Round 1 结论为 **NEEDS_REVISION**；Round 2 在 `0f8f622..c8e973b` 范围内逐条验证后为 **APPROVE**。F1 已通过用户确认的 WS-02 信任边界校正产品契约、测试与确认披露；F2 已接入当前连接代兼容性探测并在提交前禁用不兼容目标。未发现修复 diff 引入的新 BLOCKER/MAJOR。
 
 ## Findings
 
@@ -64,3 +64,37 @@ findings:
 UI 与 UI.md 的可静态核对项通过：用户可见文案为 `Password storage`，未发现信息气泡，也未在产品 UI 输出 `AUTHORITY`；离线、迁移失败、cleanup retry、Host 依赖阻止均有相应界面状态。浏览器 connector 当时没有可用实例，故不能把截图缺失表述为已验证的浏览器视觉结论；已用组件结构、样式和 Electron 证据声明作替代静态核查。F2 是这部分的唯一确定缺口。
 
 全仓 lint 既有 141 errors / 379 warnings；开发记录的功能作用域 lint 为 0 errors，且静态 diff 未显示本功能新增该基线问题，故不单独阻塞本 feature。
+
+## Round 2 verification — `0f8f622..c8e973b`
+
+本轮仅静态复核 Round 1 F1/F2 与直接修复 diff，未运行测试。
+
+### F1 — fixed：产品契约、设计、测试、预览与生产确认一致
+
+**质疑：** 仅把 PRD 改成“同 SSH 用户可信”不足以关闭 F1；若产品 UI、TECH、TC 或生产实现仍宣称通用终端 token 必须被 capability 阻止，就仍是自相矛盾的安全承诺。
+
+**实际证据：**
+
+- PRD v0.4 在背景、AC-3、隐藏前提和变更记录中统一明确：Host 管理员、配置 SSH OS 用户与以该用户执行任意 FS/PTY 的终端/Agent 是远端解密信任边界；main-only 是 API/interface 隔离，不是同 UID shell 沙箱。
+- TECH 的架构第 5 点与“安全与信任边界”新增相同限定，并正确说明 `0700/0600` 只隔离其他 OS 用户；风险表也记录不得把 capability 误述为 OS 隔离。TC-003 收敛为普通 renderer 无专用方法/capability、错 Host/Profile/generation 凭据统一拒绝，而不再声称同 UID shell 会被拒绝。
+- UI.md 的 AC-3 映射、全景预览 `docs/design/preview-project/src/main.jsx` 与真实确认面 `src/renderer/components/settings/BrowserProfilesSection.tsx:604-617` 都以普通文字披露“Remote Host、管理员及以配置 SSH 用户运行的进程可解密”；没有恢复气泡或 `AUTHORITY` 标识。
+- 生产接口仍保持约定的 main-only 边界：`src/main/remote/orchestrator.ts:621-700` 使用不进入通用 WS 的 SSH stdin RPC，`src/preload/preload.ts` 只暴露迁移意图而不暴露 provider/capability；更新的 `remoteProfileAuthoritySecurity.test.ts:169-181` 静态断言 general Host protocol 不含 profile/vault/migration 方法，并继续覆盖错配 capability 的统一拒绝。
+
+**裁决：fixed。** 同 UID 任意 FS/PTY 的可解密性不再与产品承诺冲突；保留的安全主张（普通 renderer 不获专用 Profile/Vault 接口、专用凭据错配 fail-closed）有对应生产边界和测试。按用户明确保留 WS-02 信任模型，本 finding 不应重开。
+
+### F2 — fixed：当前连接代的 compatibility 已进入提交前 selector 闭环
+
+**质疑：** 若 renderer 仅得到一次性的 ready 状态、缓存跨 generation 复用，或 Continue 未同时检查 status，ready 但旧 bundle 的 Host 仍可能“选了再失败”。
+
+**实际证据：**
+
+- `ProfileStorageTargetStatus` 与 `browserProfile:listStorageTargets` 定义在 `src/shared/browserProfile.ts:86-112`；`main.ts:662-680` 仅允许主窗口调用，并对每一已配置 Host 的同一 `RemoteProfileProvider` 查询 status。preload 和 renderer 类型均已接线，renderer 不可伪造 compatibility。
+- `RemoteProfileProvider.storageTargetStatus()`（`src/main/remoteProfileProvider.ts:227-277`）通过当前 transport 的 `describe()` 验证版本/算法；compatible/incompatible cache 都以 generation 为键。transport 改代时旧值不会命中，异步 describe 返回后再次比对 generation；`invalidate()` 同时清理两类 cache（`:467-480`）。main 原有 plan handler 仍会在真正签 plan 前再次 `describe()` 和重验 generation，提供最终权威门。
+- `BrowserProfilesSection` 打开 dialog 时并发拉 Host、stage 与 target status（`:193-219`），并在每个 remote lifecycle event 先清旧 status/plan 后重载（`:229-237`）。radio 与 Continue 都要求 `stage === ready && compatibility === compatible`（`:304-308`、`:558-597`、`:635-653`）；不兼容 Host 禁用并显示可行动的 Update 提示，无法调用 plan。
+- 更新测试不是空断言：provider 测试验证同 generation 只 describe 一次、改 generation 或 invalidate 后重新 describe，以及 ready-but-incompatible 的稳定 status（`remoteProfileAuthoritySecurity.test.ts:106-167`）；renderer 测试验证不兼容 radio/Continue disabled、Update 文案且不发 plan，并验证 remote event 后旧 compatible 状态被清除重查（`BrowserProfilesSection.test.tsx:301-353`）。
+
+**裁决：fixed。** status 的来源、generation 生命周期、IPC/preload/types、选择器禁用、可行动文案和 main 最终复核均已接通；Round 1 所述 ready-but-incompatible 确定性路径不再可提交。
+
+### Round 2 verdict
+
+**APPROVE**。两项 open finding 均已 fixed；本轮范围内未发现修复 diff 引入的 BLOCKER/MAJOR。测试通过情况沿用开发记录，本审只读测试代码与实现，未重复执行。
