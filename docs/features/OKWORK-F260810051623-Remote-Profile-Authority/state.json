@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "pm_acceptance",
+  "current_stage": "ship",
   "merge_target": "main",
   "review_base_commit": "f568fac",
   "worktree": {
@@ -251,10 +251,26 @@
       "active_minutes": 4
     },
     "pm_acceptance": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T14:43:01Z",
+      "await_minutes": 3,
+      "evidence": {
+        "decision": "approved_and_ship",
+        "note": ""
+      },
+      "completed_at": "2026-08-10T14:47:10Z",
+      "auto_commit": "ea6d693",
+      "artifacts": [],
+      "duration_minutes": 4,
+      "active_minutes": 4
+    },
+    "ship": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T14:43:01Z"
+      "started_at": "2026-08-10T14:47:10Z"
     }
   },
   "completed_stages": [
@@ -265,7 +281,8 @@
     "dev",
     "review",
     "test",
-    "browser_e2e"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "created_at": "2026-08-10T05:39:59Z",
   "stage_review_roles": {
@@ -286,12 +303,11 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T14:43:43Z",
+  "updated_at": "2026-08-10T14:47:14Z",
   "updated_by": "pause-mark",
-  "_state_checksum": "sha256:f3ee1e65bb4966c6f56a15db1495b21795b2f9739e13b185b2d70e42420fe5e6",
+  "_state_checksum": "sha256:6311cf9f27442ff3cc9e4c07aac1a59e40e7d45c5ac5dc05708f5c1e7dcc491f",
   "legal_next_stages": [
-    "ship",
-    "dev"
+    "completed"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
@@ -396,10 +412,5 @@
       "note": "F1 通过回归上游信任边界修正契约，F2 通过提交前兼容性闭环修复",
       "at": "2026-08-10T14:32:36Z"
     }
-  ],
-  "open_pause": {
-    "stage": "pm_acceptance",
-    "label": "PM 验收与发布决策",
-    "started_at": "2026-08-10T14:43:43Z"
-  }
+  ]
 }
