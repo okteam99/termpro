@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "f568fac",
   "worktree": {
@@ -138,12 +138,14 @@
       "active_minutes": 20
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-08-10T14:28:45Z",
-      "evidence": {},
-      "auto_commit": "c8e973b0ff195c75ffa1259586c7f7c72bfd891c",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "auto_commit": "e27521f",
       "artifacts": [
         "REVIEW.md"
       ],
@@ -165,33 +167,47 @@
         },
         {
           "round": 2,
-          "review_commit": null,
+          "review_commit": "e27521f",
           "fix_commit": null,
           "started_at": "2026-08-10T14:28:45Z",
-          "verdict": null
+          "verdict": "APPROVE",
+          "completed_at": "2026-08-10T14:32:27Z",
+          "new_findings_count": 0,
+          "carried_open_count": 0
         }
       ],
       "findings_ledger": [
         {
           "id": "F1",
           "severity": "BLOCKER",
-          "status": "open",
+          "status": "fixed",
           "title": "持有既有通用 Host WebSocket token 的客户端仍可直接读取或篡改远端 profile-store 密钥与密文",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         },
         {
           "id": "F2",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "迁移目标选择器仅按 Host ready 放行，未在提交前排除不兼容的远端 Host",
           "source": "qa",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         }
       ],
-      "await_minutes": 0
+      "await_minutes": 0,
+      "completed_at": "2026-08-10T14:32:27Z",
+      "duration_minutes": 3,
+      "active_minutes": 3
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-10T14:32:27Z"
     }
   },
   "completed_stages": [
@@ -199,7 +215,8 @@
     "ui_design",
     "panorama_sync",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-08-10T05:39:59Z",
   "stage_review_roles": {
@@ -220,12 +237,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T14:28:45Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:c4c91c5646e3f85e65023c0d4a99a4a5ce1098a76ee39d86e6604d0df7590ff1",
+  "updated_at": "2026-08-10T14:32:37Z",
+  "updated_by": "stage-cost",
+  "_state_checksum": "sha256:cab78bb9845aadd9add0eff258eb99ed79bdbe7f2c16ba32da46a60d69bf7625",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
@@ -267,6 +284,16 @@
       ],
       "note": "最大开销是误用默认 Prettier 造成的格式噪声收敛与独立验证环境补依赖",
       "at": "2026-08-10T13:34:30Z"
+    },
+    {
+      "stage": "review",
+      "rounds": 2,
+      "overhead_rounds": 1,
+      "kinds": [
+        "上游信任边界冲突回补"
+      ],
+      "note": "最大开销是澄清同 SSH UID 的真实安全边界并同步全套契约",
+      "at": "2026-08-10T14:32:36Z"
     }
   ],
   "authoring_preventability": [
@@ -288,6 +315,17 @@
       "missing": [],
       "note": "",
       "at": "2026-08-10T12:42:04Z"
+    },
+    {
+      "stage": "review",
+      "preventable": 2,
+      "total": 2,
+      "missing": [
+        "安全承诺需先对照实际 OS principal 与 FS/PTY 权限模型",
+        "目标可用性需在 UI 选择前绑定当前连接代兼容性"
+      ],
+      "note": "F1 通过回归上游信任边界修正契约，F2 通过提交前兼容性闭环修复",
+      "at": "2026-08-10T14:32:36Z"
     }
   ]
 }
