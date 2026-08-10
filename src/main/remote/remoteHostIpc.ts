@@ -5,9 +5,13 @@
 import { ipcMain } from 'electron';
 import { REMOTE_HOST_CHANNELS } from '../../shared/remoteHost';
 import { t } from '../../shared/i18n';
-import type { RemoteHostConfigInput } from '../../shared/remoteHost';
+import type {
+  RemoteHostConfigInput,
+  RemoteHostDeleteResult,
+} from '../../shared/remoteHost';
 import type { RemoteHostOrchestrator } from './orchestrator';
 import type { CredentialStore, HostConfigStore } from './credentialStore';
+import type { RemoteHostDependencyQueryPort } from '../remoteProfileDependencies';
 
 interface SavePayload {
   config: RemoteHostConfigInput;
@@ -42,6 +46,8 @@ export function registerRemoteHostIpc(
   onConfigDeleted?: (configId: string) => void,
   /** 配置保存后的收尾钩子(main 用于浏览器远程分区黑洞预封;缺省 no-op)。 */
   onConfigSaved?: (configId: string) => void,
+  /** BL-007：Profile catalog 依赖查询；main 注入，IPC 不认识 catalog 具体类。 */
+  remoteProfileDependencies?: RemoteHostDependencyQueryPort,
 ): () => void {
   const unsubscribeEvents = orchestrator.onEvent((event) => {
     const win = getMainWindow();
@@ -62,7 +68,8 @@ export function registerRemoteHostIpc(
   ipcMain.handle(REMOTE_HOST_CHANNELS.save, (_event, payload: SavePayload) => {
     const { config, password, passphrase } = payload;
     const hasPassword = typeof password === 'string' && password.length > 0;
-    const hasPassphrase = typeof passphrase === 'string' && passphrase.length > 0;
+    const hasPassphrase =
+      typeof passphrase === 'string' && passphrase.length > 0;
 
     // 🔴 A9 修复:此前先落盘 config(hasPassword:true 等旗标)再 setSecret,若
     // safeStorage 不可用,setSecret 抛错但 config 已带着「密码已存」的误导性旗标
@@ -70,7 +77,9 @@ export function registerRemoteHostIpc(
     // 直接拒绝整个 save(不产生半成品配置)。
     if ((hasPassword || hasPassphrase) && !credentials.isAvailable()) {
       throw new Error(
-        t('Local credential encryption is unavailable — cannot store the password safely'),
+        t(
+          'Local credential encryption is unavailable — cannot store the password safely',
+        ),
       );
     }
 
@@ -80,24 +89,45 @@ export function registerRemoteHostIpc(
       hasPassphrase: hasPassphrase || undefined,
     });
 
-    if (hasPassword) credentials.setSecret(`cred:${saved.id}:password`, password!);
-    if (hasPassphrase) credentials.setSecret(`cred:${saved.id}:passphrase`, passphrase!);
+    if (hasPassword)
+      credentials.setSecret(`cred:${saved.id}:password`, password!);
+    if (hasPassphrase)
+      credentials.setSecret(`cred:${saved.id}:passphrase`, passphrase!);
 
     onConfigSaved?.(saved.id);
     return saved;
   });
 
-  ipcMain.handle(REMOTE_HOST_CHANNELS.delete, async (_event, payload: { id: string }) => {
-    // AC-14:活跃连接先 best-effort 断开,再清配置+凭据(失败不阻断删除)
-    await orchestrator.disconnect(payload.id).catch(() => undefined);
-    configStore.delete(payload.id);
-    credentials.deleteAllForConfig(payload.id);
-    onConfigDeleted?.(payload.id);
-  });
+  ipcMain.handle(
+    REMOTE_HOST_CHANNELS.delete,
+    async (_event, payload: { id: string }) => {
+      // 删除门必须先于 disconnect/config/credential 的任何副作用。查询异常直接 reject，
+      // fail-closed 保留 Host；绝不能因为依赖服务暂时不可读就当成「零依赖」。
+      const dependencies = remoteProfileDependencies
+        ? await remoteProfileDependencies.dependenciesForHost(payload.id)
+        : [];
+      if (dependencies.length > 0) {
+        return {
+          status: 'blocked',
+          dependencies,
+        } satisfies RemoteHostDeleteResult;
+      }
 
-  ipcMain.handle(REMOTE_HOST_CHANNELS.test, (_event, payload: { id: string }) => {
-    return orchestrator.test(payload.id);
-  });
+      // AC-14:活跃连接先 best-effort 断开,再清配置+凭据(失败不阻断删除)
+      await orchestrator.disconnect(payload.id).catch(() => undefined);
+      configStore.delete(payload.id);
+      credentials.deleteAllForConfig(payload.id);
+      onConfigDeleted?.(payload.id);
+      return { status: 'deleted' } satisfies RemoteHostDeleteResult;
+    },
+  );
+
+  ipcMain.handle(
+    REMOTE_HOST_CHANNELS.test,
+    (_event, payload: { id: string }) => {
+      return orchestrator.test(payload.id);
+    },
+  );
 
   // 🔴 编排 promise 必须接住(评审 P2):罕见竞态下 runConnect 可能以非法转移抛出收尾
   // (如 config 刚被删),`void` 裸放会成为 main 未处理拒绝(历史上曾触发弹窗事故,
@@ -106,24 +136,33 @@ export function registerRemoteHostIpc(
     console.warn(`[remote] ${what} orchestration rejected:`, err);
   };
 
-  ipcMain.on(REMOTE_HOST_CHANNELS.connect, (_event, payload: { id: string }) => {
-    if (typeof payload?.id !== 'string') return;
-    orchestrator.connect(payload.id).catch(swallow('connect'));
-  });
+  ipcMain.on(
+    REMOTE_HOST_CHANNELS.connect,
+    (_event, payload: { id: string }) => {
+      if (typeof payload?.id !== 'string') return;
+      orchestrator.connect(payload.id).catch(swallow('connect'));
+    },
+  );
 
-  ipcMain.on(REMOTE_HOST_CHANNELS.disconnect, (_event, payload: { id: string }) => {
-    if (typeof payload?.id !== 'string') return;
-    orchestrator.disconnect(payload.id).catch(swallow('disconnect'));
-  });
+  ipcMain.on(
+    REMOTE_HOST_CHANNELS.disconnect,
+    (_event, payload: { id: string }) => {
+      if (typeof payload?.id !== 'string') return;
+      orchestrator.disconnect(payload.id).catch(swallow('disconnect'));
+    },
+  );
 
   // 可等待版本(需要排队/等待语义时用):不承载"已断开"语义(TECH R4)——
   // 真正的本地拆除在调用方 await 之前已同步完成。旧 `disconnect`(ipcMain.on)渲染层
   // 现已零调用点(评审 P2-3:设置页/Sidebar 与 reconnectController disconnect-first 均走
   // 本通道;2026-08-10 事故后者由即发即忘改来——与紧随的 connect 竞态 → 尝试蒸发/僵尸
   // 误杀),通道保留待用。
-  ipcMain.handle(REMOTE_HOST_CHANNELS.disconnectAwait, (_event, payload: { id: string }) => {
-    return orchestrator.disconnect(payload.id);
-  });
+  ipcMain.handle(
+    REMOTE_HOST_CHANNELS.disconnectAwait,
+    (_event, payload: { id: string }) => {
+      return orchestrator.disconnect(payload.id);
+    },
+  );
 
   // 用户显式升级服务端(Remote Hosts「Update」):forceRedeploy 连接——跳过 claim,
   // reap 旧 host 后重部署当前 app 版本 bundle。确认交互在 renderer 侧(弹窗明示
@@ -135,18 +174,26 @@ export function registerRemoteHostIpc(
     if (typeof payload?.id !== 'string') return;
     const win = getMainWindow();
     if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
-    orchestrator.connect(payload.id, { forceRedeploy: true }).catch(swallow('upgrade'));
+    orchestrator
+      .connect(payload.id, { forceRedeploy: true })
+      .catch(swallow('upgrade'));
   });
 
   // 查看器窗口直连远程 host 的按需隧道查询(仅 ready 会话返回 localPort+token,
   // 其余 null)。与 E8 的口径互补:token 不随事件广播落无关窗口,由确要建连的
   // 窗口主动拉取;拿到 token 也只等价于「能连本机 127.0.0.1 转发端口」这一能力。
-  ipcMain.handle(REMOTE_HOST_CHANNELS.tunnel, (event, payload: { id: string }) => {
-    if (isTunnelSenderAllowed && !isTunnelSenderAllowed(event.sender, payload.id)) {
-      return null;
-    }
-    return orchestrator.tunnelFor(payload.id);
-  });
+  ipcMain.handle(
+    REMOTE_HOST_CHANNELS.tunnel,
+    (event, payload: { id: string }) => {
+      if (
+        isTunnelSenderAllowed &&
+        !isTunnelSenderAllowed(event.sender, payload.id)
+      ) {
+        return null;
+      }
+      return orchestrator.tunnelFor(payload.id);
+    },
+  );
 
   // 全部会话阶段快照(浏览器网络选择器列出可用出口)。零敏感信息(仅 configId→stage,
   // 与 list 同级),不做归属校验;选择器据此只列 ready 的机器可选。

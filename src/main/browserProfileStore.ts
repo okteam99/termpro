@@ -34,10 +34,13 @@ function sanitize(raw: unknown): BrowserProfile[] {
         ? p.deletionState
         : undefined;
     const deletionUpdatedAt =
-      typeof p.deletionUpdatedAt === 'number' && Number.isFinite(p.deletionUpdatedAt)
+      typeof p.deletionUpdatedAt === 'number' &&
+      Number.isFinite(p.deletionUpdatedAt)
         ? p.deletionUpdatedAt
         : 0;
-    const deletionErrorCode = isBrowserProfileDeletionErrorCode(p.deletionErrorCode)
+    const deletionErrorCode = isBrowserProfileDeletionErrorCode(
+      p.deletionErrorCode,
+    )
       ? p.deletionErrorCode
       : BROWSER_PROFILE_DELETION_ERROR_CODES.failed;
     out.push({
@@ -47,7 +50,9 @@ function sanitize(raw: unknown): BrowserProfile[] {
         ? { userAgent: p.userAgent.slice(0, MAX_UA_LENGTH) }
         : {}),
       createdAt:
-        typeof p.createdAt === 'number' && Number.isFinite(p.createdAt) ? p.createdAt : 0,
+        typeof p.createdAt === 'number' && Number.isFinite(p.createdAt)
+          ? p.createdAt
+          : 0,
       ...(deletionState
         ? {
             deletionState,
@@ -80,6 +85,47 @@ export class BrowserProfileStore {
 
   listActive(): BrowserProfile[] {
     return this.list().filter(isBrowserProfileActive);
+  }
+
+  /** Migration provider import: preserve the stable id/timestamps after validation. */
+  replaceProfile(profile: BrowserProfile): BrowserProfile {
+    if (profile.id === DEFAULT_PROFILE_ID) {
+      return {
+        id: DEFAULT_PROFILE_ID,
+        name: t('OkWork (built-in)'),
+        createdAt: 0,
+      };
+    }
+    if (!PROFILE_ID_RE.test(profile.id))
+      throw new Error('BROWSER_PROFILE_INVALID_ID');
+    const name = profile.name.trim().slice(0, MAX_NAME_LENGTH);
+    if (!name) throw new Error(t('Profile name is required'));
+    const userAgent = (profile.userAgent ?? '').trim().slice(0, MAX_UA_LENGTH);
+    if (!Number.isFinite(profile.createdAt) || profile.createdAt < 0) {
+      throw new Error('BROWSER_PROFILE_INVALID_CREATED_AT');
+    }
+    const imported: BrowserProfile = {
+      id: profile.id,
+      name,
+      ...(userAgent ? { userAgent } : {}),
+      createdAt: profile.createdAt,
+    };
+    const list = this.list();
+    const index = list.findIndex((item) => item.id === imported.id);
+    if (index >= 0) list[index] = imported;
+    else list.push(imported);
+    this.settings.write(list);
+    return imported;
+  }
+
+  /** Migration source cleanup only; normal user deletion must use the deletion coordinator. */
+  deleteForMigration(id: string): boolean {
+    if (id === DEFAULT_PROFILE_ID) return false;
+    const list = this.list();
+    const next = list.filter((profile) => profile.id !== id);
+    if (next.length === list.length) return false;
+    this.settings.write(next);
+    return true;
   }
 
   /** 新建(省略 id,自造 32 位 hex)或更新(id 命中既有);默认 profile 恒拒绝。 */

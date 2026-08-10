@@ -1,15 +1,22 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseLocaleArg, parseVersionArg } from './parseVersionArg';
-import { REMOTE_HOST_CHANNELS, BROWSER_NET_CHANNELS } from '../shared/remoteHost';
+import {
+  REMOTE_HOST_CHANNELS,
+  BROWSER_NET_CHANNELS,
+} from '../shared/remoteHost';
 import { BROWSER_PROFILE_CHANNELS } from '../shared/browserProfile';
 import type {
-  BrowserProfile,
+  BrowserProfileSummary,
   BrowserProfileDeletionResult,
   BrowserProfileInput,
+  ProfileStorageChangePlan,
+  ProfileStorageChangeResult,
+  ProfileStorageRef,
+  ProfileStorageTargetStatus,
 } from '../shared/browserProfile';
 import {
   PASSWORD_VAULT_CHANNELS,
-  type PasswordCredentialMetadata,
+  type PasswordMetadataSnapshot,
   type PasswordMetadataQuery,
   type PasswordVaultActionResult,
   type PasswordVaultCapabilities,
@@ -20,6 +27,7 @@ import type {
   RemoteHostCapabilities,
   RemoteHostConfig,
   RemoteHostConfigInput,
+  RemoteHostDeleteResult,
   RemoteStage,
   RemoteTunnelInfo,
   TestResult,
@@ -71,7 +79,11 @@ contextBridge.exposeInMainWorld('okwork', {
   },
   /** 订阅更新事件(available/downloading/confirming/restarting/error),返回退订函数 */
   onUpdateEvent(
-    callback: (e: { state: string; version?: string; percent?: number }) => void,
+    callback: (e: {
+      state: string;
+      version?: string;
+      percent?: number;
+    }) => void,
   ): () => void {
     const listener = (
       _e: unknown,
@@ -118,14 +130,19 @@ contextBridge.exposeInMainWorld('okwork', {
   browserControl: {
     /** 渲染层订阅 main 的控制请求(initBrowserControlBridge 用),返回退订函数 */
     onInvoke(
-      callback: (req: { requestId: string; method: string; args: unknown[] }) => void,
+      callback: (req: {
+        requestId: string;
+        method: string;
+        args: unknown[];
+      }) => void,
     ): () => void {
       const listener = (
         _e: unknown,
         req: { requestId: string; method: string; args: unknown[] },
       ) => callback(req);
       ipcRenderer.on('browserControl:invoke', listener);
-      return () => ipcRenderer.removeListener('browserControl:invoke', listener);
+      return () =>
+        ipcRenderer.removeListener('browserControl:invoke', listener);
     },
     /** 渲染层回传执行结果 */
     sendResult(payload: {
@@ -143,7 +160,9 @@ contextBridge.exposeInMainWorld('okwork', {
   },
   /** 壳窗身份:本窗口若是弹出的浏览器窗格窗口,值 = 其终端 tabId(argv 注入);主窗 undefined */
   browserPaneTabId: (() => {
-    const arg = process.argv.find((a) => a.startsWith('--okwork-browser-pane='));
+    const arg = process.argv.find((a) =>
+      a.startsWith('--okwork-browser-pane='),
+    );
     return arg ? arg.slice('--okwork-browser-pane='.length) : undefined;
   })(),
   // 窗格窗口化(弹出=整个窗格独立成窗;壳窗内容经 sync 单向回流主窗 store)
@@ -167,9 +186,13 @@ contextBridge.exposeInMainWorld('okwork', {
       ipcRenderer.send('browserPane:sync', { terminalTabId, pane });
     },
     /** 主窗:订阅壳窗回流,返回退订函数 */
-    onSync(callback: (terminalTabId: string, pane: unknown) => void): () => void {
-      const listener = (_e: unknown, p: { terminalTabId: string; pane: unknown }) =>
-        callback(p.terminalTabId, p.pane);
+    onSync(
+      callback: (terminalTabId: string, pane: unknown) => void,
+    ): () => void {
+      const listener = (
+        _e: unknown,
+        p: { terminalTabId: string; pane: unknown },
+      ) => callback(p.terminalTabId, p.pane);
       ipcRenderer.on('browserPane:sync', listener);
       return () => ipcRenderer.removeListener('browserPane:sync', listener);
     },
@@ -185,7 +208,10 @@ contextBridge.exposeInMainWorld('okwork', {
     /** 壳窗:订阅主窗转投的新标签请求,返回退订函数(旧形态只传 url 时 opts 为空对象,
      *  callback 收 undefined 字段,向后兼容——见 sanitizeSeed 同款防御性收窄惯例) */
     onAddTab(
-      callback: (url: string, opts?: { netHostId?: string; preview?: true }) => void,
+      callback: (
+        url: string,
+        opts?: { netHostId?: string; preview?: true },
+      ) => void,
     ): () => void {
       const listener = (
         _e: unknown,
@@ -208,7 +234,8 @@ contextBridge.exposeInMainWorld('okwork', {
     },
     /** 主窗:订阅「窗格已回落」(回落按钮发起),返回退订函数 */
     onDocked(callback: (terminalTabId: string) => void): () => void {
-      const listener = (_e: unknown, terminalTabId: string) => callback(terminalTabId);
+      const listener = (_e: unknown, terminalTabId: string) =>
+        callback(terminalTabId);
       ipcRenderer.on('browserPane:docked', listener);
       return () => ipcRenderer.removeListener('browserPane:docked', listener);
     },
@@ -218,24 +245,35 @@ contextBridge.exposeInMainWorld('okwork', {
     },
     /** 主窗:订阅「窗格窗口被直接关闭」(红灯钮/标签关光)——据此清空该窗格镜像 */
     onClosed(callback: (terminalTabId: string) => void): () => void {
-      const listener = (_e: unknown, terminalTabId: string) => callback(terminalTabId);
+      const listener = (_e: unknown, terminalTabId: string) =>
+        callback(terminalTabId);
       ipcRenderer.on('browserPane:closed', listener);
       return () => ipcRenderer.removeListener('browserPane:closed', listener);
     },
     /** 壳窗:工作区编辑保存(改名/换 profile)→ 主窗权威 store 应用并持久化 */
-    workspaceEdit(terminalTabId: string, patch: { name: string; profileId: string }): void {
-      ipcRenderer.send('browserPane:workspaceEdit', { terminalTabId, ...patch });
+    workspaceEdit(
+      terminalTabId: string,
+      patch: { name: string; profileId: string },
+    ): void {
+      ipcRenderer.send('browserPane:workspaceEdit', {
+        terminalTabId,
+        ...patch,
+      });
     },
     /** 主窗:订阅壳窗发起的工作区编辑,返回退订函数 */
     onWorkspaceEdit(
-      callback: (terminalTabId: string, patch: { name?: string; profileId?: string }) => void,
+      callback: (
+        terminalTabId: string,
+        patch: { name?: string; profileId?: string },
+      ) => void,
     ): () => void {
       const listener = (
         _e: unknown,
         p: { terminalTabId: string; name?: string; profileId?: string },
       ) => callback(p.terminalTabId, { name: p.name, profileId: p.profileId });
       ipcRenderer.on('browserPane:workspaceEdit', listener);
-      return () => ipcRenderer.removeListener('browserPane:workspaceEdit', listener);
+      return () =>
+        ipcRenderer.removeListener('browserPane:workspaceEdit', listener);
     },
     /** 主窗:把 profile 绑定变更推给某终端 tab 的壳窗(壳窗换分区重挂) */
     setProfile(terminalTabId: string, profileId: string): void {
@@ -245,7 +283,8 @@ contextBridge.exposeInMainWorld('okwork', {
     onSetProfile(callback: (profileId: string) => void): () => void {
       const listener = (_e: unknown, profileId: string) => callback(profileId);
       ipcRenderer.on('browserPane:setProfile', listener);
-      return () => ipcRenderer.removeListener('browserPane:setProfile', listener);
+      return () =>
+        ipcRenderer.removeListener('browserPane:setProfile', listener);
     },
   },
   // 主窗浏览器面板头部 ✕ 三态确认(Cancel/Close All/Hide),与壳窗红灯钮同款文案/阈值
@@ -257,7 +296,9 @@ contextBridge.exposeInMainWorld('okwork', {
   },
   /** 订阅内置浏览器新开标签请求(webview 内 target=_blank/window.open),返回退订函数;
    *  sourceWebContentsId 为来源 guest 的 webContents id(renderer 据此落位来源终端 tab) */
-  onBrowserOpenUrl(callback: (url: string, sourceWebContentsId: number) => void): () => void {
+  onBrowserOpenUrl(
+    callback: (url: string, sourceWebContentsId: number) => void,
+  ): () => void {
     const listener = (_e: unknown, url: string, sourceWebContentsId: number) =>
       callback(url, sourceWebContentsId);
     ipcRenderer.on('browser:open-url', listener);
@@ -278,7 +319,11 @@ contextBridge.exposeInMainWorld('okwork', {
   },
   /** 文件内容窗口:订阅"追加 tab"指令(窗口复用),返回退订函数 */
   onViewerAddTab(
-    callback: (tab: { path: string; kind: 'file' | 'dir'; previewRoot?: string }) => void,
+    callback: (tab: {
+      path: string;
+      kind: 'file' | 'dir';
+      previewRoot?: string;
+    }) => void,
   ): () => void {
     const listener = (
       _e: unknown,
@@ -317,7 +362,7 @@ contextBridge.exposeInMainWorld('okwork', {
     }): Promise<RemoteHostConfig> {
       return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.save, payload);
     },
-    delete(payload: { id: string }): Promise<void> {
+    delete(payload: { id: string }): Promise<RemoteHostDeleteResult> {
       return ipcRenderer.invoke(REMOTE_HOST_CHANNELS.delete, payload);
     },
     test(payload: { id: string }): Promise<TestResult> {
@@ -382,22 +427,55 @@ contextBridge.exposeInMainWorld('okwork', {
   /** 浏览器 Profile(每工作区独立存储 + UA;权威在 main,增删改后推全量列表) */
   browserProfile: {
     /** 全部自定义 profile(默认 profile 是虚拟实体,UI 自行置顶展示) */
-    list(): Promise<BrowserProfile[]> {
+    list(): Promise<BrowserProfileSummary[]> {
       return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.list);
     },
     /** 新建(省略 id)或更新(id 命中既有);默认 profile 恒拒绝 */
-    save(input: BrowserProfileInput): Promise<BrowserProfile> {
+    save(input: BrowserProfileInput): Promise<BrowserProfileSummary> {
       return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.save, input);
     },
     delete(payload: { id: string }): Promise<BrowserProfileDeletionResult> {
       return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.delete, payload);
     },
-    retryDelete(payload: { id: string }): Promise<BrowserProfileDeletionResult> {
+    retryDelete(payload: {
+      id: string;
+    }): Promise<BrowserProfileDeletionResult> {
       return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.retryDelete, payload);
     },
+    listStorageTargets(): Promise<ProfileStorageTargetStatus[]> {
+      return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.listStorageTargets);
+    },
+    planStorageChange(payload: {
+      profileId: string;
+      target: ProfileStorageRef;
+    }): Promise<ProfileStorageChangePlan> {
+      return ipcRenderer.invoke(
+        BROWSER_PROFILE_CHANNELS.planStorageChange,
+        payload,
+      );
+    },
+    confirmStorageChange(payload: {
+      planId: string;
+    }): Promise<ProfileStorageChangeResult> {
+      return ipcRenderer.invoke(
+        BROWSER_PROFILE_CHANNELS.confirmStorageChange,
+        payload,
+      );
+    },
+    retryStorageChange(payload: {
+      operationId: string;
+    }): Promise<ProfileStorageChangeResult> {
+      return ipcRenderer.invoke(
+        BROWSER_PROFILE_CHANNELS.retryStorageChange,
+        payload,
+      );
+    },
     /** 订阅列表变更(增/删/改),返回退订函数 */
-    onChanged(callback: (profiles: BrowserProfile[]) => void): () => void {
-      const listener = (_e: unknown, profiles: BrowserProfile[]) => callback(profiles);
+    onChanged(
+      callback: (profiles: BrowserProfileSummary[]) => void,
+    ): () => void {
+      const listener = (_e: unknown, profiles: BrowserProfileSummary[]) =>
+        callback(profiles);
       ipcRenderer.on(BROWSER_PROFILE_CHANNELS.changed, listener);
       return () => {
         ipcRenderer.removeListener(BROWSER_PROFILE_CHANNELS.changed, listener);
@@ -409,22 +487,39 @@ contextBridge.exposeInMainWorld('okwork', {
     capabilities(): Promise<PasswordVaultCapabilities> {
       return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.capabilities);
     },
-    listMetadata(query?: PasswordMetadataQuery): Promise<PasswordCredentialMetadata[]> {
-      return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.listMetadata, query ?? {});
+    listMetadata(
+      query?: PasswordMetadataQuery,
+    ): Promise<PasswordMetadataSnapshot> {
+      return ipcRenderer.invoke(
+        PASSWORD_VAULT_CHANNELS.listMetadata,
+        query ?? {},
+      );
     },
-    deleteEntry(payload: { id: string }): Promise<PasswordVaultActionResult> {
+    deleteEntry(payload: {
+      profileId: string;
+      id: string;
+    }): Promise<PasswordVaultActionResult> {
       return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.deleteEntry, payload);
     },
-    openTrusted(payload: { id: string }): Promise<PasswordVaultActionResult> {
+    openTrusted(payload: {
+      profileId: string;
+      id: string;
+    }): Promise<PasswordVaultActionResult> {
       return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.openTrusted, payload);
     },
-    openAccountMenu(payload: { guestWebContentsId: number }): Promise<PasswordVaultActionResult> {
-      return ipcRenderer.invoke(PASSWORD_VAULT_CHANNELS.openAccountMenu, payload);
+    openAccountMenu(payload: {
+      guestWebContentsId: number;
+    }): Promise<PasswordVaultActionResult> {
+      return ipcRenderer.invoke(
+        PASSWORD_VAULT_CHANNELS.openAccountMenu,
+        payload,
+      );
     },
     onChanged(callback: () => void): () => void {
       const listener = () => callback();
       ipcRenderer.on(PASSWORD_VAULT_CHANNELS.changed, listener);
-      return () => ipcRenderer.removeListener(PASSWORD_VAULT_CHANNELS.changed, listener);
+      return () =>
+        ipcRenderer.removeListener(PASSWORD_VAULT_CHANNELS.changed, listener);
     },
   },
   // 远程文件传输 阶段2:本机盘票据通道。
@@ -444,7 +539,9 @@ contextBridge.exposeInMainWorld('okwork', {
       return ipcRenderer.invoke('transfer:begin-save', payload);
     },
     /** 弹打开对话框(可多选);取消/空选 → [],否则每个选中文件各一张读票。 */
-    beginOpen(): Promise<Array<{ ticket: string; name: string; size: number; path: string }>> {
+    beginOpen(): Promise<
+      Array<{ ticket: string; name: string; size: number; path: string }>
+    > {
       return ipcRenderer.invoke('transfer:begin-open');
     },
     /** 写入一个分块(乱序按 offset 各自落位,不要求顺序到达)。 */
@@ -456,16 +553,21 @@ contextBridge.exposeInMainWorld('okwork', {
       return ipcRenderer.invoke('transfer:write', payload);
     },
     /** 读取一个分块;size/mtimeMs 取自本次读取同一 fstat(TOCTOU 强一致)。 */
-    read(payload: {
-      ticket: string;
-      offset: number;
-      length: number;
-    }): Promise<{ base64: string; bytes: number; eof: boolean; size: number; mtimeMs: number }> {
+    read(payload: { ticket: string; offset: number; length: number }): Promise<{
+      base64: string;
+      bytes: number;
+      eof: boolean;
+      size: number;
+      mtimeMs: number;
+    }> {
       return ipcRenderer.invoke('transfer:read', payload);
     },
     /** 结束传输:写票 commit=true 落地(覆盖式,保存对话框已问过)/false 放弃;
      *  读票忽略 commit,只释放 fd。 */
-    finish(payload: { ticket: string; commit: boolean }): Promise<{ path: string | null }> {
+    finish(payload: {
+      ticket: string;
+      commit: boolean;
+    }): Promise<{ path: string | null }> {
       return ipcRenderer.invoke('transfer:finish', payload);
     },
   },

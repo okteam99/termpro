@@ -8,6 +8,7 @@ import {
   PASSWORD_TRUSTED_CHANNELS,
   PASSWORD_VAULT_CHANNELS,
   type PasswordMetadataQuery,
+  type PasswordMetadataSnapshot,
   type PasswordVaultActionResult,
   type TrustedPasswordAction,
   type TrustedPasswordActionGrant,
@@ -15,7 +16,10 @@ import {
   type TrustedPasswordCopyResult,
   type TrustedPasswordRevealResult,
 } from '../shared/passwordVault';
-import { PasswordVaultController, type PasswordVaultPort } from './passwordVaultController';
+import {
+  PasswordVaultController,
+  type PasswordVaultPort,
+} from './passwordVaultController';
 
 interface ClipboardSecretLeasePort {
   copy(secret: string): { expiresAt: number };
@@ -48,12 +52,15 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
   const trustedEntryBySender = new Map<number, string>();
   const trustedProfileBySender = new Map<number, string>();
   const trustedWindows = new Map<string, BrowserWindow>();
-  const trustedActionBySender = new Map<number, {
-    action: TrustedPasswordAction;
-    entryId: string;
-    expiresAt: number;
-    proof: string;
-  }>();
+  const trustedActionBySender = new Map<
+    number,
+    {
+      action: TrustedPasswordAction;
+      entryId: string;
+      expiresAt: number;
+      proof: string;
+    }
+  >();
 
   const mainOnly = (sender: Electron.WebContents): boolean => {
     const main = deps.getMainWindow();
@@ -68,54 +75,80 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
     }
   };
 
-  const trustedEntry = (sender: Electron.WebContents): string | null => {
+  const trustedEntry = (
+    sender: Electron.WebContents,
+  ): { entryId: string; profileId: string } | null => {
     const entryId = trustedEntryBySender.get(sender.id);
     const profileId = trustedProfileBySender.get(sender.id);
-    return entryId && profileId && profileIsActive(profileId) ? entryId : null;
+    return entryId && profileId && profileIsActive(profileId)
+      ? { entryId, profileId }
+      : null;
   };
 
   const consumeTrustedAction = (
     sender: Electron.WebContents,
     action: TrustedPasswordAction,
     payload: { proof?: unknown },
-  ): string | null => {
-    const id = trustedEntry(sender);
-    if (!id) return null;
+  ): { entryId: string; profileId: string } | null => {
+    const scoped = trustedEntry(sender);
+    if (!scoped) return null;
     const grant = trustedActionBySender.get(sender.id);
     trustedActionBySender.delete(sender.id);
     if (
       !grant ||
-      grant.entryId !== id ||
+      grant.entryId !== scoped.entryId ||
       grant.action !== action ||
       grant.expiresAt < Date.now() ||
       typeof payload?.proof !== 'string'
-    ) return null;
+    )
+      return null;
     const expected = Buffer.from(grant.proof);
     const received = Buffer.from(payload.proof);
-    return expected.length === received.length && timingSafeEqual(expected, received) ? id : null;
+    return expected.length === received.length &&
+      timingSafeEqual(expected, received)
+      ? scoped
+      : null;
   };
 
   const broadcastChanged = () => {
     const main = deps.getMainWindow();
-    if (main && !main.isDestroyed()) main.webContents.send(PASSWORD_VAULT_CHANNELS.changed);
+    if (main && !main.isDestroyed())
+      main.webContents.send(PASSWORD_VAULT_CHANNELS.changed);
   };
 
   ipcMain.handle(PASSWORD_VAULT_CHANNELS.capabilities, (event) => ({
-    encryptionAvailable: mainOnly(event.sender) && deps.vault.isAvailable(),
+    encryptionAvailable:
+      mainOnly(event.sender) &&
+      (deps.vault.localEncryptionAvailable?.() ??
+        deps.vault.isAvailable('default')),
   }));
 
   ipcMain.handle(
     PASSWORD_VAULT_CHANNELS.listMetadata,
-    (event, query: PasswordMetadataQuery = {}) => {
-      if (!mainOnly(event.sender)) return [];
+    async (
+      event,
+      query: PasswordMetadataQuery = {},
+    ): Promise<PasswordMetadataSnapshot> => {
+      if (!mainOnly(event.sender))
+        return { entries: [], unavailableProfiles: [] };
       const safeQuery: PasswordMetadataQuery = {
-        ...(typeof query?.profileId === 'string' ? { profileId: query.profileId } : {}),
-        ...(typeof query?.query === 'string' ? { query: query.query.slice(0, 1024) } : {}),
+        ...(typeof query?.profileId === 'string'
+          ? { profileId: query.profileId }
+          : {}),
+        ...(typeof query?.query === 'string'
+          ? { query: query.query.slice(0, 1024) }
+          : {}),
       };
       try {
-        return deps.vault
-          .listMetadata(safeQuery)
-          .filter((entry) => profileIsActive(entry.profileId));
+        const snapshot = await deps.vault.listMetadata(safeQuery);
+        return {
+          entries: snapshot.entries.filter((entry) =>
+            profileIsActive(entry.profileId),
+          ),
+          unavailableProfiles: snapshot.unavailableProfiles.filter((item) =>
+            profileIsActive(item.profileId),
+          ),
+        };
       } catch (error) {
         console.error(`[password-vault] list failed code=${codeOf(error)}`);
         throw new Error(codeOf(error));
@@ -123,37 +156,50 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
     },
   );
 
-  ipcMain.handle(PASSWORD_VAULT_CHANNELS.deleteEntry, (event, payload: { id?: unknown }) => {
-    if (!mainOnly(event.sender)) return { ok: false, code: 'VAULT_FORBIDDEN' };
-    const id = typeof payload?.id === 'string' ? payload.id : '';
-    if (!id) return { ok: false, code: 'VAULT_INVALID_INPUT' };
-    try {
-      const deleted = deps.vault.deleteEntry(id);
-      if (deleted) broadcastChanged();
-      return deleted
-        ? { ok: true }
-        : { ok: false, code: 'VAULT_ENTRY_NOT_FOUND' };
-    } catch (error) {
-      console.error(`[password-vault] delete failed code=${codeOf(error)} entryId=${id}`);
-      return { ok: false, code: codeOf(error) };
-    }
-  });
+  ipcMain.handle(
+    PASSWORD_VAULT_CHANNELS.deleteEntry,
+    async (event, payload: { profileId?: unknown; id?: unknown }) => {
+      if (!mainOnly(event.sender))
+        return { ok: false, code: 'VAULT_FORBIDDEN' };
+      const profileId =
+        typeof payload?.profileId === 'string' ? payload.profileId : '';
+      const id = typeof payload?.id === 'string' ? payload.id : '';
+      if (!profileId || !id) return { ok: false, code: 'VAULT_INVALID_INPUT' };
+      try {
+        const deleted = await deps.vault.deleteEntry(profileId, id);
+        if (deleted) broadcastChanged();
+        return deleted
+          ? { ok: true }
+          : { ok: false, code: 'VAULT_ENTRY_NOT_FOUND' };
+      } catch (error) {
+        console.error(
+          `[password-vault] delete failed code=${codeOf(error)} entryId=${id}`,
+        );
+        return { ok: false, code: codeOf(error) };
+      }
+    },
+  );
 
-  const openTrustedWindow = (entryId: string): PasswordVaultActionResult => {
-    let profileId: string;
+  const openTrustedWindow = async (
+    profileId: string,
+    entryId: string,
+  ): Promise<PasswordVaultActionResult> => {
     try {
-      const metadata = deps.vault.listMetadata().find((entry) => entry.id === entryId);
+      const snapshot = await deps.vault.listMetadata({ profileId });
+      const metadata = snapshot.entries.find((entry) => entry.id === entryId);
       if (!metadata) {
         return { ok: false, code: 'VAULT_ENTRY_NOT_FOUND' };
       }
-      profileId = metadata.profileId;
+      if (metadata.profileId !== profileId)
+        return { ok: false, code: 'VAULT_FORBIDDEN' };
       if (!profileIsActive(profileId)) {
         return { ok: false, code: 'VAULT_PROFILE_INACTIVE' };
       }
     } catch (error) {
       return { ok: false, code: codeOf(error) };
     }
-    const existing = trustedWindows.get(entryId);
+    const windowKey = `${profileId}:${entryId}`;
+    const existing = trustedWindows.get(windowKey);
     if (existing && !existing.isDestroyed()) {
       existing.show();
       existing.focus();
@@ -168,13 +214,14 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
       backgroundColor: '#1b1b1b',
       show: false,
       webPreferences: {
-        preload: deps.preloadPath ?? path.join(__dirname, 'passwordTrustedPreload.js'),
+        preload:
+          deps.preloadPath ?? path.join(__dirname, 'passwordTrustedPreload.js'),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
       },
     });
-    trustedWindows.set(entryId, win);
+    trustedWindows.set(windowKey, win);
     const trustedSenderId = win.webContents.id;
     trustedEntryBySender.set(trustedSenderId, entryId);
     trustedProfileBySender.set(trustedSenderId, profileId);
@@ -182,7 +229,7 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.once('ready-to-show', () => win.show());
     win.once('closed', () => {
-      trustedWindows.delete(entryId);
+      trustedWindows.delete(windowKey);
       trustedEntryBySender.delete(trustedSenderId);
       trustedProfileBySender.delete(trustedSenderId);
       trustedActionBySender.delete(trustedSenderId);
@@ -200,27 +247,41 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
     return { ok: true };
   };
 
-  ipcMain.handle(PASSWORD_VAULT_CHANNELS.openTrusted, (event, payload: { id?: unknown }) => {
-    if (!mainOnly(event.sender)) return { ok: false, code: 'VAULT_FORBIDDEN' };
-    const id = typeof payload?.id === 'string' ? payload.id : '';
-    return id ? openTrustedWindow(id) : { ok: false, code: 'VAULT_INVALID_INPUT' };
-  });
+  ipcMain.handle(
+    PASSWORD_VAULT_CHANNELS.openTrusted,
+    async (event, payload: { profileId?: unknown; id?: unknown }) => {
+      if (!mainOnly(event.sender))
+        return { ok: false, code: 'VAULT_FORBIDDEN' };
+      const profileId =
+        typeof payload?.profileId === 'string' ? payload.profileId : '';
+      const id = typeof payload?.id === 'string' ? payload.id : '';
+      return profileId && id
+        ? openTrustedWindow(profileId, id)
+        : { ok: false, code: 'VAULT_INVALID_INPUT' };
+    },
+  );
 
   ipcMain.handle(
     PASSWORD_VAULT_CHANNELS.openAccountMenu,
-    (event, payload: { guestWebContentsId?: unknown }) => {
+    async (event, payload: { guestWebContentsId?: unknown }) => {
       const owner = BrowserWindow.fromWebContents(event.sender);
       const guestId =
-        typeof payload?.guestWebContentsId === 'number' ? payload.guestWebContentsId : -1;
-      if (!owner || !deps.controller.guestBelongsToOwner(guestId, event.sender.id)) {
+        typeof payload?.guestWebContentsId === 'number'
+          ? payload.guestWebContentsId
+          : -1;
+      if (
+        !owner ||
+        !deps.controller.guestBelongsToOwner(guestId, event.sender.id)
+      ) {
         return { ok: false, code: 'VAULT_FORBIDDEN' };
       }
-      const entries = deps.controller.guestMetadata(guestId);
-      if (entries.length === 0) return { ok: false, code: 'VAULT_ENTRY_NOT_FOUND' };
+      const entries = await deps.controller.guestMetadata(guestId);
+      if (entries.length === 0)
+        return { ok: false, code: 'VAULT_ENTRY_NOT_FOUND' };
       const menu = Menu.buildFromTemplate(
         entries.map((entry) => ({
           label: entry.username,
-          click: () => deps.controller.fillEntry(guestId, entry.id),
+          click: () => void deps.controller.fillEntry(guestId, entry.id),
         })),
       );
       menu.popup({ window: owner });
@@ -228,59 +289,100 @@ export function registerPasswordVaultIpc(deps: PasswordVaultIpcDeps): {
     },
   );
 
-  ipcMain.handle(PASSWORD_TRUSTED_CHANNELS.context, (event): TrustedPasswordContext => {
-    const id = trustedEntry(event.sender);
-    if (!id) throw Object.assign(new Error('forbidden'), { code: 'VAULT_FORBIDDEN' });
-    const metadata = deps.vault.listMetadata().find((entry) => entry.id === id);
-    if (!metadata) throw Object.assign(new Error('not found'), { code: 'VAULT_ENTRY_NOT_FOUND' });
-    return {
-      metadata,
-      revealDurationMs: PASSWORD_REVEAL_DURATION_MS,
-      clipboardLeaseMs: PASSWORD_CLIPBOARD_LEASE_MS,
-    };
-  });
+  ipcMain.handle(
+    PASSWORD_TRUSTED_CHANNELS.context,
+    async (event): Promise<TrustedPasswordContext> => {
+      const scoped = trustedEntry(event.sender);
+      if (!scoped)
+        throw Object.assign(new Error('forbidden'), {
+          code: 'VAULT_FORBIDDEN',
+        });
+      const snapshot = await deps.vault.listMetadata({
+        profileId: scoped.profileId,
+      });
+      const metadata = snapshot.entries.find(
+        (entry) => entry.id === scoped.entryId,
+      );
+      if (!metadata)
+        throw Object.assign(new Error('not found'), {
+          code: 'VAULT_ENTRY_NOT_FOUND',
+        });
+      return {
+        metadata,
+        revealDurationMs: PASSWORD_REVEAL_DURATION_MS,
+        clipboardLeaseMs: PASSWORD_CLIPBOARD_LEASE_MS,
+      };
+    },
+  );
 
   ipcMain.handle(
     PASSWORD_TRUSTED_CHANNELS.actionGrant,
     (event, payload: { action?: unknown }): TrustedPasswordActionGrant => {
-      const entryId = trustedEntry(event.sender);
+      const scoped = trustedEntry(event.sender);
       const action = payload?.action;
-      if (!entryId || (action !== 'reveal' && action !== 'copy')) {
+      if (!scoped || (action !== 'reveal' && action !== 'copy')) {
         return { ok: false, code: 'VAULT_FORBIDDEN' };
       }
       const expiresAt = Date.now() + PASSWORD_TRUSTED_ACTION_PROOF_TTL_MS;
       const proof = randomBytes(32).toString('base64url');
-      trustedActionBySender.set(event.sender.id, { action, entryId, expiresAt, proof });
+      trustedActionBySender.set(event.sender.id, {
+        action,
+        entryId: scoped.entryId,
+        expiresAt,
+        proof,
+      });
       return { ok: true, expiresAt, proof };
     },
   );
 
-  ipcMain.handle(PASSWORD_TRUSTED_CHANNELS.reveal, (event, payload: { proof?: unknown }): TrustedPasswordRevealResult => {
-    const id = consumeTrustedAction(event.sender, 'reveal', payload);
-    if (!id) return { ok: false, code: 'VAULT_FORBIDDEN' };
-    try {
-      return {
-        ok: true,
-        password: deps.vault.getDecrypted(id).password,
-        hideAt: Date.now() + PASSWORD_REVEAL_DURATION_MS,
-      };
-    } catch (error) {
-      console.error(`[password-vault] reveal failed code=${codeOf(error)} entryId=${id}`);
-      return { ok: false, code: codeOf(error) };
-    }
-  });
+  ipcMain.handle(
+    PASSWORD_TRUSTED_CHANNELS.reveal,
+    async (
+      event,
+      payload: { proof?: unknown },
+    ): Promise<TrustedPasswordRevealResult> => {
+      const scoped = consumeTrustedAction(event.sender, 'reveal', payload);
+      if (!scoped) return { ok: false, code: 'VAULT_FORBIDDEN' };
+      try {
+        return {
+          ok: true,
+          password: (
+            await deps.vault.getDecrypted(scoped.profileId, scoped.entryId)
+          ).password,
+          hideAt: Date.now() + PASSWORD_REVEAL_DURATION_MS,
+        };
+      } catch (error) {
+        console.error(
+          `[password-vault] reveal failed code=${codeOf(error)} entryId=${scoped.entryId}`,
+        );
+        return { ok: false, code: codeOf(error) };
+      }
+    },
+  );
 
-  ipcMain.handle(PASSWORD_TRUSTED_CHANNELS.copy, (event, payload: { proof?: unknown }): TrustedPasswordCopyResult => {
-    const id = consumeTrustedAction(event.sender, 'copy', payload);
-    if (!id) return { ok: false, code: 'VAULT_FORBIDDEN' };
-    try {
-      const lease = deps.clipboardLease.copy(deps.vault.getDecrypted(id).password);
-      return { ok: true, expiresAt: lease.expiresAt };
-    } catch (error) {
-      console.error(`[password-vault] copy failed code=${codeOf(error)} entryId=${id}`);
-      return { ok: false, code: codeOf(error) };
-    }
-  });
+  ipcMain.handle(
+    PASSWORD_TRUSTED_CHANNELS.copy,
+    async (
+      event,
+      payload: { proof?: unknown },
+    ): Promise<TrustedPasswordCopyResult> => {
+      const scoped = consumeTrustedAction(event.sender, 'copy', payload);
+      if (!scoped) return { ok: false, code: 'VAULT_FORBIDDEN' };
+      try {
+        const credential = await deps.vault.getDecrypted(
+          scoped.profileId,
+          scoped.entryId,
+        );
+        const lease = deps.clipboardLease.copy(credential.password);
+        return { ok: true, expiresAt: lease.expiresAt };
+      } catch (error) {
+        console.error(
+          `[password-vault] copy failed code=${codeOf(error)} entryId=${scoped.entryId}`,
+        );
+        return { ok: false, code: codeOf(error) };
+      }
+    },
+  );
 
   return {
     broadcastChanged,

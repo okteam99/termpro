@@ -8,7 +8,13 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isEexist, isEnoent, buildKeepaliveConfig, planRemoteDirs, SshConnection } from '../ssh';
+import {
+  isEexist,
+  isEnoent,
+  buildKeepaliveConfig,
+  planRemoteDirs,
+  SshConnection,
+} from '../ssh';
 
 // 🔴 首连必挂回归:ssh2 SFTP 错误的 code 是【数字】状态码(NO_SUCH_FILE = 2),
 // isEnoent 必须认得它,否则全新远端读 .ready/host.port 抛「No such file」而非返回 null。
@@ -41,20 +47,28 @@ describe('A8/E5 isEexist 窄化', () => {
 
   it('message 含 "File exists" / "already exists"(不区分大小写)→ true', () => {
     expect(isEexist({ message: 'SFTP error: File exists' })).toBe(true);
-    expect(isEexist({ message: 'Failure: directory already exists' })).toBe(true);
+    expect(isEexist({ message: 'Failure: directory already exists' })).toBe(
+      true,
+    );
     expect(isEexist({ message: 'FILE EXISTS' })).toBe(true);
   });
 
   it('ENOENT(父目录不存在)→ false(真实失败,必须上抛,不能被静默吞掉)', () => {
-    expect(isEexist({ code: 'ENOENT', message: 'No such file or directory' })).toBe(false);
+    expect(
+      isEexist({ code: 'ENOENT', message: 'No such file or directory' }),
+    ).toBe(false);
   });
 
   it('权限错误 → false', () => {
-    expect(isEexist({ code: 'EACCES', message: 'Permission denied' })).toBe(false);
+    expect(isEexist({ code: 'EACCES', message: 'Permission denied' })).toBe(
+      false,
+    );
   });
 
   it('任意数字 SFTP 状态码但无「已存在」语义的 message → false(此前的漏洞:任意非 undefined code 都被放行)', () => {
-    expect(isEexist({ code: 4, message: 'SSH_FX_FAILURE: disk full' })).toBe(false);
+    expect(isEexist({ code: 4, message: 'SSH_FX_FAILURE: disk full' })).toBe(
+      false,
+    );
   });
 
   it('undefined/null → false', () => {
@@ -85,11 +99,15 @@ describe('planRemoteDirs 补全中间祖先目录', () => {
   });
 
   it('全部文件在根 → 只建 remoteDir 本身', () => {
-    expect(planRemoteDirs('/d/.tmp-x', ['a.js', 'b.js'])).toEqual(['/d/.tmp-x']);
+    expect(planRemoteDirs('/d/.tmp-x', ['a.js', 'b.js'])).toEqual([
+      '/d/.tmp-x',
+    ]);
   });
 
   it('绝不越界到 remoteDir 之上(其父链由 deploy.ts mkdir -p 保证;越界 mkdir 已存在目录会得不可识别的 FAILURE)', () => {
-    const dirs = planRemoteDirs('/home/u/.termpro-host/bundle/.tmp-1', ['x/y/z.js']);
+    const dirs = planRemoteDirs('/home/u/.termpro-host/bundle/.tmp-1', [
+      'x/y/z.js',
+    ]);
     for (const d of dirs) {
       expect(d.startsWith('/home/u/.termpro-host/bundle/.tmp-1')).toBe(true);
     }
@@ -99,7 +117,10 @@ describe('planRemoteDirs 补全中间祖先目录', () => {
     const dirs = planRemoteDirs('/r', ['a/b/c/d/e.js', 'a/f.js', 'g/h/i.js']);
     for (let i = 0; i < dirs.length; i++) {
       for (let j = i + 1; j < dirs.length; j++) {
-        expect(dirs[j].startsWith(`${dirs[i]}/`) || !dirs[i].startsWith(`${dirs[j]}/`)).toBe(true);
+        expect(
+          dirs[j].startsWith(`${dirs[i]}/`) ||
+            !dirs[i].startsWith(`${dirs[j]}/`),
+        ).toBe(true);
       }
     }
     expect(dirs).toContain('/r/a/b');
@@ -113,7 +134,10 @@ describe('planRemoteDirs 补全中间祖先目录', () => {
 // channel close 后须重开而非用死缓存。
 describe('SshConnection SFTP channel 复用', () => {
   interface FakeSftp extends EventEmitter {
-    readFile: (p: string, cb: (err: Error | null, data?: Buffer) => void) => void;
+    readFile: (
+      p: string,
+      cb: (err: Error | null, data?: Buffer) => void,
+    ) => void;
   }
   function makeFakeClient() {
     const wrappers: FakeSftp[] = [];
@@ -121,8 +145,10 @@ describe('SshConnection SFTP channel 复用', () => {
       wrappers,
       sftp(cb: (err: Error | undefined, sftp: FakeSftp) => void) {
         const w = Object.assign(new EventEmitter(), {
-          readFile: (_p: string, done: (err: Error | null, data?: Buffer) => void) =>
-            done(null, Buffer.from('ok')),
+          readFile: (
+            _p: string,
+            done: (err: Error | null, data?: Buffer) => void,
+          ) => done(null, Buffer.from('ok')),
         }) as FakeSftp;
         wrappers.push(w);
         cb(undefined, w);
@@ -160,22 +186,30 @@ describe('SshConnection 断链会终止所有 pending 操作', () => {
   const construct = (client: unknown): SshConnection =>
     new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
 
-  async function settlesSoon<T>(promise: Promise<T>): Promise<'resolved' | 'rejected' | 'timeout'> {
+  async function settlesSoon<T>(
+    promise: Promise<T>,
+  ): Promise<'resolved' | 'rejected' | 'timeout'> {
     return Promise.race([
       promise.then(
         () => 'resolved' as const,
         () => 'rejected' as const,
       ),
-      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 40)),
+      new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), 40),
+      ),
     ]);
   }
 
   it('client close 时,已拿到 stream 但等不到 stream.close 的 exec 立即 reject', async () => {
-    const stream = Object.assign(new PassThrough(), { stderr: new PassThrough() });
+    const stream = Object.assign(new PassThrough(), {
+      stderr: new PassThrough(),
+    });
     const client = Object.assign(new EventEmitter(), {
-      exec: vi.fn((_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
-        cb(null, stream); // stream 此后永不 close,模拟睡眠断网时丢失 channel 终态
-      }),
+      exec: vi.fn(
+        (_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
+          cb(null, stream); // stream 此后永不 close,模拟睡眠断网时丢失 channel 终态
+        },
+      ),
       end: vi.fn(),
     });
     const pending = construct(client).exec('echo $HOME');
@@ -191,7 +225,9 @@ describe('SshConnection 断链会终止所有 pending 操作', () => {
       sftp: vi.fn(() => undefined), // callback 永不抵达
       end: vi.fn(),
     });
-    const pending = construct(client).sftpReadFile('/root/.termpro-host/host.port');
+    const pending = construct(client).sftpReadFile(
+      '/root/.termpro-host/host.port',
+    );
     await Promise.resolve();
 
     client.emit('error', new Error('socket lost after wake'));
@@ -200,11 +236,15 @@ describe('SshConnection 断链会终止所有 pending 操作', () => {
   });
 
   it('主动 close 也会在 ssh2 不回 close 事件时 reject pending 操作', async () => {
-    const stream = Object.assign(new PassThrough(), { stderr: new PassThrough() });
+    const stream = Object.assign(new PassThrough(), {
+      stderr: new PassThrough(),
+    });
     const client = Object.assign(new EventEmitter(), {
-      exec: vi.fn((_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
-        cb(null, stream);
-      }),
+      exec: vi.fn(
+        (_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
+          cb(null, stream);
+        },
+      ),
       end: vi.fn(), // 刻意不 emit close,模拟已坏 socket
     });
     const conn = construct(client);
@@ -220,11 +260,15 @@ describe('SshConnection 断链会终止所有 pending 操作', () => {
   it('底层既不 callback 也不 close 时,操作硬超时会 reject,不会无限占住串行队列', async () => {
     vi.useFakeTimers();
     try {
-      const stream = Object.assign(new PassThrough(), { stderr: new PassThrough() });
+      const stream = Object.assign(new PassThrough(), {
+        stderr: new PassThrough(),
+      });
       const client = Object.assign(new EventEmitter(), {
-        exec: vi.fn((_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
-          cb(null, stream);
-        }),
+        exec: vi.fn(
+          (_cmd: string, cb: (err: Error | null, s: typeof stream) => void) => {
+            cb(null, stream);
+          },
+        ),
         end: vi.fn(),
       });
       let rejected = false;
@@ -239,6 +283,109 @@ describe('SshConnection 断链会终止所有 pending 操作', () => {
 
       expect(rejected).toBe(true);
       expect(client.end).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('SshConnection.execWithStdin 有界 main-only RPC channel', () => {
+  const construct = (client: unknown): SshConnection =>
+    new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
+
+  function rpcStream(
+    onEnd?: (stream: EventEmitter & { stderr: EventEmitter }) => void,
+  ) {
+    const stream = new EventEmitter() as EventEmitter & {
+      stderr: EventEmitter;
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+      destroy: ReturnType<typeof vi.fn>;
+    };
+    stream.stderr = new EventEmitter();
+    stream.write = vi.fn((_body: string, cb: (err?: Error | null) => void) =>
+      cb(null),
+    );
+    stream.end = vi.fn(() => onEnd?.(stream));
+    stream.close = vi.fn();
+    stream.destroy = vi.fn();
+    return stream;
+  }
+
+  it('请求只写 stdin 并 half-close，返回有界 stdout/stderr', async () => {
+    const stream = rpcStream((s) => {
+      s.emit('data', Buffer.from('{"ok":true}'));
+      s.stderr.emit('data', Buffer.from('diagnostic'));
+      s.emit('close', 0);
+    });
+    const client = Object.assign(new EventEmitter(), {
+      exec: vi.fn(
+        (_cmd: string, cb: (err: Error | null, s: typeof stream) => void) =>
+          cb(null, stream),
+      ),
+      end: vi.fn(),
+    });
+
+    await expect(
+      construct(client).execWithStdin(
+        'fixed-command',
+        '{"secret":"stdin-only"}',
+      ),
+    ).resolves.toEqual({
+      code: 0,
+      stdout: '{"ok":true}',
+      stderr: 'diagnostic',
+    });
+    expect(client.exec).toHaveBeenCalledWith(
+      'fixed-command',
+      expect.any(Function),
+    );
+    expect(stream.write).toHaveBeenCalledWith(
+      '{"secret":"stdin-only"}',
+      expect.any(Function),
+    );
+    expect(stream.end).toHaveBeenCalledOnce();
+  });
+
+  it('stdout 超限立即 reject 并关闭本次 channel', async () => {
+    const stream = rpcStream((s) => s.emit('data', Buffer.from('12345')));
+    const client = Object.assign(new EventEmitter(), {
+      exec: vi.fn(
+        (_cmd: string, cb: (err: Error | null, s: typeof stream) => void) =>
+          cb(null, stream),
+      ),
+      end: vi.fn(),
+    });
+
+    await expect(
+      construct(client).execWithStdin('fixed-command', '{}', {
+        maxStdoutBytes: 4,
+      }),
+    ).rejects.toThrow(/stdout limit exceeded/);
+    expect(stream.close).toHaveBeenCalledOnce();
+    expect(client.end).not.toHaveBeenCalled();
+  });
+
+  it('超时 reject 并只关闭本次 channel，不关闭整条 SSH connection', async () => {
+    vi.useFakeTimers();
+    try {
+      const stream = rpcStream();
+      const client = Object.assign(new EventEmitter(), {
+        exec: vi.fn(
+          (_cmd: string, cb: (err: Error | null, s: typeof stream) => void) =>
+            cb(null, stream),
+        ),
+        end: vi.fn(),
+      });
+      const pending = construct(client).execWithStdin('fixed-command', '{}', {
+        timeoutMs: 25,
+      });
+      const rejection = expect(pending).rejects.toThrow(/timeout/);
+      await vi.advanceTimersByTimeAsync(26);
+      await rejection;
+      expect(stream.close).toHaveBeenCalledOnce();
+      expect(client.end).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -289,9 +436,11 @@ describe('sftpWriteDir 保留本地权限位(spawn-helper 执行位)', () => {
 
       const client = makeFakeClient();
       const conn = construct(client);
-      await conn.sftpWriteDir(localDir, '/r/.tmp-1', () => {});
+      await conn.sftpWriteDir(localDir, '/r/.tmp-1', () => undefined);
 
-      const byName = new Map(client.puts.map((p) => [p.remote.split('/').pop(), p.mode]));
+      const byName = new Map(
+        client.puts.map((p) => [p.remote.split('/').pop(), p.mode]),
+      );
       expect(byName.get('spawn-helper')).toBe(0o755);
       expect(byName.get('host.js')).toBe(0o644);
     } finally {
@@ -309,19 +458,28 @@ describe('buildKeepaliveConfig ssh keepalive 纵深防御', () => {
   });
 
   it('无 env 覆盖 → 默认 15000ms / 3 次', () => {
-    expect(buildKeepaliveConfig()).toEqual({ keepaliveInterval: 15_000, keepaliveCountMax: 3 });
+    expect(buildKeepaliveConfig()).toEqual({
+      keepaliveInterval: 15_000,
+      keepaliveCountMax: 3,
+    });
   });
 
   it('env 可注入覆盖默认值', () => {
     process.env.OKWORK_SSH_KEEPALIVE_MS = '5000';
     process.env.OKWORK_SSH_KEEPALIVE_COUNT = '2';
-    expect(buildKeepaliveConfig()).toEqual({ keepaliveInterval: 5000, keepaliveCountMax: 2 });
+    expect(buildKeepaliveConfig()).toEqual({
+      keepaliveInterval: 5000,
+      keepaliveCountMax: 2,
+    });
   });
 
   it('非法/非正数 env → 落回默认值(不产出 0 或 NaN keepalive)', () => {
     process.env.OKWORK_SSH_KEEPALIVE_MS = 'not-a-number';
     process.env.OKWORK_SSH_KEEPALIVE_COUNT = '-1';
-    expect(buildKeepaliveConfig()).toEqual({ keepaliveInterval: 15_000, keepaliveCountMax: 3 });
+    expect(buildKeepaliveConfig()).toEqual({
+      keepaliveInterval: 15_000,
+      keepaliveCountMax: 3,
+    });
   });
 });
 
@@ -407,19 +565,33 @@ describe('forwardInToLocal 反向转发', () => {
     new (SshConnection as unknown as new (c: unknown) => SshConnection)(client);
 
   function fakeClient(boundPort: number) {
-    let onTcp: ((info: { destPort: number }, accept: () => unknown, deny: () => void) => void) | null =
-      null;
+    let onTcp:
+      | ((
+          info: { destPort: number },
+          accept: () => unknown,
+          deny: () => void,
+        ) => void)
+      | null = null;
     return {
-      forwardIn: vi.fn((addr: string, port: number, cb: (e: Error | null, p: number) => void) => {
-        cb(null, port || boundPort);
-      }),
+      forwardIn: vi.fn(
+        (
+          addr: string,
+          port: number,
+          cb: (e: Error | null, p: number) => void,
+        ) => {
+          cb(null, port || boundPort);
+        },
+      ),
       on: vi.fn((event: string, fn: never) => {
         if (event === 'tcp connection') onTcp = fn;
       }),
       removeListener: vi.fn(),
       unforwardIn: vi.fn((_a: string, _p: number, cb: () => void) => cb()),
-      fire: (info: { destPort: number }, accept: () => unknown, deny: () => void) =>
-        onTcp?.(info, accept, deny),
+      fire: (
+        info: { destPort: number },
+        accept: () => unknown,
+        deny: () => void,
+      ) => onTcp?.(info, accept, deny),
     };
   }
 
@@ -435,7 +607,11 @@ describe('forwardInToLocal 反向转发', () => {
     try {
       const client = fakeClient(45678);
       const handle = await construct(client).forwardInToLocal(localPort, 0);
-      expect(client.forwardIn).toHaveBeenCalledWith('127.0.0.1', 0, expect.any(Function));
+      expect(client.forwardIn).toHaveBeenCalledWith(
+        '127.0.0.1',
+        0,
+        expect.any(Function),
+      );
       expect(handle.remotePort).toBe(45678); // 远端自选口回传
 
       // 模拟一条打到该端口的反向连接:accept 返回一个 PassThrough 当 ssh channel
@@ -470,7 +646,14 @@ describe('forwardInToLocal 反向转发', () => {
     const client = fakeClient(45678);
     const handle = await construct(client).forwardInToLocal(1, 45678);
     handle.close();
-    expect(client.removeListener).toHaveBeenCalledWith('tcp connection', expect.any(Function));
-    expect(client.unforwardIn).toHaveBeenCalledWith('127.0.0.1', 45678, expect.any(Function));
+    expect(client.removeListener).toHaveBeenCalledWith(
+      'tcp connection',
+      expect.any(Function),
+    );
+    expect(client.unforwardIn).toHaveBeenCalledWith(
+      '127.0.0.1',
+      45678,
+      expect.any(Function),
+    );
   });
 });

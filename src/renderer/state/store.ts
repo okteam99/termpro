@@ -7,7 +7,7 @@ import type { WorkspaceEntry } from '../../shared/protocol';
 import { resolveLocalePref, setLocale, t } from '../../shared/i18n';
 import type { LocalePref } from '../../shared/i18n';
 import { DEFAULT_PROFILE_ID } from '../../shared/browserProfile';
-import type { BrowserProfile } from '../../shared/browserProfile';
+import type { BrowserProfileSummary } from '../../shared/browserProfile';
 
 const LOCAL_HOST_ID = 'local';
 
@@ -114,7 +114,10 @@ export const LINK_BROWSER_MODES: readonly LinkBrowserMode[] = [
  *  (用户手动的摆放优先于默认值,不会被每次点链接强行搬家)。 */
 export type BuiltinBrowserSurface = 'window' | 'pane';
 
-export const BUILTIN_BROWSER_SURFACES: readonly BuiltinBrowserSurface[] = ['window', 'pane'];
+export const BUILTIN_BROWSER_SURFACES: readonly BuiltinBrowserSurface[] = [
+  'window',
+  'pane',
+];
 
 export interface WorkspaceState {
   id: string;
@@ -294,15 +297,18 @@ export interface AppState {
   ): boolean;
   // ---- 浏览器 Profile(每工作区独立存储 + UA;权威在 main,此处为快照镜像)----
   /** 全部自定义 profile(不含虚拟默认;profilesSync 从 main 拉取/订阅) */
-  browserProfiles: BrowserProfile[];
+  browserProfiles: BrowserProfileSummary[];
   /** profile 快照已到达(list 至少成功一次)——profile 绑定工作区的 webview 以此为
    *  渲染门,避免「先按 default 挂、快照到了再重挂」的启动双载与跨分区串写 */
   browserProfilesLoaded: boolean;
   /** 快照落地 + 对账:workspace 绑定的 profile 已不存在 → 剥离(回落默认 profile) */
-  setBrowserProfiles(profiles: BrowserProfile[]): void;
+  setBrowserProfiles(profiles: BrowserProfileSummary[]): void;
   /** 设置某工作区的浏览器 profile;'default'/undefined = 清除绑定(回默认)。
    *  消费方(BrowserPanel 分区计算)据此重挂重载该 ws 全部浏览器标签。 */
-  setWorkspaceBrowserProfile(workspaceId: string, profileId: string | undefined): void;
+  setWorkspaceBrowserProfile(
+    workspaceId: string,
+    profileId: string | undefined,
+  ): void;
   /** 设置/清除一次性提示 */
   setTransientNotice(text: string | null): void;
   /** 拖拽排序:把工作区移到目标下标(越界自动夹紧) */
@@ -311,7 +317,11 @@ export interface AppState {
   /** 收养重建(PENDING-006):为服务端既有会话补建 tab(重启后重连/断开期丢 inst),返回新
    *  tabId 供 readoptHost path② 绑 inst;workspaceId 不存在 → null(调用方跳过该会话)。
    *  不抢焦点:仅该 ws 尚无 activeTabId 时落焦(重启后 0-tab ws 首个收养 tab 自然成为激活 tab)。 */
-  adoptSessionTab(workspaceId: string, cwd: string, processName?: string): string | null;
+  adoptSessionTab(
+    workspaceId: string,
+    cwd: string,
+    processName?: string,
+  ): string | null;
   closeTab(workspaceId: string, tabId: string): void;
   setActiveTab(workspaceId: string, tabId: string): void;
   /** 拖拽排序:把 tab 移到目标下标(越界自动夹紧) */
@@ -365,7 +375,11 @@ export interface AppState {
   /** 改某浏览器标签的网络出口('local'|configId);消费方(webview 分区)据此重挂重载该标签。
    *  预览标签(preview===true)出口钉死所属机器,本 action 对它 no-op(store 层权威守卫,
    *  UI 侧 BrowserNetSelector 禁用选择器只是第一道防线,不是唯一防线)。 */
-  setBrowserTabNet(terminalTabId: string, browserTabId: string, netHostId: string): void;
+  setBrowserTabNet(
+    terminalTabId: string,
+    browserTabId: string,
+    netHostId: string,
+  ): void;
   // ---- 窗格窗口化(弹出=整个窗格独立成窗 · 2026-07)----
   /** 标记窗格弹出:主窗收面板、停渲染其 webview;内容所有权移交壳窗(壳窗经 sync 回流) */
   popOutBrowserPane(terminalTabId: string): void;
@@ -409,7 +423,6 @@ export interface AppState {
   /** 打开「远程机」设置页(nonce 自增触发 SettingsEntry 侧 useEffect) */
   openRemoteHostsPage(): void;
 }
-
 
 function makeTab(cwd: string): TabState {
   return { id: crypto.randomUUID(), title: basename(cwd), cwd };
@@ -492,9 +505,13 @@ export function isSamePreviewPrefix(oldUrl: string, newUrl: string): boolean {
 }
 
 /** 终端 tab 所属 workspace 的 hostId;找不到归属(竞态)按本机。新建浏览器标签的默认出口。 */
-function ownerHostIdOf(workspaces: WorkspaceState[], terminalTabId: string): string {
+function ownerHostIdOf(
+  workspaces: WorkspaceState[],
+  terminalTabId: string,
+): string {
   return (
-    workspaces.find((w) => w.tabs.some((t) => t.id === terminalTabId))?.hostId ?? 'local'
+    workspaces.find((w) => w.tabs.some((t) => t.id === terminalTabId))
+      ?.hostId ?? 'local'
   );
 }
 
@@ -532,7 +549,8 @@ function injectLegacyBrowser(
   legacy: BrowserPaneState | undefined,
 ): WorkspaceState[] {
   if (!legacy) return workspaces;
-  const ws = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const ws =
+    workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
   if (!ws) return workspaces;
   const targetTabId = ws.activeTabId ?? ws.tabs[0]?.id ?? null;
   if (!targetTabId) return workspaces;
@@ -550,7 +568,10 @@ function injectLegacyBrowser(
 
 /** drop 前快照某远程 ws 的 tab 布局(须在 disposeTerminal 之前调用——sessionId 从
  *  registry 读,dispose 后即不可得;host 重启场景该 sessionId 自然失效 → 恢复时重 spawn)。 */
-function snapshotRemoteLayout(hostId: string, w: WorkspaceState): PersistedRemoteWorkspace {
+function snapshotRemoteLayout(
+  hostId: string,
+  w: WorkspaceState,
+): PersistedRemoteWorkspace {
   return {
     hostId,
     workspaceId: w.id,
@@ -613,7 +634,9 @@ function insertLocalWorkspace(
   workspaces: WorkspaceState[],
   ws: WorkspaceState,
 ): WorkspaceState[] {
-  const firstRemoteIdx = workspaces.findIndex((w) => w.hostId !== LOCAL_HOST_ID);
+  const firstRemoteIdx = workspaces.findIndex(
+    (w) => w.hostId !== LOCAL_HOST_ID,
+  );
   if (firstRemoteIdx < 0) return [...workspaces, ws];
   const next = [...workspaces];
   next.splice(firstRemoteIdx, 0, ws);
@@ -656,9 +679,7 @@ function markTabViewed(
             ...w,
             activeTabId: tabId,
             tabs: w.tabs.map((t) =>
-              t.id === tabId
-                ? { ...t, waiting: false, unseenDone: false }
-                : t,
+              t.id === tabId ? { ...t, waiting: false, unseenDone: false } : t,
             ),
           }
         : w,
@@ -707,7 +728,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 非 http(s) 的 url 降级为空标签——防篡改存档让怪 scheme 冷启动自动加载(评审 P2-3)
       const legacyTabs: BrowserTabState[] = (archive.ui.browserTabs ?? [])
         .filter((b) => typeof b?.id === 'string' && typeof b?.url === 'string')
-        .map((b) => ({ id: b.id, url: /^https?:\/\//i.test(b.url) ? b.url : '' }));
+        .map((b) => ({
+          id: b.id,
+          url: /^https?:\/\//i.test(b.url) ? b.url : '',
+        }));
       if (legacyTabs.length > 0) {
         const savedActive = archive.ui.browserActiveTabId ?? null;
         legacyBrowserPane = {
@@ -760,7 +784,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         };
       });
       const activeWs = resolveActiveWs(built, archive.activeWorkspaceId);
-      const workspaces = injectLegacyBrowser(built, activeWs, legacyBrowserPane);
+      const workspaces = injectLegacyBrowser(
+        built,
+        activeWs,
+        legacyBrowserPane,
+      );
       set({
         workspaces,
         activeWorkspaceId: activeWs,
@@ -825,8 +853,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     // v1 全功能:仅本机(远程操作需 v2 + 该机 client · 防污染 v1 存档)
     if (get().persistMode === 'v1') {
       if (targetHostId !== LOCAL_HOST_ID) {
-        console.warn('[renderer] addWorkspace remote target rejected in v1 fallback:', targetHostId);
-        set({ transientNotice: t('Remote operations are unavailable in local fallback mode') });
+        console.warn(
+          '[renderer] addWorkspace remote target rejected in v1 fallback:',
+          targetHostId,
+        );
+        set({
+          transientNotice: t(
+            'Remote operations are unavailable in local fallback mode',
+          ),
+        });
         return;
       }
       const ws = buildDefaultWorkspace(
@@ -844,7 +879,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 写操作走 forHostId:未命中(该机已断线/未连接)→ 拒绝创建,绝不兜底落本机
     const client = hostRegistry.forHostId(targetHostId);
     if (!client) {
-      console.warn('[renderer] addWorkspace target host unavailable:', targetHostId);
+      console.warn(
+        '[renderer] addWorkspace target host unavailable:',
+        targetHostId,
+      );
       set({ transientNotice: t('Target host is disconnected') });
       return;
     }
@@ -858,16 +896,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         const exists = s.workspaces.some((w) => w.id === entry.id);
         const workspaces = exists
           ? s.workspaces.map((w) =>
-              w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,
+              w.id === entry.id
+                ? { ...w, name: entry.name, root: entry.root }
+                : w,
             )
           : targetHostId === LOCAL_HOST_ID
-            ? insertLocalWorkspace(s.workspaces, buildDefaultWorkspace(entry, targetHostId))
+            ? insertLocalWorkspace(
+                s.workspaces,
+                buildDefaultWorkspace(entry, targetHostId),
+              )
             : [...s.workspaces, buildDefaultWorkspace(entry, targetHostId)]; // 远程 ws 仍 append
-        return { workspaces, activeWorkspaceId: entry.id, creatingWorkspace: false };
+        return {
+          workspaces,
+          activeWorkspaceId: entry.id,
+          creatingWorkspace: false,
+        };
       });
     } catch (err) {
       console.warn('[renderer] workspace create failed:', err);
-      set({ creatingWorkspace: false, transientNotice: t('Failed to create project, please retry') });
+      set({
+        creatingWorkspace: false,
+        transientNotice: t('Failed to create project, please retry'),
+      });
     }
   },
 
@@ -883,9 +933,19 @@ export const useAppStore = create<AppState>((set, get) => ({
           hostRegistry
             .forHostId(ws.hostId)
             ?.rpc('preview.stop', { root: ws.root })
-            ?.catch((err) => console.warn('[renderer] preview.stop best-effort failed:', ws.id, err));
+            ?.catch((err) =>
+              console.warn(
+                '[renderer] preview.stop best-effort failed:',
+                ws.id,
+                err,
+              ),
+            );
         } catch (err) {
-          console.warn('[renderer] preview.stop best-effort failed:', ws.id, err);
+          console.warn(
+            '[renderer] preview.stop best-effort failed:',
+            ws.id,
+            err,
+          );
         }
       }
       set((s) => {
@@ -906,8 +966,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     // v1 全功能:仅本机 ws 本地同步(远程 ws 理应不出现在 v1 store,防御性拒绝)
     if (get().persistMode === 'v1') {
       if (ws && ws.hostId !== LOCAL_HOST_ID) {
-        console.warn('[renderer] removeWorkspace remote ws rejected in v1 fallback:', id);
-        set({ transientNotice: t('Remote operations are unavailable in local fallback mode') });
+        console.warn(
+          '[renderer] removeWorkspace remote ws rejected in v1 fallback:',
+          id,
+        );
+        set({
+          transientNotice: t(
+            'Remote operations are unavailable in local fallback mode',
+          ),
+        });
         return;
       }
       disposeAndRemove();
@@ -938,8 +1005,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     // v1 全功能:仅本机 ws 本地同步(远程 ws 理应不出现在 v1 store,防御性拒绝)
     if (get().persistMode === 'v1') {
       if (ws && ws.hostId !== LOCAL_HOST_ID) {
-        console.warn('[renderer] renameWorkspace remote ws rejected in v1 fallback:', id);
-        set({ transientNotice: t('Remote operations are unavailable in local fallback mode') });
+        console.warn(
+          '[renderer] renameWorkspace remote ws rejected in v1 fallback:',
+          id,
+        );
+        set({
+          transientNotice: t(
+            'Remote operations are unavailable in local fallback mode',
+          ),
+        });
         return;
       }
       set((s) => ({
@@ -953,7 +1027,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().pendingWorkspaceIds.includes(id)) return;
     set((s) => ({ pendingWorkspaceIds: [...s.pendingWorkspaceIds, id] }));
     try {
-      const entry = await hostRegistry.forWorkspace(ws).rpc('workspace.update', { id, name });
+      const entry = await hostRegistry
+        .forWorkspace(ws)
+        .rpc('workspace.update', { id, name });
       set((s) => ({
         workspaces: s.workspaces.map((w) =>
           w.id === entry.id ? { ...w, name: entry.name, root: entry.root } : w,
@@ -973,12 +1049,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     // v1 fallback 下 Host 无权威(单机 fallback 无第二客户端)→ 忽略广播
     if (get().persistMode !== 'v2') return;
     const s = get();
-    const { workspaces, activeWorkspaceId, disposedTabIds } = reconcileWorkspaces(
-      s.workspaces,
-      s.activeWorkspaceId,
-      snapshot,
-      LOCAL_HOST_ID,
-    );
+    const { workspaces, activeWorkspaceId, disposedTabIds } =
+      reconcileWorkspaces(
+        s.workspaces,
+        s.activeWorkspaceId,
+        snapshot,
+        LOCAL_HOST_ID,
+      );
     disposedTabIds.forEach((tabId) => disposeTerminal(tabId));
     set({ workspaces, activeWorkspaceId });
   },
@@ -986,12 +1063,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setHostWorkspaces(hostId, entries) {
     // 远程发现与本地持久化模式无关(v1/v2 均生效)——远程 ws 是纯视图态,不受迁移状态门控
     const s = get();
-    const { workspaces, activeWorkspaceId, disposedTabIds } = reconcileWorkspaces(
-      s.workspaces,
-      s.activeWorkspaceId,
-      entries,
-      hostId,
-    );
+    const { workspaces, activeWorkspaceId, disposedTabIds } =
+      reconcileWorkspaces(s.workspaces, s.activeWorkspaceId, entries, hostId);
     disposedTabIds.forEach((tabId) => disposeTerminal(tabId));
     set({ workspaces, activeWorkspaceId });
   },
@@ -1003,7 +1076,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const remoteTabLayouts = { ...get().remoteTabLayouts };
     for (const w of dropped) {
       delete remoteTabLayouts[w.id];
-      if (w.tabs.length > 0) remoteTabLayouts[w.id] = snapshotRemoteLayout(hostId, w);
+      if (w.tabs.length > 0)
+        remoteTabLayouts[w.id] = snapshotRemoteLayout(hostId, w);
     }
     dropped.forEach((w) => w.tabs.forEach((t) => disposeTerminal(t.id)));
     set((s) => {
@@ -1033,7 +1107,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   restoreWorkspaceTabs(workspaceId, tabs, activeTabId, browserProfileId) {
     const ws = get().workspaces.find((w) => w.id === workspaceId);
     // 仅远程 ws + 当前 0 tab 才恢复:已有 tab(闪断未 drop 的 live 视图态)以 live 为准
-    if (!ws || ws.hostId === LOCAL_HOST_ID || ws.tabs.length > 0 || tabs.length === 0) {
+    if (
+      !ws ||
+      ws.hostId === LOCAL_HOST_ID ||
+      ws.tabs.length > 0 ||
+      tabs.length === 0
+    ) {
       return false;
     }
     // 🔴 评审 P1-2:source='memory'——这批 tabs 来自内存态 remoteTabLayouts(断线重连
@@ -1063,7 +1142,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 对账:删除中/删除失败与已删除一样不得继续绑定；状态先落盘后推快照，
       // renderer 立即回落默认 profile，webview 随分区变化重挂。
       const valid = new Set(
-        profiles.filter((profile) => profile.deletionState === undefined).map((p) => p.id),
+        profiles
+          .filter((profile) => profile.deletionState === undefined)
+          .map((p) => p.id),
       );
       let changed = false;
       const workspaces = s.workspaces.map((w) => {
@@ -1146,7 +1227,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       workspaces: s.workspaces.map((w) => {
         if (w.id !== workspaceId) return w;
-        return { ...w, tabs: [...w.tabs, tab], activeTabId: w.activeTabId ?? tab.id };
+        return {
+          ...w,
+          tabs: [...w.tabs, tab],
+          activeTabId: w.activeTabId ?? tab.id,
+        };
       }),
     }));
     return tab.id;
@@ -1235,7 +1320,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!open) return { browserPanelOpen: false };
       // 打开:当前活跃终端 tab 若无浏览器标签,种一个空标签(面板不出现无标签死态)
       const activeTab = activeTerminalTab(s);
-      if (!activeTab || (activeTab.browser && activeTab.browser.tabs.length > 0)) {
+      if (
+        !activeTab ||
+        (activeTab.browser && activeTab.browser.tabs.length > 0)
+      ) {
         // 面板互斥:打开浏览器面板时顺手收起文件面板
         return { browserPanelOpen: true, filePanelCollapsed: true };
       }
@@ -1262,7 +1350,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const bt: BrowserTabState = {
         id: crypto.randomUUID(),
         url,
-        netHostId: opts?.netHostId ?? ownerHostIdOf(s.workspaces, terminalTabId),
+        netHostId:
+          opts?.netHostId ?? ownerHostIdOf(s.workspaces, terminalTabId),
         ...(opts?.preview ? { preview: true as const } : {}),
       };
       return {
@@ -1325,7 +1414,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         // 回落到活跃 tab → 面板直接可见(面板互斥:顺手收起文件面板);
         // 后台 tab 回落只清标记(切过去再看),不动任何面板态
-        ...(isActive ? { browserPanelOpen: true, filePanelCollapsed: true } : {}),
+        ...(isActive
+          ? { browserPanelOpen: true, filePanelCollapsed: true }
+          : {}),
         workspaces: patchTabBrowser(s.workspaces, terminalTabId, (pane) => ({
           tabs: pane.tabs,
           activeTabId: pane.activeTabId,
@@ -1364,22 +1455,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       const emptiesPane =
         (owner?.browser?.tabs.some((b) => b.id === browserTabId) ?? false) &&
         owner!.browser!.tabs.length === 1;
-      const workspaces = patchTabBrowser(s.workspaces, terminalTabId, (pane) => {
-        const idx = pane.tabs.findIndex((b) => b.id === browserTabId);
-        if (idx < 0) return pane;
-        const tabs = pane.tabs.filter((b) => b.id !== browserTabId);
-        // 关最后一个 → 该终端 tab 的窗格清空;不影响其它 tab 的窗格
-        if (tabs.length === 0) return { tabs: [], activeTabId: null };
-        const activeTabId =
-          pane.activeTabId === browserTabId
-            ? (tabs[Math.min(idx, tabs.length - 1)]?.id ?? null)
-            : pane.activeTabId;
-        return { tabs, activeTabId };
-      });
+      const workspaces = patchTabBrowser(
+        s.workspaces,
+        terminalTabId,
+        (pane) => {
+          const idx = pane.tabs.findIndex((b) => b.id === browserTabId);
+          if (idx < 0) return pane;
+          const tabs = pane.tabs.filter((b) => b.id !== browserTabId);
+          // 关最后一个 → 该终端 tab 的窗格清空;不影响其它 tab 的窗格
+          if (tabs.length === 0) return { tabs: [], activeTabId: null };
+          const activeTabId =
+            pane.activeTabId === browserTabId
+              ? (tabs[Math.min(idx, tabs.length - 1)]?.id ?? null)
+              : pane.activeTabId;
+          return { tabs, activeTabId };
+        },
+      );
       // 标签全关掉 → 面板收起(用户指令 2026-07-14)。仅限当前活跃终端 tab 的窗格——
       // 面板此刻展示的就是它;后台窗格清空不动全局面板态(下次切过去按空窗格逻辑种标签)。
       const closesPanel =
-        emptiesPane && s.browserPanelOpen && activeTerminalTab(s)?.id === terminalTabId;
+        emptiesPane &&
+        s.browserPanelOpen &&
+        activeTerminalTab(s)?.id === terminalTabId;
       return {
         workspaces,
         ...(closesPanel ? { browserPanelOpen: false } : {}),
@@ -1407,7 +1504,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           // 清掉 preview 标志,退化成普通标签(可落盘、出口解锁)——预览标签的钉死出口/
           // 不落盘保护本就只该覆盖「正在预览那份文件」这一段时间,导航走了还继续钉着没意义,
           // 也会让用户以为「出口还锁着」但其实已经在浏览别的站点。
-          if (b.preview && typeof patch.url === 'string' && !isSamePreviewPrefix(b.url, patch.url)) {
+          if (
+            b.preview &&
+            typeof patch.url === 'string' &&
+            !isSamePreviewPrefix(b.url, patch.url)
+          ) {
             const { preview: _droppedPreview, ...rest } = b;
             return { ...rest, ...patch };
           }
@@ -1500,7 +1601,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       })),
     }));
   },
-
 }));
 
 export const selectActiveWorkspace = (s: AppState): WorkspaceState | null =>

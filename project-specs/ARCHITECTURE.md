@@ -85,12 +85,31 @@ Profile 删除先进入不可使用状态并撤销 guest/trusted 权限，只有
 provider 保留抽取空间，但 BL-006 不预建远程双写或迁移协议。详细理由与不可变约束见
 **[ADR-0002](../docs/adr/ADR-0002-profile-password-vault-trust-boundaries.md)**。
 
+### Remote Host Profile 权威存储（BL-007）
+
+每个 Browser Profile 的持久位置由 `ProfileCatalogStore` 唯一记录为本机或一个 Remote Host；
+`ProfileAuthorityService` 按目录路由 `LocalProfileProvider` / `RemoteProfileProvider`，断线时不会创建本机影子副本。
+远端 provider 由 main 通过固定 SSH stdin/stdout 命令 `host.js --profile-store-rpc` 调用，不把 Profile/Vault
+专用方法或 capability 暴露给 ordinary renderer 或通用 Host WebSocket 协议。
+
+远端数据落在配置 SSH 用户的 `~/.termpro-host/profile-store`，以 Profile 为作用域用 AES-256-GCM 加密；
+`0700/0600` 只隔离其他 OS 用户。Remote Host 管理员、配置的 SSH OS 用户及以该用户运行的终端/Agent
+属于可解密信任边界；main-only 是应用接口隔离，不是同 UID shell/PTY 沙箱。若未来要求隔离这些主体，
+必须引入独立 OS principal/第二 SSH 身份或端到端加密，而不能只靠 capability 或文件权限措辞。
+
+迁移由 `ProfileMigrationCoordinator` 执行 source read → target stage → HMAC nonce verify → catalog switch →
+source cleanup；目录切换是唯一提交边界，提交前失败保持原权威，提交后清理失败持久化为可重试状态。
+异步响应同时绑定 operation 与 source/target connection generation；Remote Host 目标只有在当前连接代
+`ready + compatible` 时才可选择，签计划前 main 再次 `describe` 复验。详细决策见
+**[ADR-0003](../docs/adr/ADR-0003-remote-profile-authority-and-migration.md)**。
+
 ### 技术设计决策（ADR）
 
 | ADR | 决策 | 状态 |
 |---|---|---|
 | [ADR-0001](../docs/adr/ADR-0001-remote-connection-orchestration-gates.md) | 远程机连接编排用「两道闸 + 意图与弃用标记分家」，状态收进 store 模块级单源 | accepted |
 | [ADR-0002](../docs/adr/ADR-0002-profile-password-vault-trust-boundaries.md) | Profile 密码 Vault 由 main 权威管理，并拆分 guest/ordinary/trusted 三层最小权限入口 | accepted |
+| [ADR-0003](../docs/adr/ADR-0003-remote-profile-authority-and-migration.md) | 每个 Profile 只保留一个本机或 Remote Host 权威，迁移采用 copy/verify/switch/cleanup，远端同 SSH UID 属可信边界 | accepted |
 
 ---
 

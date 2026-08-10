@@ -21,19 +21,6 @@
   margin-bottom: 10px;
 }
 
-.browser-profiles__disclosure {
-  display: grid;
-  gap: 3px;
-  margin: -2px 0 10px;
-  padding: 7px 9px;
-  color: var(--amber);
-  background: color-mix(in srgb, var(--amber) 5%, transparent);
-  border: 1px solid color-mix(in srgb, var(--amber) 18%, var(--border));
-  border-radius: 6px;
-  font-size: 10px;
-  line-height: 1.45;
-}
-
 .browser-profiles__list {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -42,17 +29,20 @@
   max-height: 204px;
 }
 
+.browser-profiles__item {
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-profiles__item:last-child {
+  border-bottom: none;
+}
+
 .browser-profiles__row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 12px;
   font-size: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.browser-profiles__row:last-child {
-  border-bottom: none;
 }
 
 .browser-profiles__name {
@@ -104,6 +94,45 @@
   color: var(--accent);
   font-size: 9.5px;
   white-space: nowrap;
+}
+
+.browser-profiles__storage {
+  flex: none;
+  max-width: 130px;
+  overflow: hidden;
+  color: var(--fg-dim);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-profiles__storage--offline {
+  color: var(--red, #e06c75);
+}
+
+.browser-profiles__detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 8px;
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.browser-profiles__detail .browser-profiles__action {
+  margin-left: auto;
+}
+
+.browser-profiles__detail--warn {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 7%, transparent);
+}
+
+.browser-profiles__detail--danger {
+  color: var(--red, #e06c75);
+  background: color-mix(in srgb, var(--red) 7%, transparent);
 }
 
 .browser-profiles__action {
@@ -238,4 +267,73 @@
 .browser-profiles__btn--primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.browser-profiles__storage-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.48);
+}
+
+.browser-profiles__storage-dialog {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  color: var(--fg);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+}
+
+.browser-profiles__storage-choice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.browser-profiles__storage-choice[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.browser-profiles__storage-choice span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.browser-profiles__storage-choice b {
+  font-size: 12px;
+}
+
+.browser-profiles__storage-choice small,
+.browser-profiles__storage-confirm span {
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.browser-profiles__storage-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 0;
+}
+
+.browser-profiles__storage-confirm span:first-child {
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
 }

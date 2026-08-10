@@ -5,6 +5,8 @@ import './PasswordStatusBar.css';
 export interface PasswordStatusBarProps {
   status: PasswordGuestStatus;
   profileName?: string;
+  storageLabel?: string;
+  storageUnavailable?: boolean;
   onChooseAccount?(): void;
   onManagePasswords?(): void;
 }
@@ -16,7 +18,12 @@ interface StatusPresentation {
   tone: 'positive' | 'neutral' | 'warning' | 'danger';
 }
 
-function presentation(status: PasswordGuestStatus, profileName: string): StatusPresentation | null {
+function presentation(
+  status: PasswordGuestStatus,
+  profileName: string,
+  storageLabel: string,
+  storageUnavailable: boolean,
+): StatusPresentation | null {
   const username = status.selectedUsername?.trim();
   switch (status.kind) {
     case 'idle':
@@ -25,7 +32,9 @@ function presentation(status: PasswordGuestStatus, profileName: string): StatusP
       return {
         icon: '✓',
         title: t('Password filled from {profile}', { profile: profileName }),
-        detail: username ? t('Account: {username}', { username }) : t('Saved account filled'),
+        detail: username
+          ? t('Account: {username}', { username })
+          : t('Saved account filled'),
         tone: 'positive',
       };
     case 'multiple':
@@ -41,14 +50,19 @@ function presentation(status: PasswordGuestStatus, profileName: string): StatusP
       return {
         icon: '✓',
         title: t('New password saved automatically'),
-        detail: t('{profile} · encrypted on this device', { profile: profileName }),
+        detail: t('{profile} · stored in {location}', {
+          profile: profileName,
+          location: storageLabel,
+        }),
         tone: 'positive',
       };
     case 'updated':
       return {
         icon: '✓',
         title: t('Saved password updated'),
-        detail: t('The previous password was replaced only after a confirmed sign-in.'),
+        detail: t(
+          'The previous password was replaced only after a confirmed sign-in.',
+        ),
         tone: 'positive',
       };
     case 'auth_failed':
@@ -69,7 +83,11 @@ function presentation(status: PasswordGuestStatus, profileName: string): StatusP
       return {
         icon: '!',
         title: t('Password protection is unavailable'),
-        detail: t('OkWork will not save, fill, reveal or copy passwords.'),
+        detail: storageUnavailable
+          ? t(
+              'The page session may continue, but password save and fill are paused.',
+            )
+          : t('OkWork will not save, fill, reveal or copy passwords.'),
         tone: 'danger',
       };
     case 'insecure_origin':
@@ -85,14 +103,23 @@ function presentation(status: PasswordGuestStatus, profileName: string): StatusP
 export function PasswordStatusBar({
   status,
   profileName = t('current Profile'),
+  storageLabel = t('This device'),
+  storageUnavailable = false,
   onChooseAccount,
   onManagePasswords,
 }: PasswordStatusBarProps) {
-  const content = presentation(status, profileName);
+  const content = presentation(
+    status,
+    profileName,
+    storageLabel,
+    storageUnavailable,
+  );
   const role = content?.tone === 'danger' ? 'alert' : 'status';
 
   return (
-    <div className={`password-status${content ? '' : ' password-status--idle'}`}>
+    <div
+      className={`password-status${content ? '' : ' password-status--idle'}`}
+    >
       {content && (
         <div
           className={`password-status__notice password-status__notice--${content.tone}`}
@@ -118,18 +145,6 @@ export function PasswordStatusBar({
           )}
         </div>
       )}
-
-      <div className="password-status__disclosure">
-        <span className="password-status__vault">{t('Password vault · this device')}</span>
-        <span className="password-status__agent">
-          {t('Filled values are readable by this page and connected OkBrowser Agents')}
-        </span>
-        <span className="password-status__clipboard">
-          {t(
-            'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.',
-          )}
-        </span>
-      </div>
     </div>
   );
 }

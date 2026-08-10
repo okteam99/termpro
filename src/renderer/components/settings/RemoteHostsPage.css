@@ -152,7 +152,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg-dim);
-  font-family: Menlo, Monaco, 'SF Mono', monospace;
+  font-family: Menlo, Monaco, "SF Mono", monospace;
   font-size: 11px;
 }
 
@@ -160,7 +160,7 @@
   flex: none;
   color: var(--fg-dim);
   font-size: 11px;
-  font-family: Menlo, Monaco, 'SF Mono', monospace;
+  font-family: Menlo, Monaco, "SF Mono", monospace;
   max-width: 110px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -287,7 +287,7 @@
   padding: 0 12px 4px 27px;
   font-size: 10.5px;
   color: var(--fg-dim);
-  font-family: Menlo, Monaco, 'SF Mono', monospace;
+  font-family: Menlo, Monaco, "SF Mono", monospace;
 }
 
 .remote-hosts__progress {
@@ -369,7 +369,7 @@
 }
 
 .remote-hosts__fail-detail-code {
-  font-family: Menlo, Monaco, 'SF Mono', monospace;
+  font-family: Menlo, Monaco, "SF Mono", monospace;
   color: var(--red);
 }
 
@@ -415,6 +415,50 @@
 .remote-hosts__confirm-text {
   color: var(--fg);
   font-size: 12px;
+}
+
+.remote-hosts__dependency-block {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.remote-hosts__dependency-block > strong {
+  color: var(--red);
+  font-size: 12px;
+}
+
+.remote-hosts__dependency-block ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-hosts__dependency-block li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.remote-hosts__dependency-block li b {
+  min-width: 110px;
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-hosts__confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
 }
 
 .remote-hosts__btn {

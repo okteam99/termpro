@@ -26,7 +26,12 @@ import type {
   RemoteTunnelInfo,
   TestResult,
 } from '../../shared/remoteHost';
-import type { ConnectSsh, ReverseForwardHandle, SshAuth, SshConnectionLike } from './ssh';
+import type {
+  ConnectSsh,
+  ReverseForwardHandle,
+  SshAuth,
+  SshConnectionLike,
+} from './ssh';
 import { BROWSER_MCP_REMOTE_PORT } from '../../shared/browserMcp';
 import type { CredentialStore, HostConfigStore } from './credentialStore';
 import { detectArch } from './hostBundle';
@@ -37,10 +42,19 @@ import { resolveHostTag } from './hostIdentity';
 import { acquireMkdirLock, releaseMkdirLock } from './mkdirLock';
 import { deployBundle } from './deploy';
 import { t } from '../../shared/i18n';
-import { probeHostInfo as defaultProbeHostInfo, type ProbeResult } from './probeHostInfo';
+import {
+  probeHostInfo as defaultProbeHostInfo,
+  type ProbeResult,
+} from './probeHostInfo';
+import {
+  REMOTE_PROFILE_RPC_MAX_BYTES,
+  type RemoteProfileRpcRequest,
+  type RemoteProfileRpcResponse,
+} from '../../shared/remoteProfileStore';
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_START_TIMEOUT_MS = 15_000;
+const DEFAULT_PROFILE_RPC_TIMEOUT_MS = 30_000;
 const MIN_NODE_MAJOR = 20;
 /** E9:disconnect() 等在途编排最长这么久,超时后仍强制收尾本地资源(不长阻塞调用方 IPC)。 */
 const DISCONNECT_WAIT_TIMEOUT_MS = 5_000;
@@ -81,8 +95,13 @@ const ACTIVE_STAGES = new Set<RemoteStage>([
 
 interface RemoteHostSession {
   configId: string;
+  /** 每次 SSH connect 尝试重新生成；只留在 main，绝不进入 RemoteEvent/tunnel/preload。 */
+  connectionGeneration: string;
   stage: RemoteStage;
   ssh: SshConnectionLike | null;
+  /** profile RPC 只在 ready 后使用的本次探测结果；断线即清。 */
+  nodePath: string | null;
+  dataDir: string | null;
   forwardServer: NetServer | null;
   localPort: number | null;
   token: string | null;
@@ -121,7 +140,10 @@ interface RemoteHostSession {
   socksToken: object | null;
 }
 
-export type ProbeHostInfoLike = (localPort: number, token: string) => Promise<ProbeResult>;
+export type ProbeHostInfoLike = (
+  localPort: number,
+  token: string,
+) => Promise<ProbeResult>;
 
 export interface ConnectOpts {
   /**
@@ -130,6 +152,27 @@ export interface ConnectOpts {
    * (语义与安全边界见 residency.ts ResidencyDecisionInput.forceRedeploy)。
    */
   forceRedeploy?: boolean;
+}
+
+export type RemoteProfileTransportErrorCode =
+  | 'offline'
+  | 'timeout'
+  | 'stale'
+  | 'invalid_response';
+
+/** main-only 固定错误，不携带 SSH stderr、请求正文或 capability。 */
+export class RemoteProfileTransportError extends Error {
+  readonly name = 'RemoteProfileTransportError';
+
+  constructor(readonly code: RemoteProfileTransportErrorCode) {
+    super(`remote profile transport ${code}`);
+  }
+}
+
+export interface RemoteProfileTransportPort {
+  hostId: string;
+  generation: string;
+  invoke(request: RemoteProfileRpcRequest): Promise<RemoteProfileRpcResponse>;
 }
 
 export interface OrchestratorDeps {
@@ -162,6 +205,42 @@ function tokenKey(configId: string): string {
 
 function generateToken(): string {
   return crypto.randomBytes(16).toString('base64url');
+}
+
+function generateConnectionGeneration(): string {
+  return crypto.randomBytes(24).toString('base64url');
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+/** 固定当前 bundle CLI；RPC 正文只走 stdin，不拼入此命令。 */
+export function buildProfileStoreRpcCommand(opts: {
+  nodePath: string;
+  dataDir: string;
+  appVersion: string;
+}): string {
+  const entry = `${opts.dataDir}/bundle/${opts.appVersion}/host.js`;
+  return (
+    `env OKWORK_HOST_DATA_DIR=${shellQuote(opts.dataDir)} ` +
+    `${shellQuote(opts.nodePath)} ${shellQuote(entry)} --profile-store-rpc`
+  );
+}
+
+function isRemoteProfileRpcResponse(
+  value: unknown,
+  requestId: string,
+): value is RemoteProfileRpcResponse {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.requestId !== requestId || typeof candidate.ok !== 'boolean')
+    return false;
+  if (candidate.ok) return true;
+  return (
+    typeof candidate.code === 'string' &&
+    candidate.code.startsWith('PROFILE_RPC_')
+  );
 }
 
 function sanitizeDetail(err: unknown): string {
@@ -200,12 +279,17 @@ function expandHome(p: string): string {
   return p;
 }
 
-function buildAuth(config: RemoteHostConfig, credentials: CredentialStore): SshAuth {
+function buildAuth(
+  config: RemoteHostConfig,
+  credentials: CredentialStore,
+): SshAuth {
   if (config.authType === 'password') {
-    const password = credentials.getSecret(`cred:${config.id}:password`) ?? undefined;
+    const password =
+      credentials.getSecret(`cred:${config.id}:password`) ?? undefined;
     return { username: config.username, password };
   }
-  const passphrase = credentials.getSecret(`cred:${config.id}:passphrase`) ?? undefined;
+  const passphrase =
+    credentials.getSecret(`cred:${config.id}:passphrase`) ?? undefined;
   let privateKey: Buffer | undefined;
   if (config.privateKeyPath) {
     try {
@@ -287,13 +371,19 @@ async function pollPortFile(
     const buf = await ssh.sftpReadFile(filePath);
     if (buf) {
       try {
-        const parsed = JSON.parse(buf.toString('utf8')) as Partial<RemotePortFile>;
+        const parsed = JSON.parse(
+          buf.toString('utf8'),
+        ) as Partial<RemotePortFile>;
         if (
           typeof parsed.port === 'number' &&
           typeof parsed.pid === 'number' &&
           typeof parsed.hostTag === 'string'
         ) {
-          return { port: parsed.port, pid: parsed.pid, hostTag: parsed.hostTag };
+          return {
+            port: parsed.port,
+            pid: parsed.pid,
+            hostTag: parsed.hostTag,
+          };
         }
       } catch {
         /* 畸形内容:继续轮询(可能正在写入中) */
@@ -336,7 +426,11 @@ export class RemoteHostOrchestrator {
     this.browserMcpLocalPort = localPort;
     if (localPort == null) return;
     for (const [configId, session] of this.sessions) {
-      if (session.stage === 'ready' && session.ssh && !session.browserMcpForward) {
+      if (
+        session.stage === 'ready' &&
+        session.ssh &&
+        !session.browserMcpForward
+      ) {
         void this.establishBrowserMcpForward(configId);
       }
     }
@@ -354,17 +448,28 @@ export class RemoteHostOrchestrator {
     session.browserMcpForwardToken = token;
     const ssh = session.ssh;
     try {
-      const handle = await ssh.forwardInToLocal(localPort, BROWSER_MCP_REMOTE_PORT);
+      const handle = await ssh.forwardInToLocal(
+        localPort,
+        BROWSER_MCP_REMOTE_PORT,
+      );
       // 竞态守卫:建转发期间断线/换连接/被新一轮抢占 → 立即撤销在途句柄,不挂到已亡会话上
-      if (session.stage !== 'ready' || session.ssh !== ssh || session.browserMcpForwardToken !== token) {
+      if (
+        session.stage !== 'ready' ||
+        session.ssh !== ssh ||
+        session.browserMcpForwardToken !== token
+      ) {
         handle.close();
         return;
       }
       session.browserMcpForward = handle;
     } catch (err) {
-      console.warn(`[remote] browser MCP reverse-forward failed for ${configId}:`, err);
+      console.warn(
+        `[remote] browser MCP reverse-forward failed for ${configId}:`,
+        err,
+      );
     } finally {
-      if (session.browserMcpForwardToken === token) session.browserMcpForwardToken = null;
+      if (session.browserMcpForwardToken === token)
+        session.browserMcpForwardToken = null;
     }
   }
 
@@ -398,7 +503,8 @@ export class RemoteHostOrchestrator {
       ACTIVE_STAGES.has(session.stage) ||
       (opts?.forceRedeploy && existingConnect !== undefined)
     ) {
-      const wasConnected = session.stage === 'ready' || session.stage === 'verifying';
+      const wasConnected =
+        session.stage === 'ready' || session.stage === 'verifying';
       this.closeSessionTransport(session);
       // ready/verifying→disconnected 是合法边,广播给 renderer;connecting/deploying/…
       // →disconnected 非法,safeEmit 吞掉(renderer 端本就已本地清空,无须此事件)。
@@ -412,7 +518,8 @@ export class RemoteHostOrchestrator {
       .catch(() => undefined)
       .then(() => this.runConnect(configId, session, opts));
     const tracked = promise.finally(() => {
-      if (this.connectInflight.get(configId) === tracked) this.connectInflight.delete(configId);
+      if (this.connectInflight.get(configId) === tracked)
+        this.connectInflight.delete(configId);
       if (this.mutex.get(configId) === tracked) this.mutex.delete(configId);
     });
     this.connectInflight.set(configId, tracked);
@@ -434,18 +541,26 @@ export class RemoteHostOrchestrator {
       // 无界阻塞调用方(IPC handler)——超时后放弃等待,直接强制收尾本地资源
       // (net.Server/ssh 连接),在途编排的后续 ssh 调用会因连接已关而自然失败,
       // 由其自身 catch 分支收场(不会崩溃/悬挂)。
-      await Promise.race([pending.catch(() => undefined), this.sleep(DISCONNECT_WAIT_TIMEOUT_MS)]);
+      await Promise.race([
+        pending.catch(() => undefined),
+        this.sleep(DISCONNECT_WAIT_TIMEOUT_MS),
+      ]);
     }
     // disconnect-vs-connect 竞态:等待期间用户可能又点了 Connect(新 tracked 进
     // connectInflight)——意图已翻转为「要连」,放手让新编排跑,绝不清它的会话/去重槽。
     const currentInflight = this.connectInflight.get(configId);
-    if (currentInflight && currentInflight !== pending && currentInflight !== inflightAtEntry) {
+    if (
+      currentInflight &&
+      currentInflight !== pending &&
+      currentInflight !== inflightAtEntry
+    ) {
       return;
     }
 
     const session = this.sessions.get(configId);
     if (!session) return;
-    const wasActive = session.stage === 'ready' || session.stage === 'verifying';
+    const wasActive =
+      session.stage === 'ready' || session.stage === 'verifying';
     this.closeSessionTransport(session);
     if (wasActive) {
       this.safeEmit(configId, { stage: 'disconnected' });
@@ -465,7 +580,10 @@ export class RemoteHostOrchestrator {
     // 🔴 评审 P2-1:入口时就在的陈旧去重槽同样要清(=== pending 只覆盖「mutex 与 inflight
     // 同源」的常规形),否则上面刚作废的在途 connect 留下的槽会吞掉下一次 connect。
     const inflightNow = this.connectInflight.get(configId);
-    if (inflightNow !== undefined && (inflightNow === pending || inflightNow === inflightAtEntry)) {
+    if (
+      inflightNow !== undefined &&
+      (inflightNow === pending || inflightNow === inflightAtEntry)
+    ) {
       this.connectInflight.delete(configId);
     }
     if (this.mutex.get(configId) === pending) this.mutex.delete(configId);
@@ -497,13 +615,99 @@ export class RemoteHostOrchestrator {
   }
 
   /**
+   * Profile 存储专用 main-only SSH stdio 传输。它不复用 renderer 可见的通用 Host
+   * WebSocket token，也不会把 connectionGeneration 暴露到 RemoteEvent/tunnel。
+   */
+  profileTransportFor(configId: string): RemoteProfileTransportPort | null {
+    const session = this.sessions.get(configId);
+    if (
+      !session ||
+      session.stage !== 'ready' ||
+      !session.ssh ||
+      !session.nodePath ||
+      !session.dataDir
+    ) {
+      return null;
+    }
+
+    const ssh = session.ssh;
+    const generation = session.connectionGeneration;
+    const command = buildProfileStoreRpcCommand({
+      nodePath: session.nodePath,
+      dataDir: session.dataDir,
+      appVersion: this.deps.appVersion,
+    });
+    const isCurrent = () => {
+      const current = this.sessions.get(configId);
+      return (
+        current === session &&
+        current.stage === 'ready' &&
+        current.ssh === ssh &&
+        current.connectionGeneration === generation
+      );
+    };
+
+    return {
+      hostId: configId,
+      generation,
+      invoke: async (
+        request: RemoteProfileRpcRequest,
+      ): Promise<RemoteProfileRpcResponse> => {
+        if (!isCurrent()) throw new RemoteProfileTransportError('stale');
+        let stdin: string;
+        try {
+          stdin = JSON.stringify(request);
+        } catch {
+          throw new RemoteProfileTransportError('invalid_response');
+        }
+        if (Buffer.byteLength(stdin, 'utf8') > REMOTE_PROFILE_RPC_MAX_BYTES) {
+          throw new RemoteProfileTransportError('invalid_response');
+        }
+
+        let result: Awaited<ReturnType<SshConnectionLike['execWithStdin']>>;
+        try {
+          result = await ssh.execWithStdin(command, stdin, {
+            maxStdoutBytes: REMOTE_PROFILE_RPC_MAX_BYTES,
+            timeoutMs: DEFAULT_PROFILE_RPC_TIMEOUT_MS,
+          });
+        } catch (err) {
+          // await 后先验代际：旧连接迟到失败同样不得被解释成当前连接故障。
+          if (!isCurrent()) throw new RemoteProfileTransportError('stale');
+          const message = err instanceof Error ? err.message.toLowerCase() : '';
+          throw new RemoteProfileTransportError(
+            message.includes('timeout') ? 'timeout' : 'offline',
+          );
+        }
+
+        // RD-1/RD-4：校验捕获的 session + ssh + generation，绝不按 configId 查到
+        // 新连接后继续消费旧响应，也不为收尾而误杀新连接。
+        if (!isCurrent()) throw new RemoteProfileTransportError('stale');
+        if (result.code !== 0)
+          throw new RemoteProfileTransportError('invalid_response');
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(result.stdout.trim());
+        } catch {
+          throw new RemoteProfileTransportError('invalid_response');
+        }
+        if (!isRemoteProfileRpcResponse(parsed, request.requestId)) {
+          throw new RemoteProfileTransportError('invalid_response');
+        }
+        return parsed;
+      },
+    };
+  }
+
+  /**
    * 全部会话的当前阶段快照(configId → stage)。浏览器网络选择器据此列出「哪些远程机
    * 现在可作为出口」(仅 ready 可选)。按需快照而非事件广播——选择器打开时拉一次即可,
    * 运行态权威仍是 remoteHost:event 流(选择器组件已订阅,断线会自回退)。
    */
   stages(): Record<string, RemoteStage> {
     const out: Record<string, RemoteStage> = {};
-    for (const [configId, session] of this.sessions) out[configId] = session.stage;
+    for (const [configId, session] of this.sessions)
+      out[configId] = session.stage;
     return out;
   }
 
@@ -514,7 +718,9 @@ export class RemoteHostOrchestrator {
    * 🔴 listen 是异步的,拉起期间会话可能断线——listen 回调里二次校验 stage/ssh 未变,
    * 变了就自关 server 返回 null(绝不把流量交给已失效的 ssh 连接)。
    */
-  async browserProxyFor(configId: string): Promise<{ socksPort: number } | null> {
+  async browserProxyFor(
+    configId: string,
+  ): Promise<{ socksPort: number } | null> {
     const session = this.sessions.get(configId);
     if (!session || session.stage !== 'ready' || !session.ssh) return null;
     if (session.socksServer && session.socksPort !== null) {
@@ -560,7 +766,9 @@ export class RemoteHostOrchestrator {
     return new Promise((resolve) => {
       let server: NetServer;
       try {
-        server = createSocksProxyServer((host, port) => ssh.openOutbound(host, port));
+        server = createSocksProxyServer((host, port) =>
+          ssh.openOutbound(host, port),
+        );
       } catch {
         resolve(null);
         return;
@@ -579,7 +787,11 @@ export class RemoteHostOrchestrator {
         // 竞态守卫:listen 期间断线(closeSessionTransport 置 stage≠ready / 换 ssh / 清
         // socksToken)或 release(仅清 socksToken,不改 stage/ssh)→ 丢弃这台 server,
         // 不赋回 session(回退本机网络),杜绝泄漏监听口。
-        if (session.stage !== 'ready' || session.ssh !== ssh || session.socksToken !== token) {
+        if (
+          session.stage !== 'ready' ||
+          session.ssh !== ssh ||
+          session.socksToken !== token
+        ) {
           try {
             server.close();
           } catch {
@@ -589,7 +801,8 @@ export class RemoteHostOrchestrator {
           return;
         }
         const addr = server.address();
-        const localPort = addr && typeof addr === 'object' && addr !== null ? addr.port : 0;
+        const localPort =
+          addr && typeof addr === 'object' && addr !== null ? addr.port : 0;
         session.socksServer = server;
         session.socksPort = localPort;
         resolve(localPort);
@@ -651,8 +864,11 @@ export class RemoteHostOrchestrator {
     if (!session) {
       session = {
         configId,
+        connectionGeneration: generateConnectionGeneration(),
         stage: 'idle',
         ssh: null,
+        nodePath: null,
+        dataDir: null,
         forwardServer: null,
         localPort: null,
         token: null,
@@ -723,6 +939,8 @@ export class RemoteHostOrchestrator {
       }
     }
     session.localPort = null;
+    session.nodePath = null;
+    session.dataDir = null;
   }
 
   /** 校验 + 更新 stage + 广播(唯一改变 session.stage 的入口)。 */
@@ -739,7 +957,10 @@ export class RemoteHostOrchestrator {
   }
 
   /** disconnect() 等收尾路径用:转移不合法时静默(本就是幂等收尾,不应抛给调用方)。 */
-  private safeEmit(configId: string, partial: Omit<RemoteEvent, 'configId'>): void {
+  private safeEmit(
+    configId: string,
+    partial: Omit<RemoteEvent, 'configId'>,
+  ): void {
     try {
       this.emit(configId, partial);
     } catch {
@@ -747,11 +968,18 @@ export class RemoteHostOrchestrator {
     }
   }
 
-  private failSession(configId: string, reason: FailReason, detail?: string): void {
+  private failSession(
+    configId: string,
+    reason: FailReason,
+    detail?: string,
+  ): void {
     this.emit(configId, { stage: 'failed', reason, detail });
   }
 
-  private buildTunnel(ssh: SshConnectionLike, remotePort: number): Promise<BuiltTunnel> {
+  private buildTunnel(
+    ssh: SshConnectionLike,
+    remotePort: number,
+  ): Promise<BuiltTunnel> {
     return new Promise((resolve, reject) => {
       let server: NetServer;
       try {
@@ -763,7 +991,8 @@ export class RemoteHostOrchestrator {
       const onListening = () => {
         server.off('error', onError);
         const addr = server.address();
-        const localPort = addr && typeof addr === 'object' && addr !== null ? addr.port : 0;
+        const localPort =
+          addr && typeof addr === 'object' && addr !== null ? addr.port : 0;
         resolve({ server, localPort });
       };
       const onError = (err: Error) => {
@@ -814,11 +1043,15 @@ export class RemoteHostOrchestrator {
    * 转出 ready/verifying(或马上会转),而 handleTransportDown 的守卫正是基于
    * 当前 stage 是否仍是 ready/verifying,天然幂等(见函数顶部注释的时序论证)。
    */
-  private wireSshDisconnectWatcher(configId: string, ssh: SshConnectionLike): void {
+  private wireSshDisconnectWatcher(
+    configId: string,
+    ssh: SshConnectionLike,
+  ): void {
     // 资源身份校验(同 wireDisconnectWatcher):仅当这条 ssh 仍是当前会话的连接时才判
     // 断线。僵尸尝试的 ssh 关闭(或它超时自关)不得拆掉已接管的新会话(2026-07-20)。
     ssh.onClose(() => {
-      if (this.sessions.get(configId)?.ssh === ssh) this.handleTransportDown(configId);
+      if (this.sessions.get(configId)?.ssh === ssh)
+        this.handleTransportDown(configId);
     });
   }
 
@@ -850,7 +1083,8 @@ export class RemoteHostOrchestrator {
 
   private async runTest(configId: string): Promise<TestResult> {
     const config = this.deps.configStore.get(configId);
-    if (!config) return { ok: false, reason: 'internal', detail: 'config not found' };
+    if (!config)
+      return { ok: false, reason: 'internal', detail: 'config not found' };
     let ssh: SshConnectionLike;
     try {
       const auth = buildAuth(config, this.deps.credentials);
@@ -858,10 +1092,15 @@ export class RemoteHostOrchestrator {
         host: config.host,
         port: config.port,
         auth,
-        readyTimeoutMs: this.deps.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+        readyTimeoutMs:
+          this.deps.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
       });
     } catch (err) {
-      return { ok: false, reason: classifyConnectError(err), detail: sanitizeDetail(err) };
+      return {
+        ok: false,
+        reason: classifyConnectError(err),
+        detail: sanitizeDetail(err),
+      };
     }
     // T-005:仅认证+可达,不部署不拉起——立即关闭,不触碰 sftp/exec/probe
     ssh.close();
@@ -896,6 +1135,12 @@ export class RemoteHostOrchestrator {
       return;
     }
 
+    // 每次真正进入 connect 尝试都换代。failed/disconnected session 会复用对象，
+    // 不能只在 ensureSession 时生成，否则旧 profile RPC response 可跨重连被接纳。
+    session.connectionGeneration = generateConnectionGeneration();
+    session.nodePath = null;
+    session.dataDir = null;
+
     this.emit(configId, { stage: 'connecting' });
 
     let ssh: SshConnectionLike;
@@ -905,7 +1150,8 @@ export class RemoteHostOrchestrator {
         host: config.host,
         port: config.port,
         auth,
-        readyTimeoutMs: this.deps.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+        readyTimeoutMs:
+          this.deps.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
       });
     } catch (err) {
       if (!isCurrent()) return; // 已作废:静默,不把失败 emit 到接管的新会话
@@ -976,7 +1222,9 @@ export class RemoteHostOrchestrator {
         fpDigest: ssh.hostKeyFingerprint(),
       });
       const converged = hostTag !== configId;
-      const identityFile = converged ? `${dataDir}/identity/${hostTag}/token` : undefined;
+      const identityFile = converged
+        ? `${dataDir}/identity/${hostTag}/token`
+        : undefined;
 
       const storedToken = this.deps.credentials.getSecret(tokenKey(hostTag));
 
@@ -1047,6 +1295,8 @@ export class RemoteHostOrchestrator {
             arch,
             tunnel: { localPort: tunnel.localPort, token: claimToken },
           });
+          session.nodePath = nodeBest.path;
+          session.dataDir = dataDir;
           this.emit(configId, { stage: 'ready' });
         } catch (err) {
           try {
@@ -1106,7 +1356,8 @@ export class RemoteHostOrchestrator {
 
       const hostDir = `${dataDir}/hosts/${hostTag}`;
       const portFilePath = `${hostDir}/host.port`;
-      const startTimeoutMs = this.deps.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
+      const startTimeoutMs =
+        this.deps.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
 
       try {
         await ssh.exec(`mkdir -p "${hostDir}"`);
@@ -1134,7 +1385,11 @@ export class RemoteHostOrchestrator {
           // ——此时端口文件已在,直接转认领路径,绝不再起第二个进程。
           portRaw = await pollPortFile(ssh, portFilePath, 0, sleep);
           if (portRaw) {
-            const peerToken = await this.readPeerToken(ssh, identityFile, hostTag);
+            const peerToken = await this.readPeerToken(
+              ssh,
+              identityFile,
+              hostTag,
+            );
             if (!peerToken) {
               failIfCurrent(
                 'startFailed',
@@ -1164,7 +1419,12 @@ export class RemoteHostOrchestrator {
               ssh.close();
               return;
             }
-            portRaw = await pollPortFile(ssh, portFilePath, startTimeoutMs, sleep);
+            portRaw = await pollPortFile(
+              ssh,
+              portFilePath,
+              startTimeoutMs,
+              sleep,
+            );
             if (!portRaw) {
               // 超时主因之外,把远端 host.log 尾部拼进 detail(host 启动即崩时,崩因
               // 只落在这份被启动命令重定向的日志里,不捞回来 UI 只剩一句 timeout)。
@@ -1256,6 +1516,8 @@ export class RemoteHostOrchestrator {
           arch,
           tunnel: { localPort: tunnel.localPort, token: sessionToken },
         });
+        session.nodePath = nodeBest.path;
+        session.dataDir = dataDir;
         this.emit(configId, { stage: 'ready' });
       } catch (err) {
         try {

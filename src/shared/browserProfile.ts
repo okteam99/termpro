@@ -42,6 +42,7 @@ export type BrowserProfileDeletionErrorCode =
 export const BROWSER_PROFILE_DELETE_REJECTION_CODES = {
   defaultProfile: 'PROFILE_DELETE_DEFAULT_FORBIDDEN',
   notFound: 'PROFILE_DELETE_NOT_FOUND',
+  migrationInProgress: 'PROFILE_DELETE_MIGRATION_IN_PROGRESS',
 } as const;
 
 export type BrowserProfileDeleteRejectionCode =
@@ -56,14 +57,20 @@ export type BrowserProfileDeletionResult =
       errorCode: BrowserProfileDeletionErrorCode;
       updatedAt: number;
     }
-  | { status: 'rejected'; profileId: string; errorCode: BrowserProfileDeleteRejectionCode };
+  | {
+      status: 'rejected';
+      profileId: string;
+      errorCode: BrowserProfileDeleteRejectionCode;
+    };
 
 export function isBrowserProfileDeletionErrorCode(
   value: unknown,
 ): value is BrowserProfileDeletionErrorCode {
   return (
     typeof value === 'string' &&
-    (Object.values(BROWSER_PROFILE_DELETION_ERROR_CODES) as string[]).includes(value)
+    (Object.values(BROWSER_PROFILE_DELETION_ERROR_CODES) as string[]).includes(
+      value,
+    )
   );
 }
 
@@ -82,9 +89,13 @@ export interface BrowserProfile {
 }
 
 /** 默认 Profile 恒 active；自定义 Profile 只有缺失 deletionState 时 active。 */
-export function isBrowserProfileActive(profile: BrowserProfile | null | undefined): boolean {
+export function isBrowserProfileActive(
+  profile: BrowserProfile | null | undefined,
+): boolean {
   if (!profile) return false;
-  return profile.id === DEFAULT_PROFILE_ID || profile.deletionState === undefined;
+  return (
+    profile.id === DEFAULT_PROFILE_ID || profile.deletionState === undefined
+  );
 }
 
 /** save 入参:省略 id = 新建;id 命中既有 = 更新(默认 profile 恒拒绝)。 */
@@ -94,10 +105,87 @@ export interface BrowserProfileInput {
   userAgent?: string;
 }
 
+/** Profile 配置与密码唯一认可的持久化位置；与浏览器网络出口无关。 */
+export type ProfileStorageRef =
+  | { kind: 'local' }
+  | { kind: 'remote'; hostId: string };
+
+export type ProfileStorageAvailability =
+  | 'ready'
+  | 'offline'
+  | 'timeout'
+  | 'incompatible'
+  | 'corrupt';
+
+export type ProfileStorageErrorCode =
+  | 'PROFILE_STORAGE_TARGET_UNAVAILABLE'
+  | 'PROFILE_STORAGE_INCOMPATIBLE'
+  | 'PROFILE_STORAGE_OFFLINE'
+  | 'PROFILE_STORAGE_TIMEOUT'
+  | 'PROFILE_STORAGE_ENCRYPTION_UNAVAILABLE'
+  | 'PROFILE_STORAGE_CORRUPT'
+  | 'PROFILE_STORAGE_PROFILE_MISMATCH'
+  | 'PROFILE_STORAGE_FORBIDDEN'
+  | 'PROFILE_STORAGE_INVALID_INPUT'
+  | 'PROFILE_STORAGE_IO_FAILED'
+  | 'PROFILE_MIGRATION_IN_PROGRESS';
+
+/** Remote Host 作为 Profile 存储目标时，对当前连接代完成 describe 后的状态。 */
+export type ProfileStorageTargetStatus =
+  | { hostId: string; compatibility: 'compatible' }
+  | {
+      hostId: string;
+      compatibility: 'incompatible';
+      code: 'PROFILE_STORAGE_INCOMPATIBLE';
+    }
+  | {
+      hostId: string;
+      compatibility: 'unavailable';
+      code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE';
+    };
+
+export type ProfileMigrationPhase =
+  | 'copying'
+  | 'verifying'
+  | 'switching'
+  | 'failed'
+  | 'cleanup_pending';
+
+export interface ProfileMigrationStatus {
+  operationId: string;
+  phase: ProfileMigrationPhase;
+  sourceLabel: string;
+  targetLabel: string;
+  errorCode?: ProfileStorageErrorCode;
+}
+
+/** renderer 可见的计算 DTO；storage/migration 字段不写入 browser-profiles.json。 */
+export interface BrowserProfileSummary extends BrowserProfile {
+  storage: ProfileStorageRef;
+  storageLabel: string;
+  availability: ProfileStorageAvailability;
+  migration?: ProfileMigrationStatus;
+}
+
+export interface ProfileStorageChangePlan {
+  planId: string;
+  profileId: string;
+  target: ProfileStorageRef;
+  targetLabel: string;
+  canDecryptDisclosure: true;
+  steps: ['copying', 'verifying', 'switching'];
+}
+
+export type ProfileStorageChangeResult =
+  | { accepted: true; operationId: string }
+  | { accepted: false; code: ProfileStorageErrorCode };
+
 /** profile × 出口 → session 分区名(见文件头分区模型)。 */
 export function browserPartition(profileId: string, netHostId: string): string {
   if (profileId === DEFAULT_PROFILE_ID) {
-    return netHostId === 'local' ? 'persist:browser' : `persist:browser-${netHostId}`;
+    return netHostId === 'local'
+      ? 'persist:browser'
+      : `persist:browser-${netHostId}`;
   }
   return netHostId === 'local'
     ? `persist:browser-prof-${profileId}`
@@ -137,7 +225,9 @@ export function parseBrowserPartition(
  * 本守卫恢复文件头「自定义 profile id 无 '-' 是可解析前提」所依赖的命名空间不相交性。
  */
 export function isReservedNetHostId(id: string): boolean {
-  const parsed = parseBrowserPartition(browserPartition(DEFAULT_PROFILE_ID, id));
+  const parsed = parseBrowserPartition(
+    browserPartition(DEFAULT_PROFILE_ID, id),
+  );
   return parsed !== null && parsed.profileId !== DEFAULT_PROFILE_ID;
 }
 
@@ -148,6 +238,10 @@ export const BROWSER_PROFILE_CHANNELS = {
   save: 'browserProfile:save',
   delete: 'browserProfile:delete',
   retryDelete: 'browserProfile:retryDelete',
+  listStorageTargets: 'browserProfile:listStorageTargets',
+  planStorageChange: 'browserProfile:planStorageChange',
+  confirmStorageChange: 'browserProfile:confirmStorageChange',
+  retryStorageChange: 'browserProfile:retryStorageChange',
   /** 快照变更推送(main→renderer 各窗口):增/删/改后广播全量列表。 */
   changed: 'browserProfile:changed',
 } as const;

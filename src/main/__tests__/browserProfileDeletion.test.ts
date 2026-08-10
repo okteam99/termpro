@@ -29,7 +29,10 @@ afterEach(() => {
 
 function makeStore(): BrowserProfileStore {
   return new BrowserProfileStore(
-    new JsonFileSettingsStore({ userDataDir: () => tmpDir, file: 'browser-profiles.json' }),
+    new JsonFileSettingsStore({
+      userDataDir: () => tmpDir,
+      file: 'browser-profiles.json',
+    }),
   );
 }
 
@@ -50,7 +53,11 @@ function makeHarness(
     clearVault: (id) => {
       calls.push(`vault:${id}`);
     },
-    partitionsForProfile: (id) => [`local:${id}`, `remote:${id}`, `local:${id}`],
+    partitionsForProfile: (id) => [
+      `local:${id}`,
+      `remote:${id}`,
+      `local:${id}`,
+    ],
     clearPartitionStorage: (partition) => {
       calls.push(`storage:${partition}`);
     },
@@ -76,7 +83,7 @@ function makeHarness(
 }
 
 describe('BrowserProfileDeletionCoordinator', () => {
-  it('test_AC7_profile_delete_waits_for_vault_and_all_partitions_before_metadata_removal', async () => {
+  it('test_AC7_remote_authority_profile_deletion_revokes_access_and_resumes_after_restart', async () => {
     const target = profiles.save({ name: 'A' });
     const untouched = profiles.save({ name: 'B' });
     const h = makeHarness();
@@ -86,7 +93,10 @@ describe('BrowserProfileDeletionCoordinator', () => {
       profileId: target.id,
     });
     expect(profiles.get(target.id)).toBeNull();
-    expect(profiles.get(untouched.id)).toMatchObject({ id: untouched.id, name: 'B' });
+    expect(profiles.get(untouched.id)).toMatchObject({
+      id: untouched.id,
+      name: 'B',
+    });
     expect(h.calls).toEqual([
       `disable:${target.id}`,
       'notify',
@@ -106,7 +116,8 @@ describe('BrowserProfileDeletionCoordinator', () => {
     let failCache = true;
     const first = makeHarness({
       clearPartitionCache: async (partition) => {
-        if (failCache && partition.startsWith('remote:')) throw new Error('secret raw error');
+        if (failCache && partition.startsWith('remote:'))
+          throw new Error('secret raw error');
       },
     });
 
@@ -133,11 +144,15 @@ describe('BrowserProfileDeletionCoordinator', () => {
     });
     expect(profiles.isActive(target.id)).toBe(false);
     expect(profiles.isActive(untouched.id)).toBe(true);
-    expect(await makeHarness({}, profiles).coordinator.resumeInterruptedDeletions()).toEqual([]);
+    expect(
+      await makeHarness({}, profiles).coordinator.resumeInterruptedDeletions(),
+    ).toEqual([]);
 
     failCache = false;
     const retry = makeHarness({}, profiles);
-    await expect(retry.coordinator.retryProfileDeletion(target.id)).resolves.toEqual({
+    await expect(
+      retry.coordinator.retryProfileDeletion(target.id),
+    ).resolves.toEqual({
       status: 'deleted',
       profileId: target.id,
     });
@@ -201,7 +216,9 @@ describe('BrowserProfileDeletionCoordinator', () => {
 
   it('默认 Profile 和未知 Profile 拒绝，且不触发任何清理', async () => {
     const h = makeHarness();
-    await expect(h.coordinator.deleteProfile(DEFAULT_PROFILE_ID)).resolves.toEqual({
+    await expect(
+      h.coordinator.deleteProfile(DEFAULT_PROFILE_ID),
+    ).resolves.toEqual({
       status: 'rejected',
       profileId: DEFAULT_PROFILE_ID,
       errorCode: BROWSER_PROFILE_DELETE_REJECTION_CODES.defaultProfile,
@@ -211,6 +228,19 @@ describe('BrowserProfileDeletionCoordinator', () => {
       profileId: 'f'.repeat(32),
       errorCode: BROWSER_PROFILE_DELETE_REJECTION_CODES.notFound,
     });
+    expect(h.calls).toEqual([]);
+  });
+
+  it('迁移中的 Profile 拒绝删除，且不进入删除状态机', async () => {
+    const target = profiles.save({ name: 'A' });
+    const h = makeHarness({ canBeginDeletion: () => false });
+
+    await expect(h.coordinator.deleteProfile(target.id)).resolves.toEqual({
+      status: 'rejected',
+      profileId: target.id,
+      errorCode: BROWSER_PROFILE_DELETE_REJECTION_CODES.migrationInProgress,
+    });
+    expect(profiles.get(target.id)?.deletionState).toBeUndefined();
     expect(h.calls).toEqual([]);
   });
 

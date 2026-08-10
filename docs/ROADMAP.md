@@ -75,7 +75,7 @@ graph LR
 
 | Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
 |-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
-| BL-007 | Remote Host Profile 权威存储与迁移 | P0 | Profile 逐个选择本机/Remote Host 权威位置；配置与密码 Vault 远程加密落盘；main-only RPC；原子迁移与断线 fail-closed | ① 唯一权威位置跨重启可用且远程数据绑定 profileId ② 迁移复制校验后切换，失败不丢数据 ③ Host 断线暂停密码能力且不回退本机影子 Vault | BL-006 | 待开始 | - | - | WS-02 |
+| BL-007 | Remote Host Profile 权威存储与迁移 | P0 | Profile 逐个选择本机/Remote Host 权威位置；配置与密码 Vault 远程加密落盘；main-only RPC；原子迁移与断线 fail-closed | ① 唯一权威位置跨重启可用且远程数据绑定 profileId ② 迁移复制校验后切换，失败不丢数据 ③ Host 断线暂停密码能力且不回退本机影子 Vault | BL-006 | ✅ 已交付 | - | OKWORK-F260810051623-Remote-Profile-Authority | WS-02 |
 
 ### Wave 3（前置：BL-007）
 

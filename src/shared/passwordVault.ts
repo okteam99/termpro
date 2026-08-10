@@ -23,6 +23,14 @@ export interface PasswordVaultCapabilities {
   encryptionAvailable: boolean;
 }
 
+export interface PasswordMetadataSnapshot {
+  entries: PasswordCredentialMetadata[];
+  unavailableProfiles: Array<{
+    profileId: string;
+    code: PasswordVaultErrorCode;
+  }>;
+}
+
 export interface PasswordMetadataQuery {
   profileId?: string;
   query?: string;
@@ -42,7 +50,14 @@ export type PasswordVaultErrorCode =
   | 'VAULT_INVALID_INPUT'
   | 'VAULT_INSECURE_ORIGIN'
   | 'VAULT_IO_FAILED'
-  | 'VAULT_PROFILE_INACTIVE';
+  | 'VAULT_PROFILE_INACTIVE'
+  | 'VAULT_REMOTE_AUTHORITY_OFFLINE'
+  | 'VAULT_REMOTE_TIMEOUT'
+  | 'VAULT_MIGRATION_IN_PROGRESS'
+  | 'VAULT_REMOTE_ENCRYPTION_UNAVAILABLE'
+  | 'VAULT_REMOTE_CORRUPT'
+  | 'VAULT_PROFILE_MISMATCH'
+  | 'VAULT_REMOTE_INCOMPATIBLE';
 
 export type PasswordGuestStatusKind =
   | 'idle'
@@ -88,7 +103,12 @@ export interface PasswordLoginCandidate {
 export interface PasswordLoginResultEvidence {
   nonce: string;
   result: 'success' | 'failed' | 'uncertain';
-  reason?: 'navigation' | 'form_disappeared' | 'authenticated_state' | 'message' | 'timeout';
+  reason?:
+    | 'navigation'
+    | 'form_disappeared'
+    | 'authenticated_state'
+    | 'message'
+    | 'timeout';
 }
 
 export interface TrustedPasswordContext {
@@ -139,7 +159,9 @@ export const PASSWORD_TRUSTED_CHANNELS = {
   copy: 'passwordVaultTrusted:copy',
 } as const;
 
-export function isPasswordGuestStatus(value: unknown): value is PasswordGuestStatus {
+export function isPasswordGuestStatus(
+  value: unknown,
+): value is PasswordGuestStatus {
   if (!value || typeof value !== 'object') return false;
   const kind = (value as { kind?: unknown }).kind;
   return (

@@ -49,6 +49,15 @@ import { BrowserProfileStore } from './browserProfileStore';
 import { createBrowserPartitionPolicy } from './browserPartitionPolicy';
 import { BrowserProfileDeletionCoordinator } from './browserProfileDeletion';
 import { LocalPasswordVault } from './localPasswordVault';
+import { LocalProfileProvider } from './localProfileProvider';
+import { ProfileCatalogStore } from './profileCatalogStore';
+import {
+  ProfileAuthorityService,
+  type ProfileDataProvider,
+} from './profileAuthorityService';
+import { ProfileMigrationCoordinator } from './profileMigrationCoordinator';
+import { RemoteProfileProvider } from './remoteProfileProvider';
+import { RemoteProfileDependencies } from './remoteProfileDependencies';
 import { ClipboardSecretLease } from './clipboardSecretLease';
 import { PasswordVaultController } from './passwordVaultController';
 import { registerPasswordVaultIpc } from './passwordVaultIpc';
@@ -59,7 +68,14 @@ import {
   DEFAULT_PROFILE_ID,
   browserPartition,
   parseBrowserPartition,
+  type BrowserProfile,
   type BrowserProfileInput,
+  type BrowserProfileSummary,
+  type ProfileStorageChangePlan,
+  type ProfileStorageChangeResult,
+  type ProfileStorageErrorCode,
+  type ProfileStorageRef,
+  type ProfileStorageTargetStatus,
 } from '../shared/browserProfile';
 import {
   PASSWORD_GUEST_CHANNELS,
@@ -70,7 +86,11 @@ import {
 import { getLocale, resolveLocalePref, setLocale, t } from '../shared/i18n';
 import { encodeClipboardImage } from './clipboardImage';
 import { migrateLegacyUserData } from './userDataMigration';
-import { LocalTransferRegistry, sanitizeSuggestedName, collectReadTickets } from './localTransfer';
+import {
+  LocalTransferRegistry,
+  sanitizeSuggestedName,
+  collectReadTickets,
+} from './localTransfer';
 
 if (started) {
   app.quit();
@@ -218,6 +238,18 @@ const remoteHostCredentials = new CredentialStore({
 const remoteHostConfigStore = new HostConfigStore({
   userDataDir: () => app.getPath('userData'),
 });
+const remoteHostOrchestrator = new RemoteHostOrchestrator({
+  connectSsh: SshConnection.connect,
+  credentials: remoteHostCredentials,
+  configStore: remoteHostConfigStore,
+  bundleDir: (arch) =>
+    resolveBundleDir(arch, {
+      resourcesPath: app.isPackaged ? process.resourcesPath : app.getAppPath(),
+      isPackaged: app.isPackaged,
+    }),
+  appVersion: app.getVersion(),
+  allowedOrigins: computeRemoteHostAllowedOrigins(),
+});
 // 浏览器 Profile 台账(权威在 main;存储走 SettingsStore 抽象——未来账号绑定换实现)
 const browserProfileStore = new BrowserProfileStore(
   new JsonFileSettingsStore({
@@ -225,50 +257,184 @@ const browserProfileStore = new BrowserProfileStore(
     file: 'browser-profiles.json',
   }),
 );
-// 分区策略:白名单双确认(profile/config 存在性)+ 本机直连集合 + 组合分区枚举
-const browserPartitionPolicy = createBrowserPartitionPolicy({
-  isProfileActive: (id) => browserProfileStore.isActive(id),
-  hasRemoteConfig: (id) => remoteHostConfigStore.get(id) !== null,
-  listActiveProfileIds: () => browserProfileStore.listActive().map((p) => p.id),
+const defaultBrowserProfile = (): BrowserProfile => ({
+  id: DEFAULT_PROFILE_ID,
+  name: t('OkWork (built-in)'),
+  createdAt: 0,
 });
-const passwordVault = new LocalPasswordVault({
+const profileCatalog = new ProfileCatalogStore({
+  userDataDir: () => app.getPath('userData'),
+  localProfiles: () => browserProfileStore.list(),
+  defaultProfile: defaultBrowserProfile(),
+});
+const localPasswordVault = new LocalPasswordVault({
   userDataDir: () => app.getPath('userData'),
   safeStorage,
+});
+const localProfileProvider = new LocalProfileProvider({
+  userDataDir: () => app.getPath('userData'),
+  profiles: browserProfileStore,
+  vault: localPasswordVault,
+  stagingCrypto: safeStorage,
+  defaultProfile: defaultBrowserProfile(),
+});
+const remoteProfileProviders = new Map<string, RemoteProfileProvider>();
+function resolveProfileProvider(
+  storage: ProfileStorageRef,
+): ProfileDataProvider {
+  if (storage.kind === 'local') return localProfileProvider;
+  let provider = remoteProfileProviders.get(storage.hostId);
+  if (!provider) {
+    provider = new RemoteProfileProvider({
+      hostId: storage.hostId,
+      clientId: profileCatalog.clientId,
+      getTransport: (hostId) =>
+        remoteHostOrchestrator?.profileTransportFor(hostId) ?? null,
+    });
+    remoteProfileProviders.set(storage.hostId, provider);
+  }
+  return provider;
+}
+const profileAuthority = new ProfileAuthorityService({
+  catalog: profileCatalog,
+  resolveProvider: resolveProfileProvider,
+  storageLabel: (storage) =>
+    storage.kind === 'local'
+      ? t('This device')
+      : (remoteHostConfigStore.get(storage.hostId)?.alias ?? storage.hostId),
+});
+const profileMigration = new ProfileMigrationCoordinator({
+  catalog: profileCatalog,
+  resolveProvider: resolveProfileProvider,
+  onChanged: () => void broadcastBrowserProfiles(),
+});
+const remoteProfileDependencies = new RemoteProfileDependencies(() =>
+  profileCatalog.snapshot(),
+);
+const passwordVault = {
+  isAvailable: (profileId: string) => profileAuthority.isAvailable(profileId),
+  localEncryptionAvailable: () => localPasswordVault.isAvailable(),
+  listMetadata: profileAuthority.listMetadata.bind(profileAuthority),
+  lookup: profileAuthority.lookup.bind(profileAuthority),
+  getDecrypted: profileAuthority.getDecrypted.bind(profileAuthority),
+  upsert: profileAuthority.upsert.bind(profileAuthority),
+  deleteEntry: profileAuthority.deleteEntry.bind(profileAuthority),
+  deleteProfile: profileAuthority.deleteProfile.bind(profileAuthority),
+};
+// 分区策略:白名单双确认(profile/config 存在性)+ 本机直连集合 + 组合分区枚举
+const browserPartitionPolicy = createBrowserPartitionPolicy({
+  isProfileActive: (id) => profileCatalog.getEntry(id)?.lifecycle === 'active',
+  hasRemoteConfig: (id) => remoteHostConfigStore.get(id) !== null,
+  listActiveProfileIds: () =>
+    profileCatalog
+      .listEntries()
+      .filter(
+        (entry) =>
+          entry.profileId !== DEFAULT_PROFILE_ID &&
+          entry.lifecycle === 'active',
+      )
+      .map((entry) => entry.profileId),
 });
 const clipboardSecretLease = new ClipboardSecretLease({ clipboard });
 let broadcastPasswordVaultChanged = (): void => undefined;
 const passwordVaultController = new PasswordVaultController({
   vault: passwordVault,
-  isProfileActive: (profileId) => browserProfileStore.isActive(profileId),
+  isProfileActive: (profileId) =>
+    profileCatalog.getEntry(profileId)?.lifecycle === 'active',
   onMetadataChanged: () => broadcastPasswordVaultChanged(),
 });
 const passwordVaultIpc = registerPasswordVaultIpc({
   vault: passwordVault,
   controller: passwordVaultController,
   clipboardLease: clipboardSecretLease,
-  isProfileActive: (profileId) => browserProfileStore.isActive(profileId),
+  isProfileActive: (profileId) =>
+    profileCatalog.getEntry(profileId)?.lifecycle === 'active',
   getMainWindow: () => mainWin,
   rendererDevServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
   rendererName: MAIN_WINDOW_VITE_NAME,
 });
 broadcastPasswordVaultChanged = passwordVaultIpc.broadcastChanged;
 const browserProfileDeletion = new BrowserProfileDeletionCoordinator({
-  profiles: browserProfileStore,
+  profiles: {
+    get: (profileId) => {
+      const entry = profileCatalog.getEntry(profileId);
+      if (!entry) return null;
+      return {
+        id: entry.profileId,
+        name: entry.nameHint,
+        createdAt: entry.createdAtHint,
+        ...(entry.lifecycle !== 'active'
+          ? { deletionState: entry.lifecycle }
+          : {}),
+        ...(entry.deletionErrorCode
+          ? { deletionErrorCode: entry.deletionErrorCode }
+          : {}),
+        ...(entry.deletionUpdatedAt !== undefined
+          ? { deletionUpdatedAt: entry.deletionUpdatedAt }
+          : {}),
+      };
+    },
+    list: () =>
+      profileCatalog.listEntries().map((entry) => ({
+        id: entry.profileId,
+        name: entry.nameHint,
+        createdAt: entry.createdAtHint,
+        ...(entry.lifecycle !== 'active'
+          ? { deletionState: entry.lifecycle }
+          : {}),
+        ...(entry.deletionErrorCode
+          ? { deletionErrorCode: entry.deletionErrorCode }
+          : {}),
+        ...(entry.deletionUpdatedAt !== undefined
+          ? { deletionUpdatedAt: entry.deletionUpdatedAt }
+          : {}),
+      })),
+    markDeleting: (profileId, updatedAt) => {
+      profileCatalog.setLifecycle(profileId, 'deleting', { updatedAt });
+      return {
+        id: profileId,
+        name: profileCatalog.getEntry(profileId)!.nameHint,
+        createdAt: profileCatalog.getEntry(profileId)!.createdAtHint,
+        deletionState: 'deleting',
+        deletionUpdatedAt: updatedAt ?? Date.now(),
+      };
+    },
+    markDeleteFailed: (profileId, errorCode, updatedAt) => {
+      profileCatalog.setLifecycle(profileId, 'delete_failed', {
+        errorCode,
+        updatedAt,
+      });
+      const entry = profileCatalog.getEntry(profileId)!;
+      return {
+        id: profileId,
+        name: entry.nameHint,
+        createdAt: entry.createdAtHint,
+        deletionState: 'delete_failed',
+        deletionErrorCode: errorCode,
+        deletionUpdatedAt: entry.deletionUpdatedAt,
+      };
+    },
+    finalizeDeletion: (profileId) => profileCatalog.removeProfile(profileId),
+  },
+  canBeginDeletion: (profileId) =>
+    profileCatalog.getMigration(profileId) === null,
   disableProfileAccess: (profileId) => {
     passwordVaultController.closeProfileGuests(profileId);
     passwordVaultIpc.closeProfileTrustedWindows(profileId);
     broadcastPasswordVaultChanged();
   },
-  clearVault: (profileId) => {
-    passwordVault.deleteProfile(profileId);
+  clearVault: async (profileId) => {
+    await profileAuthority.deleteProfile(profileId);
   },
   partitionsForProfile: (profileId) =>
     browserPartitionPolicy.partitionsOfProfile(
       profileId,
       remoteHostConfigStore.list().map((config) => config.id),
     ),
-  clearPartitionStorage: (partition) => session.fromPartition(partition).clearStorageData(),
-  clearPartitionCache: (partition) => session.fromPartition(partition).clearCache(),
+  clearPartitionStorage: (partition) =>
+    session.fromPartition(partition).clearStorageData(),
+  clearPartitionCache: (partition) =>
+    session.fromPartition(partition).clearCache(),
   notifyProfilesChanged: () => broadcastBrowserProfiles(),
   logger: {
     warn: (event) => console.warn('[browser-profile-delete]', event),
@@ -291,18 +457,6 @@ ipcMain.handle(
   (event, evidence: PasswordLoginResultEvidence) =>
     passwordVaultController.settleCandidate(event.sender.id, evidence),
 );
-const remoteHostOrchestrator = new RemoteHostOrchestrator({
-  connectSsh: SshConnection.connect,
-  credentials: remoteHostCredentials,
-  configStore: remoteHostConfigStore,
-  bundleDir: (arch) =>
-    resolveBundleDir(arch, {
-      resourcesPath: app.isPackaged ? process.resourcesPath : app.getAppPath(),
-      isPackaged: app.isPackaged,
-    }),
-  appVersion: app.getVersion(),
-  allowedOrigins: computeRemoteHostAllowedOrigins(),
-});
 // E8:事件(含 verifying 阶段的隧道 token)只推给主窗口——getter 而非固定引用,
 // 因为此刻主窗口可能尚未创建(createWindow() 在 app.on('ready') 里才跑)。
 registerRemoteHostIpc(
@@ -331,6 +485,7 @@ registerRemoteHostIpc(
   },
   // 新增远程机:黑洞预封其浏览器分区(评审 P1-1,消灭首个 guest fail-open 窗口)
   (configId) => browserNetwork.preseal([configId]),
+  remoteProfileDependencies,
 );
 // ---- 内置浏览器网络出口(browserNet · 标签级/多分区)-------------------------
 // 出口→分区:local=persist:browser 直连;每台在用远程机=persist:browser-<configId>
@@ -350,8 +505,10 @@ const browserNetwork = new BrowserNetworkController({
             proxyBypassRules: '<-loopback>',
           },
     ),
-  browserProxyFor: (configId) => remoteHostOrchestrator.browserProxyFor(configId),
-  releaseBrowserProxy: (configId) => remoteHostOrchestrator.releaseBrowserProxy(configId),
+  browserProxyFor: (configId) =>
+    remoteHostOrchestrator.browserProxyFor(configId),
+  releaseBrowserProxy: (configId) =>
+    remoteHostOrchestrator.releaseBrowserProxy(configId),
   // 组合分区集合(profile × 该出口;调用期取值,profile 增删后自动变新)
   partitionsOf: (configId) => browserPartitionPolicy.partitionsOfExit(configId),
   aliasOf: (configId) => remoteHostConfigStore.get(configId)?.alias,
@@ -376,8 +533,39 @@ void browserNetwork.preseal(remoteHostConfigStore.list().map((c) => c.id));
 remoteHostOrchestrator.onEvent((e) => {
   if (e.stage === 'disconnected' || e.stage === 'failed') {
     browserNetwork.onHostDown(e.configId);
+    const affected = profileAuthority.invalidateRemoteHost(e.configId);
+    for (const profileId of affected) {
+      passwordVaultController.suspendProfileGuests(profileId);
+      passwordVaultIpc.closeProfileTrustedWindows(profileId);
+    }
+    if (affected.length > 0) {
+      void broadcastBrowserProfiles();
+      broadcastPasswordVaultChanged();
+    }
   } else if (e.stage === 'ready') {
     browserNetwork.onHostUp(e.configId);
+    void profileAuthority
+      .listSummaries()
+      .then((summaries) => {
+        for (const profile of summaries) {
+          if (
+            profile.storage.kind === 'remote' &&
+            profile.storage.hostId === e.configId &&
+            profile.availability === 'ready'
+          ) {
+            passwordVaultController.resumeProfileGuests(profile.id);
+          }
+        }
+        return broadcastBrowserProfiles();
+      })
+      .then(() => profileMigration.resumeAll())
+      .then(() => broadcastBrowserProfiles())
+      .then(() => broadcastPasswordVaultChanged())
+      .catch((error) =>
+        console.warn(
+          `[profile-authority] hostId=${e.configId} action=ready-refresh code=${profileStorageCode(error)}`,
+        ),
+      );
   }
 });
 
@@ -388,13 +576,16 @@ const exitLedger = new ExitHoldLedger();
 
 // syncExits 仅主窗口可报(浏览器面板在主窗口;拒绝其它渲染进程改代理拓扑);
 // get 无副作用任意窗口可读。
-ipcMain.handle(BROWSER_NET_CHANNELS.syncExits, (event, payload: { hostIds: string[] }) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
-    return browserNetwork.snapshot();
-  }
-  exitLedger.setMain(Array.isArray(payload?.hostIds) ? payload.hostIds : []);
-  return browserNetwork.syncExits(exitLedger.effective());
-});
+ipcMain.handle(
+  BROWSER_NET_CHANNELS.syncExits,
+  (event, payload: { hostIds: string[] }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      return browserNetwork.snapshot();
+    }
+    exitLedger.setMain(Array.isArray(payload?.hostIds) ? payload.hostIds : []);
+    return browserNetwork.syncExits(exitLedger.effective());
+  },
+);
 ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.snapshot());
 
 // browserNet:hold(阶段3):非主窗(目前仅查看器窗口)持有出口存活。四道闸:
@@ -408,7 +599,10 @@ ipcMain.handle(BROWSER_NET_CHANNELS.get, () => browserNetwork.snapshot());
 // ④ 落账后与主窗集合取并集,重推 syncExits,返回权威快照(与 browserNet.get 同形)。
 // 释放走双保险(sender 'destroyed' + 所属窗口 'closed'),用 heldSenders 防重复挂钩。
 const heldSenders = new Set<number>();
-function ensureHoldRelease(win: BrowserWindow, sender: Electron.WebContents): void {
+function ensureHoldRelease(
+  win: BrowserWindow,
+  sender: Electron.WebContents,
+): void {
   const key = sender.id;
   if (heldSenders.has(key)) return;
   heldSenders.add(key);
@@ -420,61 +614,326 @@ function ensureHoldRelease(win: BrowserWindow, sender: Electron.WebContents): vo
   sender.once('destroyed', release);
   win.once('closed', release);
 }
-ipcMain.handle(BROWSER_NET_CHANNELS.hold, (event, payload: { hostIds: string[] }) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  const isViewerWindow = win !== null && [...fileWins.values()].includes(win);
-  if (!isViewerWindow) {
-    return browserNetwork.snapshot();
-  }
-  const ownHostId = [...fileWins.entries()].find(([, w]) => w === win)?.[0] ?? null;
-  const requested = Array.isArray(payload?.hostIds) ? payload.hostIds : [];
-  const validated = filterHoldRequest(requested, ownHostId).filter(
-    (id) => remoteHostConfigStore.get(id) !== null,
-  );
-  ensureHoldRelease(win, event.sender);
-  exitLedger.setHold(event.sender.id, validated);
-  return browserNetwork.syncExits(exitLedger.effective());
-});
+ipcMain.handle(
+  BROWSER_NET_CHANNELS.hold,
+  (event, payload: { hostIds: string[] }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const isViewerWindow = win !== null && [...fileWins.values()].includes(win);
+    if (!isViewerWindow) {
+      return browserNetwork.snapshot();
+    }
+    const ownHostId =
+      [...fileWins.entries()].find(([, w]) => w === win)?.[0] ?? null;
+    const requested = Array.isArray(payload?.hostIds) ? payload.hostIds : [];
+    const validated = filterHoldRequest(requested, ownHostId).filter(
+      (id) => remoteHostConfigStore.get(id) !== null,
+    );
+    ensureHoldRelease(win, event.sender);
+    exitLedger.setHold(event.sender.id, validated);
+    return browserNetwork.syncExits(exitLedger.effective());
+  },
+);
 
 // ---- 浏览器 Profile IPC(权威在 main;增删改后广播全量列表)-------------------
 // 变更只许主窗口发起(设置 UI 在主窗;拒绝其它渲染进程改 profile 台账);list 只读随意。
-function broadcastBrowserProfiles(): void {
-  const profiles = browserProfileStore.list();
+let browserProfileBroadcastGeneration = 0;
+async function listBrowserProfileSummaries(): Promise<BrowserProfileSummary[]> {
+  const profiles = await profileAuthority.listSummaries();
+  return profiles.map((profile) =>
+    profile.id === DEFAULT_PROFILE_ID
+      ? { ...profile, name: t('OkWork (built-in)') }
+      : profile,
+  );
+}
+async function broadcastBrowserProfiles(): Promise<void> {
+  const generation = ++browserProfileBroadcastGeneration;
+  const profiles = await listBrowserProfileSummaries();
+  if (generation !== browserProfileBroadcastGeneration) return;
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send(BROWSER_PROFILE_CHANNELS.changed, profiles);
     }
   }
 }
-ipcMain.handle(BROWSER_PROFILE_CHANNELS.list, () => browserProfileStore.list());
-ipcMain.handle(BROWSER_PROFILE_CHANNELS.save, async (event, payload: BrowserProfileInput) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
-    throw new Error('browserProfile.save: main window only');
-  }
-  const saved = browserProfileStore.save(payload);
-  // 🔴 顺序即安全(评审 P1,与 P1-1 同源):新增 profile ⇒ 各远程出口的组合分区集合
-  // 变大,必须【先 await 预封完成】(在用且 up 的重放活代理覆盖新分区,其余全量黑洞),
-  // 再广播/返回——否则 renderer 拿到新 profile 即可把远程标签重挂到尚无代理的新组合
-  // 分区,首个 attach 从本机直连泄漏(fail-open 窗口)。更新(改名/改 UA)不影响代理
-  // 拓扑,重放幂等无害,不做区分。
-  await browserNetwork.onProfilesChanged(remoteHostConfigStore.list().map((c) => c.id));
-  broadcastBrowserProfiles();
-  return saved;
-});
-ipcMain.handle(BROWSER_PROFILE_CHANNELS.delete, (event, payload: { id: string }) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
-    throw new Error('browserProfile.delete: main window only');
-  }
-  const id = typeof payload?.id === 'string' ? payload.id : '';
-  return browserProfileDeletion.deleteProfile(id);
-});
-ipcMain.handle(BROWSER_PROFILE_CHANNELS.retryDelete, (event, payload: { id: string }) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
-    throw new Error('browserProfile.retryDelete: main window only');
-  }
-  const id = typeof payload?.id === 'string' ? payload.id : '';
-  return browserProfileDeletion.retryProfileDeletion(id);
-});
+ipcMain.handle(BROWSER_PROFILE_CHANNELS.list, () =>
+  listBrowserProfileSummaries(),
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.listStorageTargets,
+  async (event): Promise<ProfileStorageTargetStatus[]> => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw Object.assign(new Error('main window only'), {
+        code: 'PROFILE_STORAGE_FORBIDDEN',
+      });
+    }
+    return Promise.all(
+      remoteHostConfigStore.list().map((host) =>
+        (
+          resolveProfileProvider({
+            kind: 'remote',
+            hostId: host.id,
+          }) as RemoteProfileProvider
+        ).storageTargetStatus(),
+      ),
+    );
+  },
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.save,
+  async (event, payload: BrowserProfileInput) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw new Error('browserProfile.save: main window only');
+    }
+    const saved = await profileAuthority.saveProfile(payload);
+    // 🔴 顺序即安全(评审 P1,与 P1-1 同源):新增 profile ⇒ 各远程出口的组合分区集合
+    // 变大,必须【先 await 预封完成】(在用且 up 的重放活代理覆盖新分区,其余全量黑洞),
+    // 再广播/返回——否则 renderer 拿到新 profile 即可把远程标签重挂到尚无代理的新组合
+    // 分区,首个 attach 从本机直连泄漏(fail-open 窗口)。更新(改名/改 UA)不影响代理
+    // 拓扑,重放幂等无害,不做区分。
+    await browserNetwork.onProfilesChanged(
+      remoteHostConfigStore.list().map((c) => c.id),
+    );
+    await broadcastBrowserProfiles();
+    return (await listBrowserProfileSummaries()).find(
+      (profile) => profile.id === saved.id,
+    );
+  },
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.delete,
+  (event, payload: { id: string }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw new Error('browserProfile.delete: main window only');
+    }
+    const id = typeof payload?.id === 'string' ? payload.id : '';
+    return browserProfileDeletion.deleteProfile(id);
+  },
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.retryDelete,
+  (event, payload: { id: string }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw new Error('browserProfile.retryDelete: main window only');
+    }
+    const id = typeof payload?.id === 'string' ? payload.id : '';
+    return browserProfileDeletion.retryProfileDeletion(id);
+  },
+);
+
+interface PendingProfileStoragePlan {
+  profileId: string;
+  source: ProfileStorageRef;
+  target: ProfileStorageRef;
+  senderId: number;
+  sourceGeneration?: string;
+  targetGeneration?: string;
+  createdAt: number;
+}
+const profileStoragePlans = new Map<string, PendingProfileStoragePlan>();
+const PROFILE_STORAGE_PLAN_TTL_MS = 2 * 60_000;
+
+function profileStorageRefEquals(
+  left: ProfileStorageRef,
+  right: ProfileStorageRef,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    (left.kind === 'local' ||
+      (right.kind === 'remote' && left.hostId === right.hostId))
+  );
+}
+
+function profileStorageCode(error: unknown): ProfileStorageErrorCode {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' &&
+    /^PROFILE_(?:STORAGE|MIGRATION)_[A-Z_]+$/.test(code)
+    ? (code as ProfileStorageErrorCode)
+    : 'PROFILE_STORAGE_IO_FAILED';
+}
+
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.planStorageChange,
+  async (
+    event,
+    payload: { profileId?: unknown; target?: unknown },
+  ): Promise<ProfileStorageChangePlan> => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw Object.assign(new Error('main window only'), {
+        code: 'PROFILE_STORAGE_FORBIDDEN',
+      });
+    }
+    const profileId =
+      typeof payload?.profileId === 'string' ? payload.profileId : '';
+    const target = payload?.target as ProfileStorageRef | undefined;
+    const entry = profileCatalog.getEntry(profileId);
+    if (
+      !entry ||
+      entry.lifecycle !== 'active' ||
+      !target ||
+      (target.kind !== 'local' &&
+        (target.kind !== 'remote' ||
+          typeof target.hostId !== 'string' ||
+          remoteHostConfigStore.get(target.hostId) === null)) ||
+      profileStorageRefEquals(entry.storage, target) ||
+      profileCatalog.getMigration(profileId)
+    ) {
+      throw Object.assign(new Error('invalid storage target'), {
+        code: 'PROFILE_STORAGE_INVALID_INPUT',
+      });
+    }
+    const sourceProvider = resolveProfileProvider(entry.storage);
+    const targetProvider = resolveProfileProvider(target);
+    if (
+      sourceProvider.availability() !== 'ready' ||
+      targetProvider.availability() !== 'ready'
+    ) {
+      throw Object.assign(new Error('storage target unavailable'), {
+        code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE',
+      });
+    }
+    const sourceGeneration =
+      entry.storage.kind === 'remote'
+        ? (sourceProvider.currentGeneration() ?? undefined)
+        : undefined;
+    const targetGeneration =
+      target.kind === 'remote'
+        ? (targetProvider.currentGeneration() ?? undefined)
+        : undefined;
+    if (sourceProvider instanceof RemoteProfileProvider)
+      await sourceProvider.describe();
+    if (targetProvider instanceof RemoteProfileProvider)
+      await targetProvider.describe();
+    if (
+      (entry.storage.kind === 'remote' &&
+        (!sourceGeneration ||
+          sourceProvider.currentGeneration() !== sourceGeneration)) ||
+      (target.kind === 'remote' &&
+        (!targetGeneration ||
+          targetProvider.currentGeneration() !== targetGeneration))
+    ) {
+      throw Object.assign(new Error('storage target changed'), {
+        code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE',
+      });
+    }
+    const planId = randomUUID();
+    const now = Date.now();
+    for (const [id, plan] of profileStoragePlans) {
+      if (plan.createdAt + PROFILE_STORAGE_PLAN_TTL_MS < now)
+        profileStoragePlans.delete(id);
+    }
+    profileStoragePlans.set(planId, {
+      profileId,
+      source: entry.storage,
+      target,
+      senderId: event.sender.id,
+      ...(entry.storage.kind === 'remote'
+        ? { sourceGeneration }
+        : {}),
+      ...(target.kind === 'remote'
+        ? { targetGeneration }
+        : {}),
+      createdAt: now,
+    });
+    return {
+      planId,
+      profileId,
+      target,
+      targetLabel:
+        target.kind === 'local'
+          ? t('This device')
+          : (remoteHostConfigStore.get(target.hostId)?.alias ?? target.hostId),
+      canDecryptDisclosure: true,
+      steps: ['copying', 'verifying', 'switching'],
+    };
+  },
+);
+
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.confirmStorageChange,
+  async (
+    event,
+    payload: { planId?: unknown },
+  ): Promise<ProfileStorageChangeResult> => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      return { accepted: false, code: 'PROFILE_STORAGE_FORBIDDEN' };
+    }
+    const planId = typeof payload?.planId === 'string' ? payload.planId : '';
+    const plan = profileStoragePlans.get(planId);
+    profileStoragePlans.delete(planId);
+    if (
+      !plan ||
+      plan.senderId !== event.sender.id ||
+      plan.createdAt + PROFILE_STORAGE_PLAN_TTL_MS < Date.now()
+    ) {
+      return { accepted: false, code: 'PROFILE_STORAGE_INVALID_INPUT' };
+    }
+    const currentEntry = profileCatalog.getEntry(plan.profileId);
+    const sourceProvider = resolveProfileProvider(plan.source);
+    const targetProvider = resolveProfileProvider(plan.target);
+    if (
+      !currentEntry ||
+      currentEntry.lifecycle !== 'active' ||
+      !profileStorageRefEquals(currentEntry.storage, plan.source) ||
+      profileCatalog.getMigration(plan.profileId)
+    ) {
+      return { accepted: false, code: 'PROFILE_STORAGE_INVALID_INPUT' };
+    }
+    if (
+      sourceProvider.availability() !== 'ready' ||
+      targetProvider.availability() !== 'ready' ||
+      (plan.source.kind === 'remote' &&
+        sourceProvider.currentGeneration() !== plan.sourceGeneration) ||
+      (plan.target.kind === 'remote' &&
+        targetProvider.currentGeneration() !== plan.targetGeneration)
+    ) {
+      return { accepted: false, code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE' };
+    }
+    try {
+      const migration = profileMigration.begin(plan.profileId, plan.target);
+      await broadcastBrowserProfiles();
+      void profileMigration
+        .run(migration.operationId)
+        .then(() => broadcastBrowserProfiles())
+        .then(() => broadcastPasswordVaultChanged())
+        .catch((error) =>
+          console.warn(
+            `[profile-migration] operationId=${migration.operationId} code=${profileStorageCode(error)}`,
+          ),
+        );
+      return { accepted: true, operationId: migration.operationId };
+    } catch (error) {
+      return { accepted: false, code: profileStorageCode(error) };
+    }
+  },
+);
+
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.retryStorageChange,
+  async (
+    event,
+    payload: { operationId?: unknown },
+  ): Promise<ProfileStorageChangeResult> => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      return { accepted: false, code: 'PROFILE_STORAGE_FORBIDDEN' };
+    }
+    const operationId =
+      typeof payload?.operationId === 'string' ? payload.operationId : '';
+    if (!profileCatalog.getMigration(operationId)) {
+      return { accepted: false, code: 'PROFILE_STORAGE_INVALID_INPUT' };
+    }
+    void profileMigration
+      .retry(operationId)
+      .then(() => broadcastBrowserProfiles())
+      .then(() => broadcastPasswordVaultChanged())
+      .catch((error) =>
+        console.warn(
+          `[profile-migration] operationId=${operationId} code=${profileStorageCode(error)}`,
+        ),
+      );
+    await broadcastBrowserProfiles();
+    return { accepted: true, operationId };
+  },
+);
 
 // ---- 浏览器窗格窗口化(弹出=整个窗格独立成窗 · OkBrowser · <终端tab名>)---------
 // 壳窗复用 renderer bundle(?browserPane=<terminalTabId> 路由 BrowserPaneShellWindow):
@@ -535,7 +994,9 @@ ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
     },
   });
   paneWins.set(tabId, win);
-  installExternalUrlPolicy(win, { devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL });
+  installExternalUrlPolicy(win, {
+    devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
+  });
   wireBrowserWebviewPolicies(win); // webview 硬化/WebRTC/弹窗策略与主窗同级
   // 红灯钮(非回落)关闭:多标签先确认「关闭所有标签」;app 退出/冒烟不拦
   // (退出时镜像要原样持久化)。确认后二次 close() 经 closeConfirmed 放行。
@@ -555,7 +1016,12 @@ ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
     if (action === 'ignore') return;
     closeConfirming = true;
     void dialog
-      .showMessageBox(win, buildPaneCloseConfirmationOptions(paneTabCount(paneSeeds.get(tabId)?.pane)))
+      .showMessageBox(
+        win,
+        buildPaneCloseConfirmationOptions(
+          paneTabCount(paneSeeds.get(tabId)?.pane),
+        ),
+      )
       .then(({ response }) => {
         if (win.isDestroyed()) return;
         if (response === PANE_CLOSE_CONFIRM_INDEX) {
@@ -578,7 +1044,10 @@ ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
     if (paneWins.get(tabId) === win) paneWins.delete(tabId);
     paneSeeds.delete(tabId);
     // 回落 → docked(保留镜像、开面板);直接关 → closed(清空镜像);退出中不通知
-    const notice = paneClosedNotice({ dockRequested, quitting: exitLifecycle.isQuitting() });
+    const notice = paneClosedNotice({
+      dockRequested,
+      quitting: exitLifecycle.isQuitting(),
+    });
     if (notice && mainWin && !mainWin.isDestroyed()) {
       mainWin.webContents.send(notice, tabId);
     }
@@ -597,20 +1066,29 @@ ipcMain.on('browserPane:popout', (event, payload: BrowserPaneSeed) => {
 });
 
 // 壳窗取种子:只允许「该 tabId 对应的壳窗」自己取(窗口身份即凭据)
-ipcMain.handle('browserPane:state', (event, payload: { terminalTabId?: string }) => {
-  const tabId = payload?.terminalTabId;
-  if (!tabId || BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)) {
-    return null;
-  }
-  return paneSeeds.get(tabId) ?? null;
-});
+ipcMain.handle(
+  'browserPane:state',
+  (event, payload: { terminalTabId?: string }) => {
+    const tabId = payload?.terminalTabId;
+    if (
+      !tabId ||
+      BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)
+    ) {
+      return null;
+    }
+    return paneSeeds.get(tabId) ?? null;
+  },
+);
 
 // 壳窗内容回流 → 主窗镜像;种子同步更新(壳窗意外重载时可用最新内容重种)
 ipcMain.on(
   'browserPane:sync',
   (event, payload: { terminalTabId?: string; pane?: unknown }) => {
     const tabId = payload?.terminalTabId;
-    if (!tabId || BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)) {
+    if (
+      !tabId ||
+      BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)
+    ) {
       return;
     }
     const seed = paneSeeds.get(tabId);
@@ -630,7 +1108,12 @@ ipcMain.on(
   'browserPane:addTab',
   (
     event,
-    payload: { terminalTabId?: string; url?: string; netHostId?: string; preview?: true },
+    payload: {
+      terminalTabId?: string;
+      url?: string;
+      netHostId?: string;
+      preview?: true;
+    },
   ) => {
     if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
     const tabId = payload?.terminalTabId;
@@ -641,7 +1124,9 @@ ipcMain.on(
       win.show();
       win.webContents.send('browserPane:addTab', {
         url,
-        ...(typeof payload.netHostId === 'string' ? { netHostId: payload.netHostId } : {}),
+        ...(typeof payload.netHostId === 'string'
+          ? { netHostId: payload.netHostId }
+          : {}),
         ...(payload.preview === true ? { preview: true as const } : {}),
       });
     }
@@ -655,14 +1140,19 @@ ipcMain.handle('browserPane:list', (event) => {
 });
 
 // 激活(工具栏图标点击:弹出后图标=聚焦独立窗口)
-ipcMain.on('browserPane:focus', (event, payload: { terminalTabId?: string }) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
-  const win = payload?.terminalTabId ? paneWins.get(payload.terminalTabId) : undefined;
-  if (win && !win.isDestroyed()) {
-    win.show();
-    win.focus();
-  }
-});
+ipcMain.on(
+  'browserPane:focus',
+  (event, payload: { terminalTabId?: string }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) return;
+    const win = payload?.terminalTabId
+      ? paneWins.get(payload.terminalTabId)
+      : undefined;
+    if (win && !win.isDestroyed()) {
+      win.show();
+      win.focus();
+    }
+  },
+);
 
 // 回落:壳窗自己(回落按钮)或主窗都可发起;设回落标记走 close → closed → docked 通知
 ipcMain.on('browserPane:dock', (event, payload: { terminalTabId?: string }) => {
@@ -693,17 +1183,26 @@ function updateSeedProfile(tabId: string, profileId: string): void {
 // 绑定持久化);发起壳窗已本地生效,种子同步跟上
 ipcMain.on(
   'browserPane:workspaceEdit',
-  (event, payload: { terminalTabId?: string; name?: string; profileId?: string }) => {
+  (
+    event,
+    payload: { terminalTabId?: string; name?: string; profileId?: string },
+  ) => {
     const tabId = payload?.terminalTabId;
-    if (!tabId || BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)) {
+    if (
+      !tabId ||
+      BrowserWindow.fromWebContents(event.sender) !== paneWins.get(tabId)
+    ) {
       return;
     }
-    if (typeof payload.profileId === 'string') updateSeedProfile(tabId, payload.profileId);
+    if (typeof payload.profileId === 'string')
+      updateSeedProfile(tabId, payload.profileId);
     if (mainWin && !mainWin.isDestroyed()) {
       mainWin.webContents.send('browserPane:workspaceEdit', {
         terminalTabId: tabId,
         ...(typeof payload.name === 'string' ? { name: payload.name } : {}),
-        ...(typeof payload.profileId === 'string' ? { profileId: payload.profileId } : {}),
+        ...(typeof payload.profileId === 'string'
+          ? { profileId: payload.profileId }
+          : {}),
       });
     }
   },
@@ -726,25 +1225,36 @@ ipcMain.on(
 );
 
 // 直接关闭:壳窗标签关光时自发(空窗格无形态)——不设回落标记,closed → browserPane:closed
-ipcMain.on('browserPane:close', (event, payload: { terminalTabId?: string }) => {
-  const tabId = payload?.terminalTabId;
-  if (!tabId) return;
-  const win = paneWins.get(tabId);
-  if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
-  if (!win.isDestroyed()) win.close();
-});
+ipcMain.on(
+  'browserPane:close',
+  (event, payload: { terminalTabId?: string }) => {
+    const tabId = payload?.terminalTabId;
+    if (!tabId) return;
+    const win = paneWins.get(tabId);
+    if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
+    if (!win.isDestroyed()) win.close();
+  },
+);
 
 // 主窗浏览器面板头部 ✕:与壳窗同款三态确认(Cancel/Close All/Hide),同阈值(窗格标签数
 // > 1 才弹,≤1 由 renderer 直接走现行为)。仅 mainWin 自己可发起(与其它 browserPane* 桥
 // 的守卫一致)。tabCount 来自 renderer 上报,防御性收窄成 number。
-ipcMain.handle('browserPanel:confirmClose', async (event, payload: { tabCount?: unknown }) => {
-  if (BrowserWindow.fromWebContents(event.sender) !== mainWin || !mainWin) return 'cancel';
-  const tabCount = typeof payload?.tabCount === 'number' ? payload.tabCount : 0;
-  const { response } = await dialog.showMessageBox(mainWin, buildPanelCloseConfirmationOptions(tabCount));
-  if (response === PANE_CLOSE_CONFIRM_INDEX) return 'closeAll';
-  if (response === PANE_CLOSE_HIDE_INDEX) return 'hide';
-  return 'cancel';
-});
+ipcMain.handle(
+  'browserPanel:confirmClose',
+  async (event, payload: { tabCount?: unknown }) => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin || !mainWin)
+      return 'cancel';
+    const tabCount =
+      typeof payload?.tabCount === 'number' ? payload.tabCount : 0;
+    const { response } = await dialog.showMessageBox(
+      mainWin,
+      buildPanelCloseConfirmationOptions(tabCount),
+    );
+    if (response === PANE_CLOSE_CONFIRM_INDEX) return 'closeAll';
+    if (response === PANE_CLOSE_HIDE_INDEX) return 'hide';
+    return 'cancel';
+  },
+);
 
 // ---- AI 浏览器控制桥(main 侧)----------------------------------------------
 // main 的 MCP server(阶段2b)调 invokeBrowserControl(method,args)→ 发请求给主窗
@@ -764,7 +1274,15 @@ const BROWSER_CONTROL_TIMEOUT_MS = 20_000;
 
 ipcMain.on(
   'browserControl:result',
-  (event, payload: { requestId?: string; ok?: boolean; value?: unknown; error?: string }) => {
+  (
+    event,
+    payload: {
+      requestId?: string;
+      ok?: boolean;
+      value?: unknown;
+      error?: string;
+    },
+  ) => {
     const id = payload?.requestId;
     const p = id ? browserControlPending.get(id) : undefined;
     if (!p || !id) return;
@@ -777,7 +1295,10 @@ ipcMain.on(
   },
 );
 
-export function invokeBrowserControl(method: string, args: unknown[]): Promise<unknown> {
+export function invokeBrowserControl(
+  method: string,
+  args: unknown[],
+): Promise<unknown> {
   // 目标窗口:该终端 tab 的窗格若已弹出到独立壳窗(webview 活在壳窗)→ 打到壳窗;
   // 否则主窗。args[0] 恒为 terminalTabId(MCP buildArgs 首参)。
   const tabId = typeof args[0] === 'string' ? args[0] : undefined;
@@ -792,8 +1313,17 @@ export function invokeBrowserControl(method: string, args: unknown[]): Promise<u
       browserControlPending.delete(requestId);
       reject(new Error(`browser control timeout: ${method}`));
     }, BROWSER_CONTROL_TIMEOUT_MS);
-    browserControlPending.set(requestId, { resolve, reject, timer, win: target });
-    target.webContents.send('browserControl:invoke', { requestId, method, args });
+    browserControlPending.set(requestId, {
+      resolve,
+      reject,
+      timer,
+      win: target,
+    });
+    target.webContents.send('browserControl:invoke', {
+      requestId,
+      method,
+      args,
+    });
   });
 }
 
@@ -845,17 +1375,21 @@ function ensureHost(): Electron.UtilityProcess {
   // --standalone:本地 host 走 standalone 会话语义(断开 detach 续跑 + ring 回放收养),
   // renderer 崩溃/⌘R 重载不再杀本地会话(黑屏事故 2026-07-14 的数据丢失根因)。
   // host 进程仍随 app 退出整体回收,「退出即清」预期不变;回退 = 去掉此 flag。
-  hostProc = utilityProcess.fork(path.join(__dirname, 'host.js'), ['--standalone'], {
-    serviceName: 'okwork-host',
-    // Workspace 注册表数据目录:local 模式 = userData(host 视其为不透明「本机注册表目录」,
-    // 不知晓 Electron 路径 API,保持零 Electron / 远程就绪)
-    env: {
-      ...process.env,
-      OKWORK_HOST_DATA_DIR: app.getPath('userData'),
-      // host.info.appVersion 数据源(本机嵌入式恒与应用同版,仅保持上报一致性)
-      OKWORK_HOST_APP_VERSION: app.getVersion(),
+  hostProc = utilityProcess.fork(
+    path.join(__dirname, 'host.js'),
+    ['--standalone'],
+    {
+      serviceName: 'okwork-host',
+      // Workspace 注册表数据目录:local 模式 = userData(host 视其为不透明「本机注册表目录」,
+      // 不知晓 Electron 路径 API,保持零 Electron / 远程就绪)
+      env: {
+        ...process.env,
+        OKWORK_HOST_DATA_DIR: app.getPath('userData'),
+        // host.info.appVersion 数据源(本机嵌入式恒与应用同版,仅保持上报一致性)
+        OKWORK_HOST_APP_VERSION: app.getVersion(),
+      },
     },
-  });
+  );
   hostProc.on('exit', (code) => {
     console.error(`[main] host exited with code ${code}`);
     hostProc = null;
@@ -937,7 +1471,9 @@ ipcMain.on('clipboard:write-text', (_event, text: string) => {
 ipcMain.handle('clipboard:read-text', () => clipboard.readText());
 // 渲染层判定「这次 ⌘C 不归终端选区」后交回原生 Copy 编辑命令(见 menuCopy.ts 决策顺序)
 ipcMain.on('clipboard:native-copy', (event) => event.sender.copy());
-ipcMain.handle('clipboard:read-image', () => encodeClipboardImage(clipboard.readImage()));
+ipcMain.handle('clipboard:read-image', () =>
+  encodeClipboardImage(clipboard.readImage()),
+);
 
 // 语言偏好切换(renderer Settings 发起):main 即时换语言并重建原生菜单。
 // 偏好本体由 renderer 随 ui 存档持久化(下次启动 ready 时从存档读回)。
@@ -1049,7 +1585,10 @@ ipcMain.handle('transfer:begin-open', async (event) => {
 
 ipcMain.handle(
   'transfer:write',
-  (event, payload: { ticket?: unknown; offset?: unknown; base64?: unknown }) => {
+  (
+    event,
+    payload: { ticket?: unknown; offset?: unknown; base64?: unknown },
+  ) => {
     const ticket = typeof payload?.ticket === 'string' ? payload.ticket : '';
     const offset = Number(payload?.offset);
     const base64 = typeof payload?.base64 === 'string' ? payload.base64 : '';
@@ -1059,7 +1598,10 @@ ipcMain.handle(
 
 ipcMain.handle(
   'transfer:read',
-  (event, payload: { ticket?: unknown; offset?: unknown; length?: unknown }) => {
+  (
+    event,
+    payload: { ticket?: unknown; offset?: unknown; length?: unknown },
+  ) => {
     const ticket = typeof payload?.ticket === 'string' ? payload.ticket : '';
     const offset = Number(payload?.offset);
     const length = Number(payload?.length);
@@ -1119,7 +1661,11 @@ function openFileWindow(
     existing.show();
     existing.focus();
     const wc = existing.webContents;
-    const tab = { path: filePath, kind, ...(previewRoot ? { previewRoot } : {}) };
+    const tab = {
+      path: filePath,
+      kind,
+      ...(previewRoot ? { previewRoot } : {}),
+    };
     if (wc.isLoading()) {
       // 窗口冷启动尚未完成:渲染层还没订阅 add-tab,延迟到加载完成
       wc.once('did-finish-load', () => {
@@ -1434,9 +1980,24 @@ function wireBrowserWebviewPolicies(
     // 只在有 UA 时 set 会让「把自定义 UA 清空」后 service worker 等 session 级请求仍用
     // 旧 UA 直到重启。用 app.userAgentFallback(Electron 的默认 UA)复位。
     const parsed = parseBrowserPartition(params.partition!);
-    if (parsed && parsed.profileId !== DEFAULT_PROFILE_ID) {
-      const ua = browserProfileStore.get(parsed.profileId)?.userAgent;
-      session.fromPartition(params.partition!).setUserAgent(ua || app.userAgentFallback);
+    if (parsed) {
+      const entry = profileCatalog.getEntry(parsed.profileId);
+      const profile =
+        entry?.storage.kind === 'remote'
+          ? profileAuthority.getCachedProfileForAttach(parsed.profileId)
+          : parsed.profileId === DEFAULT_PROFILE_ID
+            ? defaultBrowserProfile()
+            : browserProfileStore.get(parsed.profileId);
+      // A Remote-backed profile may attach only after its config was re-read and validated in
+      // the current Host generation. Existing pages stay alive across disconnects; new pages do not.
+      if (entry?.storage.kind === 'remote' && !profile) {
+        event.preventDefault();
+        return;
+      }
+      const ua = profile?.userAgent;
+      session
+        .fromPartition(params.partition!)
+        .setUserAgent(ua || app.userAgentFallback);
     }
   });
   win.webContents.on('did-attach-webview', (_event, guest) => {
@@ -1452,7 +2013,14 @@ function wireBrowserWebviewPolicies(
     if (passwordBridge) {
       const profileIds = [
         DEFAULT_PROFILE_ID,
-        ...browserProfileStore.listActive().map((profile) => profile.id),
+        ...profileCatalog
+          .listEntries()
+          .filter(
+            (entry) =>
+              entry.profileId !== DEFAULT_PROFILE_ID &&
+              entry.lifecycle === 'active',
+          )
+          .map((entry) => entry.profileId),
       ];
       const exitIds = [
         'local',
@@ -1464,7 +2032,9 @@ function wireBrowserWebviewPolicies(
           exitIds.some(
             (exitId) =>
               guest.session ===
-              session.fromPartition(browserPartition(candidateProfileId, exitId)),
+              session.fromPartition(
+                browserPartition(candidateProfileId, exitId),
+              ),
           )
         ) {
           profileId = candidateProfileId;
@@ -1475,7 +2045,11 @@ function wireBrowserWebviewPolicies(
         guest.close({ waitForBeforeUnload: false });
         return;
       }
-      passwordVaultController.registerGuest(guest, profileId, win.webContents.id);
+      passwordVaultController.registerGuest(
+        guest,
+        profileId,
+        win.webContents.id,
+      );
       guest.on('did-finish-load', () =>
         passwordVaultController.requestNavigationVerification(guest.id),
       );
@@ -1623,8 +2197,25 @@ app.on('ready', () => {
   // 合盖期间 ssh2 可能只丢 TCP、不交付某条 channel 的 callback/close,使连接编排
   // Promise 跨睡眠占槽。唤醒时把所有活跃远程连接切到新世代;renderer 既有断线
   // 重连状态机会重新认领远端驻留 Host/session,无需重启或升级服务器。
-  powerMonitor.on('resume', () => remoteHostOrchestrator.resetAfterSystemResume());
-  void browserProfileDeletion.resumeInterruptedDeletions();
+  powerMonitor.on('resume', () =>
+    remoteHostOrchestrator.resetAfterSystemResume(),
+  );
+  void browserProfileDeletion
+    .resumeInterruptedDeletions()
+    .then(() => broadcastBrowserProfiles())
+    .catch(() =>
+      console.warn(
+        '[browser-profile-delete] action=resume code=PROFILE_DELETE_FAILED',
+      ),
+    );
+  void profileMigration
+    .resumeAll()
+    .then(() => broadcastBrowserProfiles())
+    .catch((error) =>
+      console.warn(
+        `[profile-migration] phase=startup-resume code=${profileStorageCode(error)}`,
+      ),
+    );
   createWindow();
   // 冲刷启动前(open-file 早于 ready)入队的待打开文件
   appIsReady = true;

@@ -11,7 +11,10 @@ import {
 } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import type { PasswordCredentialMetadata } from '../../../../shared/passwordVault';
-import { SavedPasswordsPage, type SavedPasswordsPageProps } from '../SavedPasswordsPage';
+import {
+  SavedPasswordsPage,
+  type SavedPasswordsPageProps,
+} from '../SavedPasswordsPage';
 
 expect.extend(matchers);
 
@@ -41,7 +44,9 @@ const ENTRIES: PasswordCredentialMetadata[] = [
   },
 ];
 
-function props(overrides: Partial<SavedPasswordsPageProps> = {}): SavedPasswordsPageProps {
+function props(
+  overrides: Partial<SavedPasswordsPageProps> = {},
+): SavedPasswordsPageProps {
   return {
     entries: ENTRIES,
     profiles: PROFILES,
@@ -54,11 +59,14 @@ function props(overrides: Partial<SavedPasswordsPageProps> = {}): SavedPasswords
 
 afterEach(() => {
   cleanup();
+  delete (window as unknown as { okwork?: unknown }).okwork;
   vi.restoreAllMocks();
 });
 
 async function test_AC6_renders_masked_metadata_states_and_filters() {
-  const { rerender } = render(<SavedPasswordsPage {...props({ state: 'loading' })} />);
+  const { rerender } = render(
+    <SavedPasswordsPage {...props({ state: 'loading' })} />,
+  );
 
   expect(screen.getByLabelText('Loading saved passwords')).toBeInTheDocument();
   expect(screen.queryByText('alice@example.com')).not.toBeInTheDocument();
@@ -68,16 +76,24 @@ async function test_AC6_renders_masked_metadata_states_and_filters() {
       {...props({ state: 'error', errorCode: 'VAULT_CORRUPT', entries: [] })}
     />,
   );
-  expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved passwords');
-  expect(screen.getByRole('alert')).toHaveTextContent('could not be read safely');
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Could not load saved passwords',
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'could not be read safely',
+  );
 
   rerender(<SavedPasswordsPage {...props({ state: 'ready' })} />);
   expect(screen.getByText('https://github.com')).toBeInTheDocument();
   expect(screen.getByText('alice@example.com')).toBeInTheDocument();
-  expect(screen.getByText('https://console.aws.amazon.com')).toBeInTheDocument();
+  expect(
+    screen.getByText('https://console.aws.amazon.com'),
+  ).toBeInTheDocument();
   expect(screen.getAllByLabelText('Password masked')).toHaveLength(2);
 
-  const search = screen.getByPlaceholderText('Search site, username or Profile');
+  const search = screen.getByPlaceholderText(
+    'Search site, username or Profile',
+  );
   fireEvent.change(search, { target: { value: 'console.aws' } });
   expect(screen.queryByText('alice@example.com')).not.toBeInTheDocument();
   expect(screen.getByText('bob@example.com')).toBeInTheDocument();
@@ -94,10 +110,14 @@ async function test_AC6_renders_masked_metadata_states_and_filters() {
   expect(screen.getByText('bob@example.com')).toBeInTheDocument();
 
   fireEvent.change(search, { target: { value: 'does-not-exist' } });
-  expect(screen.getByRole('status')).toHaveTextContent('No matching saved passwords');
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'No matching saved passwords',
+  );
 
   rerender(<SavedPasswordsPage {...props({ state: 'ready', entries: [] })} />);
-  expect(screen.getByRole('status')).toHaveTextContent('No saved passwords yet');
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'No saved passwords yet',
+  );
 }
 
 describe('SavedPasswordsPage', () => {
@@ -112,11 +132,15 @@ describe('SavedPasswordsPage', () => {
 
     const githubRow = screen.getByText('alice@example.com').closest('article');
     expect(githubRow).not.toBeNull();
-    fireEvent.click(within(githubRow!).getByRole('button', { name: 'Open trusted window…' }));
+    fireEvent.click(
+      within(githubRow!).getByRole('button', { name: 'Open trusted window…' }),
+    );
     await waitFor(() => expect(onOpenTrusted).toHaveBeenCalledWith(ENTRIES[0]));
 
     fireEvent.click(within(githubRow!).getByRole('button', { name: 'Delete' }));
-    expect(within(githubRow!).getByText('Delete this saved password?')).toBeInTheDocument();
+    expect(
+      within(githubRow!).getByText('Delete this saved password?'),
+    ).toBeInTheDocument();
     expect(onDelete).not.toHaveBeenCalled();
 
     fireEvent.click(within(githubRow!).getByRole('button', { name: 'Delete' }));
@@ -126,10 +150,52 @@ describe('SavedPasswordsPage', () => {
   it('fails closed when encryption is unavailable and keeps disclosure visible', () => {
     render(<SavedPasswordsPage {...props({ state: 'unavailable' })} />);
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Password protection is unavailable');
-    expect(screen.getAllByRole('button', { name: 'Open trusted window…' })[0]).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Password protection is unavailable',
+    );
+    expect(
+      screen.getAllByRole('button', { name: 'Open trusted window…' })[0],
+    ).toBeDisabled();
     expect(screen.getByText('After filling a web page')).toBeInTheDocument();
-    expect(screen.getByText('After copying to the clipboard')).toBeInTheDocument();
+    expect(
+      screen.getByText('After copying to the clipboard'),
+    ).toBeInTheDocument();
     expect(screen.getAllByLabelText('Password masked')).toHaveLength(2);
+  });
+
+  it('test_AC6_AC9_remote_authority_offline_shows_no_stale_metadata_and_safe_alert', async () => {
+    const staleRemoteEntry = {
+      ...ENTRIES[0],
+      username: 'stale-remote-secret-owner@example.com',
+    };
+    (window as unknown as { okwork: unknown }).okwork = {
+      passwordVault: {
+        listMetadata: vi.fn(async () => ({
+          entries: [staleRemoteEntry],
+          unavailableProfiles: [
+            {
+              profileId: 'profile-work',
+              code: 'VAULT_REMOTE_AUTHORITY_OFFLINE',
+            },
+          ],
+        })),
+        deleteEntry: vi.fn(),
+        openTrusted: vi.fn(),
+        capabilities: vi.fn(async () => ({ encryptionAvailable: true })),
+        onChanged: vi.fn(() => () => undefined),
+      },
+    };
+
+    render(<SavedPasswordsPage profiles={PROFILES} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Password protection is unavailable',
+    );
+    expect(
+      screen.queryByText('stale-remote-secret-owner@example.com'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/selected password storage is unavailable/i),
+    ).toBeInTheDocument();
   });
 });
