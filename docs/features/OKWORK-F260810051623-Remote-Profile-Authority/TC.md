@@ -21,7 +21,7 @@ tests:
     level: integration
     priority: P0
     ci: true
-    ci_reason: "普通 Host token 或错配专用凭据能够读取、写入或枚举远端 Profile/Vault，会突破密码明文的 main-only 安全边界。"
+    ci_reason: "普通 renderer 若获得专用 Profile/Vault 方法或 capability，或错配专用凭据能探测条目，会突破 main-only 接口边界；同 SSH 用户的任意 FS/PTY 明确属于 Remote Host 信任边界。"
   - id: TC-004
     file: src/main/__tests__/remoteProfileAuthority.test.ts
     function: test_AC4_migration_locks_mutations_and_reads_only_from_source_until_verified_switch
@@ -104,7 +104,7 @@ tests:
 |---|---|---|---|---|
 | AC-1 | Profile 的唯一、持久化 authority 与 Default 规则 | P0 | TC-001, TC-002 | ✅ |
 | AC-2 | 可用目标、信任披露与二次确认 | P0 | TC-002 | ✅ |
-| AC-3 | 远端 Vault 的 main-only 授权与拒绝 | P0 | TC-003 | ✅ |
+| AC-3 | 远端 Vault 的 main-only 接口隔离、错配凭据拒绝与 Remote Host 信任披露 | P0 | TC-003 | ✅ |
 | AC-4 | copy → verify → switch 的可恢复迁移 | P0 | TC-004, TC-005 | ✅ |
 | AC-5 | 提交边界、cleanup pending 与重试 | P0 | TC-006, TC-007 | ✅ |
 | AC-6 | Remote authority 断线 fail-closed | P0 | TC-008, TC-012 | ✅ |
@@ -138,22 +138,24 @@ And 网络出口改变不会改变 authority
 Given 用户在 Settings → Browser Settings → Browser Profiles 打开一个 Profile 的存储位置操作，页面没有说明气泡或 AUTHORITY 标识
 When 目标列表包含 ready 兼容、断线、不兼容和正在迁移的 Remote Host
 Then 仅 ready 且兼容的 Host 可以提交
+And 兼容性来自 main 对当前连接代的 describe；连接代变化会先清除旧状态再重新验证
 And 界面显示目标别名、Host 可解密的信任披露、Copying → Verifying → Switching 与失败保留原位置的说明
 When 用户未作二次确认，或选择不可用目标
 Then 迁移不开始，并给出可行动原因
 ```
 
-### Scenario: TC-003 普通 Host 授权与所有错配专用凭据均不能探测远端 Vault
+### Scenario: TC-003 普通 renderer 无专用 Vault 接口，所有错配专用凭据均不能探测数据
 **优先级**: P0  
 **类型**: 安全、异常  
 **测试层级**: integration
 
 ```gherkin
 Given 某 Profile 的 authority 是 Remote Host，且该 Host 有一个已保存的 exact-origin 密码
-When 普通或恶意 renderer、Agent 持现有通用 Host token，或调用方持过期、错 Host、错 Profile 的专用凭据
-Then 对 Profile 配置和 Vault 的读取、保存、迁移、解密与 capability 枚举全部被拒绝
+When 普通或恶意 renderer 检查 preload/通用 Host RPC，或调用方持过期、错 Host、错 Profile、错连接代的专用凭据
+Then 普通 renderer 不存在 Profile/Vault 专用方法或 capability，错配专用请求统一被拒绝
 And 响应不包含条目、密码、能力是否存在或可据以推断它们的信息
 And 密码明文只在 main、既有可信 guest/trusted surface 与 Host 专用 main-only 通路中可达
+And Host 管理员、配置的 SSH OS 用户及能以该用户执行任意 FS/PTY 的进程或 Agent 属于明确披露的远端解密信任边界，本测试不宣称 capability 能隔离同 UID shell
 ```
 
 ### Scenario: TC-004 迁移在切换前始终只读源并锁住所有变更
@@ -342,3 +344,5 @@ And Host 删除显示依赖与恢复入口，不执行删除或自动迁回本�
 | 日期 | 变更 |
 |---|---|
 | 2026-08-10 | 初稿：覆盖 authority、main-only 授权、迁移恢复、fail-closed、删除依赖与零秘密验收。 |
+| 2026-08-10 | Review F2：TC-002 增加 ready-but-incompatible 提交前禁用、可行动升级原因及连接代重新验证回归。 |
+| 2026-08-10 | Review F1 用户裁决：TC-003 收敛为 main-only 接口隔离与错配凭据拒绝；同 SSH 用户/终端 Agent 按 WS-02 进入 Remote Host 信任边界。 |

@@ -138,10 +138,51 @@
       "active_minutes": 20
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-08-10T13:34:18Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T13:34:18Z",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "completed_at": "2026-08-10T13:42:07Z",
+      "auto_commit": "0f8f622176ded4c5c2b1367974f622c54e0863f7",
+      "artifacts": [
+        "REVIEW.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-10T13:34:18Z",
+          "completed_at": "2026-08-10T13:42:07Z",
+          "review_commit": "0f8f622176ded4c5c2b1367974f622c54e0863f7",
+          "verdict": "NEEDS_REVISION",
+          "new_findings_count": 2,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "BLOCKER",
+          "status": "open",
+          "title": "持有既有通用 Host WebSocket token 的客户端仍可直接读取或篡改远端 profile-store 密钥与密文",
+          "source": "arch",
+          "deferred_reason": "",
+          "round_opened": 1
+        },
+        {
+          "id": "F2",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "迁移目标选择器仅按 Host ready 放行，未在提交前排除不兼容的远端 Host",
+          "source": "qa",
+          "deferred_reason": "",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 7,
+      "active_minutes": 7
     }
   },
   "completed_stages": [
@@ -170,9 +211,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T13:34:30Z",
-  "updated_by": "stage-cost",
-  "_state_checksum": "sha256:0f2bc88ffbe87fdbf39faf7f9ab0eed0fab9ac20b3e145cf939f3ed824563631",
+  "updated_at": "2026-08-10T13:47:30Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:bde12a795409cbc42f96cc1a63299c1f3f0ce470ec2ac1e5bbf0fd07b66c9068",
   "legal_next_stages": [
     "test",
     "dev"
@@ -239,5 +280,10 @@
       "note": "",
       "at": "2026-08-10T12:42:04Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "review",
+    "label": "F1 安全信任边界裁决",
+    "started_at": "2026-08-10T13:47:30Z"
+  }
 }

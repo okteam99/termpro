@@ -28,6 +28,7 @@ import type {
   BrowserProfile,
   BrowserProfileInput,
   BrowserProfileSummary,
+  ProfileStorageTargetStatus,
 } from '../../../../shared/browserProfile';
 
 function profile(
@@ -49,8 +50,10 @@ function mockBridge(
   overrides: {
     save?: (input: BrowserProfileInput) => Promise<BrowserProfile>;
     delete?: (payload: { id: string }) => Promise<void>;
+    storageTargets?: () => Promise<ProfileStorageTargetStatus[]>;
   } = {},
 ) {
+  let remoteEventListener: (() => void) | null = null;
   const bridge = {
     list: vi.fn().mockResolvedValue([]),
     save: vi.fn(
@@ -64,6 +67,12 @@ function mockBridge(
     ),
     delete: vi.fn(overrides.delete ?? (async () => undefined)),
     retryDelete: vi.fn(async () => ({ status: 'deleted' as const })),
+    listStorageTargets: vi.fn(
+      overrides.storageTargets ??
+        (async () => [
+          { hostId: 'host-1', compatibility: 'compatible' as const },
+        ]),
+    ),
     planStorageChange: vi.fn(
       async (input: { profileId: string; target: unknown }) => ({
         planId: 'plan-1',
@@ -101,9 +110,17 @@ function mockBridge(
         },
       ]),
       stages: vi.fn(async () => ({ 'host-1': 'ready' })),
+      onEvent: vi.fn((callback: () => void) => {
+        remoteEventListener = callback;
+        return () => {
+          remoteEventListener = null;
+        };
+      }),
     },
   };
-  return bridge;
+  return Object.assign(bridge, {
+    emitRemoteEvent: () => remoteEventListener?.(),
+  });
 }
 
 beforeEach(() => {
@@ -255,6 +272,7 @@ describe('BrowserProfilesSection', () => {
 
     fireEvent.click(screen.getAllByText('Change location')[1]);
     await screen.findByText('build-box');
+    expect(bridge.listStorageTargets).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByText('build-box'));
     fireEvent.click(screen.getByText('Continue'));
 
@@ -265,6 +283,11 @@ describe('BrowserProfilesSection', () => {
       }),
     );
     expect(screen.getByText('Move to build-box')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This Remote Host, its administrators, and processes running as the configured SSH user can decrypt the Profile data and saved passwords.',
+      ),
+    ).toBeInTheDocument();
     expect(bridge.confirmStorageChange).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText('Move Profile'));
@@ -273,6 +296,60 @@ describe('BrowserProfilesSection', () => {
         planId: 'plan-1',
       }),
     );
+  });
+
+  it('test_AC2_disables_ready_but_incompatible_target_with_actionable_reason_before_submit', async () => {
+    const bridge = mockBridge({
+      storageTargets: async () => [
+        {
+          hostId: 'host-1',
+          compatibility: 'incompatible',
+          code: 'PROFILE_STORAGE_INCOMPATIBLE',
+        },
+      ],
+    });
+    useAppStore.setState({ browserProfiles: [profile()] });
+    render(<BrowserProfilesSection />);
+
+    fireEvent.click(screen.getAllByText('Change location')[1]);
+    const host = await screen.findByText('build-box');
+    const choice = host.closest('label');
+    expect(choice).toHaveAttribute('aria-disabled', 'true');
+    expect(choice?.querySelector('input')).toBeDisabled();
+    expect(screen.getByText('Continue')).toBeDisabled();
+    expect(
+      screen.getByText('Update this Remote Host to use Profile storage'),
+    ).toBeInTheDocument();
+    expect(bridge.planStorageChange).not.toHaveBeenCalled();
+  });
+
+  it('test_AC2_clears_compatible_target_state_when_the_host_connection_generation_changes', async () => {
+    let compatible = true;
+    const bridge = mockBridge({
+      storageTargets: async () =>
+        compatible
+          ? [{ hostId: 'host-1', compatibility: 'compatible' }]
+          : [
+              {
+                hostId: 'host-1',
+                compatibility: 'incompatible',
+                code: 'PROFILE_STORAGE_INCOMPATIBLE',
+              },
+            ],
+    });
+    useAppStore.setState({ browserProfiles: [profile()] });
+    render(<BrowserProfilesSection />);
+
+    fireEvent.click(screen.getAllByText('Change location')[1]);
+    const host = await screen.findByText('build-box');
+    fireEvent.click(host);
+    expect(screen.getByText('Continue')).not.toBeDisabled();
+
+    compatible = false;
+    bridge.emitRemoteEvent();
+
+    await screen.findByText('Update this Remote Host to use Profile storage');
+    expect(screen.getByText('Continue')).toBeDisabled();
   });
 
   it('远程存储离线时保留页面会话提示并禁用修改', () => {

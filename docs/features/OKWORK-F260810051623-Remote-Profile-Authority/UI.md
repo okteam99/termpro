@@ -54,7 +54,7 @@ pages_changed:
 |-------|----------|---------------------|----------|
 | AC-1 | 每个 Profile（含 Default）明示唯一 authority，重启/出口切换不改变 | `/settings/browser-profiles` Profile rows；`/settings/browser-passwords` authority context；OkBrowser vault disclosure | ✅ 设计覆盖 |
 | AC-2 | 仅 ready/兼容 Host 可提交，二次确认目标、信任边界和迁移后果 | `/settings/browser-profiles` Change authority → target picker → confirmation | ✅ 设计覆盖 |
-| AC-3 | Remote Vault 的 main-only 独立授权与拒绝矩阵 | Profile 风险披露、metadata-only 页面、trusted surface 无通用明文入口 | ⚠️ UI 边界已覆盖；授权负测由 Blueprint/RD 实现 |
+| AC-3 | Remote Vault 的 main-only 接口隔离；Host 管理员、同 SSH 用户及其终端/Agent 属于远端解密信任边界 | Profile 迁移确认中的普通文字披露、metadata-only 页面、trusted surface 无通用明文入口 | ⚠️ UI 边界已覆盖；授权负测由 Blueprint/RD 实现 |
 | AC-4 | copy→verify→switch；迁移期阻止 mutations、reads 仍走源 | `/settings/browser-profiles` migration progress 与 disabled mutation actions | ✅ 设计覆盖 |
 | AC-5 | commit 前失败保留源；commit 后 cleanup pending 不回切 | `/settings/browser-profiles` migration error、success、cleanup pending；`/settings/remote-hosts` cleanup dependency | ✅ 设计覆盖 |
 | AC-6 | Remote authority offline 时所有密码动作 fail-closed，Cookie 状态分开呈现 | Browser Profiles、Saved Passwords 空面、OkBrowser status、trusted authority-lost error | ✅ 设计覆盖 |
@@ -69,6 +69,7 @@ pages_changed:
 | 2026-08-10 | BL-007 初稿：在四个既有 route 叠加 authority、迁移、断线与 Host 删除保护 | `preview-project/src/main.jsx`、`latest-ui-sync.css` |
 | 2026-08-10 | 用户反馈：移除说明气泡与面向用户的 Authority 标识，改用普通“存储位置/密码存储”文本 | `preview-project/src/main.jsx`、`latest-ui-sync.css` |
 | 2026-08-10 | 用户确认 UI 候选，冻结本阶段视觉与交互意图 | `UI.md` |
+| 2026-08-10 | Review F1 用户裁决：迁移确认以普通文字明确披露 Host 管理员、同 SSH 用户及其终端/Agent 可解密；不恢复气泡或 AUTHORITY 标识 | `preview-project/src/main.jsx`、`BrowserProfilesSection.tsx` |
 
 ## Designer 自查报告
 

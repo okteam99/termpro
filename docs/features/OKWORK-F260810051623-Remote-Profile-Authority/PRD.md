@@ -56,6 +56,7 @@ revision_history:
   - {version: "0.1", date: "2026-08-10", changes: "首版草稿：定义远程权威、迁移、断线与删除边界"}
   - {version: "0.2", date: "2026-08-10", changes: "冷审修订：拆分 authority 提交前失败与提交后源清理失败；补足 main-only 独立授权的负向验收"}
   - {version: "0.3", date: "2026-08-10", changes: "用户最终确认：Default Profile 可迁移 authority；被依赖的 Remote Host 删除必须先阻止并完成迁移/清理"}
+  - {version: "0.4", date: "2026-08-10", changes: "Review 用户裁决：沿用 WS-02 的 Remote Host 信任边界；同 SSH 用户及其终端/Agent 可信，main-only 只承诺接口隔离"}
 -->
 
 # Remote Host Profile 权威存储与迁移
@@ -71,6 +72,8 @@ BL-006 已交付按 Browser Profile 隔离的本机密码 Vault、自动保存/�
 当前实现中，自定义 Profile 配置写入本机 `browser-profiles.json`，内置 Default Profile 是不落盘的虚拟 Profile；密码写入本机 `browser-password-vault/<profileId>.json`。Remote Host 已有连接编排和稳定数据根，但现有通用 Host RPC 也可供 renderer 使用，不能直接承载 Profile 密码明文。本 Feature 因此需要同时建立“每个 Profile 只有一个权威”的产品语义、可恢复的迁移流程，以及与现有 guest / ordinary / trusted 密码权限面等价的远程安全边界。
 
 这里的 **Profile authority（Profile 权威位置）** 指 Profile 配置和密码 Vault 唯一被认可的持久化读写源，可为 `This device` 或一个明确的 Remote Host。它不同于 **Network exit（网络出口）**：后者只决定浏览器流量从哪里出去，不决定密码存在哪里。
+
+Remote Host 的信任边界沿用用户已确认的 WS-02：Host 管理员、配置的 SSH OS 用户，以及能以该用户执行任意文件或终端操作的进程/Agent 都属于远端解密信任边界。main-only 专用 RPC 用于阻止普通 renderer 直接获得密码方法或专用 capability，并隔离错 Host/Profile/连接代凭据；它不是同一 OS 用户内部的文件或 shell 沙箱。迁移到远端前必须在确认步骤明确披露这一点。
 
 ## 用户故事
 
@@ -99,7 +102,7 @@ BL-006 已交付按 Browser Profile 隔离的本机密码 Vault、自动保存/�
 |----|-------------|-----------|--------|----------|
 | AC-1 | Given 任意可用 Browser Profile（包括内置 Default Profile） / When 用户查看、迁移 authority 或重启应用 / Then UI 与 main 均得到同一个持久化 authority：`This device` 或一个稳定的 Remote Host 标识；Default Profile 可迁移 authority 但仍不可改名或删除；网络出口不得改变 authority | 每个 Profile 都能选择并清楚显示密码和配置究竟存在哪，Default 也不例外 | P0 | Blueprint 填写 |
 | AC-2 | Given 用户为 Profile 选择新 authority / When 目标是已连接且具备 Profile 存储能力的 Host / Then 系统显示目标 Host 别名、Remote Host 可解密的信任披露、迁移步骤与失败保留原权威的说明，并须二次确认；未连接、不兼容或正在迁移的目标不可提交且给出可行动原因 | 迁移前先看清数据要去哪、谁能解密；不可用的 Host 不会“选了再失败” | P0 | Blueprint 填写 |
-| AC-3 | Given Profile authority 为 Remote Host / When Profile 配置或 Vault 被持久化、读取、保存、填充、显示、复制或迁移 / Then 配置和 Vault 只由该 Host 的加密存储提供，密码归属仍为 `profileId + exact origin`；密码明文只经过 Electron main、既有可信 guest / trusted surface 与 Host 的专用 main-only 能力。main 必须使用与现有通用 Host RPC 独立授权且绝不经 preload、renderer 事件或 renderer token 转交的路径；持有现有通用 Host token 的普通/恶意 renderer 或 Agent，以及过期、错 Host、错 Profile 的专用凭据，对 Profile/Vault 读取、写入、迁移、解密和 capability 枚举均被拒绝，且响应不泄露条目或能力是否存在 | 远程存储不是把密码 API 暴露给前端；拿到普通 Host token 也打不开或探测密码库 | P0 | Blueprint 填写 |
+| AC-3 | Given Profile authority 为 Remote Host / When Profile 配置或 Vault 被持久化、读取、保存、填充、显示、复制或迁移 / Then 配置和 Vault 只由该 Host 的加密存储提供，密码归属仍为 `profileId + exact origin`；密码明文只经过 Electron main、既有可信 guest / trusted surface 与 Host 的专用 main-only 能力。main 必须使用不加入通用 Host RPC、preload、renderer 事件或 renderer token 的独立路径；普通 renderer 不获得 Profile/Vault 专用方法或 capability，过期、错 Host、错 Profile、错连接代的专用凭据统一被拒且不泄露存在性。Host 管理员、配置的 SSH OS 用户及能以该用户执行任意 FS/PTY 的进程/Agent 明确属于远端解密信任边界，不承诺用 RPC capability 隔离同 UID shell | 密码 API 不暴露给普通页面；但选择远端也等于信任那台机器、SSH 用户及其终端/Agent | P0 | Blueprint 填写 |
 | AC-4 | Given 源与目标 authority 可用 / When 用户确认本机↔Remote Host 或 Remote Host A→B 的迁移 / Then 系统持久化可恢复迁移状态，并依次复制、完整性校验、原子切换 authority、延迟清理源；复制与校验期间源仍是唯一 authority，配置与 Vault 的新增/更新/删除被阻止且不离线排队，只读列表/显示/复制/填充仍从源提供；进程重启或迟到响应不得产生双写或零权威 | 搬家时先锁住会改数据的操作，读仍走老家；验完整才换地址，重启也不会搬成两份“真数据” | P0 | Blueprint 填写 |
 | AC-5 | Given 一次迁移发生失败、崩溃或连接切代 / When 持久化恢复记录显示 authority 原子提交尚未完成 / Then 原位置仍是唯一 authority，原数据不减少，不完整目标副本永不被读取，UI 以 `role=alert` 显示失败阶段、原权威仍有效及 Retry；When 恢复记录显示 authority 已提交（目标必须已在提交前通过完整性校验） / Then 新位置保持唯一 authority，即使新位置随即离线也只按 AC-6 fail-closed，旧源永不被读取或自动回切；源清理失败显示 `cleanup pending` 警告并可幂等重试，涉及该源的 Host 删除持续受阻 | 持久化的换址提交是唯一分界：提交前失败留在老家，提交后只认新家；新家随即离线也不会偷偷回切 | P0 | Blueprint 填写 |
 | AC-6 | Given Remote Host 是当前 authority / When Host 断线、超时、重启、睡眠恢复切代，或远端加密材料/文档不可用、损坏、版本不兼容 / Then 密码 metadata/list、显示、复制、删除、保存、更新和填充全部 fail-closed，不显示陈旧条目、不创建或读取本机影子 Vault、不排队写入；Profile 配置修改和 authority 迁移也暂停；重连后须从当前连接代重新读取并校验才恢复。已打开页面可继续使用本机 Chromium Cookie，但 UI 必须明确“页面会话可能继续、密码能力已暂停” | 远程密码库掉线就老实停用，不假装空库或偷用本机旧密码；网页 Cookie 是另一回事 | P0 | Blueprint 填写 |
@@ -174,7 +177,7 @@ sequenceDiagram
 ## 开工前必须想清的（结构没问到的）
 
 - **🔁 既有行为**：有两处。Default Profile 当前不可编辑且不落盘，D-1 决定是否只开放 authority；Remote Host 当前可直接删除，D-2 决定被 Profile 引用时改为阻止。两项都已进入待决策表，未把推荐当成既定事实。
-- **🧱 隐藏前提**：Remote Host 必须先 ready 且声明兼容的 Profile 存储能力，才能成为迁移目标；main 与 Host 之间还必须建立普通 renderer 无法复用的专用能力。任一前提不成立，远程目标必须保持不可选，而不是退回通用 RPC 或本机影子 Vault。
+- **🧱 隐藏前提**：Remote Host 必须先 ready 且声明兼容的 Profile 存储能力，才能成为迁移目标；main 与 Host 之间还必须建立普通 renderer 无法直接调用的专用能力。该能力只隔离应用接口，不隔离同一 SSH OS 用户的任意 FS/PTY；后者按 WS-02 属于用户选择远端时接受的信任边界。任一可用性前提不成立，远程目标必须保持不可选，而不是退回通用 RPC 或本机影子 Vault。
 - **🌊 跨子系统涟漪**：会波及 Browser Profile DTO/store、同步 PasswordVaultPort、guest 保存/填充、ordinary/trusted IPC、Profile 删除状态机、Remote Host 连接代与删除流程、preload 类型声明、五处现有 UI 和预览全景。Blueprint 必须先统一异步/取消/超时契约，不能只替换本机存储类。
 - **❓ 最不确定**：纯 Node Remote Host 没有 Electron `safeStorage`，需要在既定“Host 管理员、同 SSH 用户与专用 capability 持有者可解密”的信任边界内选择可运维的远端密钥方案；这是高风险技术决策，需在 TECH 中写威胁模型和恢复/损坏行为，并由安全测试验证，但不改变本 PRD 的用户承诺。
 
@@ -185,3 +188,4 @@ sequenceDiagram
 | 2026-08-10 | v0.1：根据 WS-02、ADR-0002 和当前代码起草远程 authority、迁移、断线与删除规则 |
 | 2026-08-10 | v0.2：采纳 Round 1 两项 high finding；统一提交前/提交后失败语义，并加入通用 renderer token 的拒绝式验收 |
 | 2026-08-10 | v0.3：用户选择 D-1A、D-2A，锁定 Default Profile 可迁移与 Host 删除保护规则 |
+| 2026-08-10 | v0.4：用户在 Review 选择沿用 WS-02 信任边界；明确同 SSH 用户/终端 Agent 可信，main-only 是接口隔离而非同 UID OS 隔离 |

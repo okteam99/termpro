@@ -103,13 +103,79 @@ describe('main-only RemoteProfileProvider security', () => {
     expect(profileFiles).toEqual([]);
   });
 
+  it('test_AC2_scopes_storage_target_compatibility_to_the_current_connection_generation', async () => {
+    const remote = provider();
+    await expect(remote.storageTargetStatus()).resolves.toEqual({
+      hostId: HOST_ID,
+      compatibility: 'compatible',
+    });
+    await expect(remote.storageTargetStatus()).resolves.toEqual({
+      hostId: HOST_ID,
+      compatibility: 'compatible',
+    });
+    expect(requests.filter((request) => request.op === 'describe')).toHaveLength(
+      1,
+    );
+
+    generation = 'generation-2';
+    await expect(remote.storageTargetStatus()).resolves.toEqual({
+      hostId: HOST_ID,
+      compatibility: 'compatible',
+    });
+    expect(requests.filter((request) => request.op === 'describe')).toHaveLength(
+      2,
+    );
+
+    remote.invalidate('generation-2');
+    await expect(remote.storageTargetStatus()).resolves.toEqual({
+      hostId: HOST_ID,
+      compatibility: 'compatible',
+    });
+    expect(requests.filter((request) => request.op === 'describe')).toHaveLength(
+      3,
+    );
+  });
+
+  it('test_AC2_reports_a_stable_incompatible_status_for_a_ready_host', async () => {
+    const incompatible = new RemoteProfileProvider({
+      hostId: HOST_ID,
+      clientId: randomBytes(32).toString('base64url'),
+      getTransport: () => ({
+        hostId: HOST_ID,
+        generation: 'old-bundle',
+        invoke: async (request) => ({
+          ok: true,
+          requestId: request.requestId,
+          data: {
+            protocolVersion: 0,
+            bundleVersion: 0,
+            encryption: 'unsupported',
+          },
+        }),
+      }),
+    });
+
+    await expect(incompatible.storageTargetStatus()).resolves.toEqual({
+      hostId: HOST_ID,
+      compatibility: 'incompatible',
+      code: 'PROFILE_STORAGE_INCOMPATIBLE',
+    });
+  });
+
   it('test_AC3_rejects_renderer_and_invalid_main_only_capabilities_without_enumeration', async () => {
     const preloadSource = fs.readFileSync(
       path.resolve(__dirname, '../../preload/preload.ts'),
       'utf8',
     );
+    const generalHostProtocolSource = fs.readFileSync(
+      path.resolve(__dirname, '../../shared/protocol.ts'),
+      'utf8',
+    );
     expect(preloadSource).not.toContain('--profile-store-rpc');
     expect(preloadSource).not.toContain('RemoteProfileProvider');
+    expect(generalHostProtocolSource).not.toContain("'profile.get'");
+    expect(generalHostProtocolSource).not.toContain("'vault.get'");
+    expect(generalHostProtocolSource).not.toContain("'migration.stage'");
 
     const remote = provider();
     const profile = { id: PROFILE_ID, name: 'Remote Profile', createdAt: 10 };

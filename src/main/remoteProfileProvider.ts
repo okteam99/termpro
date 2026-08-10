@@ -6,6 +6,7 @@ import {
   type BrowserProfileInput,
   type ProfileStorageErrorCode,
   type ProfileStorageRef,
+  type ProfileStorageTargetStatus,
 } from '../shared/browserProfile';
 import type {
   PasswordCredentialMetadata,
@@ -183,6 +184,7 @@ export class RemoteProfileProvider implements ProfileDataProvider {
   private readonly logger: NonNullable<RemoteProfileProviderDeps['logger']>;
   private readonly capabilities = new Map<string, CapabilityLease>();
   private readonly describedGenerations = new Set<string>();
+  private readonly incompatibleGenerations = new Set<string>();
   private readonly operationScopes = new Map<string, OperationScope>();
 
   constructor(private readonly deps: RemoteProfileProviderDeps) {
@@ -220,6 +222,58 @@ export class RemoteProfileProvider implements ProfileDataProvider {
     }
     this.describedGenerations.add(transport.generation);
     return data as RemoteProfileDescription;
+  }
+
+  /** UI target eligibility, always scoped to the transport generation observed by this check. */
+  async storageTargetStatus(): Promise<ProfileStorageTargetStatus> {
+    const transport = this.transport();
+    if (!transport) {
+      return {
+        hostId: this.deps.hostId,
+        compatibility: 'unavailable',
+        code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE',
+      };
+    }
+    if (this.describedGenerations.has(transport.generation)) {
+      return { hostId: this.deps.hostId, compatibility: 'compatible' };
+    }
+    if (this.incompatibleGenerations.has(transport.generation)) {
+      return {
+        hostId: this.deps.hostId,
+        compatibility: 'incompatible',
+        code: 'PROFILE_STORAGE_INCOMPATIBLE',
+      };
+    }
+    try {
+      await this.describe();
+      if (this.currentGeneration() !== transport.generation) {
+        throw new RemoteProfileProviderError('PROFILE_STORAGE_OFFLINE');
+      }
+      return { hostId: this.deps.hostId, compatibility: 'compatible' };
+    } catch (error) {
+      const code =
+        error instanceof RemoteProfileProviderError
+          ? error.code
+          : 'PROFILE_STORAGE_IO_FAILED';
+      if (
+        this.currentGeneration() === transport.generation &&
+        (code === 'PROFILE_STORAGE_INCOMPATIBLE' ||
+          code === 'PROFILE_STORAGE_ENCRYPTION_UNAVAILABLE' ||
+          code === 'PROFILE_STORAGE_IO_FAILED')
+      ) {
+        this.incompatibleGenerations.add(transport.generation);
+        return {
+          hostId: this.deps.hostId,
+          compatibility: 'incompatible',
+          code: 'PROFILE_STORAGE_INCOMPATIBLE',
+        };
+      }
+      return {
+        hostId: this.deps.hostId,
+        compatibility: 'unavailable',
+        code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE',
+      };
+    }
   }
 
   async createProfile(input: BrowserProfileInput): Promise<BrowserProfile> {
@@ -421,6 +475,8 @@ export class RemoteProfileProvider implements ProfileDataProvider {
     }
     if (generation) this.describedGenerations.delete(generation);
     else this.describedGenerations.clear();
+    if (generation) this.incompatibleGenerations.delete(generation);
+    else this.incompatibleGenerations.clear();
   }
 
   private async authorizedInvoke(

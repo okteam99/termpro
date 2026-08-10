@@ -1882,7 +1882,7 @@ function AuthorityChangeDialog({ profile, currentAuthority, onCommit, onClose })
             {target?.kind === 'remote' && (
               <div className="authority-dialog__trust" role="note">
                 <strong>Remote Host 可解密此 Profile</strong>
-                <span>目标机管理员、同一 SSH 用户和持有专用授权的 OkWork main 可访问配置与 Vault。普通 renderer 与 Agent 不会获得此能力。</span>
+                <span>目标机管理员、同一 SSH 用户以及以该用户运行的终端/Agent 都可访问并解密配置与 Vault。普通 renderer 没有专用密码 RPC；通用终端访问本身属于远端信任边界。</span>
               </div>
             )}
             <ol className="authority-dialog__plan" aria-label="Migration plan">

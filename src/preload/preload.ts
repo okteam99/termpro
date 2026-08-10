@@ -12,6 +12,7 @@ import type {
   ProfileStorageChangePlan,
   ProfileStorageChangeResult,
   ProfileStorageRef,
+  ProfileStorageTargetStatus,
 } from '../shared/browserProfile';
 import {
   PASSWORD_VAULT_CHANNELS,
@@ -440,6 +441,9 @@ contextBridge.exposeInMainWorld('okwork', {
       id: string;
     }): Promise<BrowserProfileDeletionResult> {
       return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.retryDelete, payload);
+    },
+    listStorageTargets(): Promise<ProfileStorageTargetStatus[]> {
+      return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.listStorageTargets);
     },
     planStorageChange(payload: {
       profileId: string;

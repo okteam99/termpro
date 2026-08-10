@@ -68,19 +68,22 @@ renderer (仅摘要/意图)
 2. `ProfileAuthorityService` 同时实现异步 Profile repository 与异步 `PasswordVaultPort`，按 catalog 路由到 local/remote provider。任何 mutation 在迁移期间统一拒绝；read 在提交前只走源，提交后只走目标。
 3. Remote provider 只接受 orchestrator 暴露的 main 内部 `RemoteProfileTransport`。它不加入 preload、`shared/protocol.ts`、`HostCore` 或通用 WS 方法表。
 4. `host.js --profile-store-rpc` 从 stdin 读取一个有大小上限的 JSON 请求，从 stdout 返回一个有大小上限的 JSON 响应；argv/env/日志都不带 password 或 capability。
-5. ready 后 main 先通过 SSH 专属 bootstrap 操作签发 `{clientId, profileId, connectionGeneration}` 范围的短期 capability；普通 Host token、其他 Profile/Host/连接代或过期 capability 均得到相同 `PROFILE_RPC_FORBIDDEN`。
+5. ready 后 main 先通过 SSH 专属 bootstrap 操作签发 `{clientId, profileId, connectionGeneration}` 范围的短期 capability；普通 Host token 若被当作专用 capability 提交，以及其他 Profile/Host/连接代或过期 capability，均得到相同 `PROFILE_RPC_FORBIDDEN`。这只建立 Profile/Vault API 的接口隔离，不宣称隔离同一 SSH OS 用户的任意 FS/PTY。
 6. 远端 Profile 配置 + Vault 作为一个 `ProfileBundleV1` 整体用 AES-256-GCM 加密。master key 与密文均只落在远端 0600 文件，目录 0700；密文存在而 key 缺失/损坏时拒绝重新生成 key。
 7. main 仅缓存当前 ready 连接代已成功解密并校验的 Profile 配置。`disconnected/failed`、系统恢复重置或 generation 改变时同步擦除缓存、关闭 trusted window、把 guest 状态置为 unavailable；已打开页面 Cookie 可继续，但不再保存/填充密码。
+8. Browser Profiles 的目标列表通过 `browserProfile:listStorageTargets` 在 main 对每个 Host 的当前连接代执行 `describe`。renderer 只有同时看到 Host stage=`ready` 与 compatibility=`compatible` 才启用目标；不兼容状态按 generation 缓存，断线/切代事件先清 UI 旧状态再重新查询。
 
 ### 安全与信任边界
 
 - 专属 RPC 的 bootstrap 权限来自已经认证的 SSH exec，而非通用 Host token；renderer 没有 SSH 对象或 exec IPC。
+- 通用 Host RPC 不含 Profile/Vault 业务方法，preload/renderer 也不获得专用 capability；但是通用 Host token 可按产品既有能力启动配置 SSH 用户的任意 PTY 并访问其文件。因此持有该终端能力的主体、Host 管理员与同 SSH OS 用户均属于远端解密信任边界，不能把 main-only capability 误述为同 UID 的 OS 沙箱。
+- `0700/0600` 保护其他 OS 用户，不能阻止同 UID 读取 `master.key` 或密文。用户已选择沿用 WS-02 的信任模型；若未来要求隔离终端 Agent，必须另立 Feature 引入独立 OS principal/第二 SSH identity 或 E2EE，不能用路径 deny 冒充隔离。
 - bootstrap 为同一 `clientId + profileId` 覆盖旧 generation 的 grant；旧请求即使迟到也无法通过。capability 只在 main 内存和请求 stdin 中出现；远端仅存 SHA-256 hash、scope 与 expiry。
 - grant TTL 为 10 分钟，main 在剩余不足 2 分钟时经同一 ready generation 轮换；一次业务操作开始后不跨 generation 重试。
 - request/response 上限默认 8 MiB，SSH 操作超时 30 秒；stderr 只允许固定码，未知输出映射为稳定内部错误，禁止把远端原始错误传给 renderer。
 - AES-256-GCM 每次写使用 96-bit 随机 nonce；AAD 为 `okwork-profile-store|v1|profileId|bundle`。master key 为 32 随机字节；`keyId` 为 key 的非秘密摘要，用于检测错 key。
 - 远端目录：`~/.termpro-host/profile-store/{master.key,profiles/<profileId>.json,staging/<operationId>.json,grants.json}`。写入使用同目录 temp + fsync + chmod + rename + 目录 fsync。
-- Remote Host 的同一 SSH OS 用户可启动存储 CLI，且主机本身持有解密 key，所以确认 UI 必须保留“该 Remote Host 可解密”的信任披露。
+- Remote Host 的同一 SSH OS 用户可启动存储 CLI、读取同 UID 文件，且主机本身持有解密 key，所以确认 UI 必须明确披露 Host 管理员、该 SSH 用户及以其运行的终端/Agent 都可解密。
 
 ### 数据结构
 
@@ -442,6 +445,7 @@ sequenceDiagram
 |------|--------|-----------|
 | catalog 与 provider publish 跨两机无法事务提交 | high | target 先 publish 且不可读，catalog 原子写是唯一 authority 边界；operationId 让恢复可判定，提交后绝不回切 |
 | SSH 迟到响应污染新连接代 | high | 每次 await 后比较 session object generation + operationId；新 grant 覆盖旧 generation |
+| 把 main-only RPC 误当成同 UID OS 隔离 | high | 契约与确认 UI 明示 Host 管理员、配置 SSH 用户及其终端/Agent 均可信；通用 Host RPC 不提供 Vault 方法，但不承诺阻止同用户 shell 读文件 |
 | async 改造漏掉 trusted/guest 旧同步调用 | high | grep 台账 + TypeScript 破坏式签名 + 既有 security/flow/ipc tests 全量迁移 |
 | 远端 key 丢失导致不可恢复 | high | 密文存在时禁止自动重建 key；固定 corrupt/encryption error；不删除原文件，不伪装空库 |
 | 大 bundle 占内存或堵 SSH | med | 8 MiB request/response 上限、30 秒 timeout、长度先验；BL-008 再考虑分块/增量 |
@@ -460,6 +464,8 @@ sequenceDiagram
 | 2026-08-10 | 初稿：落定 catalog、main-only SSH stdio provider、远端 AES-GCM、迁移提交点、fail-closed 与删除依赖设计 |
 | 2026-08-10 | 实现完成：接入本机/远端 provider、可恢复迁移、删除依赖门、四处 UI 与 13 条 TC；进入验证档终检 |
 | 2026-08-10 | 验证完成：全量 Vitest 1805/1805、TC 63/63、typecheck/package/Electron E2E/SMOKE_OK；Feature lint 0 error |
+| 2026-08-10 | Review F2：存储目标列表接入当前连接代 `describe` 兼容性状态，ready 但不兼容的 Host 在提交前禁用并提示升级；补 provider generation 与 renderer 回归测试 |
+| 2026-08-10 | Review F1 用户裁决：沿用 WS-02 的同 SSH 用户可信模型；main-only 定义为接口隔离，确认 UI 明示 Host 管理员及同用户终端/Agent 可解密 |
 
 ## 完工自查
 

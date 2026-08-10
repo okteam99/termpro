@@ -395,6 +395,11 @@ export const zh: Record<string, string> = {
   Available: '可用',
   Connected: '已连接',
   'Reconnect this Remote Host first': '请先重新连接此远程机',
+  'Profile storage compatible': 'Profile 存储兼容',
+  'Update this Remote Host to use Profile storage':
+    '请升级此远程机以使用 Profile 存储',
+  'Could not verify Profile storage. Reconnect this Remote Host.':
+    '无法验证 Profile 存储，请重新连接此远程机。',
   'Change storage location': '更改存储位置',
   'Could not load storage locations. Try again.': '无法加载存储位置，请重试。',
   'This storage location is not available. Reconnect or update the Remote Host.':
@@ -412,8 +417,8 @@ export const zh: Record<string, string> = {
   'Move complete. The previous copy still needs cleanup.':
     '迁移已完成，原副本仍需清理。',
   'Move to {location}': '迁移到 {location}',
-  'This Remote Host can decrypt the Profile data and saved passwords.':
-    '此远程机可以解密该 Profile 数据和已保存密码。',
+  'This Remote Host, its administrators, and processes running as the configured SSH user can decrypt the Profile data and saved passwords.':
+    '此远程机、其管理员以及以所配置 SSH 用户运行的进程均可解密该 Profile 数据和已保存密码。',
   'Copying → Verifying → Switching. If the move fails before switching, the current location stays in use.':
     '复制 → 校验 → 切换。若在切换前失败，将继续使用当前位置。',
   'Working…': '处理中…',

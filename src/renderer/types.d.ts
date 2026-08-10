@@ -16,6 +16,7 @@ import type {
   ProfileStorageChangePlan,
   ProfileStorageChangeResult,
   ProfileStorageRef,
+  ProfileStorageTargetStatus,
 } from '../shared/browserProfile';
 import type {
   PasswordMetadataSnapshot,
@@ -219,6 +220,7 @@ declare global {
         retryDelete(payload: {
           id: string;
         }): Promise<BrowserProfileDeletionResult>;
+        listStorageTargets(): Promise<ProfileStorageTargetStatus[]>;
         /** 订阅列表变更(增/删/改),返回退订函数 */
         planStorageChange(payload: {
           profileId: string;

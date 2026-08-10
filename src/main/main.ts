@@ -75,6 +75,7 @@ import {
   type ProfileStorageChangeResult,
   type ProfileStorageErrorCode,
   type ProfileStorageRef,
+  type ProfileStorageTargetStatus,
 } from '../shared/browserProfile';
 import {
   PASSWORD_GUEST_CHANNELS,
@@ -656,6 +657,26 @@ async function broadcastBrowserProfiles(): Promise<void> {
 }
 ipcMain.handle(BROWSER_PROFILE_CHANNELS.list, () =>
   listBrowserProfileSummaries(),
+);
+ipcMain.handle(
+  BROWSER_PROFILE_CHANNELS.listStorageTargets,
+  async (event): Promise<ProfileStorageTargetStatus[]> => {
+    if (BrowserWindow.fromWebContents(event.sender) !== mainWin) {
+      throw Object.assign(new Error('main window only'), {
+        code: 'PROFILE_STORAGE_FORBIDDEN',
+      });
+    }
+    return Promise.all(
+      remoteHostConfigStore.list().map((host) =>
+        (
+          resolveProfileProvider({
+            kind: 'remote',
+            hostId: host.id,
+          }) as RemoteProfileProvider
+        ).storageTargetStatus(),
+      ),
+    );
+  },
 );
 ipcMain.handle(
   BROWSER_PROFILE_CHANNELS.save,

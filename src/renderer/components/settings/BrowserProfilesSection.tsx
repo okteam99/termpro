@@ -3,7 +3,14 @@
 // 支持增/改/删。列表数据来自 store 镜像(profilesSync 服务已订阅 main 的
 // browserProfile:changed 推送,增删改后自动刷新,本组件无需手动 list()/refresh)。
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import './BrowserProfilesSection.css';
 import { t } from '../../../shared/i18n';
 import { useAppStore } from '../../state/store';
@@ -13,6 +20,7 @@ import type {
   BrowserProfileSummary,
   ProfileStorageChangePlan,
   ProfileStorageRef,
+  ProfileStorageTargetStatus,
 } from '../../../shared/browserProfile';
 import { DEFAULT_PROFILE_ID } from '../../../shared/browserProfile';
 import type { RemoteHostConfig, RemoteStage } from '../../../shared/remoteHost';
@@ -74,6 +82,10 @@ export function BrowserProfilesSection() {
   const [storageStages, setStorageStages] = useState<
     Record<string, RemoteStage>
   >({});
+  const [storageTargetStatuses, setStorageTargetStatuses] = useState<
+    Record<string, ProfileStorageTargetStatus>
+  >({});
+  const storageLoadGeneration = useRef(0);
   const [storageBusy, setStorageBusy] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
 
@@ -178,28 +190,55 @@ export function BrowserProfilesSection() {
     }
   }
 
+  const loadStorageLocations = useCallback(async () => {
+    const generation = ++storageLoadGeneration.current;
+    setStorageBusy(true);
+    setStorageHosts([]);
+    setStorageStages({});
+    setStorageTargetStatuses({});
+    try {
+      const [hosts, stages, targetStatuses] = await Promise.all([
+        window.okwork.remoteHost.list(),
+        window.okwork.remoteHost.stages(),
+        window.okwork.browserProfile.listStorageTargets(),
+      ]);
+      if (generation !== storageLoadGeneration.current) return;
+      setStorageHosts(hosts);
+      setStorageStages(stages);
+      setStorageTargetStatuses(
+        Object.fromEntries(
+          targetStatuses.map((status) => [status.hostId, status]),
+        ),
+      );
+    } catch {
+      if (generation !== storageLoadGeneration.current) return;
+      setStorageError(t('Could not load storage locations. Try again.'));
+    } finally {
+      if (generation === storageLoadGeneration.current) setStorageBusy(false);
+    }
+  }, []);
+
   async function openStorageDialog(profile: BrowserProfileSummary) {
     setStorageProfile(profile);
     setStorageTarget(profile.storage);
     setStoragePlan(null);
     setStorageError(null);
-    setStorageBusy(true);
-    try {
-      const [hosts, stages] = await Promise.all([
-        window.okwork.remoteHost.list(),
-        window.okwork.remoteHost.stages(),
-      ]);
-      setStorageHosts(hosts);
-      setStorageStages(stages);
-    } catch {
-      setStorageError(t('Could not load storage locations. Try again.'));
-    } finally {
-      setStorageBusy(false);
-    }
+    await loadStorageLocations();
   }
+
+  useEffect(() => {
+    if (!storageProfile) return;
+    return window.okwork.remoteHost.onEvent(() => {
+      // A ready stage can belong to a new connection generation. Drop old describe state first.
+      setStoragePlan(null);
+      setStorageTargetStatuses({});
+      void loadStorageLocations();
+    });
+  }, [loadStorageLocations, storageProfile]);
 
   function closeStorageDialog() {
     if (storageBusy) return;
+    storageLoadGeneration.current += 1;
     setStorageProfile(null);
     setStoragePlan(null);
     setStorageError(null);
@@ -261,6 +300,12 @@ export function BrowserProfilesSection() {
       setStorageError(t('Retry could not start.'));
     }
   }
+
+  const selectedStorageTargetEligible =
+    storageTarget.kind === 'local' ||
+    (storageStages[storageTarget.hostId] === 'ready' &&
+      storageTargetStatuses[storageTarget.hostId]?.compatibility ===
+        'compatible');
 
   // Esc 只关本表单——SettingsModal 骨架在 document 上监听 Escape 关整个弹层,
   // stopPropagation 拦住冒泡即可(React 17+ 事件委托挂在根容器,原生 stopPropagation
@@ -512,16 +557,19 @@ export function BrowserProfilesSection() {
                 </label>
                 {storageHosts.map((host) => {
                   const ready = storageStages[host.id] === 'ready';
+                  const targetStatus = storageTargetStatuses[host.id];
+                  const eligible =
+                    ready && targetStatus?.compatibility === 'compatible';
                   return (
                     <label
                       className="browser-profiles__storage-choice"
                       key={host.id}
-                      aria-disabled={!ready}
+                      aria-disabled={!eligible}
                     >
                       <input
                         type="radio"
                         name="profile-storage"
-                        disabled={!ready}
+                        disabled={!eligible}
                         checked={
                           storageTarget.kind === 'remote' &&
                           storageTarget.hostId === host.id
@@ -533,9 +581,17 @@ export function BrowserProfilesSection() {
                       <span>
                         <b>{host.alias}</b>
                         <small>
-                          {ready
-                            ? t('Connected')
-                            : t('Reconnect this Remote Host first')}
+                          {!ready
+                            ? t('Reconnect this Remote Host first')
+                            : targetStatus?.compatibility === 'compatible'
+                              ? t('Profile storage compatible')
+                              : targetStatus?.compatibility === 'incompatible'
+                                ? t(
+                                    'Update this Remote Host to use Profile storage',
+                                  )
+                                : t(
+                                    'Could not verify Profile storage. Reconnect this Remote Host.',
+                                  )}
                         </small>
                       </span>
                     </label>
@@ -552,7 +608,7 @@ export function BrowserProfilesSection() {
                 {storagePlan.target.kind === 'remote' && (
                   <span>
                     {t(
-                      'This Remote Host can decrypt the Profile data and saved passwords.',
+                      'This Remote Host, its administrators, and processes running as the configured SSH user can decrypt the Profile data and saved passwords.',
                     )}
                   </span>
                 )}
@@ -581,7 +637,8 @@ export function BrowserProfilesSection() {
                 disabled={
                   storageBusy ||
                   (!storagePlan &&
-                    sameStorageRef(storageTarget, storageProfile.storage))
+                    (!selectedStorageTargetEligible ||
+                      sameStorageRef(storageTarget, storageProfile.storage)))
                 }
                 onClick={() =>
                   void (storagePlan

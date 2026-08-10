@@ -130,6 +130,20 @@ export type ProfileStorageErrorCode =
   | 'PROFILE_STORAGE_IO_FAILED'
   | 'PROFILE_MIGRATION_IN_PROGRESS';
 
+/** Remote Host 作为 Profile 存储目标时，对当前连接代完成 describe 后的状态。 */
+export type ProfileStorageTargetStatus =
+  | { hostId: string; compatibility: 'compatible' }
+  | {
+      hostId: string;
+      compatibility: 'incompatible';
+      code: 'PROFILE_STORAGE_INCOMPATIBLE';
+    }
+  | {
+      hostId: string;
+      compatibility: 'unavailable';
+      code: 'PROFILE_STORAGE_TARGET_UNAVAILABLE';
+    };
+
 export type ProfileMigrationPhase =
   | 'copying'
   | 'verifying'
@@ -224,6 +238,7 @@ export const BROWSER_PROFILE_CHANNELS = {
   save: 'browserProfile:save',
   delete: 'browserProfile:delete',
   retryDelete: 'browserProfile:retryDelete',
+  listStorageTargets: 'browserProfile:listStorageTargets',
   planStorageChange: 'browserProfile:planStorageChange',
   confirmStorageChange: 'browserProfile:confirmStorageChange',
   retryStorageChange: 'browserProfile:retryStorageChange',
