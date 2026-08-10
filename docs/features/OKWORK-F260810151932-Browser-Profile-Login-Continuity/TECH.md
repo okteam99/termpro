@@ -327,6 +327,8 @@ sequenceDiagram
 
 每个 profile/partition 的 Cookie apply 串行；对 Host push 可跨 identity 排队，但一个 identity 始终保持 journal 顺序。周期同步不依赖推送：触发点为加入、prepare、Cookie changed、Host ready/reconnect、手工重试及轻量定时 pull。定时器只在 Remote Profile + Host ready 时运行，应用退出时释放。
 
+已 attach guest 另有 main-side 强制门：Electron 42 的 `will-navigate` 覆盖页面/用户发起的 link、script/location 主框架导航，`will-redirect` 在服务端重定向发出下一跳请求前可取消；二者都同步重查该 `profileId` 在 catalog 的**当前** storage Host、provider generation 与 `(profile, partition, generation)` hydration。未通过时先 `preventDefault()`，再异步 `prepare`；只有最新 blocked URL 的 token、同一 Remote Host/generation、当前 hydration 和存活 guest 同时成立才用 `guest.loadURL` 单次 replay。`loadURL` 这类 programmatic WebContents API 不再次触发 `will-navigate`，因此不会形成 replay 循环；应用自身的地址栏、back/forward/reload 仍由 renderer 既有 `prepareActiveNavigation` 在调用 programmatic API 前 gate。Local authority 不增加等待，Remote→Remote、Local→Remote、Remote→Local 则因 authority 每次动态解析而立即采用新规则。失败/离线只广播既有脱敏 summary，不广播 blocked URL/Cookie。
+
 ### 迁移 / 删除提交顺序
 
 1. 迁移复制既有 bundle，并分页暂存 continuity ledger/seed；target 校验两 plane digest。
@@ -344,6 +346,7 @@ sequenceDiagram
 - **单元测**：identity 规范化、字段支持矩阵、page packer、event-pair reducer、状态聚合、epoch/revision parser。
 - **集成测（真实依赖）**：Host store 必须用真实临时目录、真实加密/权限、两个独立 store 进程语义验证锁/幂等；main controller 用注入式 Electron Cookies adapter + 真实临时加密 journal；RPC 测试走真实 JSON parser/dispatcher，不能在两侧各 mock 一套协议。
 - **契约 / 端到端**：真实 Host RPC harness 验证发现→加入→push/pull→分页/迁移；Electron Browser E2E 用本地 POST 登录 fixture（凭据不得进 URL）验证 hydration 前零请求及持久/session Cookie 边界。
+- **评审回归**：`browserGuestNavigationGuard.test.ts` 用确定性 main event harness 覆盖 g1 attach→g2 未 hydrate、重复 navigation/redirect 合并、offline 零 replay、generation/Host authority 变化丢弃旧结果、最新 URL 单次 replay、guest destroy、Local 与 Local→Remote；main 接线同时监听 `will-navigate`/`will-redirect`。
 - **基线失败集**：以开发开始时 `npm test` 为基线；本 Feature 目标 0 新增失败。若存在预有失败，写入项目 baseline 后做差分，不在本 Feature 顺手修无关测试。
 - **测试基建成本**：临时 userData/Host directory 与 Electron harness 每 suite 一次；Host 并发用隔离 profile。只有模拟同 profile 跨进程竞争的用例需串行，其他 Vitest 不强制串行。
 
@@ -380,7 +383,7 @@ sequenceDiagram
 | 5 | 实现 main safeStorage journal 与 Electron Cookie adapter/reducer | main | T-004, T-009, T-012 | ✅ |
 | 6 | 实现 controller seed/pull/push、generation、回声抑制与脱敏 summary | main | T-004, T-009, T-010, T-011, T-013 | ✅ |
 | 7 | 接入 discover/join IPC 与 catalog authority 冲突检查 | integration | T-001 | ✅ |
-| 8 | 接入 prepare + webview attach 双门及 reload/recover 调用面 | integration/UI | T-002, T-010, T-015 | ✅ |
+| 8 | 接入 prepare + webview attach/已 attach 主框架导航门及 reload/recover 调用面 | integration/UI | T-002, T-010, T-015 + BL-008 F1 regression | ✅ |
 | 9 | 扩展迁移/删除为 continuity stage/freeze/retire/activate/cleanup | workflow | T-008, T-016, T-017 | ✅ |
 | 10 | 按已确认全景实现 Browser Profiles/OkBrowser 状态与确认文案 | UI | T-014, T-015 + 设计核对 | ✅ |
 | 11 | 跑定向测试、全量 test/typecheck/lint、verify-ac、Electron E2E | verification | 全门禁 | ✅ |

@@ -48,6 +48,7 @@ import { ExitHoldLedger, filterHoldRequest } from './exitHolds';
 import { BrowserProfileStore } from './browserProfileStore';
 import { createBrowserPartitionPolicy } from './browserPartitionPolicy';
 import { BrowserProfileDeletionCoordinator } from './browserProfileDeletion';
+import { createBrowserGuestNavigationGuard } from './browserGuestNavigationGuard';
 import { LocalPasswordVault } from './localPasswordVault';
 import { LocalProfileProvider } from './localProfileProvider';
 import { ProfileCatalogStore } from './profileCatalogStore';
@@ -2166,8 +2167,39 @@ function buildMenu(): void {
  *   'pane'(默认,主窗/浏览器窗格壳窗)送回【本窗口】renderer 在窗格里开新标签
  *   (附来源 guest id 定位归属);'external'(查看器等无窗格的窗口)送系统浏览器
  *   (shell.openExternal)。限频 300ms/guest 防灌爆(评审 P2-5)。
- * - 主框架导航只许 http(s)/about:(评审 P2-2)。
+ * - 主框架导航/重定向只许 http(s)/about:(评审 P2-2);Remote Profile 每次导航
+ *   都按 catalog 的当前 Host generation 重验 continuity,未 hydrate 时同步阻断、
+ *   异步 prepare 后仅在 authority 未变化且当前 generation 已 hydrate 时受控 replay。
  */
+function resolveAttachedBrowserGuestBinding(
+  guestSession: Electron.Session,
+): { profileId: string; netHostId: string; partition: string } | null {
+  const profileIds = [
+    DEFAULT_PROFILE_ID,
+    ...profileCatalog
+      .listEntries()
+      .filter(
+        (entry) =>
+          entry.profileId !== DEFAULT_PROFILE_ID &&
+          entry.lifecycle === 'active',
+      )
+      .map((entry) => entry.profileId),
+  ];
+  const netHostIds = [
+    'local',
+    ...remoteHostConfigStore.list().map((config) => config.id),
+  ];
+  for (const profileId of profileIds) {
+    for (const netHostId of netHostIds) {
+      const partition = browserPartition(profileId, netHostId);
+      if (guestSession === session.fromPartition(partition)) {
+        return { profileId, netHostId, partition };
+      }
+    }
+  }
+  return null;
+}
+
 function wireBrowserWebviewPolicies(
   win: BrowserWindow,
   opts: { popup?: 'pane' | 'external'; passwordBridge?: boolean } = {},
@@ -2233,6 +2265,13 @@ function wireBrowserWebviewPolicies(
     }
   });
   win.webContents.on('did-attach-webview', (_event, guest) => {
+    const guestBinding = resolveAttachedBrowserGuestBinding(guest.session);
+    // will-attach admitted only a current browser partition. If its catalog or
+    // exit disappeared in the attach race, retain no unbound guest authority.
+    if (!guestBinding) {
+      guest.close({ waitForBeforeUnload: false });
+      return;
+    }
     // WebRTC 防泄漏(fail-closed 方向):只有【已知本机直连分区】保持默认;
     // 其余(远程组合分区/一切未知)恒 disable_non_proxied_udp——SOCKS5 只代理 TCP,
     // UDP 会绕过代理暴露本机真实 IP。
@@ -2243,43 +2282,9 @@ function wireBrowserWebviewPolicies(
       guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
     }
     if (passwordBridge) {
-      const profileIds = [
-        DEFAULT_PROFILE_ID,
-        ...profileCatalog
-          .listEntries()
-          .filter(
-            (entry) =>
-              entry.profileId !== DEFAULT_PROFILE_ID &&
-              entry.lifecycle === 'active',
-          )
-          .map((entry) => entry.profileId),
-      ];
-      const exitIds = [
-        'local',
-        ...remoteHostConfigStore.list().map((config) => config.id),
-      ];
-      let profileId: string | null = null;
-      for (const candidateProfileId of profileIds) {
-        if (
-          exitIds.some(
-            (exitId) =>
-              guest.session ===
-              session.fromPartition(
-                browserPartition(candidateProfileId, exitId),
-              ),
-          )
-        ) {
-          profileId = candidateProfileId;
-          break;
-        }
-      }
-      if (!profileId) {
-        guest.close({ waitForBeforeUnload: false });
-        return;
-      }
       passwordVaultController.registerGuest(
         guest,
-        profileId,
+        guestBinding.profileId,
         win.webContents.id,
       );
       guest.on('did-finish-load', () =>
@@ -2299,9 +2304,48 @@ function wireBrowserWebviewPolicies(
       }
       return { action: 'deny' };
     });
-    guest.on('will-navigate', (e, url) => {
-      if (!/^(https?:|about:)/i.test(url)) e.preventDefault();
+    const navigationGuard = createBrowserGuestNavigationGuard({
+      // profileId/partition identify this guest. Storage authority is
+      // deliberately resolved per event so Local↔Remote and Remote↔Remote
+      // migrations also gate already-attached guests correctly.
+      resolveAuthority: () => {
+        const entry = profileCatalog.getEntry(guestBinding.profileId);
+        if (!entry || entry.lifecycle !== 'active') {
+          return { kind: 'blocked' };
+        }
+        if (entry.storage.kind === 'local') return { kind: 'local' };
+        const provider = resolveProfileProvider(
+          entry.storage,
+        ) as RemoteProfileProvider;
+        return {
+          kind: 'remote',
+          hostId: entry.storage.hostId,
+          generation: provider.currentGeneration(),
+        };
+      },
+      isHydrated: (generation) =>
+        profileContinuity.isHydrated(
+          guestBinding.profileId,
+          guestBinding.partition,
+          generation,
+        ),
+      prepare: () =>
+        profileContinuity.prepare(
+          guestBinding.profileId,
+          guestBinding.netHostId,
+        ),
+      replay: (url) =>
+        guest.isDestroyed() ? undefined : guest.loadURL(url),
+      isDestroyed: () => guest.isDestroyed(),
+      // listBrowserProfileSummaries exposes only counts/fixed reason codes;
+      // neither the blocked URL nor Cookie material enters renderer/log output.
+      broadcastSummary: () => broadcastBrowserProfiles(),
     });
+    const handleMainFrameNavigation = (e: Electron.Event, url: string) =>
+      navigationGuard.handle(e, url);
+    guest.on('will-navigate', handleMainFrameNavigation);
+    guest.on('will-redirect', handleMainFrameNavigation);
+    guest.once('destroyed', () => navigationGuard.dispose());
   });
 }
 
