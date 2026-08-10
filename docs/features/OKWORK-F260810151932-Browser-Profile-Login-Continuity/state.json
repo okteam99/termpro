@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "pm_acceptance",
   "merge_target": "main",
   "review_base_commit": "f161367",
   "worktree": {
@@ -189,12 +189,15 @@
       "active_minutes": 4
     },
     "test": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-08-10T19:21:53Z",
-      "evidence": {},
-      "auto_commit": "5678a38792ab533c4be463c63833080a67af8378",
+      "evidence": {
+        "integration_test_exit_code": 0,
+        "e2e_test_exit_code": 0
+      },
+      "auto_commit": "ff59cf9292451e3538a5612cc23b1a2ee6dacae4",
       "artifacts": [
         "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/TEST-REPORT.md",
         "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/e2e/profile_continuity_rpc_e2e.py"
@@ -214,16 +217,26 @@
         },
         {
           "round": 2,
-          "test_commit": null,
+          "test_commit": "ff59cf9292451e3538a5612cc23b1a2ee6dacae4",
           "fix_commit": null,
           "started_at": "2026-08-10T19:21:53Z",
-          "integration_test_exit_code": null,
-          "e2e_test_exit_code": null,
+          "integration_test_exit_code": 0,
+          "e2e_test_exit_code": 0,
           "integration_diff_clean": null,
-          "current_failures": null
+          "current_failures": "",
+          "completed_at": "2026-08-10T19:35:31Z"
         }
       ],
-      "await_minutes": 0
+      "await_minutes": 0,
+      "completed_at": "2026-08-10T19:35:31Z",
+      "duration_minutes": 13,
+      "active_minutes": 13
+    },
+    "pm_acceptance": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-10T19:35:31Z"
     }
   },
   "completed_stages": [
@@ -232,7 +245,8 @@
     "panorama_sync",
     "blueprint",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-08-10T15:20:31Z",
   "stage_review_roles": {
@@ -253,12 +267,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T19:21:53Z",
+  "updated_at": "2026-08-10T19:35:43Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:2092a3c054ac8403de34f7fe487144ccba87304ce608fa1359a25a52453ed65b",
+  "_state_checksum": "sha256:156dc8989e23ca7297ce931cf57300ad111fa4e7a45fd8ede2b7b3e4a9fdaccf",
   "legal_next_stages": [
-    "browser_e2e",
-    "pm_acceptance"
+    "ship",
+    "dev"
   ],
   "execution_hints": {
     "ui_design_needed": true,
@@ -304,6 +318,16 @@
       ],
       "note": "fast Round 1 无 external 产物，Round 2 verify-fixes 需先生成当前提交外审配方",
       "at": "2026-08-10T18:59:56Z"
+    },
+    {
+      "stage": "test",
+      "rounds": 2,
+      "overhead_rounds": 0,
+      "kinds": [
+        "none"
+      ],
+      "note": "两轮均为实际质量发现与修复：port-file 竞态、测试 lint；非纯协调开销",
+      "at": "2026-08-10T19:35:36Z"
     }
   ],
   "authoring_preventability": [
