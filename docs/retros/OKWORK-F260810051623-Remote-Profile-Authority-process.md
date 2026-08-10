@@ -1,7 +1,7 @@
 ---
 feature_id: OKWORK-F260810051623-Remote-Profile-Authority
 flow: Feature
-total_wall: 9.1h
+total_wall: 9.2h
 ai_autonomous_min: 115
 await_user_min: 379
 host: codex-cli
