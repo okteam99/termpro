@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "browser_e2e",
   "merge_target": "main",
   "review_base_commit": "f568fac",
   "worktree": {
@@ -204,10 +204,42 @@
       "active_minutes": 3
     },
     "test": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T14:32:27Z",
+      "evidence": {
+        "integration_diff_clean": true,
+        "integration_test_exit_code": 1,
+        "e2e_test_exit_code": 0,
+        "current_failures": "wsRpcParity.test.ts > AC-1 fs.watch 经 WS 推送 (T-032/T-033) > T-032 目录变更经同一 WS 推 fs:changed 且仅一次(去抖)"
+      },
+      "completed_at": "2026-08-10T14:38:32Z",
+      "auto_commit": "378bf65",
+      "artifacts": [
+        "TEST-REPORT.md",
+        "e2e/"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-10T14:32:27Z",
+          "completed_at": "2026-08-10T14:38:32Z",
+          "test_commit": "378bf65",
+          "integration_test_exit_code": 1,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": true,
+          "current_failures": "wsRpcParity.test.ts > AC-1 fs.watch 经 WS 推送 (T-032/T-033) > T-032 目录变更经同一 WS 推 fs:changed 且仅一次(去抖)"
+        }
+      ],
+      "duration_minutes": 6,
+      "active_minutes": 6
+    },
+    "browser_e2e": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T14:32:27Z"
+      "started_at": "2026-08-10T14:38:32Z"
     }
   },
   "completed_stages": [
@@ -216,7 +248,8 @@
     "panorama_sync",
     "blueprint",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-08-10T05:39:59Z",
   "stage_review_roles": {
@@ -237,17 +270,18 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T14:32:37Z",
+  "updated_at": "2026-08-10T14:38:39Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:cab78bb9845aadd9add0eff258eb99ed79bdbe7f2c16ba32da46a60d69bf7625",
+  "_state_checksum": "sha256:407b7efa51c90b7cc2fa41196b6a4147e82e8f77612c390377fcd9532248a353",
   "legal_next_stages": [
-    "browser_e2e",
     "pm_acceptance"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
     "ui_design_needed": true,
-    "panorama_changed": true
+    "panorama_changed": true,
+    "integration_new_failures": [],
+    "integration_excluded_baseline": 1
   },
   "stage_cost": [
     {
@@ -294,6 +328,16 @@
       ],
       "note": "最大开销是澄清同 SSH UID 的真实安全边界并同步全套契约",
       "at": "2026-08-10T14:32:36Z"
+    },
+    {
+      "stage": "test",
+      "rounds": 2,
+      "overhead_rounds": 1,
+      "kinds": [
+        "已登记基线 flake 复验"
+      ],
+      "note": "最大开销是完整复跑确认 T-032 为基线波动而非 BL-007 回归",
+      "at": "2026-08-10T14:38:39Z"
     }
   ],
   "authoring_preventability": [
