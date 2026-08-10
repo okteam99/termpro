@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "goal",
+  "current_stage": "ui_design",
   "merge_target": "main",
   "review_base_commit": null,
   "worktree": {
@@ -43,13 +43,33 @@
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-10T05:40:04Z",
+      "await_minutes": 9,
+      "evidence": {
+        "needs_browser_e2e": "true"
+      },
+      "completed_at": "2026-08-10T06:04:52Z",
+      "auto_commit": "33b305f",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "duration_minutes": 24,
+      "active_minutes": 24
+    },
+    "ui_design": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T05:40:04Z"
+      "started_at": "2026-08-10T06:04:52Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal"
+  ],
   "created_at": "2026-08-10T05:39:59Z",
   "stage_review_roles": {
     "goal": [
@@ -69,16 +89,38 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T05:55:20Z",
-  "updated_by": "pause-mark",
-  "_state_checksum": "sha256:ab95a589adf158432dd38a944d565573888da8ca4da969a65e146445dd0355e7",
+  "updated_at": "2026-08-10T06:05:05Z",
+  "updated_by": "review-preventability",
+  "_state_checksum": "sha256:2243805baf02b9947bf3d26c55f5b4d36930ddc98793746a8cc1f7a1f6a1a298",
   "legal_next_stages": [
-    "ui_design",
+    "panorama_sync",
     "blueprint"
   ],
-  "open_pause": {
-    "stage": "goal",
-    "label": "Goal PRD 最终确认",
-    "started_at": "2026-08-10T05:55:20Z"
-  }
+  "execution_hints": {
+    "browser_e2e_needed": true,
+    "ui_design_needed": true
+  },
+  "stage_cost": [
+    {
+      "stage": "goal",
+      "rounds": 2,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "两轮均为实质 PRD 审查与修订，无纯协调轮次",
+      "at": "2026-08-10T06:05:01Z"
+    }
+  ],
+  "authoring_preventability": [
+    {
+      "stage": "goal",
+      "preventable": 2,
+      "total": 2,
+      "missing": [
+        "迁移清源失败应与authority提交分界逐项对齐",
+        "main-only必须写现有renderer token负向验收"
+      ],
+      "note": "",
+      "at": "2026-08-10T06:05:01Z"
+    }
+  ]
 }
