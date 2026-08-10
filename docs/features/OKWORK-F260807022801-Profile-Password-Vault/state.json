@@ -48,9 +48,15 @@
       "at": "2026-08-09T18:53:36Z",
       "source": "pm_acceptance-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-10T03:18:17Z",
+      "source": "ship-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "pm_acceptance",
+  "current_stage": "ship",
   "merge_target": "main",
   "review_base_commit": "e64c75d",
   "worktree": {
@@ -328,10 +334,27 @@
       "active_minutes": 8
     },
     "pm_acceptance": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-09T18:53:27Z",
+      "evidence": {
+        "decision": "approved_and_ship",
+        "note": "用户选择 1：认可 BL-006 本地 Profile 密码库的 9/9 AC 与视觉证据，进入 Ship。"
+      },
+      "completed_at": "2026-08-10T03:18:07Z",
+      "auto_commit": "a12179f",
+      "artifacts": [
+        "PM-NOTE.md"
+      ],
+      "duration_minutes": 504,
+      "active_minutes": 0
+    },
+    "ship": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-09T18:53:27Z"
+      "started_at": "2026-08-10T03:18:07Z"
     }
   },
   "completed_stages": [
@@ -342,7 +365,8 @@
     "dev",
     "review",
     "test",
-    "browser_e2e"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "created_at": "2026-08-09T02:35:49Z",
   "stage_review_roles": {
@@ -363,12 +387,11 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-09T18:53:36Z",
+  "updated_at": "2026-08-10T03:18:17Z",
   "updated_by": "stage-cost",
-  "_state_checksum": "sha256:ad7b33d74da02f2872cce9f1fb74b578171ffe2cd831925198e0012461e8e3da",
+  "_state_checksum": "sha256:9a4f49f22d0355375bbad2f2be3a7a1c5d93066efd2bd6cf54bf45f0e8ff6c6f",
   "legal_next_stages": [
-    "ship",
-    "dev"
+    "completed"
   ],
   "execution_hints": {
     "browser_e2e_needed": true,
