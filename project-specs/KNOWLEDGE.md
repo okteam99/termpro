@@ -39,8 +39,10 @@
 | RD-12 | **fake timers 与轮询 API 不能共存**:`vi.waitFor` / `findBy*` 靠**真实定时器**轮询,假时钟一开就永远等不到 → 卡满超时。要推进时间就用 `advanceTimersByTimeAsync`(它同时 flush 微任务),且同一用例里一个 waitFor 都不留 | 9 条用例 20s 超时,症状看起来像死锁,实际是工装互锁 |
 | RD-13 | **mock 与模块级状态跨用例存活吗?** 症状极具欺骗性:看起来像**生产代码不干活** | ① `vi.mock` 工厂里的实例缓存:前一条把 `reconnect` 改成 reject,后一条的握手静默走 `.catch`,表现为「`onReconnected` 不被调用」;② 模块级容器(非 zustand state)`setState` 清不掉,表现为「事件被闸吞掉」。两者都要在 `beforeEach` 显式重置 |
 | RD-14 | **改测试让红变绿之前,先问「是不是断言编码了已被推翻的旧语义」** | AC-14 断言「点连接即解除弃用」,而那正是 review 的 BLOCKER 修掉的行为 —— 照着它「修绿」的最省事走法就是**把生产代码改回旧行为**,等于悄悄退回修复 |
+| RD-15 | **安全承诺是否先对照了实际 OS principal 与已有 FS/PTY 能力?** `main-only`/capability/`0600` 只说明接口和跨 UID 边界；同一 SSH 用户若已有任意文件与 shell 能力，就不能再承诺阻止该主体读取或解密 | BL-007 初稿把 ordinary renderer 的专用 RPC 隔离误写成能隔离同 SSH UID 的通用 Host token/终端 Agent；review 逐条走生产 FS/PTY 路径后发现物理权限模型与 AC 自相矛盾，最终按 WS-02 回归真实信任边界 |
+| RD-16 | **远端目标的 `ready` 是否和当前连接代的协议兼容性一起进入“可选 + 可提交”条件?** 只在 main 最终提交时拒绝会把确定性不兼容暴露成用户点 Continue 后才失败 | BL-007 迁移选择器最初只看 Host stage；review 发现旧 bundle 仍可选择，修为 generation-scoped `describe` 缓存/失效、renderer 禁用与 main 签计划前复验 |
 
-📌 **判据来源**:RD-1..RD-8 每条对应 `REVIEW.md` 里一条 confirmed finding;RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
+📌 **判据来源**:RD-1..RD-8、RD-15..RD-16 每条对应相关 Feature `REVIEW.md` 的 confirmed finding；RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
 📌 **清单会长**:同类第 2 次被抓即入;**已在清单里还复发 = 规避法不够硬,该强化那一条**,而不是再记一遍。
 
 ---
@@ -100,6 +102,7 @@
 | GO-036 | test/baseline | **test-baseline `--diff` 按 test-id 字符串精确匹配·登记与 `--current` 粒度必须一致**:历史把多个失败文件登记成一条逗号合并串·而 `--current` 传单文件→ 拆分后与合并串不匹配→ 全判 NEW_FAILURES(假阳性 stale_registered) | 逐文件独立 `--add`(单文件一条)·`--current-failures` 传同粒度单文件列表;`--list`/`--diff` 带 `--feature` 定位 worktree project-specs | 2026-07 | OKWORK-F260710042746 |
 | GO-037 | remote/deploy | **`deploying` 阶段取消会把部署锁留在远端·下一次连接最长空等 120s 后 deployFailed**(代码读证 · 未实测):`deploy.ts:213` 的 `finally { releaseMkdirLock }` 本身是对的,但取消走 `orchestrator.disconnect()` —— 它等在途编排 ≤5s(`orchestrator.ts:419`)超时即强关 ssh,而真实 bundle 上传常 >5s → finally 里那条 `rm -rf` 的 ssh exec 随连接一起失败 → 锁目录 `${dataDir}/bundle/.deploying-${version}` 残留。下次连接:`acquireMkdirLock` 见锁未陈旧(age ≤ 120s,`deploy.ts:37` `DEFAULT_LOCK_STALE_MS`)→ `waitForPeer` → `waitForReady` 轮询一个永不出现的 `.ready`,超时 120s 抛 `deployFailed`(`deploy.ts:118`) | **不是死锁,是一次性延迟**:锁 age > 120s 后 `mkdirLock.ts:88-92` break-and-reacquire 自动接管 → 再点一次连接即恢复。用户 D-7 已拍板接受此代价,本次不修。若日后要修:取消路径显式发一条独立 ssh 会话 `rm -rf` 锁目录,或给 `waitForReady` 加「等待中锁已陈旧则提前 break」的复检 | 2026-08 | OKWORK-F260805033051 |
 | GO-038 | test/security | **带密码的浏览器 E2E fixture 不得用 GET 提交登录表单**：即使产品日志完全脱敏，浏览器仍会把用户名/密码放进 URL；地址栏、导航历史、截图和失败日志随即成为新的持久暴露面。本 Feature 初版视觉证据正是在地址栏看到随机密码哨兵才暴露该问题 | fixture 用 `method="post"`，服务端不记录 body；截图前额外检查成功页 URL 无 credential query；任何 reveal 场景只在内存断言明文，等重新遮罩后再截图 | 2026-08 | OKWORK-F260807022801-Profile-Password-Vault |
+| GO-039 | remote/security | **Remote Profile 的 main-only RPC 是应用接口隔离，不是同 SSH UID 的 OS 隔离**：配置 SSH 用户、Remote Host 管理员及以该用户运行的任意 FS/PTY 进程都可读取 master key 与密文并解密；`0700/0600` 只挡其他 UID | 产品与确认 UI 必须明确该信任边界；普通 renderer 仍不得获得专用 Profile/Vault API 或 capability。若要隔离同 UID Agent，只能改为独立 OS principal/第二 SSH 身份或 E2EE，不能靠路径 deny、capability 或权限位话术 | 2026-08 | OKWORK-F260810051623-Remote-Profile-Authority |
 
 ---
 
@@ -145,7 +148,7 @@
 - **notify**: GO-012, GO-014, GO-016
 - **test**: GO-017, GO-038(security)
 - **lifecycle**: GO-019
-- **remote/security**: GO-025
+- **remote/security**: GO-025, GO-039
 - **remote/concurrency**: GO-026
 - **remote/deploy**: GO-027, GO-024(build), GO-037
 - **renderer/multi-host**: GO-028
