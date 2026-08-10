@@ -365,7 +365,7 @@ describe('BrowserPanel · window.open 按来源落位', () => {
     (window as unknown as Record<string, unknown>).okwork = {
       onBrowserOpenUrl(cb: (url: string, sourceId: number) => void) {
         captured = cb;
-        return () => {};
+        return () => undefined;
       },
     };
     return { fire: (url, sourceId) => captured?.(url, sourceId) };
