@@ -50,9 +50,11 @@ export interface ReconnectControllerDeps {
   makeBackoff(): ReconnectBackoff;
   /**
    * 单次尝试看门狗超时(ms·env 注入·缺省 DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS)。
-   * connect 发出后若在此窗口内没有任何定论(onReconnected / onAttemptFailed / cancel),
-   * 按尝试失败推进退避——main 侧任何静默路径(去重 no-op、僵尸自弃、safeEmit 吞非法转移)
-   * 都不再能让状态机永久搁浅在「重连中」(2026-08-10 事故的兜底闸)。
+   * 🔴 无活动口径(评审 P1-4):从 fireAttempt 入口起计,期间 onReconnected /
+   * onAttemptFailed / cancel 任一定论撤狗,noteProgress(main 阶段事件)重置计时;
+   * 窗口内**零事件零定论**才按尝试失败推进退避——main 侧任何静默路径(去重 no-op、
+   * 僵尸自弃、safeEmit 吞非法转移)都不再能让状态机永久搁浅在「重连中」,而有进展的
+   * 合法慢编排(部署上传等)不会被误杀(2026-08-10 事故的兜底闸)。
    */
   attemptTimeoutMs?: number;
   setTimer?(fn: () => void, ms: number): TimerHandle;
@@ -72,6 +74,12 @@ export interface ReconnectController {
   onReconnected(configId: string): void;
   /** 用户「立即重试」:复位退避 + 立即再试一次。 */
   manualRetry(configId: string): void;
+  /**
+   * main 有该机的阶段事件抵达(任意 stage)→ 重置在途尝试的看门狗(评审 P1-4:无活动狗
+   * 口径)。目标场景(去重 no-op、僵尸自弃、safeEmit 吞非法转移)本就零事件,兜底不减;
+   * 有进展的合法慢编排(部署上传进度等)不再被误杀。无在途尝试时为廉价 no-op。
+   */
+  noteProgress(configId: string): void;
   /**
    * 用户主动断开:终止在途重连编排(清退避计数/悬挂计时器/reconnecting 态),之后
    * 不再有任何重试拉起——保持断开。不走 drop 出口(stopSync 由断开 UI 流程/Sidebar 折叠自理)。
@@ -113,6 +121,18 @@ export function createReconnectController(
     }
   }
 
+  /** 挂/重挂看门狗(先撤旧再挂新——顶代/进展重置都经此,绝不双狗并存)。 */
+  function armWatchdog(configId: string): void {
+    clearWatchdog(configId);
+    watchdogs.set(
+      configId,
+      setTimer(() => {
+        watchdogs.delete(configId);
+        attemptFailed(configId);
+      }, attemptTimeoutMs),
+    );
+  }
+
   function cleanup(configId: string): void {
     clearPendingTimer(configId);
     clearWatchdog(configId);
@@ -138,24 +158,24 @@ export function createReconnectController(
     b.nextDelayMs(); // 推进预算计数(本次尝试)
     const gen = (attemptGen.get(configId) ?? 0) + 1;
     attemptGen.set(configId, gen);
+    // 🔴 狗在入口就挂(评审 P1-2/P1-3):覆盖 await disconnect 窗口——disconnectAwait 的 IPC
+    // 若永不落定(main 异常/窗口重建)同样有兜底;顶代时新代 armWatchdog 内先撤旧狗,
+    // 不给新尝试计旧账。
+    armWatchdog(configId);
     // 🔴 disconnect-first:先复位 main stage 再 connect(否则 ready 态 connect no-op·隧道永不重建)
     try {
       await deps.disconnect(configId);
     } catch {
       /* main 侧拆除异常不阻断 connect(orchestrator.disconnect 已尽力收尾) */
     }
-    if (backoffs.get(configId) !== b || attemptGen.get(configId) !== gen) return; // 已被 cancel/顶代
-    deps.connect(configId);
-    // 🔴 看门狗:本次尝试在窗口内必须有定论,否则按失败推进退避(main 侧静默路径兜底)。
-    // 先清旧再挂新——顶代场景旧狗必须撤,免得给新尝试计旧账。
-    clearWatchdog(configId);
-    watchdogs.set(
-      configId,
-      setTimer(() => {
-        watchdogs.delete(configId);
-        attemptFailed(configId);
-      }, attemptTimeoutMs),
-    );
+    if (backoffs.get(configId) !== b || attemptGen.get(configId) !== gen) return; // 已被 cancel/顶代/定论
+    try {
+      deps.connect(configId);
+    } catch {
+      // connect 同步抛(IPC 桥缺失等)——不能静默吞掉(void fireAttempt 的 rejection 没人接),
+      // 按尝试失败推进退避,否则又是一种「重连中」僵死(评审 P1-3)。
+      attemptFailed(configId);
+    }
   }
 
   /**
@@ -167,6 +187,10 @@ export function createReconnectController(
     const b = backoffs.get(configId);
     if (!b) return;
     clearWatchdog(configId); // 本次尝试已定论,撤销悬挂看门狗
+    // 🔴 评审 P1-1:失败定论可能落在某代 fireAttempt 的 await disconnect 窗口内(main 僵尸
+    // 编排 emit failed / 在途握手 reject)——bump 代际让该代醒来自弃,不再补发 connect。
+    // 否则退避重试的 disconnectAwait 会把这条迟到的 connect 当僵尸拆掉:连接被反复枪毙。
+    attemptGen.set(configId, (attemptGen.get(configId) ?? 0) + 1);
     if (b.overBudget()) {
       definite(configId);
       return;
@@ -223,6 +247,11 @@ export function createReconnectController(
       else backoffs.set(configId, deps.makeBackoff());
       if (!deps.isReconnecting(configId)) deps.setReconnecting(configId, true);
       void fireAttempt(configId);
+    },
+
+    noteProgress(configId: string): void {
+      if (!watchdogs.has(configId)) return; // 无在途尝试(或已定论)→ no-op
+      armWatchdog(configId);
     },
 
     cancel(configId: string): void {

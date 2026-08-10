@@ -103,6 +103,120 @@ describe('reconnect_attempt_watchdog_prevents_silent_stall', () => {
     expect(connect).toHaveBeenCalledTimes(3);
   });
 
+  it('评审 P1-2:顶代(manualRetry)在 pre-connect 窗口内 → 旧狗即撤,不给新尝试计旧账', async () => {
+    // async disconnect:可控落定,把「await disconnect 窗口」拉开
+    const resolvers: Array<() => void> = [];
+    const connect = vi.fn();
+    const disconnect = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const stopSync = vi.fn();
+    const controller = createReconnectController({
+      connect,
+      disconnect,
+      setReconnecting: (id, on) => useRemoteHostRuntimeStore.getState().setReconnecting(id, on),
+      isReconnecting: (id) => useRemoteHostRuntimeStore.getState().isReconnecting(id),
+      stopSync,
+      readopt: vi.fn(async () => {}),
+      makeBackoff: () => new ReconnectBackoff({ baseMs: 1000, capMs: 30_000, budget: 5 }),
+      attemptTimeoutMs: ATTEMPT_TIMEOUT_MS,
+    });
+
+    controller.onDisconnected('cfg-1'); // t=0 代1:狗1 定于 t=5s,D1 在途
+    await vi.advanceTimersByTimeAsync(4_000); // t=4s
+    controller.manualRetry('cfg-1'); // 代2:撤狗1 挂狗2(定于 t=9s),D2 在途
+    expect(disconnect).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1_100); // t=5.1s:狗1 原到点——若未撤会误判失败排幽灵重试
+    resolvers[1]!(); // D2 落定 → 代2 connect
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connect).toHaveBeenCalledTimes(1);
+    resolvers[0]!(); // D1 迟到落定 → 代1 自弃
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connect).toHaveBeenCalledTimes(1);
+
+    // t=7.1s(旧版幽灵重试到点·会拆掉 2 秒大的 connect):不得有第二组 disconnect/connect
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(disconnect).toHaveBeenCalledTimes(2);
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('评审 P1-3:disconnectAwait 永不落定(IPC 黑洞)→ 入口狗兜底逐次推进 → 超预算 drop 不僵死', async () => {
+    const connect = vi.fn();
+    const stopSync = vi.fn();
+    const controller = createReconnectController({
+      connect,
+      disconnect: () => new Promise<void>(() => {}), // 永不落定
+      setReconnecting: (id, on) => useRemoteHostRuntimeStore.getState().setReconnecting(id, on),
+      isReconnecting: (id) => useRemoteHostRuntimeStore.getState().isReconnecting(id),
+      stopSync,
+      readopt: vi.fn(async () => {}),
+      makeBackoff: () => new ReconnectBackoff({ baseMs: 1000, capMs: 30_000, budget: 3 }),
+      attemptTimeoutMs: ATTEMPT_TIMEOUT_MS,
+    });
+    controller.onDisconnected('cfg-1');
+    // 狗(入口挂)+ 退避循环:5s+2s → 尝试2;5s+4s → 尝试3;5s → 超预算 drop
+    await vi.advanceTimersByTimeAsync(ATTEMPT_TIMEOUT_MS + 2_000);
+    await vi.advanceTimersByTimeAsync(ATTEMPT_TIMEOUT_MS + 4_000);
+    await vi.advanceTimersByTimeAsync(ATTEMPT_TIMEOUT_MS);
+    expect(connect).not.toHaveBeenCalled(); // disconnect 永挂,connect 一次都发不出
+    expect(stopSync).toHaveBeenCalledWith('cfg-1'); // 但状态机不僵死:超预算判确定断线
+    expect(useRemoteHostRuntimeStore.getState().isReconnecting('cfg-1')).toBe(false);
+  });
+
+  it('评审 P1-3:deps.connect 同步抛(IPC 桥缺失)→ 按失败推进退避,不静默僵死', async () => {
+    const connect = vi.fn(() => {
+      if (connect.mock.calls.length === 1) throw new Error('bridge gone');
+    });
+    const { controller } = (() => {
+      const controller = createReconnectController({
+        connect,
+        disconnect: vi.fn(),
+        setReconnecting: (id, on) => useRemoteHostRuntimeStore.getState().setReconnecting(id, on),
+        isReconnecting: (id) => useRemoteHostRuntimeStore.getState().isReconnecting(id),
+        stopSync: vi.fn(),
+        readopt: vi.fn(async () => {}),
+        makeBackoff: () => new ReconnectBackoff({ baseMs: 1000, capMs: 30_000, budget: 3 }),
+        attemptTimeoutMs: ATTEMPT_TIMEOUT_MS,
+      });
+      return { controller };
+    })();
+    controller.onDisconnected('cfg-1');
+    await vi.advanceTimersByTimeAsync(0); // 尝试1:connect 抛 → attemptFailed → 排退避 2s
+    expect(connect).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2_000); // 尝试2 照常发起
+    expect(connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('评审 P1-4(无活动狗):noteProgress 重置计时——有进展的慢编排不被误杀,停更后仍兜底', async () => {
+    const { controller, connect } = makeDeps();
+    controller.onDisconnected('cfg-1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connect).toHaveBeenCalledTimes(1);
+
+    // 每 4s 一个阶段事件(如 deploying 进度),跨过原 5s 窗口两次
+    await vi.advanceTimersByTimeAsync(4_000);
+    controller.noteProgress('cfg-1');
+    await vi.advanceTimersByTimeAsync(4_000); // 自起点 8s > 5s——旧口径已误判
+    controller.noteProgress('cfg-1');
+    expect(connect).toHaveBeenCalledTimes(1); // 未被误杀
+
+    // 事件停更 → 距最后一次 noteProgress 5s 后狗触发 → 退避 2s → 尝试2
+    await vi.advanceTimersByTimeAsync(ATTEMPT_TIMEOUT_MS + 2_000);
+    expect(connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('noteProgress 无在途尝试(编排外事件)→ 廉价 no-op,不凭空挂狗', async () => {
+    const { controller, connect, stopSync } = makeDeps();
+    controller.noteProgress('cfg-idle');
+    await vi.advanceTimersByTimeAsync(ATTEMPT_TIMEOUT_MS * 3);
+    expect(connect).not.toHaveBeenCalled();
+    expect(stopSync).not.toHaveBeenCalled();
+  });
+
   it('cancel(用户断开)→ 撤狗:窗口过后不复活重试(保持断开)', async () => {
     const { controller, connect, stopSync } = makeDeps();
     controller.onDisconnected('cfg-1');

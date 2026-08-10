@@ -84,9 +84,11 @@ export function readReconnectBudgetEnv(): ReconnectBudgetConfig {
   };
 }
 
-/** 单次重连尝试看门狗超时(2026-08-10)。默认 90s:正常重连(claim 快路径)十几秒内定论,
- *  ssh 10s + 单 exec 30s 的合法慢路径也覆盖;90s 仍无任何定论只可能是 main 侧静默搁浅。 */
-export const DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS = 90_000;
+/** 单次重连尝试看门狗超时(2026-08-10·无活动口径:main 每个阶段事件都重置计时,见
+ *  reconnectController.noteProgress)。默认 150s:合法**零事件**等待的最长档是部署锁输家
+ *  waitForPeer 的 120s(deploy.ts·多设备同屏抢首启锁),150s 留 30s 余量;ssh 10s、单
+ *  exec 30s、start 15s 皆远低于此。150s 无任何事件只可能是 main 侧静默搁浅(评审 P1-4)。 */
+export const DEFAULT_RECONNECT_ATTEMPT_TIMEOUT_MS = 150_000;
 
 /** 从 env 读单次尝试看门狗超时(测试/调优免等真实 90s)。 */
 export function readReconnectAttemptTimeoutEnv(): number {

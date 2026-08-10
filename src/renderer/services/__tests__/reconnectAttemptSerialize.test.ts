@@ -105,6 +105,25 @@ describe('reconnect_attempt_serializes_disconnect_before_connect', () => {
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
+  it('评审 P1-1:失败定论落在 await disconnect 窗口内 → 该代自弃不补发 connect,重试代唯一 connect', async () => {
+    const { controller, connect, disconnect, resolvers } = makeAsyncDeps();
+    controller.onDisconnected('cfg-1'); // 代 1:disconnect 在途
+    expect(disconnect).toHaveBeenCalledTimes(1);
+
+    // 窗口内 main 僵尸编排 emit failed(经 Sidebar → onAttemptFailed)→ bump 代际 + 排退避重试
+    controller.onAttemptFailed('cfg-1');
+
+    resolvers[0]!(); // 代 1 的 disconnect 此刻才落定 → 代际不符自弃
+    await flushMicrotasks();
+    expect(connect).not.toHaveBeenCalled(); // 旧版此处会补发 connect → 被重试的 disconnect 枪毙
+
+    await vi.advanceTimersByTimeAsync(2_000); // 退避到点 → 代 2 发起
+    expect(disconnect).toHaveBeenCalledTimes(2);
+    resolvers[1]!();
+    await flushMicrotasks();
+    expect(connect).toHaveBeenCalledTimes(1); // 全程恰好一条 connect
+  });
+
   it('manualRetry:reconnecting=true 但 backoff 缺失(状态分叉)→ 补建后照常发起(死按钮回归)', async () => {
     const { controller, connect, disconnect, resolvers } = makeAsyncDeps();
     // 直接置 reconnecting=true、不建 backoff,模拟分叉态
