@@ -20,7 +20,7 @@
       "previous": "codex-cli"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "f161367",
   "worktree": {
@@ -134,12 +134,14 @@
       "active_minutes": 37
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-08-10T18:55:25Z",
-      "evidence": {},
-      "auto_commit": "a876eb9550611f1a888c4a0da90d3b77fdb0aac8",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "auto_commit": "85b89dce14863345d829a3af12027eefbd6bb1c7",
       "artifacts": [
         "docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity/REVIEW.md"
       ],
@@ -160,24 +162,37 @@
         },
         {
           "round": 2,
-          "review_commit": null,
+          "review_commit": "85b89dce14863345d829a3af12027eefbd6bb1c7",
           "fix_commit": null,
           "started_at": "2026-08-10T18:55:25Z",
-          "verdict": null
+          "verdict": "APPROVE",
+          "completed_at": "2026-08-10T18:59:46Z",
+          "new_findings_count": 0,
+          "carried_open_count": 0
         }
       ],
       "findings_ledger": [
         {
           "id": "F1",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "已 attach 的 Remote webview 在 generation 失效后可通过站内导航绕过 hydration gate",
           "source": "arch",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         }
       ],
-      "await_minutes": 0
+      "await_minutes": 0,
+      "completed_at": "2026-08-10T18:59:46Z",
+      "duration_minutes": 4,
+      "active_minutes": 4
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-10T18:59:46Z"
     }
   },
   "completed_stages": [
@@ -185,7 +200,8 @@
     "ui_design",
     "panorama_sync",
     "blueprint",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-08-10T15:20:31Z",
   "stage_review_roles": {
@@ -206,12 +222,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T18:55:25Z",
-  "updated_by": "add-concern",
-  "_state_checksum": "sha256:5eaa84332ab3950607408944455f3a0faf1ba913aae5744139de6387dc157ccf",
+  "updated_at": "2026-08-10T19:00:02Z",
+  "updated_by": "stage-cost",
+  "_state_checksum": "sha256:74c782cfcf1f2b7d19d6f9ddb2674f54a9b7a22c7a49c4008bc9c8c568fd74a3",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "browser_e2e",
+    "pm_acceptance"
   ],
   "execution_hints": {
     "ui_design_needed": true,
@@ -237,6 +253,16 @@
       ],
       "note": "单轮完成 existing-page 增量、same-stack 构建与用户确认；浏览器连接不可用未造成返工轮次",
       "at": "2026-08-10T17:11:48Z"
+    },
+    {
+      "stage": "review",
+      "rounds": 2,
+      "overhead_rounds": 1,
+      "kinds": [
+        "外审配方兼容"
+      ],
+      "note": "fast Round 1 无 external 产物，Round 2 verify-fixes 需先生成当前提交外审配方",
+      "at": "2026-08-10T18:59:56Z"
     }
   ],
   "authoring_preventability": [
@@ -253,6 +279,16 @@
       ],
       "note": "",
       "at": "2026-08-10T16:07:36Z"
+    },
+    {
+      "stage": "review",
+      "preventable": 1,
+      "total": 1,
+      "missing": [
+        "跨入口不变式清单未包含已 attach guest 的 link/script/redirect；已强化 KNOWLEDGE RD-5"
+      ],
+      "note": "",
+      "at": "2026-08-10T18:59:56Z"
     }
   ]
 }
