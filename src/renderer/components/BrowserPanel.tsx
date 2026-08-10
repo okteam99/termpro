@@ -328,7 +328,6 @@ function ContinuityGatedWebview(props: ContinuityGatedWebviewProps) {
     };
     // gate intentionally is not a dependency: a ready guest stays mounted
     // across summary/reconnect churn; Retry changes attempt explicitly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, hasInitialUrl, netHostId, profileId, remoteProfile]);
 
   if (gate.kind !== 'ready') {
