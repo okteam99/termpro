@@ -34,6 +34,11 @@ import {
   paneClosedNotice,
   paneTabCount,
 } from './browserPaneClose';
+import {
+  browserPopupWindowTitle,
+  decideBrowserPopup,
+  type PopupHostMode,
+} from './browserPopupPolicy';
 import { installExternalUrlPolicy } from './externalUrlPolicy';
 import { createRendererRecovery } from './rendererRecovery';
 import { startBrowserMcpServer, type BrowserMcpHandle } from './browserMcp';
@@ -1939,6 +1944,168 @@ function buildMenu(): void {
 
 // ---- 窗口 ---------------------------------------------------------------
 
+// ---- 内置浏览器弹窗(子浏览器窗口)-------------------------------------
+// 用户指令 2026-08-12:Google 登录一类的弹窗要开【真窗】。判据/落位见
+// browserPopupPolicy.ts;这里只做接线:开窗、记账、反钓鱼标题、子孙窗同策略。
+
+/** 一个 webview guest 及其子孙弹窗共用的记账(限频 / 具名窗复用 / 并发上限) */
+interface BrowserPopupBook {
+  lastOpenAt: number;
+  windows: Set<BrowserWindow>;
+  /** window.open(url, name) 的 name → 已开的子窗(浏览器语义:同名复用而非再开) */
+  named: Map<string, BrowserWindow>;
+}
+
+interface BrowserPopupWiring {
+  contents: Electron.WebContents;
+  /** 宿主窗口(主窗或窗格壳窗):面板新标签送它,子窗认它做 parent */
+  hostWin: BrowserWindow;
+  popupMode: PopupHostMode;
+  /** 面板落位用的来源 guest id——子孙弹窗里开的新标签仍算在最初那个浏览器标签头上 */
+  sourceGuestId: number;
+  book: BrowserPopupBook;
+  /** 密码保险箱绑定的 profile(null = 不接桥,子窗内密码功能恒 fail-closed) */
+  profileId: string | null;
+}
+
+/** 子浏览器窗的窗口选项:几何交给 window.open 的 features(Electron 已解析),
+ *  这里只锁安全面与最小尺寸。webviewTag 显式关死——子窗只承载站点页面。 */
+const BROWSER_POPUP_WINDOW_OPTIONS = {
+  minWidth: 360,
+  minHeight: 420,
+  backgroundColor: '#ffffff',
+  autoHideMenuBar: true,
+  webPreferences: {
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    contextIsolation: true,
+    sandbox: true,
+    webviewTag: false,
+  },
+} satisfies Electron.BrowserWindowConstructorOptions;
+
+function liveNamedPopup(
+  book: BrowserPopupBook,
+  frameName: string,
+): BrowserWindow | null {
+  if (!frameName) return null;
+  const win = book.named.get(frameName);
+  if (win && !win.isDestroyed()) return win;
+  if (win) book.named.delete(frameName);
+  return null;
+}
+
+/** 弹窗请求分流:子浏览器窗 / 同名窗复用 / 面板新标签 / 系统浏览器 / 拒。
+ *  同一套装在 guest 与每个子窗上(子窗里的再弹窗走同一本账,共享上限)。 */
+function installBrowserPopupHandlers(wiring: BrowserPopupWiring): void {
+  const { contents, hostWin, popupMode, sourceGuestId, book } = wiring;
+  contents.setWindowOpenHandler((details) => {
+    const decision = decideBrowserPopup(
+      {
+        url: details.url,
+        disposition: details.disposition,
+        frameName: details.frameName,
+        features: details.features,
+      },
+      {
+        mode: popupMode,
+        now: Date.now(),
+        lastOpenAt: book.lastOpenAt,
+        hasNamedWindow: !!liveNamedPopup(book, details.frameName),
+        childWindowCount: book.windows.size,
+      },
+    );
+    switch (decision.kind) {
+      case 'reuse-window': {
+        const existing = liveNamedPopup(book, details.frameName);
+        if (existing) {
+          void existing.webContents.loadURL(details.url);
+          existing.show();
+          existing.focus();
+        }
+        return { action: 'deny' };
+      }
+      case 'child-window':
+        book.lastOpenAt = Date.now();
+        return {
+          action: 'allow',
+          // 开启方(浏览器标签 / 其父弹窗)销毁 → 子窗一并关闭,不留孤儿登录窗
+          outlivesOpener: false,
+          overrideBrowserWindowOptions: {
+            ...BROWSER_POPUP_WINDOW_OPTIONS,
+            parent: hostWin,
+            title: browserPopupWindowTitle(details.url, ''),
+          },
+        };
+      case 'external':
+        book.lastOpenAt = Date.now();
+        void shell.openExternal(details.url);
+        return { action: 'deny' };
+      case 'pane-tab':
+        book.lastOpenAt = Date.now();
+        if (!hostWin.isDestroyed()) {
+          hostWin.webContents.send('browser:open-url', details.url, sourceGuestId);
+        }
+        return { action: 'deny' };
+      default:
+        return { action: 'deny' };
+    }
+  });
+  contents.on('did-create-window', (child, details) => {
+    adoptBrowserPopupWindow(child, details.frameName ?? '', wiring);
+  });
+}
+
+/** 新开的子浏览器窗:入账 → 反钓鱼标题 → 导航白名单 → 同策略递归 → 密码桥登记 */
+function adoptBrowserPopupWindow(
+  child: BrowserWindow,
+  frameName: string,
+  wiring: BrowserPopupWiring,
+): void {
+  const { book } = wiring;
+  book.windows.add(child);
+  if (frameName) book.named.set(frameName, child);
+  child.once('closed', () => {
+    book.windows.delete(child);
+    if (frameName && book.named.get(frameName) === child) {
+      book.named.delete(frameName);
+    }
+  });
+
+  const contents = child.webContents;
+  // 子窗没有地址栏,标题栏就是唯一的来源指示:域名恒打头,页面自报标题只能跟在后面
+  // (站点可任意设 document.title,不拦就能伪装成「Google 登录」骗密码)。
+  const stampTitle = () => {
+    if (child.isDestroyed()) return;
+    child.setTitle(browserPopupWindowTitle(contents.getURL(), contents.getTitle()));
+  };
+  child.on('page-title-updated', (event) => {
+    event.preventDefault();
+    stampTitle();
+  });
+  contents.on('did-navigate', stampTitle);
+  contents.on('did-navigate-in-page', stampTitle);
+  stampTitle();
+
+  contents.on('will-navigate', (event, url) => {
+    if (!/^(https?:|about:)/i.test(url)) event.preventDefault();
+  });
+  installBrowserPopupHandlers({ ...wiring, contents });
+
+  // 子窗继承开启方的 guest preload(密码桥);不登记就是未授权 sender,
+  // 保险箱恒拒——登录弹窗里要能自动填充,必须显式绑到同一 profile 与同一宿主窗。
+  if (wiring.profileId) {
+    passwordVaultController.registerGuest(
+      contents,
+      wiring.profileId,
+      wiring.hostWin.webContents.id,
+    );
+    contents.on('did-finish-load', () =>
+      passwordVaultController.requestNavigationVerification(contents.id),
+    );
+  }
+}
+
 /**
  * 内置浏览器 webview 的硬化与策略接线(主窗与浏览器窗格壳窗共用):
  * - 🔴 will-attach 硬化(opus 评审 P1):guest webPreferences 创建前锁定——即使 renderer
@@ -1947,10 +2114,12 @@ function buildMenu(): void {
  *   × 已知出口】的组合分区,被注入的 renderer 不能借任意 partition 逃出浏览器分区体系。
  * - WebRTC 防泄漏静态化:远程分区恒代理 → attach 即 disable_non_proxied_udp
  *   (SOCKS5 只代理 TCP,UDP 会绕过代理暴露本机真实 IP);本机分区直连保持默认。
- * - 弹窗策略:target=_blank/window.open 恒不开原生新窗,http(s) 按 opts.popup 分流:
- *   'pane'(默认,主窗/浏览器窗格壳窗)送回【本窗口】renderer 在窗格里开新标签
- *   (附来源 guest id 定位归属);'external'(查看器等无窗格的窗口)送系统浏览器
- *   (shell.openExternal)。限频 300ms/guest 防灌爆(评审 P2-5)。
+ * - 弹窗策略(判据/落位单源 browserPopupPolicy.ts):http(s) 才受理,按语义分流——
+ *   弹窗语义(window.open 带窗口特性 / disposition=new-window,Google 登录即此类)
+ *   在 'pane' 宿主下开【子浏览器窗口】,opener/postMessage/window.close 全链保住;
+ *   普通 target=_blank 新标签语义仍送回【本窗口】renderer 在窗格里开新标签
+ *   (附来源 guest id 定位归属);'external'(查看器等无窗格的窗口)一律送系统浏览器
+ *   (shell.openExternal)。限频 300ms/guest + 子窗上限 4 防灌爆(评审 P2-5)。
  * - 主框架导航只许 http(s)/about:(评审 P2-2)。
  */
 function wireBrowserWebviewPolicies(
@@ -2010,6 +2179,7 @@ function wireBrowserWebviewPolicies(
     if (!isLocalDirect) {
       guest.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
     }
+    let guestProfileId: string | null = null;
     if (passwordBridge) {
       const profileIds = [
         DEFAULT_PROFILE_ID,
@@ -2045,6 +2215,7 @@ function wireBrowserWebviewPolicies(
         guest.close({ waitForBeforeUnload: false });
         return;
       }
+      guestProfileId = profileId;
       passwordVaultController.registerGuest(
         guest,
         profileId,
@@ -2054,18 +2225,13 @@ function wireBrowserWebviewPolicies(
         passwordVaultController.requestNavigationVerification(guest.id),
       );
     }
-    let lastOpenAt = 0;
-    guest.setWindowOpenHandler(({ url }) => {
-      const now = Date.now();
-      if (/^https?:\/\//i.test(url) && now - lastOpenAt > 300) {
-        lastOpenAt = now;
-        if (popupMode === 'external') {
-          void shell.openExternal(url);
-        } else if (!win.isDestroyed()) {
-          win.webContents.send('browser:open-url', url, guest.id);
-        }
-      }
-      return { action: 'deny' };
+    installBrowserPopupHandlers({
+      contents: guest,
+      hostWin: win,
+      popupMode,
+      sourceGuestId: guest.id,
+      book: { lastOpenAt: 0, windows: new Set(), named: new Map() },
+      profileId: guestProfileId,
     });
     guest.on('will-navigate', (e, url) => {
       if (!/^(https?:|about:)/i.test(url)) e.preventDefault();

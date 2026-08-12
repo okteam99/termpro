@@ -29,7 +29,12 @@ let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let settleObserver: MutationObserver | null = null;
 
 function sendStatus(status: PasswordGuestStatus): void {
-  ipcRenderer.sendToHost(PASSWORD_GUEST_CHANNELS.statusToHost, status);
+  try {
+    ipcRenderer.sendToHost(PASSWORD_GUEST_CHANNELS.statusToHost, status);
+  } catch {
+    // 弹窗子浏览器窗(Google 登录一类)不是 webview,没有 embedder 可送——
+    // 那里没有状态条 UI,填充/捕获照常走 invoke,状态丢弃即可,不能抛断流程。
+  }
 }
 
 function editable(input: HTMLInputElement): boolean {
