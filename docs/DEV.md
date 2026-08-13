@@ -315,6 +315,13 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
 - **renderer 编排**:`transferCore.ts` 纯分块循环(改写检测/对账/finally 清理/
   取消在块边界生效)+ `transferManager.ts` 模块级单例 FIFO 串行队列(并发 1,
   切 tab/折叠面板不中断);进度在 FilePanel 底部传输条,终态走 showHint。
+- **查看器兜底入口**(用户指令 2026-08-13,`viewer/DownloadAction.tsx`):远程文件
+  预览不了(二进制 / 超预览上限,如 mp4)时,消息旁给「下载到本机」——那扇窗里本机
+  文件另有 Finder/默认应用两个入口,远程文件此前只剩一句死文案。复用 `runDownload`
+  但**不进 transferManager 队列**:查看器是独立渲染进程,队列与传输条 UI 都在主窗那份;
+  这里只做按钮内进度 + 终态文案,卸载(关 tab/窗)即取消并释放写票。只挂在
+  「预览不了」这一支(`LoadState.unpreviewable`),加载/保存出错不长下载按钮。
+  已知边界:markdown **预览面板**的超限文案下没有按钮(切到 Edit 页即有)。
 - **已知边界**:单文件 2 GiB 上限(确定性拒绝);不支持断点续传(offset 协议已预留,
   v2);目录整体上传/下载不支持(多选文件覆盖主场景);app 崩溃可能在本机留下
   `.{name}.okwork-part-*` 残件(点前缀不可见,不做本机全盘清扫)。

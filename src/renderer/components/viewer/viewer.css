@@ -98,6 +98,21 @@
   gap: 10px;
 }
 
+/* 「预览不了」兜底动作条(远程文件的下载到本机):文案在上、动作在下,
+   进度/终态文案与按钮同行,窄窗自动换行不撑破 */
+.viewer-message-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.viewer-message-note {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+  color: var(--fg-dim);
+}
+
 /* 掉线横幅:不清空文档,只在头部下方挂一条可手动刷新的提示(2026-07-15) */
 .viewer-disconnected {
   flex: 0 0 auto;

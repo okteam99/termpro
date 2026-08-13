@@ -326,6 +326,7 @@ export function FilesWindow({
             >
               <FileView
                 path={tab.path}
+                hostId={hostId}
                 onDirtyChange={(d) => setDirty(tab.id, d)}
                 onSaved={() => bumpReloadSeq(tab.id)}
                 registerSave={(fn) => {

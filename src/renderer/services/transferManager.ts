@@ -103,8 +103,9 @@ interface Job {
 }
 
 // 惰性访问 window.okwork.transfer(模块求值时机早于 preload 挂载完成的窗口不可假设已就绪;
-// 每个方法体内才读,不在此处缓存引用)。
-const defaultBridge: TransferBridge = {
+// 每个方法体内才读,不在此处缓存引用)。导出供不进本队列的单文件调用方复用
+// (查看器窗口的「下载到本机」:独立渲染进程,那里没有传输列表 UI)。
+export const localTransferBridge: TransferBridge = {
   beginSave: (p) => window.okwork.transfer.beginSave(p),
   beginOpen: () => window.okwork.transfer.beginOpen(),
   write: (p) => window.okwork.transfer.write(p),
@@ -122,7 +123,7 @@ export function createTransferManager(overrides?: {
   runDownload?: typeof runDownload;
   runUpload?: typeof runUpload;
 }): TransferManager {
-  const bridge = overrides?.bridge ?? defaultBridge;
+  const bridge = overrides?.bridge ?? localTransferBridge;
   const doRunDownload = overrides?.runDownload ?? runDownload;
   const doRunUpload = overrides?.runUpload ?? runUpload;
 

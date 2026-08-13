@@ -7,9 +7,13 @@ import { hostClient } from '../../services/hostClient';
 import type { Monaco } from '../../monaco/setup';
 import type * as monacoNs from 'monaco-editor';
 import { t } from '../../../shared/i18n';
+import { DownloadAction } from './DownloadAction';
+import { isRemoteHost } from './viewerHost';
 
 interface Props {
   path: string;
+  /** 本窗口连的 host(缺省/'local' = 本机);远程 + 不能预览 → 给「下载到本机」兜底 */
+  hostId?: string;
   /** 保存状态回传给 header(脏标记/保存按钮) */
   onDirtyChange?(dirty: boolean): void;
   registerSave?(fn: (() => void) | null): void;
@@ -21,7 +25,9 @@ interface Props {
 
 type LoadState =
   | { phase: 'loading' }
-  | { phase: 'error'; message: string }
+  /** unpreviewable = 文件本身预览不了(二进制/超限),而非加载/保存出错——
+   *  只有这一支才挂「下载到本机」兜底,保存失败之类的错误不该长出下载按钮 */
+  | { phase: 'error'; message: string; unpreviewable?: boolean }
   | { phase: 'ready' };
 
 /** 可内嵌 <img> 渲染的图片类型(icns 等浏览器不认的仍走系统应用) */
@@ -65,14 +71,36 @@ export function sanitizeSvgForInline(b64: string): string {
 export function FileView(props: Props) {
   const mime = imageMime(props.path);
   // 组件类型不同,路径在图片/文本间切换时 React 自动卸载重建,hooks 安全
-  if (mime) return <ImageView path={props.path} mime={mime} />;
+  if (mime) {
+    return <ImageView path={props.path} mime={mime} hostId={props.hostId} />;
+  }
   return <TextFileView {...props} />;
 }
 
-function ImageView({ path, mime }: { path: string; mime: string }) {
+/** 预览不了的兜底动作条:远程 → 下载到本机;本机 → 无(头部已有 Finder/默认应用两个入口) */
+function UnpreviewableActions({
+  path,
+  hostId,
+}: {
+  path: string;
+  hostId?: string;
+}) {
+  if (!isRemoteHost(hostId)) return null;
+  return <DownloadAction path={path} />;
+}
+
+function ImageView({
+  path,
+  mime,
+  hostId,
+}: {
+  path: string;
+  mime: string;
+  hostId?: string;
+}) {
   const [state, setState] = useState<
     | { phase: 'loading' }
-    | { phase: 'error'; message: string }
+    | { phase: 'error'; message: string; unpreviewable?: boolean }
     | { phase: 'ready'; base64: string; size: number }
   >({ phase: 'loading' });
   const [dims, setDims] = useState<string | null>(null);
@@ -94,6 +122,7 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
             message: t('Image too large ({size}MB > 20MB), please open with the default app', {
               size: (r.size / 1024 / 1024).toFixed(1),
             }),
+            unpreviewable: true,
           });
           return;
         }
@@ -120,10 +149,12 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
   }, [svgHtml]);
 
   if (state.phase !== 'ready') {
+    const unpreviewable = state.phase === 'error' && state.unpreviewable;
     return (
       <div className="viewer-body">
-        <div className="viewer-message">
+        <div className={`viewer-message${unpreviewable ? ' viewer-message--column' : ''}`}>
           {state.phase === 'loading' ? t('Loading…') : state.message}
+          {unpreviewable && <UnpreviewableActions path={path} hostId={hostId} />}
         </div>
       </div>
     );
@@ -174,6 +205,7 @@ function ImageView({ path, mime }: { path: string; mime: string }) {
 
 function TextFileView({
   path,
+  hostId,
   onDirtyChange,
   registerSave,
   registerGetValue,
@@ -222,6 +254,7 @@ function TextFileView({
             : t('File too large ({size}MB > 2MB), please open in an external editor', {
                 size: (file.size / 1024 / 1024).toFixed(1),
               }),
+          unpreviewable: true,
         });
         return;
       }
@@ -292,8 +325,17 @@ function TextFileView({
   return (
     <div className="viewer-body">
       {state.phase !== 'ready' && (
-        <div className="viewer-message">
+        <div
+          className={`viewer-message${
+            state.phase === 'error' && state.unpreviewable
+              ? ' viewer-message--column'
+              : ''
+          }`}
+        >
           {state.phase === 'loading' ? t('Loading…') : state.message}
+          {state.phase === 'error' && state.unpreviewable && (
+            <UnpreviewableActions path={path} hostId={hostId} />
+          )}
         </div>
       )}
       <div
