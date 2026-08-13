@@ -204,6 +204,18 @@ SOCKS 端口按 configId 一份(同一出口各 profile 共享隧道;隔离的�
 管理 UI 在 Browser Settings(`BrowserProfilesSection`),工作区绑定在 Sidebar 的工作区
 编辑弹层(`WorkspaceEditModal`)。
 
+**弹窗 = 子浏览器窗口**(用户指令 2026-08-12,判据/落位单源 `src/main/browserPopupPolicy.ts`):
+`window.open` 带窗口特性 / `disposition=new-window`(Google 登录一类的 OAuth 流)恒开
+**真 popup 窗口**——转面板标签会让 `window.open()` 返回 null,站点直接判「弹窗被拦截」,
+`opener.postMessage` 回传与弹窗自 `close()` 也全断。子窗 session 跟开启方 guest 走
+(登录态落对 profile),`outlivesOpener=false`(标签销毁即关,不留孤儿登录窗),同名
+`frameName` 复用而非重开,限频 300ms + 单 guest 子窗上限 4。子窗**无地址栏**,故标题栏
+恒以域名打头、页面自报 `document.title` 只能跟在后面(反钓鱼——那扇窗里要输密码)。
+导航白名单 http(s)/about:,node 关死 + sandbox + 无 webviewTag;继承 guest preload 后
+显式登记到同一 profile 的密码保险箱(不登记即 fail-closed,子窗里没有状态条 UI)。
+普通 `target=_blank`(无特性)仍落面板新标签;查看器等无窗格宿主(`popup:'external'`)
+仍送系统浏览器。
+
 ### 4.8 AI 操作内置浏览器（browser MCP）
 
 session 内的 agent（Claude Code / Codex 等）可经内置 MCP server 驱动 OkWork 的内置浏览器：抓数据、截图、分析 DOM、执行 JS、点击/输入/滚动、管理标签。**AI 操作的就是用户真实登录会话（`persist:browser`，带 cookie）**——刻意为之（用户指令 2026-07-15，安全隔离暂不做;控制层只做能力,不做 consent/隔离）。
