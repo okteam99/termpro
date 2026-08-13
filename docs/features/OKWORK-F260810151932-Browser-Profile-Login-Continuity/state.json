@@ -6,7 +6,7 @@
   "sub_project": "",
   "flow_type": "Feature",
   "artifact_root": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260810151932-Browser-Profile-Login-Continuity/docs/features/OKWORK-F260810151932-Browser-Profile-Login-Continuity",
-  "host": "codex-cli",
+  "host": "claude-code",
   "host_history": [
     {
       "host": "codex-cli",
@@ -17,6 +17,12 @@
       "host": "codex-cli",
       "at": "2026-08-10T15:20:35Z",
       "source": "goal-start",
+      "previous": "codex-cli"
+    },
+    {
+      "host": "claude-code",
+      "at": "2026-08-13T02:31:32Z",
+      "source": "pm_acceptance-start",
       "previous": "codex-cli"
     }
   ],
@@ -40,7 +46,8 @@
   "auto_mode": false,
   "yolo": false,
   "concerns": [
-    "2026-08-10T17:12:41Z WARN L1 auto-pass: panorama change scope=/settings/browser-profiles 与 /browser/password-save-fill 节点内增量, 判据=①无节点增删移或路由变化 ②无 token/共享视觉基线变更 ③teamwork-space+ROADMAP+WS-02 冲突扫描零命中"
+    "2026-08-10T17:12:41Z WARN L1 auto-pass: panorama change scope=/settings/browser-profiles 与 /browser/password-save-fill 节点内增量, 判据=①无节点增删移或路由变化 ②无 token/共享视觉基线变更 ③teamwork-space+ROADMAP+WS-02 冲突扫描零命中",
+    "2026-08-13T02:31:32Z WARN pm_acceptance-start host 切换: 'codex-cli' → 'claude-code' · (v8.36 治本 v8.21 全局 audit 跨 session 污染 case · 用户跨 session 切宿主时显式覆盖 state.json.host)"
   ],
   "review_round": 0,
   "stage_contracts": {
@@ -236,7 +243,8 @@
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-10T19:35:31Z"
+      "started_at": "2026-08-10T19:35:31Z",
+      "await_minutes": 15
     }
   },
   "completed_stages": [
@@ -267,9 +275,9 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-10T19:35:43Z",
-  "updated_by": "stage-cost",
-  "_state_checksum": "sha256:156dc8989e23ca7297ce931cf57300ad111fa4e7a45fd8ede2b7b3e4a9fdaccf",
+  "updated_at": "2026-08-13T02:44:09Z",
+  "updated_by": "pause-mark",
+  "_state_checksum": "sha256:b93dcadbde5dfdd580dfe3548e57306bad5b2ab79718c8fc2747449a1b52960b",
   "legal_next_stages": [
     "ship",
     "dev"
@@ -355,5 +363,10 @@
       "note": "",
       "at": "2026-08-10T18:59:56Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "pm_acceptance",
+    "label": "pm_acceptance 验收三选项",
+    "started_at": "2026-08-13T02:44:09Z"
+  }
 }
