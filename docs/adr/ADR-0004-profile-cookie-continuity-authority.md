@@ -103,4 +103,7 @@ Service Worker / Cache / Chromium Profile 目录都不在可移植范围内。
   `src/renderer/components/settings/__tests__/BrowserProfilesSection.test.tsx`
 - 已知门禁缺口（非缺陷 · 见 PENDING-013）：决策 3 的设备侧 `evicted` 抑制与决策 8 的旧 Host 升级提示
   当前无回归测试覆盖
+- 🔴 已知**约束未覆盖入口**（见 PENDING-015）：决策 4 的 gate 目前只装在 webview guest 上；
+  与本 Feature 并行落地的子浏览器窗口（OAuth 弹窗 · `main.ts` `adoptBrowserPopupWindow`）继承开启方分区
+  但只校验 scheme，尚未接入同一 main-side gate
 - 过程快照：`features/_archive/OKWORK-F260810151932-Browser-Profile-Login-Continuity.zip`
