@@ -116,15 +116,14 @@ risks:
 > 🔧 `state.py ws-progress --ws WS-02 --write` 自 ROADMAP 派生，勿手改。
 
 <!-- WS-PROGRESS:START · 工具生成(state.py ws-progress) · 名册驱动 · 自各 ROADMAP 匹配状态 · 勿手改 -->
-进度 2/3 已完成 · 1 待开始
-（名册 3 feature · 状态自 1 个 ROADMAP 匹配 · 2026-08-10T14:51:59Z）
+进度 3/3 已完成
+（名册 3 feature · 状态自 1 个 ROADMAP 匹配 · 2026-08-13T03:01:17Z）
 
-| feature | BL | 子项目 | 功能 | 状态 | 当前阶段 | F |
-|---------|----|--------|------|------|----------|---|
-| S1 | BL-006 | OKWORK | Profile 密码库与静默保存/填充 | ✅ 已交付 | - | OKWORK-F260807022801-Profile-Password-Vault |
-| S2 | BL-007 | OKWORK | Remote Host Profile 权威存储与迁移 | ✅ 已交付 | - | OKWORK-F260810051623-Remote-Profile-Authority |
-| S3 | BL-008 | OKWORK | Browser Profile 3A 登录连续性漫游 | 待开始 | - | - |
-▶ **可启动(依赖已齐)**:S3(BL-008)
+| feature | BL | 涉及子项目 | 功能 | 大白话目标 | 状态 | 当前阶段 | F |
+|---------|----|-----------|------|-----------|------|----------|---|
+| S1 | BL-006 | OKWORK | Profile 密码库与静默保存/填充 | — | ✅ 已交付 | - | OKWORK-F260807022801-Profile-Password-Vault |
+| S2 | BL-007 | OKWORK | Remote Host Profile 权威存储与迁移 | — | ✅ 已交付 | - | OKWORK-F260810051623-Remote-Profile-Authority |
+| S3 | BL-008 | OKWORK | Browser Profile 3A 登录连续性漫游 | — | ✅ 已交付 | - | OKWORK-F260810151932-Browser-Profile-Login-Continuity |
 <!-- WS-PROGRESS:END -->
 
 ## feature 依赖关系图（工具汇总）
