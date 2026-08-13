@@ -42,13 +42,59 @@ function tmpDataDir(): string {
   return d;
 }
 
-async function waitForFile(file: string, timeoutMs = 3_000): Promise<void> {
+type PortFileRecord = {
+  port: number;
+  pid: number;
+  hostTag: string;
+};
+
+function isPortFileRecord(value: unknown): value is PortFileRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.port === 'number' &&
+    typeof record.pid === 'number' &&
+    typeof record.hostTag === 'string'
+  );
+}
+
+async function waitForPortFileRecord(
+  file: string,
+  timeoutMs = 3_000,
+): Promise<PortFileRecord> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (fs.existsSync(file)) return;
-    await new Promise((r) => setTimeout(r, 20));
+    let raw: string;
+    try {
+      raw = fs.readFileSync(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new Error('port file read failed');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      continue;
+    }
+
+    if (raw.trim().length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        continue;
+      }
+      throw new Error('port file JSON parsing failed');
+    }
+
+    if (!isPortFileRecord(parsed)) throw new Error('port file content malformed');
+    return parsed;
   }
-  throw new Error(`waitForFile timeout: ${file}`);
+  throw new Error('port file did not become ready before timeout');
 }
 
 describe('AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag}', () => {
@@ -68,15 +114,10 @@ describe('AC-8 端口文件 wx(O_EXCL)|0600 + {port,pid,hostTag}', () => {
       );
       const listeningPort = Number(m[2]);
 
-      await waitForFile(portFile);
+      const content = await waitForPortFileRecord(portFile);
       const stat = fs.statSync(portFile);
       expect(stat.mode & 0o777).toBe(0o600);
 
-      const content = JSON.parse(fs.readFileSync(portFile, 'utf8')) as {
-        port: number;
-        pid: number;
-        hostTag: string;
-      };
       expect(content.port).toBe(listeningPort);
       expect(content.pid).toBe(host.child.pid);
       expect(content.hostTag).toBe('cfg-portfile-1');
@@ -281,7 +322,7 @@ describe('Q2 · AC-8 token-stdin 零落盘/零回显(host 侧证否,补 TC 落�
       );
       const m = await host.waitForStdout(/\[host\] listening ws:\/\/([^:]+):(\d+)/);
       const port = Number(m[2]);
-      await waitForFile(portFile);
+      await waitForPortFileRecord(portFile);
 
       // ① 端口文件内容不含 token 明文
       expect(fs.readFileSync(portFile, 'utf8')).not.toContain(secretToken);
@@ -315,7 +356,7 @@ describe('E12 · 驻留态恒不回显 token(结构纵深,防未来误用 genera
         }),
       );
       await host.waitForStdout(/\[host\] listening ws:\/\//);
-      await waitForFile(portFile);
+      await waitForPortFileRecord(portFile);
       // 让可能的滞后输出落进缓冲区,再断言回显行始终未出现
       await new Promise((r) => setTimeout(r, 100));
       expect(host.getStdout()).not.toMatch(/\[host\] token=/);

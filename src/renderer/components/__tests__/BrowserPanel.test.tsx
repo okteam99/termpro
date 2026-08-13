@@ -9,7 +9,14 @@
 // seedWorkspace)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 
 expect.extend(matchers);
@@ -49,7 +56,172 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  useAppStore.setState({ workspaces: [], activeWorkspaceId: null, browserPanelOpen: false });
+  useAppStore.setState({
+    workspaces: [],
+    activeWorkspaceId: null,
+    browserPanelOpen: false,
+    browserProfiles: [],
+    browserProfilesLoaded: false,
+  });
+});
+
+describe('Remote Profile login-continuity hydration gate', () => {
+  it('test_AC9_browser_reports_restored_or_paused_without_cookie_details', async () => {
+    let resolvePrepare!: (result: {
+      ready: false;
+      reason: 'PROFILE_CONTINUITY_OFFLINE';
+      canRetry: true;
+    }) => void;
+    const pendingPrepare = new Promise<{
+      ready: false;
+      reason: 'PROFILE_CONTINUITY_OFFLINE';
+      canRetry: true;
+    }>((resolve) => {
+      resolvePrepare = resolve;
+    });
+    const prepareContinuity = vi
+      .fn()
+      .mockReturnValueOnce(pendingPrepare)
+      .mockResolvedValueOnce({ ready: true, syncedCount: 4, skippedCount: 1 });
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserProfile: { prepareContinuity },
+    };
+
+    seedWorkspace({
+      tabs: [{ id: 'remote-tab', url: 'https://example.com', title: 'Example' }],
+      activeTabId: 'remote-tab',
+    });
+    useAppStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({
+        ...workspace,
+        browserProfileId: 'remote-profile',
+      })),
+      browserProfilesLoaded: true,
+      browserProfiles: [
+        {
+          id: 'remote-profile',
+          name: 'Shared work',
+          createdAt: 1,
+          storage: { kind: 'remote', hostId: 'host-a' },
+          storageLabel: 'Remote A',
+          availability: 'ready',
+          loginContinuity: {
+            state: 'paused',
+            syncedCount: 0,
+            pendingCount: 1,
+            skippedCount: 0,
+            conflictCount: 0,
+            reasons: ['PROFILE_CONTINUITY_OFFLINE'],
+            canRetry: true,
+          },
+        },
+      ],
+    }));
+
+    const { rerender } = render(<BrowserPanel />);
+    await waitFor(() => expect(prepareContinuity).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Restoring login status…')).toBeInTheDocument();
+    expect(document.querySelector('webview')).toBeNull();
+
+    await act(async () => {
+      resolvePrepare({
+        ready: false,
+        reason: 'PROFILE_CONTINUITY_OFFLINE',
+        canRetry: true,
+      });
+      await pendingPrepare;
+    });
+    expect(screen.getAllByText('Login continuity is paused').length).toBeGreaterThan(0);
+    expect(screen.getByText(/No website request was sent\./)).toBeInTheDocument();
+    expect(document.querySelector('webview')).toBeNull();
+
+    useAppStore.setState((state) => ({
+      browserProfiles: state.browserProfiles.map((profile) => ({
+        ...profile,
+        loginContinuity: profile.loginContinuity
+          ? { ...profile.loginContinuity, state: 'synced', pendingCount: 0 }
+          : undefined,
+      })),
+    }));
+    rerender(<BrowserPanel />);
+    fireEvent.click(screen.getByText('Retry'));
+
+    await waitFor(() => expect(document.querySelector('webview')).not.toBeNull());
+    expect(screen.getByText('Login status restored')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('cookie-name-secret');
+    expect(document.body.textContent).not.toContain('cookie-value-secret');
+  });
+
+  it('does not commit manual navigation until Remote Profile hydration is ready', async () => {
+    let resolvePrepare!: (result: {
+      ready: true;
+      syncedCount: number;
+      skippedCount: number;
+    }) => void;
+    const pendingPrepare = new Promise<{
+      ready: true;
+      syncedCount: number;
+      skippedCount: number;
+    }>((resolve) => {
+      resolvePrepare = resolve;
+    });
+    const prepareContinuity = vi.fn().mockReturnValue(pendingPrepare);
+    (window as unknown as { okwork: unknown }).okwork = {
+      browserProfile: { prepareContinuity },
+    };
+    seedWorkspace({
+      tabs: [{ id: 'remote-empty', url: '' }],
+      activeTabId: 'remote-empty',
+    });
+    useAppStore.setState((state) => ({
+      workspaces: state.workspaces.map((workspace) => ({
+        ...workspace,
+        browserProfileId: 'remote-profile',
+      })),
+      browserProfilesLoaded: true,
+      browserProfiles: [
+        {
+          id: 'remote-profile',
+          name: 'Shared work',
+          createdAt: 1,
+          storage: { kind: 'remote', hostId: 'host-a' },
+          storageLabel: 'Remote A',
+          availability: 'ready',
+        },
+      ],
+    }));
+    render(<BrowserPanel />);
+    const input = document.querySelector<HTMLInputElement>(
+      '.browser-panel__address-input',
+    )!;
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'aon.pro' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(prepareContinuity).toHaveBeenCalledWith({
+      profileId: 'remote-profile',
+      netHostId: 'local',
+    });
+    expect(document.querySelector('webview')).toBeNull();
+    expect(
+      useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url,
+    ).toBe('');
+
+    await act(async () => {
+      resolvePrepare({ ready: true, syncedCount: 1, skippedCount: 0 });
+      await pendingPrepare;
+    });
+    await waitFor(() =>
+      expect(document.querySelector('webview')).toHaveAttribute(
+        'src',
+        'https://aon.pro',
+      ),
+    );
+    expect(
+      useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url,
+    ).toBe('https://aon.pro');
+  });
 });
 
 describe('BrowserPanel', () => {
@@ -193,7 +365,7 @@ describe('BrowserPanel · window.open 按来源落位', () => {
     (window as unknown as Record<string, unknown>).okwork = {
       onBrowserOpenUrl(cb: (url: string, sourceId: number) => void) {
         captured = cb;
-        return () => {};
+        return () => undefined;
       },
     };
     return { fire: (url, sourceId) => captured?.(url, sourceId) };

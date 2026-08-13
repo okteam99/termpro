@@ -50,6 +50,8 @@ export interface BrowserProfileDeletionDeps {
   partitionsForProfile(profileId: string): string[];
   clearPartitionStorage(partition: string): void | Promise<void>;
   clearPartitionCache(partition: string): void | Promise<void>;
+  /** Remove durable cleanup history only after every partition was cleared. */
+  finalizeProfileCleanup?(profileId: string): void | Promise<void>;
   /** 广播最新 Profile 快照；广播失败不放宽已经落盘的安全状态。 */
   notifyProfilesChanged(): void | Promise<void>;
   logger: {
@@ -193,15 +195,6 @@ export class BrowserProfileDeletionCoordinator {
   private async performCleanup(
     profileId: string,
   ): Promise<DeletionFailure | null> {
-    try {
-      await this.deps.clearVault(profileId);
-    } catch {
-      return {
-        step: 'clear_vault',
-        errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.vaultClearFailed,
-      };
-    }
-
     let partitions: string[];
     try {
       partitions = [...new Set(this.deps.partitionsForProfile(profileId))];
@@ -209,6 +202,15 @@ export class BrowserProfileDeletionCoordinator {
       return {
         step: 'list_partitions',
         errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.partitionListFailed,
+      };
+    }
+
+    try {
+      await this.deps.clearVault(profileId);
+    } catch {
+      return {
+        step: 'clear_vault',
+        errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.vaultClearFailed,
       };
     }
     for (const partition of partitions) {
@@ -228,6 +230,14 @@ export class BrowserProfileDeletionCoordinator {
           errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.cacheClearFailed,
         };
       }
+    }
+    try {
+      await this.deps.finalizeProfileCleanup?.(profileId);
+    } catch {
+      return {
+        step: 'clear_vault',
+        errorCode: BROWSER_PROFILE_DELETION_ERROR_CODES.vaultClearFailed,
+      };
     }
     return null;
   }

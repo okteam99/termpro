@@ -9,10 +9,12 @@ import type {
   BrowserProfileSummary,
   BrowserProfileDeletionResult,
   BrowserProfileInput,
+  BrowserContinuityPrepareResult,
   ProfileStorageChangePlan,
   ProfileStorageChangeResult,
   ProfileStorageRef,
   ProfileStorageTargetStatus,
+  RemoteBrowserProfileSummary,
 } from '../shared/browserProfile';
 import {
   PASSWORD_VAULT_CHANNELS,
@@ -467,6 +469,35 @@ contextBridge.exposeInMainWorld('okwork', {
     }): Promise<ProfileStorageChangeResult> {
       return ipcRenderer.invoke(
         BROWSER_PROFILE_CHANNELS.retryStorageChange,
+        payload,
+      );
+    },
+    listRemoteAvailable(payload: {
+      hostId: string;
+    }): Promise<RemoteBrowserProfileSummary[]> {
+      return ipcRenderer.invoke(
+        BROWSER_PROFILE_CHANNELS.listRemoteAvailable,
+        payload,
+      );
+    },
+    joinRemote(payload: {
+      hostId: string;
+      profileId: string;
+    }): Promise<BrowserProfileSummary> {
+      return ipcRenderer.invoke(BROWSER_PROFILE_CHANNELS.joinRemote, payload);
+    },
+    retryContinuity(payload: { profileId: string }): Promise<void> {
+      return ipcRenderer.invoke(
+        BROWSER_PROFILE_CHANNELS.retryContinuity,
+        payload,
+      );
+    },
+    prepareContinuity(payload: {
+      profileId: string;
+      netHostId: string;
+    }): Promise<BrowserContinuityPrepareResult> {
+      return ipcRenderer.invoke(
+        BROWSER_PROFILE_CHANNELS.prepareContinuity,
         payload,
       );
     },

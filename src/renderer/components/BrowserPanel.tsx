@@ -9,6 +9,7 @@ import { t } from '../../shared/i18n';
 import {
   DEFAULT_PROFILE_ID,
   browserPartition,
+  type BrowserContinuityPrepareResult,
 } from '../../shared/browserProfile';
 import {
   PASSWORD_GUEST_CHANNELS,
@@ -271,6 +272,91 @@ function BrowserWebview({
       }}
     />
   );
+}
+
+interface ContinuityGatedWebviewProps extends BrowserWebviewProps {
+  profileId: string;
+  netHostId: string;
+  remoteProfile: boolean;
+}
+
+/**
+ * A Remote Profile guest must not exist until main has hydrated the exact
+ * profile/partition/current-Host-generation tuple. Once mounted, the guest is
+ * deliberately retained across disconnects so already-open pages keep their
+ * local Chromium session.
+ */
+function ContinuityGatedWebview(props: ContinuityGatedWebviewProps) {
+  const { profileId, netHostId, remoteProfile, url, active } = props;
+  const hasInitialUrl = Boolean(url);
+  const [attempt, setAttempt] = useState(0);
+  const [gate, setGate] = useState<
+    | { kind: 'hydrating' }
+    | { kind: 'ready'; result?: BrowserContinuityPrepareResult }
+    | {
+        kind: 'blocked';
+        result: Extract<BrowserContinuityPrepareResult, { ready: false }>;
+      }
+  >(() =>
+    remoteProfile && hasInitialUrl ? { kind: 'hydrating' } : { kind: 'ready' },
+  );
+
+  useEffect(() => {
+    if (!remoteProfile || !hasInitialUrl || gate.kind === 'ready') return;
+    let disposed = false;
+    setGate({ kind: 'hydrating' });
+    void window.okwork.browserProfile
+      .prepareContinuity({ profileId, netHostId })
+      .then((result) => {
+        if (disposed) return;
+        if (result.ready) setGate({ kind: 'ready', result });
+        else setGate({ kind: 'blocked', result });
+      })
+      .catch(() => {
+        if (disposed) return;
+        setGate({
+          kind: 'blocked',
+          result: {
+            ready: false,
+            reason: 'PROFILE_CONTINUITY_OFFLINE',
+            canRetry: true,
+          },
+        });
+      });
+    return () => {
+      disposed = true;
+    };
+    // gate intentionally is not a dependency: a ready guest stays mounted
+    // across summary/reconnect churn; Retry changes attempt explicitly.
+  }, [attempt, hasInitialUrl, netHostId, profileId, remoteProfile]);
+
+  if (gate.kind !== 'ready') {
+    return (
+      <div
+        className={`browser-panel__continuity-gate${gate.kind === 'blocked' ? ' browser-panel__continuity-gate--blocked' : ''}`}
+        role={gate.kind === 'blocked' ? 'alert' : 'status'}
+        style={{ visibility: active ? 'visible' : 'hidden' }}
+      >
+        <strong>
+          {gate.kind === 'hydrating'
+            ? t('Restoring login status…')
+            : t('Login continuity is paused')}
+        </strong>
+        <span>
+          {gate.kind === 'hydrating'
+            ? t('The website will open after its cookies are ready.')
+            : `${gate.result.reason} · ${t('No website request was sent.')}`}
+        </span>
+        {gate.kind === 'blocked' && gate.result.canRetry && (
+          <button onClick={() => setAttempt((value) => value + 1)}>
+            {t('Retry')}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return <BrowserWebview {...props} />;
 }
 
 function BackIcon() {
@@ -766,10 +852,38 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const activeProfileStorageUnavailable =
     activeProfile !== undefined && activeProfile.availability !== 'ready';
 
-  function handleNavigate(raw: string) {
+  async function prepareActiveNavigation(): Promise<boolean> {
+    if (!activeTab || activeProfile?.storage.kind !== 'remote') return true;
+    const result = await window.okwork.browserProfile.prepareContinuity({
+      profileId: activeProfileId,
+      netHostId: resolveBrowserTabNet(
+        activeTab,
+        activeWorkspace?.hostId ?? 'local',
+      ),
+    });
+    if (result.ready) return true;
+    handleNavChange(activeTab.id, {
+      loading: false,
+      errorText: `${result.reason} · ${t('No website request was sent.')}`,
+    });
+    return false;
+  }
+
+  async function handleNavigate(raw: string) {
     if (!activeTermTabId || !activeTab) return;
     const url = normalizeUrlInput(raw);
     if (!url) return;
+    if (activeProfile?.storage.kind === 'remote') {
+      try {
+        if (!(await prepareActiveNavigation())) return;
+      } catch {
+        handleNavChange(activeTab.id, {
+          loading: false,
+          errorText: `PROFILE_CONTINUITY_OFFLINE · ${t('No website request was sent.')}`,
+        });
+        return;
+      }
+    }
     // 立即回写 store:地址栏/标签名马上反映目标地址。加载失败(SSL/DNS 错)时
     // did-navigate 不会来,不写这步地址栏会退回旧地址(用户报告 2026-07-23)。
     // src 由 srcRef 锁定一次,store 更新不会反向触发 reload;标签名先落目标 host,
@@ -785,7 +899,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
 
   function handleAddressKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
-      handleNavigate(draft);
+      void handleNavigate(draft);
       setEditing(false);
       e.currentTarget.blur();
     } else if (e.key === 'Escape') {
@@ -912,9 +1026,21 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             <button
               className="browser-panel__nav-btn"
               disabled={isEmptyTab || !activeNav.canGoBack}
-              onClick={() =>
-                activeTab && webviewRefs.current.get(activeTab.id)?.goBack()
-              }
+              onClick={() => {
+                if (!activeTab) return;
+                const el = webviewRefs.current.get(activeTab.id);
+                if (!el) return;
+                void prepareActiveNavigation()
+                  .then((ready) => {
+                    if (ready) el.goBack();
+                  })
+                  .catch(() =>
+                    handleNavChange(activeTab.id, {
+                      loading: false,
+                      errorText: `PROFILE_CONTINUITY_OFFLINE · ${t('No website request was sent.')}`,
+                    }),
+                  );
+              }}
               title={t('Back')}
             >
               <BackIcon />
@@ -922,9 +1048,21 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             <button
               className="browser-panel__nav-btn"
               disabled={isEmptyTab || !activeNav.canGoForward}
-              onClick={() =>
-                activeTab && webviewRefs.current.get(activeTab.id)?.goForward()
-              }
+              onClick={() => {
+                if (!activeTab) return;
+                const el = webviewRefs.current.get(activeTab.id);
+                if (!el) return;
+                void prepareActiveNavigation()
+                  .then((ready) => {
+                    if (ready) el.goForward();
+                  })
+                  .catch(() =>
+                    handleNavChange(activeTab.id, {
+                      loading: false,
+                      errorText: `PROFILE_CONTINUITY_OFFLINE · ${t('No website request was sent.')}`,
+                    }),
+                  );
+              }}
               title={t('Forward')}
             >
               <ForwardIcon />
@@ -937,7 +1075,18 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
                 const el = webviewRefs.current.get(activeTab.id);
                 if (!el) return;
                 if (activeNav.loading) el.stop();
-                else el.reload();
+                else {
+                  void prepareActiveNavigation()
+                    .then((ready) => {
+                      if (ready) el.reload();
+                    })
+                    .catch(() =>
+                      handleNavChange(activeTab.id, {
+                        loading: false,
+                        errorText: `PROFILE_CONTINUITY_OFFLINE · ${t('No website request was sent.')}`,
+                      }),
+                    );
+                }
               }}
               title={activeNav.loading ? t('Stop') : t('Refresh')}
             >
@@ -1018,6 +1167,31 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             }
           />
 
+          {activeProfile?.loginContinuity &&
+            activeProfile.loginContinuity.state !== 'not_available' && (
+              <div
+                className={`browser-panel__continuity-status browser-panel__continuity-status--${activeProfile.loginContinuity.state}`}
+                role={
+                  activeProfile.loginContinuity.state === 'paused' ||
+                  activeProfile.loginContinuity.state === 'moved'
+                    ? 'alert'
+                    : 'status'
+                }
+              >
+                {activeProfile.loginContinuity.state === 'synced'
+                  ? t('Login status restored')
+                  : activeProfile.loginContinuity.state === 'hydrating' ||
+                      activeProfile.loginContinuity.state === 'syncing'
+                    ? t('Restoring login status…')
+                    : activeProfile.loginContinuity.state === 'paused' ||
+                        activeProfile.loginContinuity.state === 'moved'
+                      ? t('Login continuity is paused')
+                      : activeProfile.loginContinuity.state === 'host_upgrade'
+                        ? t('Update the Remote Host to restore login status')
+                        : t('Login continuity needs attention')}
+              </div>
+            )}
+
           <div className="browser-panel__views">
             {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),
             为每个浏览器标签渲染一个常驻 webview,可见性用 CSS visibility 切换——绝不能
@@ -1032,23 +1206,26 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
               const profileId = w.browserProfileId ?? DEFAULT_PROFILE_ID;
               if (profileId !== DEFAULT_PROFILE_ID && !browserProfilesLoaded)
                 return [];
-              const userAgent = browserProfiles.find(
+              const profile = browserProfiles.find(
                 (p) => p.id === profileId,
-              )?.userAgent;
+              );
+              const userAgent = profile?.userAgent;
+              const remoteProfile = profile?.storage.kind === 'remote';
               return w.tabs.flatMap((tb) =>
                 (tb.browser?.poppedOut ? [] : (tb.browser?.tabs ?? [])).map(
                   (bt) => {
                     // 分区/UA 掺进 key——换出口/换 profile/改 UA 即重挂重载该标签
                     // (webview partition 创建后不可变,Chromium 语义;UA 变更同语义处理)
-                    const partition = browserPartition(
-                      profileId,
-                      resolveBrowserTabNet(bt, w.hostId),
-                    );
+                    const netHostId = resolveBrowserTabNet(bt, w.hostId);
+                    const partition = browserPartition(profileId, netHostId);
                     return (
-                      <BrowserWebview
+                      <ContinuityGatedWebview
                         key={`${bt.id}:${partition}:${userAgent ?? ''}`}
                         tabId={bt.id}
                         ownerTerminalTabId={tb.id}
+                        profileId={profileId}
+                        netHostId={netHostId}
+                        remoteProfile={Boolean(remoteProfile)}
                         partition={partition}
                         useragent={userAgent}
                         url={bt.url}

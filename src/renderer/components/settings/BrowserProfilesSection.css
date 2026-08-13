@@ -29,6 +29,49 @@
   max-height: 204px;
 }
 
+.browser-profiles__available {
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.browser-profiles__available-title {
+  padding: 7px 12px;
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.browser-profiles__available-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.browser-profiles__available-row > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.browser-profiles__available-row small,
+.browser-profiles__available-status {
+  color: var(--fg-dim);
+  font-size: 10px;
+}
+
+.browser-profiles__available-status {
+  padding: 7px 12px;
+  border-top: 1px solid var(--border);
+}
+
 .browser-profiles__item {
   border-bottom: 1px solid var(--border);
 }
@@ -123,6 +166,27 @@
 
 .browser-profiles__detail .browser-profiles__action {
   margin-left: auto;
+}
+
+.browser-profiles__continuity {
+  flex-wrap: wrap;
+}
+
+.browser-profiles__continuity-counts,
+.browser-profiles__continuity-reason {
+  color: var(--fg-dim);
+  font-size: 9.5px;
+}
+
+.browser-profiles__continuity-reason {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.browser-profiles__global-impact {
+  color: var(--amber);
+  font-weight: 600;
 }
 
 .browser-profiles__detail--warn {

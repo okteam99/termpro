@@ -63,6 +63,42 @@ function provider(logs: string[] = []): RemoteProfileProvider {
 }
 
 describe('main-only RemoteProfileProvider security', () => {
+  it('replays the same moved retire operation to finish post-epoch cleanup', async () => {
+    const remote = provider();
+    const operationId = '70000000-0000-4000-8000-000000000001';
+    await remote.writeProfile({
+      id: PROFILE_ID,
+      name: 'Moving Profile',
+      createdAt: 10,
+    });
+
+    await expect(
+      remote.retireAfterMigration(PROFILE_ID, operationId, 'local'),
+    ).resolves.toBe(1);
+    await expect(
+      remote.retireAfterMigration(PROFILE_ID, operationId, 'local'),
+    ).resolves.toBe(1);
+
+    const retireRequests = requests.filter(
+      (request) => request.op === 'profile.retire',
+    );
+    expect(retireRequests).toHaveLength(2);
+    expect(retireRequests.map((request) => request.payload)).toEqual([
+      {
+        operationId,
+        expectedEpoch: 0,
+        kind: 'moved',
+        movedTo: 'local',
+      },
+      {
+        operationId,
+        expectedEpoch: 0,
+        kind: 'moved',
+        movedTo: 'local',
+      },
+    ]);
+  });
+
   it('test_AC3_wires the production provider through the dedicated Host RPC and handles result envelopes', async () => {
     const remote = provider();
     const profile = { id: PROFILE_ID, name: 'Remote Profile', createdAt: 10 };
@@ -87,6 +123,9 @@ describe('main-only RemoteProfileProvider security', () => {
       remote.deleteEntry(PROFILE_ID, saved.metadata.id),
     ).resolves.toBe(false);
     await expect(remote.deleteProfile(PROFILE_ID)).resolves.toBe(true);
+    // A different device/clientId derives the same cleanup operation and can
+    // finish physical cleanup after the original initiator disappears.
+    await expect(provider().deleteProfile(PROFILE_ID)).resolves.toBe(true);
 
     expect(requests.map((request) => request.op)).toEqual(
       expect.arrayContaining([
@@ -95,9 +134,20 @@ describe('main-only RemoteProfileProvider security', () => {
         'profile.save',
         'vault.upsert',
         'vault.delete',
-        'profile.delete',
+        'profile.lifecycle',
+        'profile.retire',
       ]),
     );
+    expect(requests.map((request) => request.op)).not.toContain(
+      'profile.delete',
+    );
+    const retireRequests = requests.filter(
+      (request) => request.op === 'profile.retire',
+    );
+    expect(retireRequests).toHaveLength(2);
+    expect(
+      (retireRequests[0].payload as { operationId: string }).operationId,
+    ).toBe((retireRequests[1].payload as { operationId: string }).operationId);
     expect(fs.readFileSync(store.grantsPath, 'utf8')).not.toContain(SENTINEL);
     const profileFiles = fs.readdirSync(store.profilesDirectory);
     expect(profileFiles).toEqual([]);

@@ -18,9 +18,11 @@ import { randomUserAgent } from './randomUserAgent';
 import type {
   BrowserProfile,
   BrowserProfileSummary,
+  LoginContinuityReasonCode,
   ProfileStorageChangePlan,
   ProfileStorageRef,
   ProfileStorageTargetStatus,
+  RemoteBrowserProfileSummary,
 } from '../../../shared/browserProfile';
 import { DEFAULT_PROFILE_ID } from '../../../shared/browserProfile';
 import type { RemoteHostConfig, RemoteStage } from '../../../shared/remoteHost';
@@ -31,6 +33,45 @@ interface FormValues {
 }
 
 const EMPTY_FORM: FormValues = { name: '', userAgent: '' };
+
+function continuityStateText(profile: BrowserProfileSummary): string | null {
+  const continuity = profile.loginContinuity;
+  if (!continuity || continuity.state === 'not_available') return null;
+  switch (continuity.state) {
+    case 'host_upgrade':
+      return t('Login continuity · Update Remote Host');
+    case 'hydrating':
+      return t('Login continuity · Restoring login status…');
+    case 'syncing':
+      return t('Login continuity · Syncing…');
+    case 'synced':
+      return t('Login continuity · Synced');
+    case 'paused':
+      return t('Login continuity · Paused');
+    case 'attention':
+      return t('Login continuity · Needs attention');
+    case 'moved':
+      return t('Login continuity · Profile moved');
+  }
+}
+
+function continuityReasonText(reason: LoginContinuityReasonCode): string {
+  const labels: Record<LoginContinuityReasonCode, string> = {
+    HOST_UPGRADE_REQUIRED: t('Remote Host update required'),
+    PROFILE_CONTINUITY_OFFLINE: t('Remote Host offline'),
+    PROFILE_CONTINUITY_TIMEOUT: t('Remote Host timed out'),
+    CONTINUITY_JOURNAL_UNAVAILABLE: t('Protected local queue unavailable'),
+    CONTINUITY_JOURNAL_CORRUPT: t('Protected local queue needs attention'),
+    COOKIE_SESSION_POLICY: t('Session-only cookie kept on this device'),
+    COOKIE_UNSUPPORTED: t('Cookie attributes not supported'),
+    COOKIE_TOO_LARGE: t('Cookie exceeds sync limit'),
+    COOKIE_APPLY_FAILED: t('Cookie could not be restored'),
+    COOKIE_CONFLICT_RESOLVED: t('Conflict resolved by Host order'),
+    PROFILE_MOVED: t('Profile moved'),
+    PROFILE_DELETED: t('Profile deleted'),
+  };
+  return labels[reason];
+}
 
 function sameStorageRef(
   left: ProfileStorageRef,
@@ -88,6 +129,88 @@ export function BrowserProfilesSection() {
   const storageLoadGeneration = useRef(0);
   const [storageBusy, setStorageBusy] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [availableProfiles, setAvailableProfiles] = useState<
+    RemoteBrowserProfileSummary[]
+  >([]);
+  const [availableBusy, setAvailableBusy] = useState(false);
+  const [availableError, setAvailableError] = useState<string | null>(null);
+  const [joiningProfileId, setJoiningProfileId] = useState<string | null>(null);
+
+  const refreshAvailableProfiles = useCallback(async () => {
+    const bridge = window.okwork?.browserProfile;
+    if (!bridge?.listRemoteAvailable) return;
+    setAvailableBusy(true);
+    setAvailableError(null);
+    try {
+      const [hosts, stages] = await Promise.all([
+        window.okwork.remoteHost.list(),
+        window.okwork.remoteHost.stages(),
+      ]);
+      const pages = await Promise.all(
+        hosts
+          .filter((host) => stages[host.id] === 'ready')
+          .map((host) => bridge.listRemoteAvailable({ hostId: host.id })),
+      );
+      const joinedIds = new Set(profiles.map((profile) => profile.id));
+      setAvailableProfiles(
+        pages
+          .flat()
+          .filter((profile) => !joinedIds.has(profile.profileId))
+          .sort(
+            (left, right) =>
+              left.name.localeCompare(right.name) ||
+              left.hostId.localeCompare(right.hostId) ||
+              left.profileId.localeCompare(right.profileId),
+          ),
+      );
+    } catch {
+      setAvailableError(
+        t('Could not check Remote Hosts for available Profiles.'),
+      );
+    } finally {
+      setAvailableBusy(false);
+    }
+  }, [profiles]);
+
+  useEffect(() => {
+    void refreshAvailableProfiles();
+    return window.okwork?.remoteHost?.onEvent?.(() => {
+      void refreshAvailableProfiles();
+    });
+  }, [refreshAvailableProfiles]);
+
+  async function joinAvailableProfile(profile: RemoteBrowserProfileSummary) {
+    setJoiningProfileId(profile.profileId);
+    setAvailableError(null);
+    try {
+      await window.okwork.browserProfile.joinRemote({
+        hostId: profile.hostId,
+        profileId: profile.profileId,
+      });
+      setAvailableProfiles((current) =>
+        current.filter(
+          (candidate) =>
+            candidate.profileId !== profile.profileId ||
+            candidate.hostId !== profile.hostId,
+        ),
+      );
+    } catch {
+      setAvailableError(
+        t('This Profile could not be used on this device.'),
+      );
+    } finally {
+      setJoiningProfileId(null);
+    }
+  }
+
+  async function retryContinuity(profileId: string) {
+    setAvailableError(null);
+    try {
+      await window.okwork.browserProfile.retryContinuity({ profileId });
+    } catch {
+      setAvailableError(t('Login continuity retry could not start.'));
+    }
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -154,10 +277,12 @@ export function BrowserProfilesSection() {
     setFormError(null);
   }
 
-  async function handleDelete(profile: BrowserProfile) {
+  async function handleDelete(profile: BrowserProfileSummary) {
     const ok = window.confirm(
       t(
-        'Delete Profile "{name}"? Its saved passwords, cookies, logins and cache will be cleared from its storage locations.',
+        profile.storage.kind === 'remote'
+          ? 'Delete shared Profile "{name}"? This affects every device using it. Saved passwords, compatible login cookies and local browser partitions will be removed.'
+          : 'Delete Profile "{name}"? Its saved passwords, cookies, logins and cache will be cleared from its storage locations.',
         {
           name: profile.name,
         },
@@ -327,6 +452,43 @@ export function BrowserProfilesSection() {
           'Each Profile has isolated cookies, saved passwords, storage and an optional custom User-Agent. Projects choose a Profile in their edit dialog.',
         )}
       </div>
+      {(availableProfiles.length > 0 || availableBusy || availableError) && (
+        <div className="browser-profiles__available" aria-busy={availableBusy}>
+          <div className="browser-profiles__available-title">
+            {t('Available on connected Remote Hosts')}
+          </div>
+          {availableProfiles.map((profile) => (
+            <div
+              key={`${profile.hostId}:${profile.profileId}`}
+              className="browser-profiles__available-row"
+            >
+              <span>
+                <b>{profile.name}</b>
+                <small>{t('Remote Host')} · {profile.hostId}</small>
+              </span>
+              <button
+                className="browser-profiles__action"
+                disabled={joiningProfileId !== null}
+                onClick={() => void joinAvailableProfile(profile)}
+              >
+                {joiningProfileId === profile.profileId
+                  ? t('Adding…')
+                  : t('Use on this device')}
+              </button>
+            </div>
+          ))}
+          {availableBusy && (
+            <div className="browser-profiles__available-status" role="status">
+              {t('Checking connected Remote Hosts…')}
+            </div>
+          )}
+          {availableError && (
+            <div className="browser-profiles__available-status browser-profiles__detail--danger" role="alert">
+              {availableError}
+            </div>
+          )}
+        </div>
+      )}
       <div className="browser-profiles__list">
         {displayProfiles.map((profile) => {
           const unavailable = profile.availability !== 'ready';
@@ -360,7 +522,7 @@ export function BrowserProfilesSection() {
                 <span
                   className={`browser-profiles__storage${unavailable ? ' browser-profiles__storage--offline' : ''}`}
                 >
-                  {t('Password storage')}: {profile.storageLabel}
+                  {t('Storage location')}: {profile.storageLabel}
                   {unavailable ? ` · ${t('Offline')}` : ''}
                 </span>
                 {passwordCounts && !unavailable && (
@@ -415,6 +577,49 @@ export function BrowserProfilesSection() {
                 >
                   {t(
                     'The page session may continue with local cookies, but password and Profile changes are paused. Reconnect the Remote Host.',
+                  )}
+                </div>
+              )}
+              {continuityStateText(profile) && (
+                <div
+                  className={`browser-profiles__detail browser-profiles__continuity${profile.loginContinuity?.state === 'attention' || profile.loginContinuity?.state === 'host_upgrade' ? ' browser-profiles__detail--warn' : profile.loginContinuity?.state === 'paused' || profile.loginContinuity?.state === 'moved' ? ' browser-profiles__detail--danger' : ''}`}
+                  role={
+                    profile.loginContinuity?.state === 'paused' ||
+                    profile.loginContinuity?.state === 'moved'
+                      ? 'alert'
+                      : 'status'
+                  }
+                >
+                  <span>{continuityStateText(profile)}</span>
+                  <span className="browser-profiles__continuity-counts">
+                    {t('{count} synced', {
+                      count: profile.loginContinuity?.syncedCount ?? 0,
+                    })}
+                    {' · '}
+                    {t('{count} pending', {
+                      count: profile.loginContinuity?.pendingCount ?? 0,
+                    })}
+                    {' · '}
+                    {t('{count} skipped', {
+                      count: profile.loginContinuity?.skippedCount ?? 0,
+                    })}
+                    {' · '}
+                    {t('{count} conflicts', {
+                      count: profile.loginContinuity?.conflictCount ?? 0,
+                    })}
+                  </span>
+                  {profile.loginContinuity?.reasons.map((reason) => (
+                    <span key={reason} className="browser-profiles__continuity-reason">
+                      {continuityReasonText(reason)}
+                    </span>
+                  ))}
+                  {profile.loginContinuity?.canRetry && (
+                    <button
+                      className="browser-profiles__action"
+                      onClick={() => void retryContinuity(profile.id)}
+                    >
+                      {t('Retry')}
+                    </button>
                   )}
                 </div>
               )}
@@ -617,6 +822,17 @@ export function BrowserProfilesSection() {
                     'Copying → Verifying → Switching. If the move fails before switching, the current location stays in use.',
                   )}
                 </span>
+                {storageProfile.storage.kind === 'remote' && (
+                  <span className="browser-profiles__global-impact">
+                    {storagePlan.target.kind === 'local'
+                      ? t(
+                          'This ends sharing for every other device. This device keeps the local copy; other devices remove the Profile after they reconnect.',
+                        )
+                      : t(
+                          'This move changes the shared storage location for every device using this Profile.',
+                        )}
+                  </span>
+                )}
               </div>
             )}
             {storageError && (

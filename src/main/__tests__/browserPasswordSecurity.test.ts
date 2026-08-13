@@ -8,6 +8,7 @@ import {
   type PasswordGuestSender,
   type PasswordVaultPort,
 } from '../passwordVaultController';
+import { ProfileContinuityController } from '../profileContinuityController';
 
 const PROFILE_A = 'a'.repeat(32);
 const PROFILE_B = 'b'.repeat(32);
@@ -76,6 +77,68 @@ function vault(): PasswordVaultPort {
 }
 
 describe('browser password trust boundaries', () => {
+  it('test_AC7_cookie_payloads_are_redacted_from_renderer_dtos_and_logs', async () => {
+    const cookieSecret =
+      'name=session-secret; domain=private.example.test; value=never-render';
+    const warnings: string[] = [];
+    const controller = new ProfileContinuityController({
+      clientId: 'd'.repeat(43),
+      getCatalogEntry: (profileId) => ({
+        profileId,
+        storage: { kind: 'remote', hostId: 'remote-a' },
+        lifecycle: 'active',
+      }),
+      remoteProvider: () => ({
+        currentGeneration: () => 'generation-1',
+        describeContinuity: async () => {
+          throw Object.assign(new Error(cookieSecret), {
+            code: 'PROFILE_STORAGE_OFFLINE',
+            payload: cookieSecret,
+          });
+        },
+        getContinuityLifecycle: async () => {
+          throw new Error('not reached');
+        },
+        pullContinuity: async () => {
+          throw new Error('not reached');
+        },
+        pushContinuity: async () => {
+          throw new Error('not reached');
+        },
+      }),
+      partitionsOfProfile: () => [],
+      isKnownPartition: () => false,
+      cookiesForPartition: () => {
+        throw new Error('not reached');
+      },
+      journal: {} as never,
+      logger: {
+        warn: (message) => warnings.push(message),
+        error: (message) => warnings.push(message),
+      },
+    });
+
+    const rendererDto = await controller.probe(PROFILE_A);
+    const exposed = JSON.stringify({
+      id: PROFILE_A,
+      name: 'Remote work',
+      loginContinuity: rendererDto,
+    });
+    expect(rendererDto).toEqual({
+      state: 'paused',
+      syncedCount: 0,
+      pendingCount: 0,
+      skippedCount: 0,
+      conflictCount: 0,
+      reasons: ['PROFILE_CONTINUITY_OFFLINE'],
+      canRetry: true,
+    });
+    expect(`${exposed}\n${warnings.join('\n')}`).not.toContain(cookieSecret);
+    expect(`${exposed}\n${warnings.join('\n')}`).not.toMatch(
+      /session-secret|private\.example\.test|never-render/,
+    );
+  });
+
   it('test_AC8_rejects_untrusted_vault_access_while_disclosing_dom_and_clipboard_exports', async () => {
     const controller = new PasswordVaultController({
       vault: vault(),

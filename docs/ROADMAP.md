@@ -81,7 +81,7 @@ graph LR
 
 | Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
 |-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
-| BL-008 | Browser Profile 3A 登录连续性漫游 | P1 | 同步 Profile 配置、密码与 Electron 可表达 Cookie；revision/tombstone 多设备对账；其他网站 Storage 与 Cache 留在本机 | ① 另一设备连接同一 Host 可获得配置/密码/兼容 Cookie并延续常见站点登录 ② 多设备同步幂等且删除不复活 ③ 不兼容 Cookie 明示跳过，LocalStorage/IndexedDB/SW/Cache 不上传 | BL-007 | 待开始 | - | - | WS-02 |
+| BL-008 | Browser Profile 3A 登录连续性漫游 | P1 | 同步 Profile 配置、密码与 Electron 可表达 Cookie；revision/tombstone 多设备对账；其他网站 Storage 与 Cache 留在本机 | ① 另一设备连接同一 Host 可获得配置/密码/兼容 Cookie并延续常见站点登录 ② 多设备同步幂等且删除不复活 ③ 不兼容 Cookie 明示跳过，LocalStorage/IndexedDB/SW/Cache 不上传 | BL-007 | ✅ 已交付 | - | OKWORK-F260810151932-Browser-Profile-Login-Continuity | WS-02 |
 
 ## WS-02 依赖关系
 
