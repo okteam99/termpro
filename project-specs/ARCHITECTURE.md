@@ -103,6 +103,30 @@ source cleanup；目录切换是唯一提交边界，提交前失败保持原权
 `ready + compatible` 时才可选择，签计划前 main 再次 `describe` 复验。详细决策见
 **[ADR-0003](../docs/adr/ADR-0003-remote-profile-authority-and-migration.md)**。
 
+### Browser Profile 登录连续性漫游（BL-008）
+
+Cookie 权威是 **Profile 级**：同一 Profile 的本机直连与各远程出口 partition 共用一份权威并互相对账，
+网络出口本身保持独立；`session-only` Cookie 不漫游。Cookie identity 由规范化的 host-only/domain、path、
+name 确定（`src/shared/profileContinuity.ts`），同一 identity 按 **Host 原子接受顺序**分配单调 revision
+（`src/host/profileContinuityStore.ts`），设备携带 `deviceId + operationId + baseRevision`，同 operationId
+的重试幂等返回既有结果，不依赖设备壁钟。每个 identity 的最新 tombstone 永久保留；**单设备容量回收
+（Electron `evicted`）在设备侧直接不上报**，不形成全局 tombstone。
+
+`ProfileContinuityController`（`src/main/profileContinuityController.ts`）持有唯一的 Cookie 数据面：
+每个 `Profile × partition × 当前 Host generation` 完成初始 hydration 前不创建或导航 webview，该 gate 由
+`BrowserGuestNavigationGuard`（`src/main/browserGuestNavigationGuard.ts`）挂在 guest 的 `will-navigate` /
+`will-redirect` 上**每次动态复读 authority/generation** 后 fail-closed 阻断，prepare 完成才单次重放——
+只在 attach 时检查会让已打开页面在 generation 失效后经站内导航绕过。离线期变化写进跨重启保留的加密
+journal（`src/main/profileContinuityJournal.ts`），UI 只报"待同步数量"，恢复后忽略旧 generation 迟到响应
+并从权威游标提交。
+
+秘密边界按数据面划分：Cookie 值与 identity 只在 main 与专用 Host 存储链路流转，普通 renderer、设置页 DTO、
+日志与截图只含 Profile 摘要、数量与固定原因类别；LocalStorage / IndexedDB / Service Worker / Cache 及
+Chromium Profile 目录不上传。删除/迁移在物理清理**之前**持久化单调 delete/move epoch，旧设备的陈旧目录或
+journal 不能穿透 epoch 重建数据。协议以低于 8 MiB 的有界分页 + 游标承载，旧 Host 经能力探测明示升级提示而
+不静默降级。详细决策见
+**[ADR-0004](../docs/adr/ADR-0004-profile-cookie-continuity-authority.md)**。
+
 ### 技术设计决策（ADR）
 
 | ADR | 决策 | 状态 |
@@ -110,6 +134,7 @@ source cleanup；目录切换是唯一提交边界，提交前失败保持原权
 | [ADR-0001](../docs/adr/ADR-0001-remote-connection-orchestration-gates.md) | 远程机连接编排用「两道闸 + 意图与弃用标记分家」，状态收进 store 模块级单源 | accepted |
 | [ADR-0002](../docs/adr/ADR-0002-profile-password-vault-trust-boundaries.md) | Profile 密码 Vault 由 main 权威管理，并拆分 guest/ordinary/trusted 三层最小权限入口 | accepted |
 | [ADR-0003](../docs/adr/ADR-0003-remote-profile-authority-and-migration.md) | 每个 Profile 只保留一个本机或 Remote Host 权威，迁移采用 copy/verify/switch/cleanup，远端同 SSH UID 属可信边界 | accepted |
+| [ADR-0004](../docs/adr/ADR-0004-profile-cookie-continuity-authority.md) | Cookie 权威按 Profile 而非 partition，冲突由 Host 定序 revision 裁决，导航受 main-side fail-closed hydration gate 约束 | accepted |
 
 ---
 

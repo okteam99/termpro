@@ -41,8 +41,9 @@
 | RD-14 | **改测试让红变绿之前,先问「是不是断言编码了已被推翻的旧语义」** | AC-14 断言「点连接即解除弃用」,而那正是 review 的 BLOCKER 修掉的行为 —— 照着它「修绿」的最省事走法就是**把生产代码改回旧行为**,等于悄悄退回修复 |
 | RD-15 | **安全承诺是否先对照了实际 OS principal 与已有 FS/PTY 能力?** `main-only`/capability/`0600` 只说明接口和跨 UID 边界；同一 SSH 用户若已有任意文件与 shell 能力，就不能再承诺阻止该主体读取或解密 | BL-007 初稿把 ordinary renderer 的专用 RPC 隔离误写成能隔离同 SSH UID 的通用 Host token/终端 Agent；review 逐条走生产 FS/PTY 路径后发现物理权限模型与 AC 自相矛盾，最终按 WS-02 回归真实信任边界 |
 | RD-16 | **远端目标的 `ready` 是否和当前连接代的协议兼容性一起进入“可选 + 可提交”条件?** 只在 main 最终提交时拒绝会把确定性不兼容暴露成用户点 Continue 后才失败 | BL-007 迁移选择器最初只看 Host stage；review 发现旧 bundle 仍可选择，修为 generation-scoped `describe` 缓存/失效、renderer 禁用与 main 签计划前复验 |
+| RD-17 | **这条断言的输入，生产上谁会产生它?** 覆盖矩阵绿 ≠ 生产路径被验证 —— 这是本项目第二次栽(GO-033 是 seam 没接生产；GO-041 是接了生产但**测的分支不可达**)。写完 TC 逐条反问:该实现符号除了定义，有没有测试**从生产入口**触达它 | BL-008 的 T-006 断言 Host 会拒绝一个 `kind:'evicted'` 的 RPC——而设备侧 `if (cause === 'evicted') return;` 决定了它永远不会被发出;矩阵显示 AC-4 已覆盖，真正的抑制逻辑却零测试。同轮 AC-5 的 `host_upgrade` 提示链路同样零触达(两者均在 pm_acceptance 才被逐条对照抓出) |
 
-📌 **判据来源**:RD-1..RD-8、RD-15..RD-16 每条对应相关 Feature `REVIEW.md` 的 confirmed finding；RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
+📌 **判据来源**:RD-1..RD-8、RD-15..RD-17 每条对应相关 Feature `REVIEW.md` 的 confirmed finding；RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
 📌 **清单会长**:同类第 2 次被抓即入;**已在清单里还复发 = 规避法不够硬,该强化那一条**,而不是再记一遍。
 
 ---
@@ -103,6 +104,8 @@
 | GO-037 | remote/deploy | **`deploying` 阶段取消会把部署锁留在远端·下一次连接最长空等 120s 后 deployFailed**(代码读证 · 未实测):`deploy.ts:213` 的 `finally { releaseMkdirLock }` 本身是对的,但取消走 `orchestrator.disconnect()` —— 它等在途编排 ≤5s(`orchestrator.ts:419`)超时即强关 ssh,而真实 bundle 上传常 >5s → finally 里那条 `rm -rf` 的 ssh exec 随连接一起失败 → 锁目录 `${dataDir}/bundle/.deploying-${version}` 残留。下次连接:`acquireMkdirLock` 见锁未陈旧(age ≤ 120s,`deploy.ts:37` `DEFAULT_LOCK_STALE_MS`)→ `waitForPeer` → `waitForReady` 轮询一个永不出现的 `.ready`,超时 120s 抛 `deployFailed`(`deploy.ts:118`) | **不是死锁,是一次性延迟**:锁 age > 120s 后 `mkdirLock.ts:88-92` break-and-reacquire 自动接管 → 再点一次连接即恢复。用户 D-7 已拍板接受此代价,本次不修。若日后要修:取消路径显式发一条独立 ssh 会话 `rm -rf` 锁目录,或给 `waitForReady` 加「等待中锁已陈旧则提前 break」的复检 | 2026-08 | OKWORK-F260805033051 |
 | GO-038 | test/security | **带密码的浏览器 E2E fixture 不得用 GET 提交登录表单**：即使产品日志完全脱敏，浏览器仍会把用户名/密码放进 URL；地址栏、导航历史、截图和失败日志随即成为新的持久暴露面。本 Feature 初版视觉证据正是在地址栏看到随机密码哨兵才暴露该问题 | fixture 用 `method="post"`，服务端不记录 body；截图前额外检查成功页 URL 无 credential query；任何 reveal 场景只在内存断言明文，等重新遮罩后再截图 | 2026-08 | OKWORK-F260807022801-Profile-Password-Vault |
 | GO-039 | remote/security | **Remote Profile 的 main-only RPC 是应用接口隔离，不是同 SSH UID 的 OS 隔离**：配置 SSH 用户、Remote Host 管理员及以该用户运行的任意 FS/PTY 进程都可读取 master key 与密文并解密；`0700/0600` 只挡其他 UID | 产品与确认 UI 必须明确该信任边界；普通 renderer 仍不得获得专用 Profile/Vault API 或 capability。若要隔离同 UID Agent，只能改为独立 OS principal/第二 SSH 身份或 E2EE，不能靠路径 deny、capability 或权限位话术 | 2026-08 | OKWORK-F260810051623-Remote-Profile-Authority |
+| GO-040 | test/worktree | **worktree 里不装 node_modules 时，起真实子进程的测试会整片挂掉且症状像回归**：`src/host/__tests__/hostSubprocessHarness.ts` 把 host 打成临时目录里的 CJS bundle，再用 `NODE_PATH = path.resolve(__dirname,'../../..') + '/node_modules'` 让子进程解析 external 依赖（node-pty / ws / bufferutil / utf-8-validate）。vitest 自身靠 Node 向上查找命中**父仓库**的 node_modules 所以照常跑，但那条显式 NODE_PATH 指的是 **worktree 根**——空目录 → `Cannot find module 'node-pty'` → `portFile.test.ts` 7 例全红 | 在 worktree 跑测试前先确认依赖可解析：`npm ci`，或对 external 依赖软链父仓库（`ln -s ../../node_modules/node-pty node_modules/node-pty`，另需 ws；跑 `electron-forge` 还要 electron）。**判据**：只有起子进程的套件红、其余全绿 → 先怀疑依赖解析而非代码回归 | 2026-08 | OKWORK-F260810151932-Browser-Profile-Login-Continuity |
+| GO-041 | test/coverage | **「测了一个真实系统不会发生的输入」= 比幽灵覆盖更难识破的假覆盖**：TC 声称覆盖某 AC，测试也真跑真绿，但它构造的输入在生产路径上**永远不会出现**（BL-008 的 T-006 构造了一个 `kind:'evicted'` 的 RPC 请求断言 Host schema 会拒绝它——而设备侧代码 `if (cause === 'evicted') return;` 决定了这种请求根本不会被发出）。矩阵显示 10/10 覆盖，真正的抑制逻辑却是黑盒。与 GO-033 的区别：GO-033 是 seam 没接生产，这条是**接了生产但测的分支不可达** | 写 TC 时对每条断言追问「生产上**谁**会产生这个输入」；review/pm_acceptance 对声称覆盖的 AC 做反向 grep（该实现符号除了定义还有没有测试**从生产入口**触达）。识别信号：测试断言的是"防御性拒绝"，而真实防御在更上游 | 2026-08 | OKWORK-F260810151932-Browser-Profile-Login-Continuity |
 
 ---
 
@@ -146,7 +149,7 @@
 - **build**: GO-015
 - **filepanel**: GO-011, GO-013
 - **notify**: GO-012, GO-014, GO-016
-- **test**: GO-017, GO-038(security)
+- **test**: GO-017, GO-038(security), GO-040(worktree 依赖), GO-041(不可达输入假覆盖)
 - **lifecycle**: GO-019
 - **remote/security**: GO-025, GO-039
 - **remote/concurrency**: GO-026
