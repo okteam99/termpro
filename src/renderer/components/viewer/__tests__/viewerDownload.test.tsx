@@ -34,6 +34,8 @@ import { DownloadAction } from '../DownloadAction';
 import { FileView } from '../FileView';
 
 const PATH = '/home/pi/videos/1.mp4';
+/** 真·预览不了的文件(mp4 现在走内置播放器,不再落「预览不了」那一支) */
+const BLOB_PATH = '/home/pi/data/dump.bin';
 
 function statOk(size: number) {
   hostClient.rpc.mockImplementation(async (method: string) =>
@@ -161,14 +163,14 @@ describe('FileView · 只有「预览不了」这一支才长下载按钮', () =
       binary: false,
       size: 2_900_000,
     });
-    render(<FileView path={PATH} hostId="pi" />);
+    render(<FileView path={BLOB_PATH} hostId="pi" />);
     expect(await screen.findByText(/File too large/)).toBeTruthy();
     expect(screen.getByText('Download to local')).toBeTruthy();
   });
 
   it('远程 + 二进制文件 → 同样给下载入口', async () => {
     hostClient.rpc.mockResolvedValue({ content: null, binary: true, size: 42 });
-    render(<FileView path={PATH} hostId="pi" />);
+    render(<FileView path={BLOB_PATH} hostId="pi" />);
     expect(await screen.findByText(/Binary file/)).toBeTruthy();
     expect(screen.getByText('Download to local')).toBeTruthy();
   });
@@ -179,15 +181,51 @@ describe('FileView · 只有「预览不了」这一支才长下载按钮', () =
       binary: true,
       size: 42,
     });
-    render(<FileView path={PATH} hostId="local" />);
+    render(<FileView path={BLOB_PATH} hostId="local" />);
     expect(await screen.findByText(/Binary file/)).toBeTruthy();
     expect(screen.queryByText('Download to local')).toBeNull();
   });
 
   it('加载失败(非「预览不了」)不长下载按钮', async () => {
     hostClient.rpc.mockRejectedValue(new Error('EACCES'));
-    render(<FileView path={PATH} hostId="pi" />);
+    render(<FileView path={BLOB_PATH} hostId="pi" />);
     expect(await screen.findByText('EACCES')).toBeTruthy();
     expect(screen.queryByText('Download to local')).toBeNull();
+  });
+});
+
+describe('FileView · 视频内置播放', () => {
+  const objectUrl = 'blob:okwork-test';
+  function stubObjectUrl() {
+    URL.createObjectURL = vi.fn(() => objectUrl);
+    URL.revokeObjectURL = vi.fn();
+  }
+
+  it('mp4 走内置播放器(分块读 → blob URL 喂 <video>),不再是「预览不了」', async () => {
+    stubObjectUrl();
+    hostClient.rpc.mockImplementation(async (method: string) => {
+      if (method === 'fs.stat') return { kind: 'file', size: 3, mtimeMs: 1 };
+      if (method === 'fs.readFileRange') {
+        return { base64: 'AAEC', bytes: 3, eof: true, size: 3, mtimeMs: 1 };
+      }
+      throw new Error(`unexpected ${method}`);
+    });
+    const { container } = render(<FileView path={PATH} hostId="pi" />);
+    await waitFor(() => expect(container.querySelector('video')).toBeTruthy());
+    expect(container.querySelector('video')?.getAttribute('src')).toBe(objectUrl);
+    expect(screen.queryByText(/Binary file|File too large/)).toBeNull();
+  });
+
+  it('超 100MB 的视频 → 上限文案 + 下载兜底(不硬拉进内存)', async () => {
+    stubObjectUrl();
+    hostClient.rpc.mockImplementation(async (method: string) => {
+      if (method === 'fs.stat') {
+        return { kind: 'file', size: 101 * 1024 * 1024, mtimeMs: 1 };
+      }
+      throw new Error(`unexpected ${method}`);
+    });
+    render(<FileView path={PATH} hostId="pi" />);
+    expect(await screen.findByText(/Too large to preview/)).toBeTruthy();
+    expect(screen.getByText('Download to local')).toBeTruthy();
   });
 });

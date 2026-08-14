@@ -718,6 +718,14 @@
   border-radius: 4px;
 }
 
+/* 内置视频播放(2026-08-14):与图片同一个居中容器,控件走浏览器原生 */
+.viewer-video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+  background: #000;
+}
+
 .viewer-image-meta {
   font-size: 11px;
   color: var(--fg-dim);

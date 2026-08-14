@@ -9,6 +9,12 @@ import type * as monacoNs from 'monaco-editor';
 import { t } from '../../../shared/i18n';
 import { DownloadAction } from './DownloadAction';
 import { isRemoteHost } from './viewerHost';
+import {
+  VIEWER_MAX_MEDIA_BYTES,
+  loadMediaBlob,
+  videoMime,
+  type MediaLoadResult,
+} from './viewerMedia';
 
 interface Props {
   path: string;
@@ -69,12 +75,147 @@ export function sanitizeSvgForInline(b64: string): string {
 }
 
 export function FileView(props: Props) {
+  const video = videoMime(props.path);
   const mime = imageMime(props.path);
-  // 组件类型不同,路径在图片/文本间切换时 React 自动卸载重建,hooks 安全
+  // 组件类型不同,路径在图片/视频/文本间切换时 React 自动卸载重建,hooks 安全
+  if (video) {
+    return <VideoView path={props.path} mime={video} hostId={props.hostId} />;
+  }
   if (mime) {
     return <ImageView path={props.path} mime={mime} hostId={props.hostId} />;
   }
   return <TextFileView {...props} />;
+}
+
+/** 媒体加载失败 → 面向用户的一句话(canceled 不落文案:那是卸载/切走,没人看) */
+function mediaErrorText(
+  res: Extract<MediaLoadResult, { ok: false }>,
+  limitMb: number,
+): string {
+  if (res.reason === 'too-large') {
+    return t('Too large to preview ({size}MB > {limit}MB)', {
+      size: ((res.size ?? 0) / 1024 / 1024).toFixed(1),
+      limit: limitMb,
+    });
+  }
+  if (res.reason === 'file-changed') {
+    return t('File changed while loading — refresh to retry');
+  }
+  if (res.reason === 'not-a-file') {
+    return t('Failed to read: {error}', { error: 'not a regular file' });
+  }
+  return t('Failed to read: {error}', { error: res.detail ?? res.reason });
+}
+
+/** 整份读进内存 → object URL(视频恒走此路;大图在 readFileBinary 超限时回落到此) */
+function useMediaObjectUrl(path: string, mime: string, enabled: boolean) {
+  const [state, setState] = useState<
+    | { phase: 'idle' }
+    | { phase: 'loading'; done: number; total: number }
+    | { phase: 'error'; message: string }
+    | { phase: 'ready'; url: string; size: number }
+  >(enabled ? { phase: 'loading', done: 0, total: 0 } : { phase: 'idle' });
+
+  useEffect(() => {
+    if (!enabled) {
+      setState({ phase: 'idle' });
+      return;
+    }
+    let disposed = false;
+    let url: string | null = null;
+    setState({ phase: 'loading', done: 0, total: 0 });
+    void loadMediaBlob({
+      rpc: (method, params) => hostClient.rpc(method, params),
+      supportsTransfer: hostClient.supportsTransfer(),
+      path,
+      mime,
+      onProgress: (done, total) => {
+        if (!disposed) setState({ phase: 'loading', done, total });
+      },
+      // 卸载/切文件即取消:分块循环下一轮退出,不再往内存里堆已经没人要的字节
+      isCanceled: () => disposed,
+    }).then((res) => {
+      if (disposed) return;
+      if (!res.ok) {
+        if (res.reason === 'canceled') return;
+        setState({
+          phase: 'error',
+          message: mediaErrorText(res, VIEWER_MAX_MEDIA_BYTES / 1024 / 1024),
+        });
+        return;
+      }
+      url = URL.createObjectURL(res.blob);
+      setState({ phase: 'ready', url, size: res.size });
+    });
+    return () => {
+      disposed = true;
+      // object URL 不撤销 = Blob 永久留在内存里(100MB 量级,关 tab 也不回收)
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [path, mime, enabled]);
+
+  return state;
+}
+
+/** 视频:整份拉进内存后用 <video> 播(分块读,上限 100MB);解不了的编码给下载兜底 */
+function VideoView({
+  path,
+  mime,
+  hostId,
+}: {
+  path: string;
+  mime: string;
+  hostId?: string;
+}) {
+  const media = useMediaObjectUrl(path, mime, true);
+  const [playError, setPlayError] = useState(false);
+
+  useEffect(() => setPlayError(false), [path]);
+
+  if (media.phase !== 'ready' || playError) {
+    const message =
+      media.phase === 'loading'
+        ? t('Loading… {percent}%', {
+            percent:
+              media.total > 0
+                ? Math.min(100, Math.floor((media.done / media.total) * 100))
+                : 0,
+          })
+        : playError
+          ? t('Cannot play this video format — download it and open it locally')
+          : media.phase === 'error'
+            ? media.message
+            : t('Loading…');
+    const unpreviewable = media.phase === 'error' || playError;
+    return (
+      <div className="viewer-body">
+        <div
+          className={`viewer-message${unpreviewable ? ' viewer-message--column' : ''}`}
+        >
+          {message}
+          {unpreviewable && <UnpreviewableActions path={path} hostId={hostId} />}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="viewer-body viewer-body--image">
+      <div className="viewer-image-wrap">
+        <video
+          className="viewer-video"
+          src={media.url}
+          controls
+          onError={() => setPlayError(true)}
+        />
+      </div>
+      <div className="viewer-image-meta">{formatSize(media.size)}</div>
+    </div>
+  );
+}
+
+function formatSize(bytes: number): string {
+  const kb = bytes / 1024;
+  return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.ceil(kb)} KB`;
 }
 
 /** 预览不了的兜底动作条:远程 → 下载到本机;本机 → 无(头部已有 Finder/默认应用两个入口) */
@@ -102,11 +243,16 @@ function ImageView({
     | { phase: 'loading' }
     | { phase: 'error'; message: string; unpreviewable?: boolean }
     | { phase: 'ready'; base64: string; size: number }
+    /** readFileBinary 的 20MB 上限挡下 → 改走分块读(上限 100MB),拿 object URL 显示 */
+    | { phase: 'oversize' }
   >({ phase: 'loading' });
   const [dims, setDims] = useState<string | null>(null);
   // 非 null = <img> 把该 SVG 当独立 XML 解析失败,改内联渲染消毒后的源(见 sanitizeSvgForInline)
   const [svgHtml, setSvgHtml] = useState<string | null>(null);
   const svgHostRef = useRef<HTMLDivElement>(null);
+  // 大图分块兜底:只有落进 oversize 才启用(小图仍走原来的单条 readFileBinary + data URL,
+  // 老 host 上行为完全不变)
+  const oversized = useMediaObjectUrl(path, mime, state.phase === 'oversize');
 
   useEffect(() => {
     let disposed = false;
@@ -117,13 +263,8 @@ function ImageView({
       (r) => {
         if (disposed) return;
         if (r.base64 === null) {
-          setState({
-            phase: 'error',
-            message: t('Image too large ({size}MB > 20MB), please open with the default app', {
-              size: (r.size / 1024 / 1024).toFixed(1),
-            }),
-            unpreviewable: true,
-          });
+          // host 侧 20MB 上限(单条 RPC 的量级约束)——不是「不能预览」,分块读还能救
+          setState({ phase: 'oversize' });
           return;
         }
         setState({ phase: 'ready', base64: r.base64, size: r.size });
@@ -148,6 +289,56 @@ function ImageView({
     if (el) el.innerHTML = svgHtml ?? '';
   }, [svgHtml]);
 
+  // 大图(> readFileBinary 上限)走分块读拿到的 object URL;SVG 不会走到这条路
+  // (SVG 体积远小于上限),故此处无需内联消毒兜底。
+  if (state.phase === 'oversize') {
+    if (oversized.phase === 'ready') {
+      return (
+        <div className="viewer-body viewer-body--image">
+          <div className="viewer-image-wrap">
+            <img
+              className="viewer-image"
+              src={oversized.url}
+              alt={path}
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                if (img.naturalWidth && img.naturalHeight) {
+                  setDims(`${img.naturalWidth}×${img.naturalHeight}`);
+                }
+              }}
+            />
+          </div>
+          <div className="viewer-image-meta">
+            {dims ? `${dims} · ` : ''}
+            {formatSize(oversized.size)}
+          </div>
+        </div>
+      );
+    }
+    const loading = oversized.phase === 'loading';
+    return (
+      <div className="viewer-body">
+        <div className={`viewer-message${loading ? '' : ' viewer-message--column'}`}>
+          {loading
+            ? t('Loading… {percent}%', {
+                percent:
+                  oversized.total > 0
+                    ? Math.min(
+                        100,
+                        Math.floor((oversized.done / oversized.total) * 100),
+                      )
+                    : 0,
+              })
+            : oversized.phase === 'error'
+              ? oversized.message
+              : t('Loading…')}
+          {oversized.phase === 'error' && (
+            <UnpreviewableActions path={path} hostId={hostId} />
+          )}
+        </div>
+      </div>
+    );
+  }
   if (state.phase !== 'ready') {
     const unpreviewable = state.phase === 'error' && state.unpreviewable;
     return (
@@ -159,9 +350,7 @@ function ImageView({
       </div>
     );
   }
-  const kb = state.size / 1024;
-  const sizeText =
-    kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.ceil(kb)} KB`;
+  const sizeText = formatSize(state.size);
 
   // <img> 解析失败回退:内联消毒后的 SVG(救回缺命名空间等不合规写法)
   if (svgHtml !== null) {

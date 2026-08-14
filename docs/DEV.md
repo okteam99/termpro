@@ -315,6 +315,17 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
 - **renderer 编排**:`transferCore.ts` 纯分块循环(改写检测/对账/finally 清理/
   取消在块边界生效)+ `transferManager.ts` 模块级单例 FIFO 串行队列(并发 1,
   切 tab/折叠面板不中断);进度在 FilePanel 底部传输条,终态走 showHint。
+- **查看器媒体加载**(用户指令 2026-08-14,`viewer/viewerMedia.ts`):内置视频播放
+  (mp4/m4v/mov/webm/ogv —— 只列 Chromium 真能解的容器,其余直接给下载入口)与
+  **100MB 媒体上限**都走这条分块通道:`fs.readFileRange`(512KiB/块)→ 渲染层拼 Blob →
+  object URL 喂 `<video>`/`<img>`。为什么不是 `fs.readFileBinary`:那条 RPC 把整份
+  base64 塞进**一条** WS 消息,host 侧 20MB、链路 `WS_MAX_PAYLOAD` 32MB,100MB 文件
+  base64 后 ≈137MB 根本过不去。**不需要升级远程 host**:分块读是既有能力位
+  (`fs.transfer`),老 host 自动回落 readFileBinary 的 20MB 老路径。TOCTOU 基线与
+  transferCore 同款(首块 size/mtimeMs 记基线,变了即中止);卸载即取消;object URL
+  在卸载/切文件时 revoke(否则 100MB 量级的 Blob 永久驻留内存)。
+  边界:**文本仍是 2MB**(`fs.readFile` 同样是单条消息 + Monaco 大文件会卡死),
+  超限走「预览不了 + 下载」那条路。
 - **查看器兜底入口**(用户指令 2026-08-13,`viewer/DownloadAction.tsx`):远程文件
   预览不了(二进制 / 超预览上限,如 mp4)时,消息旁给「下载到本机」——那扇窗里本机
   文件另有 Finder/默认应用两个入口,远程文件此前只剩一句死文案。复用 `runDownload`

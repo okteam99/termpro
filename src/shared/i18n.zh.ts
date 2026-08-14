@@ -110,6 +110,14 @@ export const zh: Record<string, string> = {
   'Unsaved changes will be discarded. Refresh anyway?':
     '有未保存的修改,刷新会丢弃。仍要刷新吗?',
 
+  // --- 查看器:内置视频播放 / 大图分块加载(2026-08-14)---
+  'Loading… {percent}%': '加载中… {percent}%',
+  'Too large to preview ({size}MB > {limit}MB)':
+    '超出预览上限({size}MB > {limit}MB)',
+  'File changed while loading — refresh to retry': '文件在读取中被修改,请刷新重试',
+  'Cannot play this video format — download it and open it locally':
+    '无法播放该视频编码,请下载后用本机播放器打开',
+
   // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
   'This file is outside the project — cannot start a preview':
     '该文件不在当前项目内,无法启动预览',
