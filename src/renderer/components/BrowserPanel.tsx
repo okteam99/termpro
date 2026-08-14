@@ -17,6 +17,7 @@ import {
   type PasswordGuestStatus,
 } from '../../shared/passwordVault';
 import { registerBrowserView } from '../services/browserViewRegistry';
+import { describeNavError } from '../services/navErrorText';
 import type {
   BrowserNetworkSnapshot,
   RemoteHostConfig,
@@ -76,6 +77,10 @@ interface NavState {
   canGoForward: boolean;
   /** 主帧加载失败的 Chromium 错误描述(视图态;新导航开始即清) */
   errorText?: string;
+  /** Chromium 错误码 + 失败 URL:渲染时结合该标签的出口翻成人话(navErrorText.ts);
+   *  非 Chromium 失败(profile 连续性等自造文案)不带这两个字段,errorText 原样显示 */
+  errorCode?: number;
+  errorUrl?: string;
 }
 
 const DEFAULT_NAV_STATE: NavState = {
@@ -189,7 +194,12 @@ function BrowserWebview({
     }
     function handleStartLoading() {
       // 新一轮导航开始即清上一轮的失败态(错误条只描述当前页)
-      onNavChange(tabId, { loading: true, errorText: undefined });
+      onNavChange(tabId, {
+        loading: true,
+        errorText: undefined,
+        errorCode: undefined,
+        errorUrl: undefined,
+      });
     }
     function handleStopLoading() {
       onNavChange(tabId, { loading: false });
@@ -198,15 +208,19 @@ function BrowserWebview({
       const ev = e as Event & {
         errorCode?: number;
         errorDescription?: string;
+        validatedURL?: string;
         isMainFrame?: boolean;
       };
       // 子帧失败不算页面失败;-3 = ERR_ABORTED(用户中断/被新导航顶替)是正常噪声
       if (!ev.isMainFrame || ev.errorCode === -3) return;
       // 空白页必须能自解释(用户报告 2026-07-14「没反应也没报错」):webview 主帧
       // 加载失败默认就是白屏,把 Chromium 错误码亮到面板错误条上。
+      // 码 + URL 一并留下:渲染时按该标签的出口翻成人话(见 navErrorText.ts)。
       onNavChange(tabId, {
         loading: false,
         errorText: `${ev.errorDescription || 'LOAD_FAILED'} (${ev.errorCode ?? '?'})`,
+        ...(typeof ev.errorCode === 'number' ? { errorCode: ev.errorCode } : {}),
+        errorUrl: ev.validatedURL || undefined,
       });
     }
     function handleIpcMessage(e: Event) {
@@ -482,24 +496,10 @@ interface NetOption {
  * 的 netHostId(决定其 webview 分区;换出口=该标签重挂重载,登录态随分区)。
  * 出口健康态(down/alias)单源在 main 快照(browserNet.get/onChanged),不本地臆测。
  */
-function BrowserNetSelector({
-  terminalTabId,
-  tab,
-  ownerHostId,
-}: {
-  terminalTabId: string | null;
-  tab: BrowserTabState | null;
-  ownerHostId: string;
-}) {
+function useBrowserNetSnapshot(): BrowserNetworkSnapshot {
   const [snapshot, setSnapshot] = useState<BrowserNetworkSnapshot>({
     exits: [],
   });
-  const [open, setOpen] = useState(false);
-  const [candidates, setCandidates] = useState<NetOption[]>([]);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const setBrowserTabNet = useAppStore((s) => s.setBrowserTabNet);
-
   // 拉权威快照对齐 + 订阅变更(断线标 down/重连恢复);window.okwork 可能不存在(测试态)
   useEffect(() => {
     let cancelled = false;
@@ -514,6 +514,24 @@ function BrowserNetSelector({
       unsubscribe?.();
     };
   }, []);
+  return snapshot;
+}
+
+function BrowserNetSelector({
+  terminalTabId,
+  tab,
+  ownerHostId,
+}: {
+  terminalTabId: string | null;
+  tab: BrowserTabState | null;
+  ownerHostId: string;
+}) {
+  const snapshot = useBrowserNetSnapshot();
+  const [open, setOpen] = useState(false);
+  const [candidates, setCandidates] = useState<NetOption[]>([]);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const setBrowserTabNet = useAppStore((s) => s.setBrowserTabNet);
 
   // 打开期间:外部点击关闭(mousedown,复刻 WorktreeDropdown 的惯例)
   useEffect(() => {
@@ -837,6 +855,14 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const activeNav =
     (activeTabId && navStates[activeTabId]) || DEFAULT_NAV_STATE;
   const activePassword = activeTabId ? passwordStates[activeTabId] : undefined;
+  // 活跃标签的出口(错误条据此把 SOCKS 类错误翻成人话);别名取 main 的权威快照
+  const netSnapshot = useBrowserNetSnapshot();
+  const activeExitHostId = activeTab
+    ? resolveBrowserTabNet(activeTab, activeWorkspace?.hostId ?? 'local')
+    : 'local';
+  const activeExitAlias = netSnapshot.exits.find(
+    (e) => e.hostId === activeExitHostId,
+  )?.alias;
   const activeProfileId =
     activeWorkspace?.browserProfileId ?? DEFAULT_PROFILE_ID;
   const activeProfile = browserProfiles.find(
@@ -1139,11 +1165,22 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             </span>
           </div>
 
-          {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎ */}
+          {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎。
+              走远程出口的标签额外翻成人话——原始码分不清「隧道挂了」与「远端端口没人监听」,
+              而这两件事的处置正相反(见 navErrorText.ts 的实测表)。 */}
           {activeNav.errorText && (
             <div className="browser-panel__load-error" role="alert">
               {t('Page failed to load: {error}', {
-                error: activeNav.errorText,
+                error:
+                  typeof activeNav.errorCode === 'number'
+                    ? describeNavError({
+                        errorCode: activeNav.errorCode,
+                        raw: activeNav.errorText,
+                        url: activeNav.errorUrl ?? activeTab?.url ?? '',
+                        exitHostId: activeExitHostId,
+                        exitAlias: activeExitAlias,
+                      })
+                    : activeNav.errorText,
               })}
             </div>
           )}

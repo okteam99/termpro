@@ -39,8 +39,17 @@ type ConnState = 'greeting' | 'request' | 'connecting' | 'piping';
  * 故统一转 message 文案再关键字匹配。
  */
 export function mapConnectError(err: unknown): number {
+  // ssh2 的 channel open failure 带数字 reason(RFC 4254 §5.1),比文案可靠:
+  // 远端「那个端口没人监听」走的正是 CONNECT_FAILED(2),而它的 description 是
+  // OpenSSH 的一句 "open failed" —— 只匹配文案会漏成兜底的 0x01(2026-08-14 报障
+  // 现场:用户看到 ERR_SOCKS_CONNECTION_FAILED,以为隧道挂了,其实是远端没起服务)。
+  const reason = (err as { reason?: unknown } | null)?.reason;
+  if (reason === 2) return 0x05; // CONNECT_FAILED → Connection refused
+  if (reason === 1) return 0x02; // ADMINISTRATIVELY_PROHIBITED → not allowed by ruleset
+  if (reason === 4) return 0x01; // RESOURCE_SHORTAGE → general failure
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   if (msg.includes('econnrefused') || msg.includes('refused')) return 0x05; // Connection refused
+  if (msg.includes('open failed')) return 0x05; // OpenSSH 对 direct-tcpip 失败的通用描述
   if (
     msg.includes('enotfound') ||
     msg.includes('ehostunreach') ||
@@ -224,6 +233,13 @@ function handleConnection(socket: net.Socket, openOutbound: OpenOutbound): void 
       },
       (err: unknown) => {
         const rep = mapConnectError(err);
+        // 🔴 唯一的现场:Chromium 把所有非零 REP 都收敛成 ERR_SOCKS_CONNECTION_FAILED
+        // (实测,见 renderer/services/navErrorText.ts),分不清「没人监听 / 被策略拒 /
+        // 资源不足」。这条日志是排障时唯一能看到真实原因的地方。
+        console.warn(
+          `[socksProxy] connect ${host}:${port} failed (rep=0x0${rep}): ` +
+            (err instanceof Error ? err.message : String(err)),
+        );
         socket.write(reply(rep), () => socket.end());
       },
     );

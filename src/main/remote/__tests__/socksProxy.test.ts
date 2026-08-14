@@ -387,6 +387,25 @@ describe('mapConnectError 纯函数', () => {
     expect(mapConnectError('Host is unreachable')).toBe(0x04);
   });
 
+  // ssh2 的 channel open failure 带数字 reason(RFC 4254 §5.1);远端「端口没人监听」
+  // 走 CONNECT_FAILED(2),其 description 只是一句 OpenSSH 的 "open failed"
+  // ——2026-08-14 报障现场:只匹配文案会落到兜底 0x01。
+  it('ssh2 channel open failure:按数字 reason 分流(优先于文案)', () => {
+    const chanErr = (reason: number, description: string) =>
+      Object.assign(new Error(`(SSH) Channel open failure: ${description}`), {
+        reason,
+      });
+    expect(mapConnectError(chanErr(2, 'open failed'))).toBe(0x05); // CONNECT_FAILED
+    expect(mapConnectError(chanErr(1, 'administratively prohibited'))).toBe(0x02);
+    expect(mapConnectError(chanErr(4, 'resource shortage'))).toBe(0x01);
+  });
+
+  it('无 reason 时认 OpenSSH 的通用描述 "open failed" → 0x05', () => {
+    expect(
+      mapConnectError(new Error('(SSH) Channel open failure: open failed')),
+    ).toBe(0x05);
+  });
+
   it('其余未识别的失败 → 0x01(兜底)', () => {
     expect(mapConnectError(new Error('something odd happened'))).toBe(0x01);
     expect(mapConnectError({})).toBe(0x01);

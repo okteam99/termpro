@@ -110,6 +110,12 @@ export const zh: Record<string, string> = {
   'Unsaved changes will be discarded. Refresh anyway?':
     '有未保存的修改,刷新会丢弃。仍要刷新吗?',
 
+  // --- 内置浏览器:远程出口加载失败的人话文案(2026-08-14 用户报障)---
+  'Nothing is listening on {target} on remote machine "{exit}" (the tunnel itself is fine)':
+    '远程机「{exit}」上没有服务在监听 {target}(隧道本身正常)',
+  'Tunnel to exit "{exit}" is unavailable (disconnected or reconnecting); traffic never falls back to this machine':
+    '出口「{exit}」的隧道不可用(已断开或正在重连);流量不会回落本机网络',
+
   // --- 查看器:内置视频播放 / 大图分块加载(2026-08-14)---
   'Loading… {percent}%': '加载中… {percent}%',
   'Too large to preview ({size}MB > {limit}MB)':
