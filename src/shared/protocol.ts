@@ -98,8 +98,39 @@ export interface SessionSnapshot {
    * 旧 host 省略(undefined)→ 不恢复(向后兼容,行为同修复前)。
    */
   bracketedPaste?: boolean;
+  /**
+   * 前台 TUI 当前开着的鼠标/焦点上报私有模式(?1000 / ?1002 / ?1006 … 见
+   * RESTORABLE_DEC_MODES)。与 bracketedPaste 同因:这些模式序列在 TUI 启动瞬间发出,
+   * 断线久了早被挤出 ring 全量切片,收养 reset() 后 xterm 不再编码鼠标事件 →
+   * 「重连后鼠标点不动」(用户报障 2026-08-14,opencode 一类可鼠标交互的 TUI)。
+   * 旧 host 省略(undefined)→ 不恢复(向后兼容,行为同修复前)。
+   */
+  mouseModes?: number[];
   /** status='exited' 时的退出码;live 为 null */
   exitCode: number | null;
+}
+
+/**
+ * 收养全量回放时允许据快照补写的 DEC 私有模式白名单(鼠标上报 + 编码 + 焦点上报)。
+ * 🔴 白名单而非透传:补写的字节直接进本地 xterm 解析,只放行这些**无视觉副作用**的
+ * 输入类模式;屏幕类模式(?1049 备用屏等)另有专门分支(会清屏,必须判切片自含)。
+ */
+export const RESTORABLE_DEC_MODES = [
+  9, // X10 兼容鼠标(仅按下)
+  1000, // VT200 鼠标(按下+释放)
+  1001, // 高亮鼠标跟踪
+  1002, // 按钮事件(含拖动)
+  1003, // 任意移动事件
+  1004, // 焦点进出上报
+  1005, // UTF-8 扩展坐标
+  1006, // SGR 扩展坐标(现代 TUI 主流)
+  1015, // urxvt 扩展坐标
+  1016, // SGR 像素级坐标
+] as const;
+
+/** 快照里的模式号是否可安全补写(host 上报与 renderer 补写两侧共用同一判据) */
+export function isRestorableDecMode(mode: number): boolean {
+  return (RESTORABLE_DEC_MODES as readonly number[]).includes(mode);
 }
 
 /**

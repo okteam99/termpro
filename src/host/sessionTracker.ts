@@ -27,6 +27,8 @@ export interface TrackerSnapshot {
   quiet: boolean;
   altscreen: boolean;
   bracketedPaste: boolean;
+  /** 当前开着的鼠标/焦点上报模式(升序;白名单见 protocol.RESTORABLE_DEC_MODES) */
+  mouseModes: number[];
   exitCode: number | null;
 }
 
@@ -43,6 +45,10 @@ export class SessionTracker {
   /** 前台程序是否已开 bracketed paste(?2004h)。ring 只存字节,开机时的模式序列可能被
    *  挤出回放切片——收养全量回放时 renderer 据此恢复 xterm 模式,否则粘贴不加 200~ 包裹。 */
   private bracketedPaste = false;
+  /** 前台 TUI 开着的鼠标/焦点上报模式。同 bracketedPaste 之因:这些序列在 TUI 启动
+   *  一瞬发出,断线久了早被挤出 ring 切片,收养 reset() 后不补就是「鼠标点不动」
+   *  (用户报障 2026-08-14 · opencode 一类可鼠标交互的 TUI)。 */
+  private mouseModes = new Set<number>();
   /** 最近一条命令的退出码(OSC133 D)· 存储可查询(BL-005 快照) */
   private lastExitCode: number | null = null;
   /** 会话退出后冻结:后续信号一律忽略,快照定格为退出前最终态(CR-4) */
@@ -60,6 +66,7 @@ export class SessionTracker {
       quiet: this.quiet,
       altscreen: this.altscreen,
       bracketedPaste: this.bracketedPaste,
+      mouseModes: [...this.mouseModes].sort((a, b) => a - b),
       exitCode: this.lastExitCode,
     };
   }
@@ -116,6 +123,13 @@ export class SessionTracker {
   onBracketedPaste(on: boolean): void {
     if (this.frozen) return;
     this.bracketedPaste = on;
+  }
+
+  /** 同 onBracketedPaste:快照专用,无 live 消费者 → 只存不 emit */
+  onMouseMode(mode: number, on: boolean): void {
+    if (this.frozen) return;
+    if (on) this.mouseModes.add(mode);
+    else this.mouseModes.delete(mode);
   }
 
   /** pty.process 轮询喂入(变化时) */

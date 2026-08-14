@@ -23,6 +23,7 @@ describe('SessionTracker.snapshot (BL-005)', () => {
       quiet: false,
       altscreen: false,
       bracketedPaste: false,
+      mouseModes: [],
       exitCode: null,
     });
 
@@ -36,6 +37,7 @@ describe('SessionTracker.snapshot (BL-005)', () => {
       quiet: false,
       altscreen: true,
       bracketedPaste: true,
+      mouseModes: [],
       exitCode: 7,
     });
   });
@@ -74,6 +76,7 @@ describe('SessionTracker.snapshot (BL-005)', () => {
       'altscreen',
       'bracketedPaste',
       'exitCode',
+      'mouseModes',
       'quiet',
       'state',
     ]);

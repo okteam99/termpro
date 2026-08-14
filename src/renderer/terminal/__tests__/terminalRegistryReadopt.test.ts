@@ -297,6 +297,55 @@ describe('readopt_full_replay_restores_bracketed_paste_mode', () => {
   });
 });
 
+// 用户报障 2026-08-14:opencode 一类可鼠标交互的 TUI,断线重连后鼠标点不动。
+// 与 ?2004h 同因——模式序列在 TUI 启动一瞬发出,早被挤出 ring 全量切片,reset() 后
+// xterm 不知远端仍开着鼠标跟踪,于是根本不编码鼠标事件发回去。
+describe('readopt_full_replay_restores_mouse_modes', () => {
+  it('full=true → 按快照逐个补写 ?<mode>h,先于切片', async () => {
+    const { inst, writes, resets } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1' });
+    const client = makeFakeClient({
+      attach: () => ({
+        found: true, full: true, baseOffset: 0, data: 'FULL', nextOffset: 4,
+        snapshot: { ...snap('running'), mouseModes: [1002, 1006] },
+      }),
+    });
+    await readoptHost('cfg-1', { getClient: () => asClient(client), listInstances: () => [['t', inst]] });
+    expect(resets.n).toBe(1);
+    expect(writes).toEqual(['\x1b[?1002h', '\x1b[?1006h', 'FULL']);
+  });
+
+  it('白名单外的模式号一律不写(host 报错数也不能进本地解析器)', async () => {
+    const { inst, writes } = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1' });
+    const client = makeFakeClient({
+      attach: () => ({
+        found: true, full: true, baseOffset: 0, data: 'FULL', nextOffset: 4,
+        snapshot: { ...snap('running'), mouseModes: [1006, 1049, 2, 99999] },
+      }),
+    });
+    await readoptHost('cfg-1', { getClient: () => asClient(client), listInstances: () => [['t', inst]] });
+    expect(writes).toEqual(['\x1b[?1006h', 'FULL']);
+  });
+
+  it('增量回放不注入(xterm 状态连续);旧 host 缺字段不注入(向后兼容)', async () => {
+    const a = makeFakeInst({ hostId: 'cfg-1', sessionId: 's1', renderedBytes: 10 });
+    const inc = makeFakeClient({
+      attach: () => ({
+        found: true, full: false, baseOffset: 10, data: 'GAP', nextOffset: 13,
+        snapshot: { ...snap('running'), mouseModes: [1006] },
+      }),
+    });
+    await readoptHost('cfg-1', { getClient: () => asClient(inc), listInstances: () => [['t', a.inst]] });
+    expect(a.writes).toEqual(['GAP']);
+
+    const b = makeFakeInst({ hostId: 'cfg-1', sessionId: 's2' });
+    const oldHost = makeFakeClient({
+      attach: () => ({ found: true, full: true, baseOffset: 0, data: 'FULL', nextOffset: 4, snapshot: snap('running') }),
+    });
+    await readoptHost('cfg-1', { getClient: () => asClient(oldHost), listInstances: () => [['t2', b.inst]] });
+    expect(b.writes).toEqual(['FULL']);
+  });
+});
+
 // 修「远程重连后大片空白 + 碎片」:全屏 TUI 的 ?1049h 被挤出全量切片 → reset 后 xterm
 // 停在主屏,整段备用屏重绘落进主屏且差分基准全错。
 describe('readopt_full_replay_restores_altscreen_mode', () => {

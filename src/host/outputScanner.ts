@@ -2,11 +2,15 @@
 // 必须 VT 感知:BEL 既是铃声也是 OSC 终止符;DCS/APC 等字符串里的
 // BEL 是数据。状态跨 feed() 调用保持(序列可能被 chunk 切开)。
 
+import { isRestorableDecMode } from '../shared/protocol';
+
 export interface ScannerSink {
   onBell?(): void;
   onOsc?(code: number, payload: string): void;
   onAltScreen?(on: boolean): void;
   onBracketedPaste?(on: boolean): void;
+  /** 鼠标/焦点上报模式翻转(白名单内的 DEC 私有模式;收养回放据此恢复) */
+  onMouseMode?(mode: number, on: boolean): void;
 }
 
 const MAX_OSC = 4096;
@@ -120,6 +124,14 @@ export class OutputScanner {
       }
       if (params.includes('2004')) {
         this.sink.onBracketedPaste?.(final === 'h');
+      }
+      // 鼠标/焦点上报模式(可多个参数一条 CSI 里设,如 `?1002;1006h`):逐个上报,
+      // tracker 存成集合进快照 —— 断线重连回放时据此把 xterm 的模式补回来。
+      for (const raw of params) {
+        const mode = Number.parseInt(raw, 10);
+        if (Number.isFinite(mode) && isRestorableDecMode(mode)) {
+          this.sink.onMouseMode?.(mode, final === 'h');
+        }
       }
     }
     this.csi = '';

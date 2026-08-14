@@ -13,6 +13,7 @@ import type { HostClient } from '../services/hostClient';
 import { hostRegistry } from '../services/hostRegistry';
 import { recordOutput } from '../services/quietGate';
 import type { SessionAttachResult, SessionSnapshot } from '../../shared/protocol';
+import { isRestorableDecMode } from '../../shared/protocol';
 import {
   createOscLinkHandler,
   FsLinkProvider,
@@ -898,6 +899,14 @@ async function adoptInst(
       // ?2004h(bracketed paste):不恢复则 term.paste 不加 200~/201~ 包裹,远端 TUI
       // 把长文本粘贴当逐键输入(不聚合)。无视觉副作用,无需上面的「切片自含」判别。
       if (result.snapshot.bracketedPaste) safeWrite(inst, '\x1b[?2004h');
+      // 鼠标/焦点上报模式(?1000/?1002/?1006 …):同因同治(用户报障 2026-08-14
+      // 「opencode 一类可鼠标交互的 TUI 断线重连后鼠标不响应」)——远端 TUI 仍开着鼠标
+      // 跟踪,但 reset() 后的 xterm 不知道,于是根本不编码鼠标事件发回去。这些模式纯
+      // 输入侧、无视觉副作用,不必判切片自含;白名单在协议层单源,防 host 报个乱数
+      // 被原样写进本地解析器。
+      for (const mode of result.snapshot.mouseModes ?? []) {
+        if (isRestorableDecMode(mode)) safeWrite(inst, `\x1b[?${mode}h`);
+      }
     }
     if (result.data) safeWrite(inst, result.data);
     inst.renderedBytes = result.nextOffset; // 权威推进(非 baseOffset + byteLength)

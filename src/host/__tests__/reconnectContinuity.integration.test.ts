@@ -210,6 +210,7 @@ describePty('Reconnect continuity (BL-005 · host 协议侧)', () => {
       'bracketedPaste',
       'cwd',
       'exitCode',
+      'mouseModes',
       'quiet',
       'sessionId',
       'state',
