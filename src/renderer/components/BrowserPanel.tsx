@@ -24,7 +24,7 @@ import type {
   RemoteStage,
 } from '../../shared/remoteHost';
 import { PanelHeader, PanelHeaderButton } from './PanelHeader';
-import { PasswordStatusBar } from './browser/PasswordStatusBar';
+import { PasswordChip, continuityRow } from './browser/PasswordChip';
 import './BrowserPanel.css';
 
 // webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
@@ -877,6 +877,8 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     activeProfile?.storageLabel ?? t('This device');
   const activeProfileStorageUnavailable =
     activeProfile !== undefined && activeProfile.availability !== 'ready';
+  // 登录连续性原本是地址栏下方另一条常驻横幅,现并入密码胶囊的弹层一行
+  const activeContinuity = continuityRow(activeProfile?.loginContinuity?.state);
 
   async function prepareActiveNavigation(): Promise<boolean> {
     if (!activeTab || activeProfile?.storage.kind !== 'remote') return true;
@@ -1157,12 +1159,28 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
               tab={activeTab}
               ownerHostId={activeWorkspace?.hostId ?? 'local'}
             />
-            <span
-              className={`browser-panel__password-storage${activeProfileStorageUnavailable ? ' browser-panel__password-storage--offline' : ''}`}
-            >
-              {t('Password storage')}: {activeProfileStorageLabel}
-              {activeProfileStorageUnavailable ? ` · ${t('Offline')}` : ''}
-            </span>
+            {/* 密码状态 / 保险箱位置 / 登录连续性 三件事都收进这枚胶囊(用户指令
+                2026-08-14:地址栏下方那一叠常驻横幅太多太乱,不该占页面位置)。
+                状态只用颜色点表达,详情点开看;读屏另有隐藏 live region 播报。 */}
+            <PasswordChip
+              status={
+                activeProfileStorageUnavailable
+                  ? { kind: 'unavailable' }
+                  : (activePassword?.status ?? { kind: 'idle' })
+              }
+              profileName={activeProfileName}
+              storageLabel={activeProfileStorageLabel}
+              storageUnavailable={activeProfileStorageUnavailable}
+              continuity={activeContinuity}
+              onChooseAccount={
+                activePassword
+                  ? () =>
+                      void window.okwork?.passwordVault.openAccountMenu({
+                        guestWebContentsId: activePassword.guestId,
+                      })
+                  : undefined
+              }
+            />
           </div>
 
           {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎。
@@ -1184,50 +1202,6 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
               })}
             </div>
           )}
-
-          <PasswordStatusBar
-            status={
-              activeProfileStorageUnavailable
-                ? { kind: 'unavailable' }
-                : (activePassword?.status ?? { kind: 'idle' })
-            }
-            profileName={activeProfileName}
-            storageLabel={activeProfileStorageLabel}
-            storageUnavailable={activeProfileStorageUnavailable}
-            onChooseAccount={
-              activePassword
-                ? () =>
-                    void window.okwork?.passwordVault.openAccountMenu({
-                      guestWebContentsId: activePassword.guestId,
-                    })
-                : undefined
-            }
-          />
-
-          {activeProfile?.loginContinuity &&
-            activeProfile.loginContinuity.state !== 'not_available' && (
-              <div
-                className={`browser-panel__continuity-status browser-panel__continuity-status--${activeProfile.loginContinuity.state}`}
-                role={
-                  activeProfile.loginContinuity.state === 'paused' ||
-                  activeProfile.loginContinuity.state === 'moved'
-                    ? 'alert'
-                    : 'status'
-                }
-              >
-                {activeProfile.loginContinuity.state === 'synced'
-                  ? t('Login status restored')
-                  : activeProfile.loginContinuity.state === 'hydrating' ||
-                      activeProfile.loginContinuity.state === 'syncing'
-                    ? t('Restoring login status…')
-                    : activeProfile.loginContinuity.state === 'paused' ||
-                        activeProfile.loginContinuity.state === 'moved'
-                      ? t('Login continuity is paused')
-                      : activeProfile.loginContinuity.state === 'host_upgrade'
-                        ? t('Update the Remote Host to restore login status')
-                        : t('Login continuity needs attention')}
-              </div>
-            )}
 
           <div className="browser-panel__views">
             {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),

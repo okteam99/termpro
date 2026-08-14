@@ -147,6 +147,9 @@ describe('Remote Profile login-continuity hydration gate', () => {
     fireEvent.click(screen.getByText('Retry'));
 
     await waitFor(() => expect(document.querySelector('webview')).not.toBeNull());
+    // 连续性状态已并入导航行密码胶囊的弹层(用户指令 2026-08-14:地址栏下方不再挂
+    // 常驻横幅)。恢复完成属「无需动手」的信息态,故点开才看——报告本身没丢。
+    fireEvent.click(screen.getByRole('button', { name: /Password storage/ }));
     expect(screen.getByText('Login status restored')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('cookie-name-secret');
     expect(document.body.textContent).not.toContain('cookie-value-secret');

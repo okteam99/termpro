@@ -198,7 +198,7 @@ describe('browser password trust boundaries', () => {
     const browserChrome = fs.readFileSync(
       path.join(
         process.cwd(),
-        'src/renderer/components/browser/PasswordStatusBar.tsx',
+        'src/renderer/components/browser/PasswordChip.tsx',
       ),
       'utf8',
     );
