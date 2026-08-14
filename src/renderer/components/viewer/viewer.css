@@ -112,6 +112,14 @@
   overflow-wrap: anywhere;
   color: var(--fg-dim);
 }
+/* 头部里的同一条文案:空间紧,单行省略(完整文案在 title),6s 后自清 */
+.viewer-actions .viewer-message-note {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
 
 /* 掉线横幅:不清空文档,只在头部下方挂一条可手动刷新的提示(2026-07-15) */
 .viewer-disconnected {

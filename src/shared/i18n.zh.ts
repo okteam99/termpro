@@ -101,10 +101,14 @@ export const zh: Record<string, string> = {
   'Connection lost during transfer': '传输中链路断开',
   'Transfer failed: {error}': '传输失败:{error}',
 
-  // --- 查看器:预览不了时的「下载到本机」兜底(2026-08-13)---
+  // --- 查看器:预览不了时的「下载到本机」兜底(2026-08-13)+ 头部常驻刷新/下载(08-14)---
   'Downloading… {percent}%': '下载中… {percent}%',
   'Remote host is too old — update it in Remote Hosts':
     '远程服务端版本过旧,请到「远程机」页升级',
+  Download: '下载',
+  'Reload from the remote machine': '从远程机重新读取',
+  'Unsaved changes will be discarded. Refresh anyway?':
+    '有未保存的修改,刷新会丢弃。仍要刷新吗?',
 
   // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
   'This file is outside the project — cannot start a preview':

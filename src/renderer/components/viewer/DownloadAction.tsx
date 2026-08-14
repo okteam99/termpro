@@ -1,6 +1,7 @@
-// 查看器里「不能预览」时的兜底动作(用户指令 2026-08-13):远程文件预览不了
-// (二进制 / 超出预览上限,如 mp4)时,给一个「下载到本机」按钮——否则那扇窗里
-// 只剩一句死文案,远程文件既看不了也拿不到(本机文件另有 Finder/默认应用两个入口)。
+// 查看器的「下载到本机」(用户指令 2026-08-13 / 2026-08-14):
+// ① 预览不了时(二进制 / 超上限)在消息旁给一个兜底按钮;
+// ② 远程文件在头部 Save 右侧常驻一个下载按钮(所有预览器一视同仁)。
+// 本机文件不给这两个入口——那扇窗头部已有 Finder / 默认应用两个本机动作。
 //
 // 复用 transferCore.runDownload(与文件面板下载同一套分块 / TOCTOU 基线 / 票据清理),
 // 但**不进 transferManager 队列**:查看器是独立渲染进程,进程内的队列与主窗那份互不
@@ -19,6 +20,9 @@ type Phase =
   | { kind: 'running'; done: number; total: number }
   /** 终态文案(成功/失败/取消/门禁不过);按钮同时保留,可再来一次 */
   | { kind: 'message'; text: string };
+
+/** 头部按钮里的终态文案留存时长:够读一眼,又不常驻占位 */
+const HEADER_NOTE_TTL_MS = 6000;
 
 /** TRANSFER.maxFileBytes 的人类可读文案(与 FilePanel 同口径) */
 function formatByteLimit(bytes: number): string {
@@ -40,14 +44,16 @@ function percent(done: number, total: number): number {
   return Math.min(100, Math.floor((done / total) * 100));
 }
 
-/** 远程文件「下载到本机」:系统保存对话框选落点 → 分块拉取 → 按钮内进度 + 终态文案 */
-export function DownloadAction({ path }: { path: string }) {
+/**
+ * 单文件下载状态机(两种呈现共用):门禁 → stat 复核 → 分块拉取 → 终态文案。
+ * 卸载(关 tab / 关窗)即视为取消:runDownload 的分块循环下一轮就退出,并在 finally 里
+ * finish({commit:false}) 释放本机写票,不留孤儿 fd 与 .part 文件。
+ */
+function useFileDownload(path: string) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const canceledRef = useRef(false);
   const aliveRef = useRef(true);
 
-  // 卸载(关 tab / 关窗 / 切文件)即视为取消:runDownload 的分块循环下一轮就退出,
-  // 并在 finally 里 finish({commit:false}) 释放本机写票,不留孤儿 fd 与 .part 文件。
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -78,7 +84,7 @@ export function DownloadAction({ path }: { path: string }) {
       };
       let size: number;
       try {
-        // 传输前贴近实际时刻复核一次(预览失败时拿到的 size 可能已过期);
+        // 传输前贴近实际时刻复核一次(打开时拿到的 size 可能已过期);
         // 大小闸门与文件面板同一条(TRANSFER.maxFileBytes)。
         const stat = await hostClient.rpc('fs.stat', { path });
         if (stat.kind !== 'file') {
@@ -121,6 +127,21 @@ export function DownloadAction({ path }: { path: string }) {
     })();
   }, [path]);
 
+  const cancel = useCallback(() => {
+    canceledRef.current = true;
+  }, []);
+
+  const clearMessage = useCallback(() => {
+    setPhase((prev) => (prev.kind === 'message' ? { kind: 'idle' } : prev));
+  }, []);
+
+  return { phase, start, cancel, clearMessage };
+}
+
+/** 预览不了时的兜底动作条:文案 + 「下载到本机」,终态文案常驻(该屏本就没别的内容) */
+export function DownloadAction({ path }: { path: string }) {
+  const { phase, start, cancel } = useFileDownload(path);
+
   if (phase.kind === 'running') {
     return (
       <div className="viewer-message-actions">
@@ -129,12 +150,7 @@ export function DownloadAction({ path }: { path: string }) {
             percent: percent(phase.done, phase.total),
           })}
         </span>
-        <button
-          className="viewer-btn"
-          onClick={() => {
-            canceledRef.current = true;
-          }}
-        >
+        <button className="viewer-btn" onClick={cancel}>
           {t('Cancel')}
         </button>
       </div>
@@ -149,5 +165,39 @@ export function DownloadAction({ path }: { path: string }) {
         {t('Download to local')}
       </button>
     </div>
+  );
+}
+
+/** 头部常驻下载按钮(Save 右侧):进行中显示百分比、点击即取消;终态文案短暂留存后自清 */
+export function HeaderDownloadButton({ path }: { path: string }) {
+  const { phase, start, cancel, clearMessage } = useFileDownload(path);
+
+  // 头部空间紧,终态文案不常驻:留 6s 够读一眼,之后自动收起(完整文案仍在 title 里)
+  useEffect(() => {
+    if (phase.kind !== 'message') return;
+    const timer = setTimeout(clearMessage, HEADER_NOTE_TTL_MS);
+    return () => clearTimeout(timer);
+  }, [phase, clearMessage]);
+
+  if (phase.kind === 'running') {
+    return (
+      <button
+        className="viewer-btn"
+        onClick={cancel}
+        title={t('Cancel')}
+      >{`${percent(phase.done, phase.total)}%`}</button>
+    );
+  }
+  return (
+    <>
+      {phase.kind === 'message' && (
+        <span className="viewer-message-note" title={phase.text}>
+          {phase.text}
+        </span>
+      )}
+      <button className="viewer-btn" onClick={start} title={t('Download to local')}>
+        {t('Download')}
+      </button>
+    </>
   );
 }

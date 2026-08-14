@@ -11,6 +11,7 @@ import { MarkdownPreview } from './MarkdownPreview';
 import { HtmlPreview } from './HtmlPreview';
 import { DirListing } from './DirListing';
 import { isRemoteHost } from './viewerHost';
+import { HeaderDownloadButton } from './DownloadAction';
 import { useViewerConnection } from './useViewerConnection';
 import { isPreviewable } from '../../services/previewUrl';
 import { t } from '../../../shared/i18n';
@@ -50,6 +51,12 @@ export function FilesWindow({
   const [activeId, setActiveId] = useState<string | null>(null);
   // html 预览的 reload 触发信号(保存后 +1);md 预览不需要,读的是内存中的编辑器值
   const [reloadSeqs, setReloadSeqs] = useState<Map<string, number>>(new Map());
+  // 头部「刷新」信号(用户指令 2026-08-14):+1 即把该 tab 的内容子树整棵重挂载。
+  // 🔴 为什么是重挂载而不是给各预览器发 refresh prop:markdown 预览优先读**编辑器里的**
+  // 值(getEditorValue),编辑器重读是异步的——发信号会让预览先拿到旧值再也不更新
+  // (竞态)。重挂载后 registerGetValue 已随旧子树注销,各预览器一律回落到从 host 重读,
+  // 编辑器 / md / html / 图片 / 视频 / 目录 listing 全都拿到远程当前内容,零特例。
+  const [refreshSeqs, setRefreshSeqs] = useState<Map<string, number>>(new Map());
   const saveFns = useRef(new Map<string, () => void>());
   const getValueFns = useRef(new Map<string, () => string>());
   // beforeunload 守卫用:实时镜像 tabs / 用户已确认放弃修改
@@ -121,6 +128,12 @@ export function FilesWindow({
     // 🔴 评审 P2-14:reloadSeqs 一并清——不清的话,关掉的 tab id 永久留在这个 Map 里
     // (同 id 不会再被复用,纯内存泄露;虽然量级很小,但没有理由不清)。
     setReloadSeqs((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+    setRefreshSeqs((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Map(prev);
       next.delete(id);
@@ -200,6 +213,21 @@ export function FilesWindow({
       return next;
     });
   };
+  /** 头部刷新:有未保存修改先确认(重挂载会丢弃),确认后整棵内容子树重挂载 */
+  const refreshTab = (tab: FileTab) => {
+    if (
+      tab.dirty &&
+      !window.confirm(t('Unsaved changes will be discarded. Refresh anyway?'))
+    ) {
+      return;
+    }
+    setRefreshSeqs((prev) => {
+      const next = new Map(prev);
+      next.set(tab.id, (next.get(tab.id) ?? 0) + 1);
+      return next;
+    });
+    setDirty(tab.id, false);
+  };
 
   return (
     <div className="viewer-window">
@@ -230,6 +258,18 @@ export function FilesWindow({
           ))}
         </div>
         <div className="viewer-actions">
+          {/* 远程文件常驻两个入口(用户指令 2026-08-14):刷新在预览切换之前、下载在
+              Save 之后,与是哪种预览器无关(md / html / 图片 / 视频 / 纯文本 / 目录)。
+              本机文件不给:同一台机器上的文件,头部已有 Finder / 默认应用两个动作。 */}
+          {remote && active && (
+            <button
+              className="viewer-btn"
+              onClick={() => refreshTab(active)}
+              title={t('Reload from the remote machine')}
+            >
+              {t('Refresh')}
+            </button>
+          )}
           {active?.viewMode && (
             <div className="files-seg">
               <button
@@ -255,6 +295,9 @@ export function FilesWindow({
             >
               {t('Save')}
             </button>
+          )}
+          {remote && active?.kind === 'file' && (
+            <HeaderDownloadButton key={active.id} path={active.path} />
           )}
           {/* 「Finder 中显示」与「默认应用打开」同属本机 OS 动作:远程路径交给本机 shell
               会静默作用于本机同名(但无关)文件——远程窗口直接不渲染这两个入口(D-7)。
@@ -301,10 +344,12 @@ export function FilesWindow({
 
       {tabs.map((tab) => {
         const isActive = tab.id === activeId;
+        // 刷新序号进 key:+1 即整棵内容子树重挂载 → 各预览器一律从 host 重读(见上方注释)
+        const bodyKey = `${tab.id}:${refreshSeqs.get(tab.id) ?? 0}`;
         if (tab.kind === 'dir') {
           return (
             <div
-              key={tab.id}
+              key={bodyKey}
               className="files-body"
               style={{ display: isActive ? 'flex' : 'none' }}
             >
@@ -315,7 +360,7 @@ export function FilesWindow({
         const showPreview = tab.viewMode === 'preview';
         return (
           <div
-            key={tab.id}
+            key={bodyKey}
             className="files-body"
             style={{ display: isActive ? 'flex' : 'none' }}
           >
