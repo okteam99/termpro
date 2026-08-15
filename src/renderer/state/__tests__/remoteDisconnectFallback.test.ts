@@ -48,9 +48,10 @@ describe('dropHostWorkspaces(AC-11)', () => {
     const s = useAppStore.getState();
     expect(s.workspaces.map((w) => w.id)).toEqual(['l1']);
     expect(s.activeWorkspaceId).toBe('l1');
-    expect(disposeTerminal).toHaveBeenCalledWith('s1');
-    expect(disposeTerminal).toHaveBeenCalledWith('s2');
-    expect(disposeTerminal).not.toHaveBeenCalledWith('t1');
+    // 🔴 drop=拆视图非关会话(2026-08-15 事故):keepSession 保服务端会话续跑
+    expect(disposeTerminal).toHaveBeenCalledWith('s1', { keepSession: true });
+    expect(disposeTerminal).toHaveBeenCalledWith('s2', { keepSession: true });
+    expect(vi.mocked(disposeTerminal).mock.calls.map((c) => c[0])).not.toContain('t1');
   });
 
   it('BL004-U-disconnect-empty: 断线且无本机 workspace → 回落空态(null),不困在死 host workspace', () => {
@@ -77,8 +78,8 @@ describe('dropHostWorkspaces(AC-11)', () => {
     const s = useAppStore.getState();
     expect(s.workspaces.map((w) => w.id)).toEqual(['l1', 'r2']); // 只删 cfg-1
     expect(s.activeWorkspaceId).toBe('l1'); // 未动
-    expect(disposeTerminal).toHaveBeenCalledWith('s1');
-    expect(disposeTerminal).not.toHaveBeenCalledWith('s2');
+    expect(disposeTerminal).toHaveBeenCalledWith('s1', { keepSession: true });
+    expect(vi.mocked(disposeTerminal).mock.calls.map((c) => c[0])).not.toContain('s2');
   });
 
   it('drop 一个不存在的 host 是 no-op(不抛错,不动其它 ws)', () => {

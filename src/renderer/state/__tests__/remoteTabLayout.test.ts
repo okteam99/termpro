@@ -20,6 +20,7 @@ vi.mock('../../services/hostRegistry', () => ({
 import { useAppStore } from '../store';
 import type { PersistedRemoteWorkspace, TabState, WorkspaceState } from '../store';
 import { serialize } from '../persistence';
+import { disposeTerminal } from '../../terminal/terminalRegistry';
 
 function tab(id: string, cwd: string, customName?: string): TabState {
   return { id, title: id, cwd, customName };
@@ -141,6 +142,30 @@ describe('dropHostWorkspaces 布局快照', () => {
     const layouts = useAppStore.getState().remoteTabLayouts;
     expect(layouts['rwB']).toEqual(otherLayout);
     expect(layouts['rw1']).toBeDefined();
+  });
+});
+
+describe('drop 与用户关 tab 的会话处置分流(2026-08-15 事故回归)', () => {
+  // 根因:drop(断线/手动断开拆视图)若缺省 kill,pty.kill 会顺着 stopRemoteWorkspaceSync
+  // ②→③ 之间仍存活的连接真杀掉 host 侧会话——只有正被查看的 tab 有 inst,恰好只丢
+  // 用户开着的项目(codex/claude 在跑任务陪葬)。drop 必须 detach-only,kill 仅留给用户明确意图。
+  it('dropHostWorkspaces 走 detach-only(keepSession),不杀服务端会话', () => {
+    sessionIds.set('t1', 'sid-1');
+    useAppStore.setState({
+      workspaces: [remoteWs('rw1', 'cfg-a', [tab('t1', '/a/x')])],
+    });
+    vi.mocked(disposeTerminal).mockClear();
+    useAppStore.getState().dropHostWorkspaces('cfg-a');
+    expect(disposeTerminal).toHaveBeenCalledWith('t1', { keepSession: true });
+  });
+
+  it('closeTab 保持缺省 kill 语义(用户明确关会话)', () => {
+    useAppStore.setState({
+      workspaces: [remoteWs('rw1', 'cfg-a', [tab('t1', '/a/x')])],
+    });
+    vi.mocked(disposeTerminal).mockClear();
+    useAppStore.getState().closeTab('rw1', 't1');
+    expect(vi.mocked(disposeTerminal).mock.calls).toEqual([['t1']]); // 单参:无 keepSession
   });
 });
 

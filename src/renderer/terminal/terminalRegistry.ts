@@ -548,7 +548,21 @@ export function applyPinBottomBar(enabled: boolean): void {
   }
 }
 
-export function disposeTerminal(tabId: string): void {
+/**
+ * 销毁终端视图。两种语义,由 keepSession 区分:
+ * - 缺省(kill):用户明确意图关会话(closeTab/removeWorkspace/注册表对账删除)——
+ *   pty.kill 送 host 彻底逐出。
+ * - keepSession(detach-only):只拆本地视图,服务端会话必须续跑(2026-08-15
+ *   「升级重连后正在查看的项目会话丢了」事故)。drop 链路(断线/手动断开)走此模式:
+ *   stopRemoteWorkspaceSync 先 dropHostWorkspaces 再 hostRegistry.drop 关连接,在此
+ *   顺序下 pty.kill 会沿仍可达的 transport 真送达 host(=彻底逐出,不留 exited);
+ *   且只有挂载过(正被查看)的 tab 才有 inst,于是恰好只杀用户开着的那个项目的会话,
+ *   后台项目全幸免——看起来像「随机丢会话」。
+ */
+export function disposeTerminal(
+  tabId: string,
+  opts?: { keepSession?: boolean },
+): void {
   const inst = registry.get(tabId);
   if (!inst) return;
   inst.disposed = true;
@@ -557,7 +571,7 @@ export function disposeTerminal(tabId: string): void {
   inst.remotePasteDispose?.();
   inst.remotePasteDispose = null;
   inst.remotePaste = null;
-  if (inst.sessionId && inst.client) {
+  if (!opts?.keepSession && inst.sessionId && inst.client) {
     void inst.client.rpc('pty.kill', { sessionId: inst.sessionId }).catch(() => {
       /* host 可能已回收 */
     });

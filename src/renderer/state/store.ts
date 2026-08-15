@@ -1079,7 +1079,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (w.tabs.length > 0)
         remoteTabLayouts[w.id] = snapshotRemoteLayout(hostId, w);
     }
-    dropped.forEach((w) => w.tabs.forEach((t) => disposeTerminal(t.id)));
+    // 🔴 detach-only(2026-08-15 事故):drop 是「拆视图」不是「关会话」——远程会话断线
+    // 续跑是北极星,重连后由布局恢复 + readopt 收养回来。此处若缺省 kill,会顺着
+    // stopRemoteWorkspaceSync ②→③ 之间仍存活的连接真杀掉 host 侧会话(正查看的项目
+    // 首当其冲,codex/claude 等在跑任务陪葬)。
+    dropped.forEach((w) =>
+      w.tabs.forEach((t) => disposeTerminal(t.id, { keepSession: true })),
+    );
     set((s) => {
       const workspaces = s.workspaces.filter((w) => w.hostId !== hostId);
       const activeWasDropped =
