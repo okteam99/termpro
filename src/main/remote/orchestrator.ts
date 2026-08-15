@@ -60,6 +60,12 @@ const MIN_NODE_MAJOR = 20;
 const DISCONNECT_WAIT_TIMEOUT_MS = 5_000;
 /** buildStartCommand 未显式传 allowedOrigins 时的兜底(与 host 侧 DEFAULT_ALLOWED_ORIGINS 同口径)。 */
 const DEFAULT_ALLOWED_ORIGINS = 'null,file://';
+/** 浏览器 MCP 反向转发失败重试阶梯(末档 60s 循环常驻):前几档覆盖僵尸 sshd 占口的
+ *  ~3min 自灭窗口(容器 sshd ClientAlive 30×6),之后低频补建直到建成/断线。
+ *  测试经 deps.sleep 注入快进。 */
+const BROWSER_MCP_FORWARD_RETRY_MS: readonly number[] = [
+  2_000, 10_000, 30_000, 60_000,
+];
 
 // ---- 合法状态转移表(AC-5 · R2V-2 补 claiming→deploying / claiming→failed) ----
 
@@ -436,7 +442,16 @@ export class RemoteHostOrchestrator {
     }
   }
 
-  /** 为某 ready 会话建浏览器 MCP 反向转发(best-effort,失败不影响会话可用)。 */
+  /** 为某 ready 会话建浏览器 MCP 反向转发(best-effort,失败不影响会话可用)。
+   *
+   * 🔴 失败必须退避重试,不能一锤定音(2026-08-15「agent 调 okbrowser MCP 经常 30 秒
+   * 无响应」根因之一):不干净掉线后,旧连接的僵尸 sshd 仍占着容器内 39217 监听
+   * (sshd ClientAlive 30×6 → 可占 ~3 分钟;期间 agent 连入即进死连接黑洞挂死),
+   * 重连后本函数的 forwardIn 撞口必败——旧实现只 warn 不重试,僵尸自灭、端口空出后
+   * 也无人再绑,MCP 桥在整条连接周期内死透(拒连),直到下次整机重连。
+   * 阶梯退避 + 末档低频常驻,覆盖僵尸自灭窗口;建成/断线/换连接/被新一轮顶替即停
+   * (守卫与并发双建同一套 token 语义,teardown 清 token 即取消在途重试)。
+   */
   private async establishBrowserMcpForward(configId: string): Promise<void> {
     const localPort = this.browserMcpLocalPort;
     if (localPort == null) return;
@@ -447,26 +462,34 @@ export class RemoteHostOrchestrator {
     const token = {};
     session.browserMcpForwardToken = token;
     const ssh = session.ssh;
+    const stillCurrent = (): boolean =>
+      session.stage === 'ready' &&
+      session.ssh === ssh &&
+      session.browserMcpForwardToken === token;
     try {
-      const handle = await ssh.forwardInToLocal(
-        localPort,
-        BROWSER_MCP_REMOTE_PORT,
-      );
-      // 竞态守卫:建转发期间断线/换连接/被新一轮抢占 → 立即撤销在途句柄,不挂到已亡会话上
-      if (
-        session.stage !== 'ready' ||
-        session.ssh !== ssh ||
-        session.browserMcpForwardToken !== token
-      ) {
-        handle.close();
-        return;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const handle = await ssh.forwardInToLocal(
+            localPort,
+            BROWSER_MCP_REMOTE_PORT,
+          );
+          // 竞态守卫:建转发期间断线/换连接/被新一轮抢占 → 立即撤销在途句柄,不挂到已亡会话上
+          if (!stillCurrent()) {
+            handle.close();
+            return;
+          }
+          session.browserMcpForward = handle;
+          return;
+        } catch (err) {
+          console.warn(
+            `[remote] browser MCP reverse-forward failed for ${configId} (attempt ${attempt + 1}):`,
+            err,
+          );
+        }
+        const delays = BROWSER_MCP_FORWARD_RETRY_MS;
+        await this.sleep(delays[Math.min(attempt, delays.length - 1)]);
+        if (!stillCurrent()) return;
       }
-      session.browserMcpForward = handle;
-    } catch (err) {
-      console.warn(
-        `[remote] browser MCP reverse-forward failed for ${configId}:`,
-        err,
-      );
     } finally {
       if (session.browserMcpForwardToken === token)
         session.browserMcpForwardToken = null;

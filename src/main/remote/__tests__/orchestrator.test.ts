@@ -64,6 +64,8 @@ function makeHarness(
       hostInfo?: { appVersion?: string };
     }>;
     startTimeoutMs?: number;
+    /** 覆盖默认「瞬时 resolve」的 sleep 桩(如反向转发重试用例需可控放行)。 */
+    sleep?: (ms: number) => Promise<void>;
   } = {},
 ): Harness {
   const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
@@ -94,7 +96,7 @@ function makeHarness(
     bundleDir: () => '/local/bundle/darwin-arm64',
     appVersion: '1.0.0',
     probeHostInfo: probe as never,
-    sleep: async () => undefined,
+    sleep: opts.sleep ?? (async () => undefined),
     ...(opts.startTimeoutMs !== undefined
       ? { startTimeoutMs: opts.startTimeoutMs }
       : {}),
@@ -2029,5 +2031,59 @@ describe('setBrowserMcpForward(浏览器 MCP 反向转发生命周期 · 阶段3
     routed.simulateSshClose();
     await flushMicrotasks();
     expect(closeSpy).toHaveBeenCalled();
+  });
+
+  it('撞口失败 → 退避重试直至建成(2026-08-15「僵尸 sshd 占口后 MCP 桥死透」回归)', async () => {
+    // 不干净掉线后旧 sshd 占着 39217:重连首次 forwardIn 必败;僵尸 ~3min 自灭后端口
+    // 空出——旧实现只 warn 不重试,桥死到下次整机重连。此用例钉住:失败后必须重试到建成。
+    const closeSpy = vi.fn();
+    const routed = createFreshDeploySsh('vps-hk');
+    let calls = 0;
+    routed.forwardInToLocal = vi.fn(async (_l: number, remotePort: number) => {
+      calls += 1;
+      if (calls <= 2) throw new Error('remote port 39217 in use');
+      return { remotePort: remotePort || 39217, close: closeSpy };
+    });
+    const h = makeHarness({ connectSshImpl: async () => routed });
+    saveConfig(h.configStore);
+
+    h.orchestrator.setBrowserMcpForward(48080);
+    await h.orchestrator.connect('vps-hk');
+    await flushMicrotasks(30); // 默认瞬时 sleep:两轮退避在微任务内走完
+    expect(routed.forwardInToLocal).toHaveBeenCalledTimes(3);
+
+    // 第三次的句柄已挂上会话:断线随传输一并撤销
+    routed.simulateSshClose();
+    await flushMicrotasks();
+    expect(closeSpy).toHaveBeenCalled();
+  });
+
+  it('持续失败 → 断线取消在途退避,不再打新一轮 forwardIn', async () => {
+    const routed = createFreshDeploySsh('vps-hk');
+    routed.forwardInToLocal = vi.fn(async () => {
+      throw new Error('remote port 39217 in use');
+    });
+    // 只闸「退避档位」的 sleep(2s/10s/30s/60s 是重试阶梯专用值);其余 sleep(断连
+    // 有界等待等)保持瞬时,免得测试自己把 disconnect 卡死。
+    const RETRY_DELAYS = new Set([2_000, 10_000, 30_000, 60_000]);
+    const sleepGates: Array<() => void> = [];
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      sleep: (ms) =>
+        RETRY_DELAYS.has(ms)
+          ? new Promise<void>((r) => sleepGates.push(r))
+          : Promise.resolve(),
+    });
+    saveConfig(h.configStore);
+
+    h.orchestrator.setBrowserMcpForward(48080);
+    await h.orchestrator.connect('vps-hk');
+    await flushMicrotasks();
+    expect(routed.forwardInToLocal).toHaveBeenCalledTimes(1); // 首败 → 停在退避闸上
+
+    await h.orchestrator.disconnect('vps-hk'); // teardown 清 token = 取消信号
+    sleepGates.splice(0).forEach((release) => release()); // 放行退避 → 守卫失配 → 退出
+    await flushMicrotasks();
+    expect(routed.forwardInToLocal).toHaveBeenCalledTimes(1); // 无新一轮尝试
   });
 });
