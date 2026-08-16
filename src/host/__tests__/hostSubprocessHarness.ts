@@ -14,6 +14,23 @@ import * as path from 'node:path';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
+/**
+ * 供 host 子进程 require() 解析 external 依赖的 node_modules。
+ * 🔴 不能直接用 repoRoot/node_modules:git worktree 里没有自己的依赖树(装在主仓库),
+ * 而 bundle 落在 /tmp,向上找不到任何 node_modules —— NODE_PATH 一旦指空,子进程起手
+ * 就 "Cannot find module 'node-pty'",7 个用例齐刷刷超时,还看不出跟被测逻辑无关。
+ * 用 external 里必被 require 的 node-pty 当探针逐级向上找,主仓库/worktree 都能跑。
+ */
+function resolveNodeModulesDir(from: string): string {
+  for (let dir = from; ; dir = path.dirname(dir)) {
+    const candidate = path.join(dir, 'node_modules');
+    if (fs.existsSync(path.join(candidate, 'node-pty'))) return candidate;
+    if (path.dirname(dir) === dir) return path.join(from, 'node_modules');
+  }
+}
+
+const nodeModulesDir = resolveNodeModulesDir(repoRoot);
+
 let cached: Promise<string> | null = null;
 
 /** 打包 host.ts → 临时目录下单文件 host.cjs;跨用例复用同一 bundle(减少重复打包耗时)。 */
@@ -78,7 +95,7 @@ export function spawnHost(
   const child = spawn(process.execPath, [bundlePath, ...argv], {
     // node-pty/ws 打包时标 external(同 package-host.mjs 口径),bundle 独居临时目录、
     // 向上找不到仓库 node_modules —— 经 NODE_PATH 显式指回仓库 node_modules 供 require() 解析。
-    env: { ...process.env, NODE_PATH: path.join(repoRoot, 'node_modules'), ...env },
+    env: { ...process.env, NODE_PATH: nodeModulesDir, ...env },
     stdio: [stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   });
   if (stdin !== undefined) {
