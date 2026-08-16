@@ -7,6 +7,7 @@ import {
   type PasswordGuestSender,
   type PasswordVaultPort,
 } from '../passwordVaultController';
+import { PASSWORD_GUEST_CHANNELS } from '../../shared/passwordVault';
 
 const guestPreloadMock = vi.hoisted(() => ({
   listeners: new Map<string, (...args: unknown[]) => void>(),
@@ -147,6 +148,16 @@ class FakeVault implements PasswordVaultPort {
   }
 }
 
+/** jsdom 不做布局,getClientRects 恒空;preload 的可见性闸门需要它有值 */
+function makeVisible(root: ParentNode): void {
+  for (const node of root.querySelectorAll('*')) {
+    Object.defineProperty(node, 'getClientRects', {
+      value: () => [{ width: 1 }],
+      configurable: true,
+    });
+  }
+}
+
 function setup() {
   const vault = new FakeVault();
   const controller = new PasswordVaultController({
@@ -171,12 +182,13 @@ describe('browser password flow security boundaries', () => {
         password: 'failed-password',
       }),
     ).toBe(true);
+    // 没存过这个站点 → 不写库,也不该说「已保存密码未更改」(用户报告 2026-08-16)
     await expect(
       controller.settleCandidate(guest.id, {
         nonce: 'failed',
         result: 'failed',
       }),
-    ).resolves.toEqual({ kind: 'auth_failed' });
+    ).resolves.toEqual({ kind: 'idle' });
     expect(vault.entries).toEqual([]);
 
     expect(
@@ -443,6 +455,143 @@ describe('browser password flow security boundaries', () => {
       username: 'bob',
       password: 'bob-password',
     });
+  });
+
+  // 用户报告 2026-08-16:登录成功却弹「登录失败 · 已保存密码未更改」,而这个站点从没存过密码。
+  it('only reports an unchanged saved password when one actually exists and differs', async () => {
+    const { vault, controller } = setup();
+    await vault.upsert({
+      profileId: PROFILE_A,
+      origin: 'https://accounts.example.test',
+      username: 'alice',
+      password: 'same-password',
+      now: 1,
+    });
+    const guest = new FakeGuest(1, 'https://accounts.example.test/login');
+    controller.registerGuest(guest, PROFILE_A, 10);
+
+    // 存过的就是这一条,失败也好没确认也好,保险箱什么都没变 → 不打扰
+    for (const result of ['failed', 'uncertain'] as const) {
+      expect(
+        controller.acceptCandidate(guest.id, {
+          nonce: `same-${result}`,
+          username: 'alice',
+          password: 'same-password',
+        }),
+      ).toBe(true);
+      await expect(
+        controller.settleCandidate(guest.id, {
+          nonce: `same-${result}`,
+          result,
+          reason: 'timeout',
+        }),
+      ).resolves.toEqual({ kind: 'idle' });
+    }
+
+    // 这个账号没存过 → 「已保存密码未更改」是假话,静默;没确认才说「没给你存」
+    expect(
+      controller.acceptCandidate(guest.id, {
+        nonce: 'new-account',
+        username: 'bob',
+        password: 'bob-attempt',
+      }),
+    ).toBe(true);
+    await expect(
+      controller.settleCandidate(guest.id, {
+        nonce: 'new-account',
+        result: 'failed',
+      }),
+    ).resolves.toEqual({ kind: 'idle' });
+    expect(
+      controller.acceptCandidate(guest.id, {
+        nonce: 'new-account-uncertain',
+        username: 'bob',
+        password: 'bob-attempt',
+      }),
+    ).toBe(true);
+    await expect(
+      controller.settleCandidate(guest.id, {
+        nonce: 'new-account-uncertain',
+        result: 'uncertain',
+        reason: 'timeout',
+      }),
+    ).resolves.toMatchObject({ kind: 'uncertain' });
+
+    // 真有一份没被覆盖的旧密码时,提示照旧
+    expect(
+      controller.acceptCandidate(guest.id, {
+        nonce: 'changed',
+        username: 'alice',
+        password: 'wrong-password',
+      }),
+    ).toBe(true);
+    await expect(
+      controller.settleCandidate(guest.id, {
+        nonce: 'changed',
+        result: 'failed',
+      }),
+    ).resolves.toEqual({ kind: 'auth_failed' });
+    expect(vault.entries).toHaveLength(1);
+    expect(vault.entries[0]).toMatchObject({ password: 'same-password' });
+  });
+
+  // 登录成功后落地的业务页几乎都带 role="alert"/.error 容器(GitLab 的 flash 条),
+  // 旧实现全文档一扫有文字就判失败 → 成功被播报成失败。
+  it('treats alerts on the landed page as noise, not a failed sign-in', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.resetModules();
+      guestPreloadMock.listeners.clear();
+      guestPreloadMock.invoke.mockReset();
+      guestPreloadMock.invoke.mockResolvedValue({ kind: 'none' });
+      document.body.innerHTML =
+        '<div role="alert">Merge request !1135 was created</div>' +
+        '<div class="error">unrelated banner</div>';
+      makeVisible(document.body);
+      await import('../../preload/browserGuestPreload');
+      const verify = guestPreloadMock.listeners.get(
+        PASSWORD_GUEST_CHANNELS.verify,
+      );
+      expect(verify).toBeTypeOf('function');
+
+      // 登录表单没了 = 已经走掉了,页面上的告警条与这次登录无关
+      verify?.({}, { nonce: 'landed' });
+      expect(guestPreloadMock.invoke).toHaveBeenLastCalledWith(
+        PASSWORD_GUEST_CHANNELS.result,
+        { nonce: 'landed', result: 'success', reason: 'navigation' },
+      );
+
+      // 还留在登录页 + 新冒出来的可见告警 = 真失败
+      document.body.innerHTML =
+        '<div role="alert">Invalid login or password</div>' +
+        '<form><input autocomplete="username"><input type="password"></form>';
+      makeVisible(document.body);
+      verify?.({}, { nonce: 'rejected' });
+      expect(guestPreloadMock.invoke).toHaveBeenLastCalledWith(
+        PASSWORD_GUEST_CHANNELS.result,
+        { nonce: 'rejected', result: 'failed', reason: 'message' },
+      );
+
+      // 登录页上本来就挂着(不可见的)空告警壳子 → 不算证据,只能是「没确认」
+      document.body.innerHTML =
+        '<div role="alert"></div><div class="error">hidden</div>' +
+        '<form><input autocomplete="username"><input type="password"></form>';
+      makeVisible(document.body);
+      for (const node of document.querySelectorAll('[role="alert"], .error')) {
+        Object.defineProperty(node, 'getClientRects', {
+          value: () => [],
+          configurable: true,
+        });
+      }
+      verify?.({}, { nonce: 'still-here' });
+      expect(guestPreloadMock.invoke).toHaveBeenLastCalledWith(
+        PASSWORD_GUEST_CHANNELS.result,
+        { nonce: 'still-here', result: 'uncertain', reason: 'navigation' },
+      );
+    } finally {
+      vi.useRealTimers();
+      document.body.replaceChildren();
+    }
   });
 
   it('never saves a candidate when the guest, profile, or origin is no longer the verified owner', async () => {

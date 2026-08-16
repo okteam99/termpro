@@ -27,6 +27,8 @@ let lookupGeneration = 0;
 let lookupTimer: ReturnType<typeof setTimeout> | null = null;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let settleObserver: MutationObserver | null = null;
+/** 提交那一刻页面上已有的告警节点——它们不是这次登录的结果,不能算失败证据 */
+let failureBaseline = new WeakSet<Element>();
 
 function sendStatus(status: PasswordGuestStatus): void {
   try {
@@ -135,11 +137,21 @@ function scheduleLookup(): void {
   }, 120);
 }
 
-function hasFailureSignal(): boolean {
-  const node = document.querySelector<HTMLElement>(FAILURE_SELECTOR);
-  if (!node) return false;
-  const text = node.textContent?.trim() ?? '';
-  return node.getAttribute('aria-invalid') === 'true' || text.length > 0;
+/**
+ * 🔴 失败证据必须苛刻(用户报告 2026-08-16:GitLab 登录成功却弹「登录失败」)。
+ * 登录成功后落地的业务页几乎都带 role="alert"/.error 容器(GitLab 的 flash 条、
+ * 各家的公告条),旧实现全文档扫一眼有文字就判失败,把成功当失败播报。
+ * 现在三道闸:① 登录表单还在(表单没了就是走掉了,不可能是失败)
+ * ② 节点可见 ③ 不是提交前就存在的旧告警。
+ */
+function freshFailureSignal(): boolean {
+  if (!findLoginFields()) return false;
+  for (const node of document.querySelectorAll<HTMLElement>(FAILURE_SELECTOR)) {
+    if (failureBaseline.has(node) || node.getClientRects().length === 0) continue;
+    if (node.getAttribute('aria-invalid') === 'true') return true;
+    if ((node.textContent?.trim().length ?? 0) > 0) return true;
+  }
+  return false;
 }
 
 function clearSettlement(): void {
@@ -161,15 +173,14 @@ function reportResult(
 function watchLoginResult(nonce: string, submittedForm: HTMLFormElement | null): void {
   clearSettlement();
   const inspect = () => {
-    if (hasFailureSignal()) {
-      reportResult(nonce, 'failed', 'message');
-      return;
-    }
-    const current = findLoginFields();
+    // 先判「走掉了」再判「报错了」:表单消失/登录态达成一律算成功,
+    // 页面上残留或新冒出来的告警条不再有机会把成功盖成失败。
     if (submittedForm && !document.contains(submittedForm)) {
       reportResult(nonce, 'success', 'form_disappeared');
-    } else if (!current && document.readyState === 'complete') {
+    } else if (!findLoginFields() && document.readyState === 'complete') {
       reportResult(nonce, 'success', 'authenticated_state');
+    } else if (freshFailureSignal()) {
+      reportResult(nonce, 'failed', 'message');
     }
   };
   settleObserver = new MutationObserver(inspect);
@@ -192,6 +203,9 @@ function captureCandidate(event: Event): void {
     return;
   }
   const nonce = crypto.randomUUID();
+  failureBaseline = new WeakSet(
+    document.querySelectorAll<HTMLElement>(FAILURE_SELECTOR),
+  );
   void ipcRenderer
     .invoke(PASSWORD_GUEST_CHANNELS.candidate, { nonce, username, password })
     .then((accepted: boolean) => {
@@ -223,8 +237,10 @@ ipcRenderer.on(
 ipcRenderer.on(PASSWORD_GUEST_CHANNELS.verify, (_event, payload: { nonce?: string }) => {
   const nonce = typeof payload?.nonce === 'string' ? payload.nonce : '';
   if (!nonce) return;
-  if (hasFailureSignal()) reportResult(nonce, 'failed', 'message');
-  else if (!findLoginFields()) reportResult(nonce, 'success', 'navigation');
+  // 导航后同样先看「登录表单还在不在」:不在 = 登录页已经走完,
+  // 落地页上的告警条与这次登录无关(freshFailureSignal 里也再挡一次)。
+  if (!findLoginFields()) reportResult(nonce, 'success', 'navigation');
+  else if (freshFailureSignal()) reportResult(nonce, 'failed', 'message');
   else reportResult(nonce, 'uncertain', 'navigation');
 });
 

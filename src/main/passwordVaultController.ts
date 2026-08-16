@@ -312,10 +312,7 @@ export class PasswordVaultController {
     }
     if (evidence.result !== 'success') {
       this.clearPending(senderId);
-      const status: PasswordGuestStatus =
-        evidence.result === 'failed'
-          ? { kind: 'auth_failed' }
-          : { kind: 'uncertain', messageCode: evidence.reason ?? 'uncertain' };
+      const status = await this.unsavedStatus(pending, evidence);
       this.sendStatus(senderId, status);
       return status;
     }
@@ -346,6 +343,38 @@ export class PasswordVaultController {
       };
       this.sendStatus(senderId, status);
       return status;
+    }
+  }
+
+  /**
+   * 登录没成功时该说什么(用户报告 2026-08-16:没存过密码的站点却提示「已保存密码未更改」)。
+   * 这两条提示讲的都是保险箱里那份密码的去留,所以只在真有一份「没被改」的密码时才播报:
+   * - 这个站点/这个账号根本没存过 → 「已保存密码未更改」是句假话,静默(idle)
+   * - 存的就是这次提交的同一条(同账号同密码)→ 什么都没变,不必打扰
+   * 查库出错不猜:保留原提示,宁可多说一句也不吞掉「密码没被覆盖」这件事。
+   */
+  private async unsavedStatus(
+    pending: PendingLogin,
+    evidence: PasswordLoginResultEvidence,
+  ): Promise<PasswordGuestStatus> {
+    const notice: PasswordGuestStatus =
+      evidence.result === 'failed'
+        ? { kind: 'auth_failed' }
+        : { kind: 'uncertain', messageCode: evidence.reason ?? 'uncertain' };
+    try {
+      const saved = await this.deps.vault.lookup(
+        pending.profileId,
+        pending.origin,
+      );
+      const sameAccount = saved.find(
+        (entry) => entry.username === pending.username,
+      );
+      if (sameAccount?.password === pending.password) return { kind: 'idle' };
+      // 失败:只有「这个账号存过、且存的和刚提交的不是同一条」才谈得上「未更改」
+      if (evidence.result === 'failed' && !sameAccount) return { kind: 'idle' };
+      return notice;
+    } catch {
+      return notice;
     }
   }
 
