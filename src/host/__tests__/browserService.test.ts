@@ -1,6 +1,7 @@
 // 云端浏览器服务:懒启动/幂等/回收 + 控制原语落到正确的 CDP 调用。
 // 全程用 fakeChromium(真 CdpConnection + 假进程与假 ws),不起真浏览器。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BrowserService, BrowserUnavailableError } from '../browserService';
@@ -34,6 +35,20 @@ function setup(over: {
 /** 某方法被调用的次数(fakeChromium 记录了全部 CDP 调用) */
 const countOf = (chromium: ReturnType<typeof fakeChromium>, method: string) =>
   chromium.calls.filter((c) => c.method === method).length;
+
+/**
+ * profile 锁在不在。
+ * 🔴 不能用 existsSync:SingletonLock 是指向 `host-<pid>` 的符号链接,那个目标从来
+ * 不存在,existsSync 跟随链接后恒返回 false。lstat 才看得见链接本身。
+ */
+function lockExists(chromiumDir: string): boolean {
+  try {
+    fs.lstatSync(path.join(chromiumDir, 'SingletonLock'));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -139,6 +154,106 @@ describe('BrowserService 生命周期', () => {
     service.dispose();
     expect(chromium.killed).toBe(true);
     await expect(service.openTab()).rejects.toThrow(/disposed/);
+  });
+
+  // profile 锁是「上一个实例被 SIGKILL / OOM killer 干掉」的残留。远端内存紧张时这是
+  // 常态,不能让一次 OOM 把云端浏览器永久钉死(退出码 21,起一次死一次)。
+  it('主人已经不在的陈旧锁 → 启动前直接清掉', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-lock-stale-'));
+    const chromiumDir = path.join(dataDir, 'chromium');
+    fs.mkdirSync(chromiumDir, { recursive: true });
+    // pid 999999 几乎不可能存在 → 判定陈旧
+    fs.symlinkSync('host-999999', path.join(chromiumDir, 'SingletonLock'));
+
+    const chromium = fakeChromium();
+    const service = new BrowserService({
+      dataDir,
+      locate: () => '/usr/bin/chromium',
+      launch: () => chromium.launch(),
+      connect: () => chromium.connect(),
+      idleTimeoutMs: 0,
+      logger: { log: () => undefined, error: () => undefined },
+    });
+
+    await expect(service.openTab()).resolves.toBeTruthy();
+    expect(lockExists(chromiumDir)).toBe(false);
+    service.dispose();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  // 🔴 SIGKILL 之后进程短时间内仍在进程表里(没被回收),kill(pid,0) 照样成功 ——
+  // 陈旧判定在这个时机会误判成「主人还在」。所以要按「是不是我们自己启动过的 pid」再兜一层。
+  it('🔴 锁的主人还「活着」但正是我们自己启动的 → 撞锁后清掉重试,不永久起不来', async () => {
+    vi.useFakeTimers();
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-lock-own-'));
+    const chromiumDir = path.join(dataDir, 'chromium');
+    fs.mkdirSync(chromiumDir, { recursive: true });
+    // 主人 = 当前进程(必然存活),同时让假 Chromium 也用这个 pid = 「我们启动的」
+    fs.symlinkSync(`host-${process.pid}`, path.join(chromiumDir, 'SingletonLock'));
+
+    let attempts = 0;
+    const good = fakeChromium({ pid: process.pid });
+    const service = new BrowserService({
+      dataDir,
+      locate: () => '/usr/bin/chromium',
+      launch: () => {
+        attempts++;
+        if (lockExists(chromiumDir)) {
+          const dead = fakeChromium({ announceEndpoint: false, pid: process.pid });
+          queueMicrotask(() =>
+            dead.stderrExit(21, 'Failed to create SingletonLock: File exists (17)'),
+          );
+          return dead.proc;
+        }
+        return good.launch();
+      },
+      connect: () => good.connect(),
+      idleTimeoutMs: 0,
+      logger: { log: () => undefined, error: () => undefined },
+    });
+
+    const openPromise = service.openTab();
+    await vi.advanceTimersByTimeAsync(3000); // 走完重试退避
+    await expect(openPromise).resolves.toBeTruthy();
+    expect(attempts).toBeGreaterThan(1);
+    expect(lockExists(chromiumDir)).toBe(false);
+
+    service.dispose();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('🔴 别人的实例活着占着 profile 锁 → 不动它,如实报错', async () => {
+    vi.useFakeTimers();
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okwork-lock-other-'));
+    const chromiumDir = path.join(dataDir, 'chromium');
+    fs.mkdirSync(chromiumDir, { recursive: true });
+    // 主人存活(当前进程),但我们启动的假进程 pid 是 4242 → 不是我们的锁
+    fs.symlinkSync(`host-${process.pid}`, path.join(chromiumDir, 'SingletonLock'));
+
+    const service = new BrowserService({
+      dataDir,
+      locate: () => '/usr/bin/chromium',
+      launch: () => {
+        const dead = fakeChromium({ announceEndpoint: false });
+        queueMicrotask(() =>
+          dead.stderrExit(21, 'Failed to create SingletonLock: File exists (17)'),
+        );
+        return dead.proc;
+      },
+      connect: () => fakeChromium().connect(),
+      idleTimeoutMs: 0,
+      logger: { log: () => undefined, error: () => undefined },
+    });
+
+    const p = service.openTab();
+    const assertion = expect(p).rejects.toThrow(/SingletonLock/);
+    await vi.advanceTimersByTimeAsync(5000);
+    await assertion;
+    // 别人的锁必须原样留着:删了会两个实例共写同一个 profile
+    expect(lockExists(chromiumDir)).toBe(true);
+
+    service.dispose();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
   it('Chromium 起来了但不报 DevTools endpoint → 超时并 kill,不静默挂住', async () => {
@@ -298,6 +413,52 @@ describe('BrowserService 标签与控制原语', () => {
     // 页面里的 deadline 用的是钳后预算(120s),不是 agent 传进来的天文数字
     expect(String(waiting?.params.expression)).toContain('120000');
     expect(waiting?.params.awaitPromise).toBe(true);
+  });
+
+  // 页面自己 window.close 后,活跃标签指向一个已经不存在的 target。session 是缓存的,
+  // 死标签不会触发重新 attach —— 不自愈的话后续命令会一直打向不存在的 session,
+  // 这台机器的浏览器就此永久失灵。
+  it('🔴 标签被页面自己关掉(targetDestroyed)→ 清缓存并自动重开,不永久瘫痪', async () => {
+    const chromium = fakeChromium();
+    const { service } = setup({ chromium });
+
+    const tabId = await service.openTab('https://a.test');
+    await service.getText(tabId); // 建立 session 缓存
+    expect(countOf(chromium, 'Target.attachToTarget')).toBe(1);
+
+    // 页面自己关掉:Chromium 推 targetDestroyed
+    chromium.targets.length = 0;
+    chromium.event('Target.targetDestroyed', { targetId: tabId });
+
+    // 省略 tabId 的调用自愈:开新标签 + 重新 attach
+    await expect(service.getText()).resolves.toBeTruthy();
+    expect(countOf(chromium, 'Target.createTarget')).toBe(2);
+    expect(countOf(chromium, 'Target.attachToTarget')).toBe(2);
+  });
+
+  it('标签消失时它的预览一并停掉(不对着不存在的页面留推流态)', async () => {
+    const chromium = fakeChromium();
+    const { service } = setup({ chromium });
+    const tabId = await service.startPreview(() => undefined);
+    expect(service.previewing).toBe(true);
+
+    chromium.event('Target.targetDestroyed', { targetId: tabId });
+    expect(service.previewing).toBe(false);
+  });
+
+  it('attach 失败也有兜底:省略 tabId 时换新标签,指名的仍照实报错', async () => {
+    let dead = '';
+    const chromium = fakeChromium({
+      override: (method, params) =>
+        method === 'Target.attachToTarget' && params.targetId === dead
+          ? new Error('No target with given id found')
+          : undefined,
+    });
+    const { service } = setup({ chromium });
+    dead = await service.openTab('https://a.test');
+
+    await expect(service.getText()).resolves.toBeTruthy(); // 自愈
+    await expect(service.getText(dead)).rejects.toThrow(/No target with given id/);
   });
 
   it('closeTab 清掉缓存的 session,活跃标签跟着让位', async () => {

@@ -139,6 +139,18 @@ describe('预览生命周期', () => {
     });
   });
 
+  it('推流前把目标页带到前台(多标签下非前台页 CDP 拒绝推流)', async () => {
+    const { chromium, service, sink } = setup();
+    await service.openTab('https://a.test');
+    await service.openTab('https://b.test');
+    const tabId = await service.startPreview(sink, { tabId: chromium.targets[0].targetId });
+    expect(tabId).toBe(chromium.targets[0].targetId);
+    const order = chromium.calls
+      .map((c) => c.method)
+      .filter((m) => m === 'Page.bringToFront' || m === 'Page.startScreencast');
+    expect(order).toEqual(['Page.bringToFront', 'Page.startScreencast']);
+  });
+
   it('重复 startPreview 幂等:旧订阅先撤,不会一帧送两遍', async () => {
     const { chromium, service, frames, sink } = setup();
     const tabId = await service.startPreview(sink);

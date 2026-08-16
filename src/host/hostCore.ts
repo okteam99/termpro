@@ -473,6 +473,13 @@ async function handleRpc(
           (frame) => send({ t: 'browser:frame', ...frame }),
           p,
         );
+        // 🔴 所有权转移(last-preview-wins,同 session.attach 的 exclusive 惯例):
+        // browserService 每标签只留一个 sink,后开的顶掉先开的。若不把该 tabId 从
+        // 其他客户端的 previewTabs 里摘掉,先开的那个断开时会去 stopPreview,
+        // 把**后开者正在看的**流一起停掉。
+        for (const other of clients.values()) {
+          if (other !== client) other.previewTabs.delete(tabId);
+        }
         client.previewTabs.add(tabId);
         result = { tabId };
         break;

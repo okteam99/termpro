@@ -15,6 +15,8 @@ export interface FakeTarget {
 export interface FakeChromiumOptions {
   /** 启动后是否自动打印 DevTools endpoint(false 用来测「起不来」分支) */
   announceEndpoint?: boolean;
+  /** 假进程 pid(profile 锁归属测试要让它等于一个真实存活的 pid) */
+  pid?: number;
   /** 覆盖某些 CDP 方法的应答(测错误分支);返回 undefined 表示走默认应答 */
   override?: (
     method: string,
@@ -37,7 +39,7 @@ export function fakeChromium(opts: FakeChromiumOptions = {}) {
   let stderrCb: ((chunk: string) => void) | null = null;
 
   const proc: BrowserProcessLike = {
-    pid: 4242,
+    pid: opts.pid ?? 4242,
     stderr: { on: (_ev, cb) => { stderrCb = cb as (c: string) => void; } },
     stdout: { on: () => undefined },
     on: (_ev, cb) => { exitCb = cb; },
@@ -100,6 +102,13 @@ export function fakeChromium(opts: FakeChromiumOptions = {}) {
       case 'Input.insertText':
         return {};
       case 'Browser.close':
+        // 真 Chromium 收到这条会落盘并退出;替身也照做,否则 shutdown 会白等
+        // 满优雅退出超时(而且测不出「等到了才 SIGKILL」这条路径)
+        queueMicrotask(() => {
+          if (killed) return;
+          killed = true;
+          exitCb?.(0);
+        });
         return {};
       default:
         return {};
@@ -165,6 +174,12 @@ export function fakeChromium(opts: FakeChromiumOptions = {}) {
       killed = true;
       exitCb?.(code);
       onClose?.('chromium died');
+    },
+    /** 模拟「打印一行错误后立刻退出」(撞 profile 锁、缺 so 依赖一类的启动失败) */
+    stderrExit: (code: number, message: string) => {
+      stderrCb?.(`${message}\n`);
+      killed = true;
+      exitCb?.(code);
     },
     /** 传给 BrowserService 的 launch seam */
     launch: () => {

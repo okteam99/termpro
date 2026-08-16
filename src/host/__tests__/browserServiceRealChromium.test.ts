@@ -175,6 +175,22 @@ describe.skipIf(!enabled)('真 Chromium 端到端(默认 skip)', () => {
     await expect(service.evaluate('window.innerHeight', tabId)).resolves.toBe(600);
   }, 60_000);
 
+  // 假替身只能证明「收到 targetDestroyed 会清缓存」,证不了 Chromium 真的发这个事件。
+  it('🔴 页面 window.close 自关后仍能继续用(targetDestroyed 真的到达)', async () => {
+    const tabId = await service.openTab(PAGE);
+    await service.waitFor('#title', 5000, tabId);
+    await service.getText(tabId); // 建立 session 缓存
+
+    // 页面把自己关掉(agent 驱动的站点里很常见:弹窗流程走完自动 close)
+    await service.evaluate('setTimeout(() => window.close(), 0)', tabId).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 500));
+
+    // 不带 tabId 的调用必须还能用 —— 不能因为一次自关就永久失灵
+    const revived = await service.navigate(PAGE);
+    expect(revived).not.toBe(tabId);
+    await expect(service.getText(revived)).resolves.toContain('cloud browser');
+  }, 60_000);
+
   it('shutdown 后进程真的没了,再调用会重新拉起', async () => {
     await service.navigate(PAGE);
     expect(service.status().running).toBe(true);

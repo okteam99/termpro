@@ -41,6 +41,11 @@ const PREVIEW_DEFAULTS = { maxWidth: 1280, maxHeight: 800, quality: 60 } as cons
  * 不设这个闸,一次没回的 ack 会让该标签永远停在「等 ack」态,预览再也不动。
  */
 const FRAME_ACK_TIMEOUT_MS = 15_000;
+/** 启动尝试次数 + 重试间隔:覆盖上一个实例退出时 user-data-dir 尚未解锁的窗口。 */
+const LAUNCH_ATTEMPTS = 3;
+const LAUNCH_RETRY_DELAY_MS = 700;
+/** Browser.close 之后等进程自己退出的上限(超了就 SIGKILL,不无限等)。 */
+const GRACEFUL_EXIT_WAIT_MS = 3_000;
 
 export interface BrowserProcessLike {
   readonly pid?: number;
@@ -108,6 +113,23 @@ export class BrowserUnavailableError extends Error {
   }
 }
 
+/**
+ * Chromium 还没报出 DevTools 端口就退出了。单独成类是为了跟「起来了但不吭声」
+ * 区分开:前者常见于 user-data-dir 还被上一个正在退出的实例锁着(退出码 21),
+ * 等一下重试就好;后者重试没有意义(进程活着,只是不打印)。
+ */
+class ChromiumStartupExitError extends Error {
+  constructor(code: number | null, output: string) {
+    // 🔴 带上 Chromium 自己的输出:远端起不来时这是唯一的线索
+    // (缺 so 依赖、sandbox 被拒、profile 被占……退出码全是一个 21)。
+    const tail = output.trim().split('\n').slice(-4).join(' | ').slice(0, 500);
+    super(
+      `chromium exited before listening (code=${code})${tail ? `: ${tail}` : ''}`,
+    );
+    this.name = 'ChromiumStartupExitError';
+  }
+}
+
 const MOUSE_TYPES = new Set(['mousePressed', 'mouseReleased', 'mouseMoved', 'mouseWheel']);
 const MOUSE_BUTTONS = new Set(['left', 'right', 'middle', 'back', 'forward', 'none']);
 const KEY_TYPES = new Set(['keyDown', 'keyUp', 'char']);
@@ -126,6 +148,12 @@ export class BrowserService {
   private starting: Promise<RunningBrowser> | null = null;
   /** tabId → 预览推流态(默认空:没人看就没有画面流量) */
   private readonly previews = new Map<string, PreviewStream>();
+  /**
+   * 我们启动过的 Chromium pid —— 用于认出「自己留下的」profile 锁。
+   * 🔴 必须是集合而非「最后一个」:重试时新起的进程也会失败退出,若只记最后一个,
+   * 它会把**留下锁的那个** pid 覆盖掉,于是永远认不出自己的锁。留最近 8 个够用。
+   */
+  private readonly launchedPids: number[] = [];
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private readonly deps: Required<
@@ -446,6 +474,10 @@ export class BrowserService {
     });
     this.previews.set(tabId, stream);
 
+    // 🔴 同 screenshot:多标签下只有前台页能推流,否则 CDP 回 "Not attached to an
+    // active page"(真 Chromium 上验出来的)。开预览本来就意味着「我要看这一页」。
+    await b.conn.send('Page.bringToFront', undefined, session);
+    b.activeTabId = tabId;
     await b.conn.send(
       'Page.startScreencast',
       {
@@ -570,9 +602,20 @@ export class BrowserService {
     this.starting = null;
     this.clearIdleTimer();
     if (!b) return;
+    // 优雅关:让 Chromium 自己落盘 cookie/localStorage 并清掉 profile 锁。
+    // 🔴 要等它真的退出再 SIGKILL —— 抢在清理完成前杀掉就会留下 SingletonLock,
+    // 下次启动直接以退出码 21 死掉(有 clearStaleProfileLock 兜底,但别主动制造)。
+    const exited = new Promise<void>((resolve) => {
+      b.proc.on('exit', () => resolve());
+    });
     try {
-      // 优雅关:让 Chromium 自己落盘 cookie/localStorage,别让 profile 半残
       await b.conn.send('Browser.close', undefined, undefined, 5_000);
+      await Promise.race([
+        exited,
+        new Promise<void>((resolve) =>
+          this.deps.setTimer(() => resolve(), GRACEFUL_EXIT_WAIT_MS),
+        ),
+      ]);
     } catch {
       // 已经死了或不理我们 —— 下面 SIGKILL 兜底
     }
@@ -620,19 +663,81 @@ export class BrowserService {
     return this.starting;
   }
 
+  /**
+   * 拉起 Chromium。
+   * 🔴 带一次重试:上一个实例刚退出时 user-data-dir 的 lock 还没释放,新实例会
+   * 立刻以退出码 21 死掉(真 Chromium 上撞到过——页面 window.close 关掉最后一个
+   * 标签会让 headless Chromium 整个退出,紧接着的调用正好落在这个窗口里)。
+   * 只对「没报端口就退出」重试;「起来了但不吭声」重试没意义。
+   */
   private async launch(): Promise<RunningBrowser> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < LAUNCH_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await new Promise<void>((resolve) =>
+          this.deps.setTimer(() => resolve(), LAUNCH_RETRY_DELAY_MS),
+        );
+        if (this.disposed) break;
+      }
+      try {
+        return await this.launchOnce();
+      } catch (err) {
+        lastError = err;
+        if (!(err instanceof ChromiumStartupExitError)) throw err;
+        this.deps.logger.error(
+          `[browser] chromium start failed (attempt ${attempt + 1}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        // 🔴 被锁挡住,而锁的主人正是**我们自己刚杀掉**的那个进程:强制清掉。
+        // clearStaleProfileLock 的 pid 存活检查在这个时机会误判——SIGKILL 之后进程
+        // 短时间内仍在进程表里(还没被回收),kill(pid,0) 照样返回成功。
+        // 只认自己的 pid:别人的实例真占着这个 profile 时不动它,如实报错。
+        if (/SingletonLock/.test(err.message)) this.clearOwnProfileLock();
+      }
+    }
+    throw lastError;
+  }
+
+  /** profile 锁归我们自己上一个 Chromium 所有时,把它清掉(见 launch 的调用处注释)。 */
+  private clearOwnProfileLock(): void {
+    const userDataDir = path.join(this.deps.dataDir, 'chromium');
+    const lockPath = path.join(userDataDir, 'SingletonLock');
+    let owner: number;
+    try {
+      owner = Number(fs.readlinkSync(lockPath).split('-').pop());
+    } catch {
+      return;
+    }
+    if (!Number.isFinite(owner) || !this.launchedPids.includes(owner)) return;
+    for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      try {
+        fs.unlinkSync(path.join(userDataDir, name));
+      } catch {
+        // 本来就不在
+      }
+    }
+    this.deps.logger.log(`[browser] cleared own profile lock (pid=${owner})`);
+  }
+
+  private async launchOnce(): Promise<RunningBrowser> {
     const executablePath = this.locateExecutable();
     if (!executablePath) {
       throw new BrowserUnavailableError(chromiumInstallHint(this.deps.platform));
     }
     const userDataDir = path.join(this.deps.dataDir, 'chromium');
     fs.mkdirSync(userDataDir, { recursive: true });
+    clearStaleProfileLock(userDataDir, this.deps.logger);
     const args = buildChromiumArgs({
       userDataDir,
       platform: this.deps.platform,
       isRoot: this.deps.isRoot,
     });
     const proc = (this.deps.launch ?? defaultLaunch)(executablePath, args);
+    if (typeof proc.pid === 'number') {
+      this.launchedPids.push(proc.pid);
+      if (this.launchedPids.length > 8) this.launchedPids.shift();
+    }
     const endpoint = await this.readEndpoint(proc);
     const conn = await (this.deps.connect ?? ((url: string) => CdpConnection.open(url)))(
       endpoint,
@@ -653,7 +758,19 @@ export class BrowserService {
     conn.on('Inspector.detached', () => {
       if (this.running === b) this.running = null;
     });
+    // 🔴 标签消失(页面 window.close / 用户在别处关掉)必须让缓存跟着走:
+    // session 是缓存的,死标签不会触发重新 attach,后续命令会一直打向一个
+    // 不存在的 session —— 这台机器的浏览器就此永久失灵。
+    conn.on('Target.targetDestroyed', (e) => {
+      const targetId = String((e.params as { targetId?: string }).targetId ?? '');
+      if (!targetId) return;
+      b.sessions.delete(targetId);
+      if (b.activeTabId === targetId) b.activeTabId = null;
+      this.stopPreview(targetId);
+    });
     this.running = b;
+    // targetDestroyed 只在开了 target 发现后才会推送
+    await conn.send('Target.setDiscoverTargets', { discover: true }).catch(() => undefined);
     this.deps.logger.log(`[browser] chromium started pid=${proc.pid ?? '?'}`);
     return b;
   }
@@ -689,7 +806,7 @@ export class BrowserService {
         if (settled) return;
         settled = true;
         this.deps.clearTimer(timer);
-        reject(new Error(`chromium exited before listening (code=${code})`));
+        reject(new ChromiumStartupExitError(code, buf));
       });
     });
   }
@@ -708,13 +825,28 @@ export class BrowserService {
     return sessionId;
   }
 
-  /** 解析目标标签(省略 → 活跃标签;一个都没有 → 开一个),返回其 session。 */
+  /**
+   * 解析目标标签(省略 → 活跃标签;一个都没有 → 开一个),返回其 session。
+   * 🔴 活跃标签可能已经不在了(页面自己 window.close / 用户在别处关掉):
+   * attach 会失败。此时不能就此瘫痪——清掉陈旧的 activeTabId 与 session 缓存,
+   * 开一个新标签重来。否则「某次页面自关」会让这台机器的浏览器永久失灵。
+   * 显式传 tabId 的调用不做这个兜底:那是调用方指名的标签,不存在就该报错。
+   */
   private async target(
     tabId?: string,
   ): Promise<{ b: RunningBrowser; session: string; tabId: string }> {
     const b = await this.ensure();
+    const explicit = tabId !== undefined;
     const target = tabId ?? b.activeTabId ?? (await this.openTab());
-    return { b, session: await this.attach(b, target), tabId: target };
+    try {
+      return { b, session: await this.attach(b, target), tabId: target };
+    } catch (err) {
+      if (explicit) throw err;
+      b.sessions.delete(target);
+      if (b.activeTabId === target) b.activeTabId = null;
+      const fresh = await this.openTab();
+      return { b, session: await this.attach(b, fresh), tabId: fresh };
+    }
   }
 
   private async evalInPage(
@@ -739,12 +871,15 @@ export class BrowserService {
         expression: code,
         returnByValue: true,
         awaitPromise,
-        // 页面里抛的错要变成我们的 Error,而不是一个 exceptionDetails 对象静静返回
+        // 按「用户手势」求值:剪贴板/全屏/自动播放一类 API 只在有手势时才放行,
+        // 否则 agent 在页面里跑的脚本会莫名其妙被拒。
         userGesture: true,
       },
       session,
       timeoutMs,
     );
+    // 页面里抛的错要变成我们的 Error,而不是一个 exceptionDetails 对象静静返回
+    // ——agent 靠这句文案定位问题(「element not found: #x」就是从这儿冒上来的)。
     if (res.exceptionDetails) {
       const detail =
         res.exceptionDetails.exception?.description ??
@@ -777,6 +912,47 @@ export class BrowserService {
       this.idleTimer = null;
     }
   }
+}
+
+/** pid 是否还活着(signal 0 = 只探测不发信号;EPERM = 存在但不归我们管)。 */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as { code?: string })?.code === 'EPERM';
+  }
+}
+
+/**
+ * 清掉上一个实例留下的陈旧 profile 锁。
+ * Chromium 被 SIGKILL / OOM killer 干掉时来不及清 SingletonLock,下次启动会直接
+ * 以退出码 21 死掉(`Failed to create ... SingletonLock: File exists`)——远端服务器上
+ * 内存紧张时这是常态,不能让一次 OOM 把云端浏览器永久钉死。
+ * 🔴 只清「主人已经不在」的锁:锁是个符号链接,内容形如 `hostname-<pid>`;进程还活着
+ * 就不动它——同机真有另一个实例在用这个 profile 时,删锁会让两个实例共写、profile 损坏。
+ */
+function clearStaleProfileLock(
+  userDataDir: string,
+  logger: { log(msg: string): void },
+): void {
+  const lockPath = path.join(userDataDir, 'SingletonLock');
+  let target: string;
+  try {
+    target = fs.readlinkSync(lockPath);
+  } catch {
+    return; // 没有锁,或不是符号链接 —— 没什么要清的
+  }
+  const pid = Number(target.split('-').pop());
+  if (Number.isFinite(pid) && pid > 0 && processAlive(pid)) return;
+  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    try {
+      fs.unlinkSync(path.join(userDataDir, name));
+    } catch {
+      // 本来就不在
+    }
+  }
+  logger.log(`[browser] cleared stale profile lock (owner pid=${pid} is gone)`);
 }
 
 function defaultLaunch(executablePath: string, args: string[]): BrowserProcessLike {

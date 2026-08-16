@@ -363,6 +363,66 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
   宜统一显式 isCurrent 门(转移表一旦扩边保护即失效);② reap 的 cmdline 读→kill 间
   TOCTOU(pid 复用窗口极窄但存在),宜 kill 前复验 cmdline。
 
+### 4.13 云端浏览器(远端 headless Chromium)
+
+远程 session 里的 agent 用浏览器时,浏览器本体跑在**那台机器上**,不再经 SSH 反向转发
+打回用户本机(那条链路长且脆,"agent 调 okbrowser 经常挂死"有案可查)。默认无头 ——
+平时零画面流量;只有本地按下浏览器面板地址栏的 ☁ 开关才推画面回来。
+
+```
+远端:  agent → 127.0.0.1 MCP(不出机器) ↘
+                                        browserService → CDP(ws) → headless Chromium
+本机:  BrowserPanel ☁ → browser.* RPC  ↗   ← browser:frame(JPEG,ack 门控)
+```
+
+- **host 侧**:`src/host/browserService.ts`(生命周期 + 13 个控制原语 + 预览推流)、
+  `src/host/cdpClient.ts`(裸 ws + JSON 的 CDP 客户端,**零新依赖**——不引 puppeteer:
+  host bundle 是经 SSH 部署的单文件,只需要 CDP 的薄切片)、`src/host/chromiumLocator.ts`
+  (只**找**已装的浏览器,绝不自动下载:往用户服务器上拉 150MB+ 二进制是没被同意过的事)。
+- **能力位两层**:`host.info.capabilities` 里的 `browser.headless` 只表示**协议面**存在
+  这组 RPC;那台机器**装没装** Chromium 要问 `browser.status`(它只探测,不启动)。
+- **渐进启用,零破坏**:`src/renderer/services/cloudBrowserRouting.ts` 三条同时成立才走
+  云端 —— 远程 host + 有能力位 + 真装了 Chromium。差任何一条都维持现状(本机 webview +
+  反向转发),远端没装浏览器的存量用户升级后行为一字不变。判定按 hostId 缓存(每次
+  `browser_*` 都探一遍等于给每个 agent 动作加一个跨洋往返);重连/删机时失效。
+- **MCP 契约未变**:13 个 `browser_*` 工具一字未改,agent 侧零改动;只是 renderer 的
+  `browserControl` 按后端分流。云端的 click/type 走 `Input.dispatchMouseEvent` /
+  `Input.insertText` 派发**真实**事件(`isTrusted=true`,真 Chromium 上有断言),
+  比本机那套 `el.click()` + 手工 dispatch 更接近真人。
+- **🔴 预览背压(必须守住的性质)**:画面与终端输出、心跳共用同一条 WS/SSH 隧道,
+  那条隧道 **FIFO 无优先级**。帧一旦排队,终端输入会卡、心跳 probe 会被挤出超时窗口。
+  所以两级 ack:① 对 Chromium **立即** ack(它按自己的节奏产帧,页面不因隧道慢而冻住)
+  ② 对隧道**只在空闲时**发(上一帧没被客户端 ack 就丢掉当前帧,只送最新的)。
+  于是隧道上恒最多一帧在途。客户端侧的另一半:**画完才 ack**,不是收到就 ack ——
+  ack 的语义是「我消化完了」。帧走 JPEG q60 / 长边 1280。
+- **进程责任**(用户服务器不该被我们堆满 Chromium):懒启动(status 不拉起)、并发首调
+  共享同一次启动、空闲 10 分钟回收(有人看着预览时不回收)、Chromium 崩了状态归零下次
+  重拉、host SIGTERM 必 `dispose()`、客户端断开则它开的预览随之停。
+- **踩过的坑**(都是假 CDP 替身测不出、真 Chromium 当场逮到的):
+  - 多标签下 `Page.captureScreenshot` / `Page.startScreencast` 都要求目标页在**前台**,
+    否则 CDP 回 `Not attached to an active page` —— 两处都先 `Page.bringToFront`。
+  - **标签消失后不会自愈**:session 是按 tabId 缓存的,页面自己 `window.close()`
+    (agent 驱动的弹窗流程很常见)之后死标签不触发重新 attach,后续命令会一直打向
+    一个不存在的 session —— 这台机器的浏览器就此永久失灵。靠 `Target.targetDestroyed`
+    清缓存(要先 `Target.setDiscoverTargets` 才有这个事件),外加 attach 失败时的兜底。
+  - **profile 锁残留**:Chromium 被 SIGKILL / OOM killer 干掉时来不及清 `SingletonLock`,
+    下次启动直接以退出码 21 死掉(`Failed to create ... SingletonLock: File exists`),
+    起一次死一次。远端内存紧张时这是常态。清理分两层:① 启动前清「主人已经不在」的锁
+    ② 撞锁失败后清「主人正是我们自己启动过的 pid」的锁 —— 后者是因为 SIGKILL 之后
+    进程短时间内仍在进程表里,`kill(pid,0)` 照样成功,①的存活检查在那个时机会误判。
+    **别人实例活着占着的锁绝不动**(删了会两个实例共写同一 profile)。
+    启动失败的错误里带上 Chromium 自己的 stderr 尾部——远端起不来时那是唯一的线索
+    (缺 so 依赖、sandbox 被拒、profile 被占,退出码全是一个 21)。
+- **测试三层**:`fakeChromium`(真 `CdpConnection` + 假进程/假 ws)覆盖逻辑分支;
+  `browserServiceRealChromium.test.ts` 证明 CDP 假设本身成立;
+  `browserRpc.integration.test.ts` 走真 ws → hostCore → 真 Chromium 的整条链路。
+  后两组默认 skip,本地用 `OKWORK_TEST_REAL_CHROMIUM=1 npx vitest run <file>` 跑。
+- **待办**:① 云端浏览器的 Profile 隔离目前是单份 `user-data-dir`,尚未按 Profile 分
+  BrowserContext / 接 `remoteProfileStore` 的登录连续性;② 密码保险箱**未**接云端 ——
+  真接的话明文密码要送到远端 Chromium,是安全模型的实质变化,需用户显式授权
+  (per-profile 开关),不该默认开;③ 画面仍与终端共用隧道,极端拥塞下预览会掉帧
+  (设计如此:宁可掉帧也不拖慢终端),要更好的体验需另开独立通道。
+
 ---
 
 ## 4.5 CI 与发版
