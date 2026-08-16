@@ -419,3 +419,17 @@
 .browser-shell__body .browser-panel {
   width: 100%;
 }
+
+/* 云端浏览器画面:盖在本机 webview 之上(它们保活不卸载,关掉预览即回原样)。
+   z-index 高于 continuity-gate(2):预览态下这一层就是全部内容。 */
+.browser-panel__cloud {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: var(--bg-elevated, #111);
+}
+
+/* 云端开关按下态:提示此刻正在拉画面(有流量),与其余 nav 按钮区分 */
+.browser-panel__nav-btn--on {
+  color: var(--accent, #e06c4f);
+}

@@ -25,6 +25,9 @@ import type {
 } from '../../shared/remoteHost';
 import { PanelHeader, PanelHeaderButton } from './PanelHeader';
 import { PasswordChip, continuityRow } from './browser/PasswordChip';
+import { CloudBrowserPreview } from './browser/CloudBrowserPreview';
+import { resolveBrowserBackend } from '../services/cloudBrowserRouting';
+import type { HostClient } from '../services/hostClient';
 import './BrowserPanel.css';
 
 // webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
@@ -687,6 +690,24 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const activeTabId = pane?.activeTabId ?? null;
   const activeTab = tabs.find((tb) => tb.id === activeTabId) ?? null;
 
+  // 云端浏览器:该 workspace 所在机器上跑着的那个 headless Chromium。
+  // cloudBackend != null = 那台机器真装了浏览器(判定见 cloudBrowserRouting);
+  // cloudMode = 用户按下了「看一眼」——只有它为真时才有画面流量。
+  const [cloudBackend, setCloudBackend] = useState<HostClient | null>(null);
+  const [cloudMode, setCloudMode] = useState(false);
+  const cloudHostId = activeWorkspace?.hostId ?? 'local';
+  useEffect(() => {
+    let cancelled = false;
+    setCloudBackend(null);
+    setCloudMode(false); // 换机器就退出预览:画面属于上一台机器
+    void resolveBrowserBackend(cloudHostId).then((backend) => {
+      if (!cancelled && backend.kind === 'cloud') setCloudBackend(backend.client);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudHostId]);
+
   const webviewRefs = useRef(new Map<string, WebviewElement>());
   const [navStates, setNavStates] = useState<Record<string, NavState>>({});
   const [passwordStates, setPasswordStates] = useState<
@@ -1159,6 +1180,25 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
               tab={activeTab}
               ownerHostId={activeWorkspace?.hostId ?? 'local'}
             />
+            {/* 云端浏览器:agent 平时用的是远端那个无头浏览器,画面默认不传回来。
+                这枚开关才是「让我看看」——按下才起 screencast,松开即零画面流量。
+                只在远端真装了 Chromium 时出现(见 cloudBrowserRouting 的三条判定)。 */}
+            {cloudBackend && (
+              <button
+                className={`browser-panel__nav-btn${
+                  cloudMode ? ' browser-panel__nav-btn--on' : ''
+                }`}
+                onClick={() => setCloudMode((v) => !v)}
+                title={
+                  cloudMode
+                    ? t('Stop viewing the cloud browser (it keeps running headless)')
+                    : t('View the cloud browser running on this machine')
+                }
+                aria-pressed={cloudMode}
+              >
+                ☁
+              </button>
+            )}
             {/* 密码状态 / 保险箱位置 / 登录连续性 三件事都收进这枚胶囊(用户指令
                 2026-08-14:地址栏下方那一叠常驻横幅太多太乱,不该占页面位置)。
                 状态只用颜色点表达,详情点开看;读屏另有隐藏 live region 播报。 */}
@@ -1255,9 +1295,19 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
                 ),
               );
             })}
-            {isEmptyTab && (
+            {isEmptyTab && !cloudMode && (
               <div className="browser-panel__empty">
                 {t('Enter a URL or search to get started')}
+              </div>
+            )}
+            {/* 云端画面盖在本机 webview 之上(不卸载它们:保活语义不变,
+                关掉预览就回到原样)。组件卸载即 stopPreview,零残留流量。 */}
+            {cloudMode && cloudBackend && (
+              <div className="browser-panel__cloud">
+                <CloudBrowserPreview
+                  client={cloudBackend}
+                  onError={() => setCloudMode(false)}
+                />
               </div>
             )}
           </div>

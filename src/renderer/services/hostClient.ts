@@ -14,6 +14,9 @@ import {
   SessionEvent,
   WorkspaceEntry,
 } from '../../shared/protocol';
+
+/** 云端浏览器预览帧(HostMessage 里那一条的载荷形状)。 */
+export type BrowserFrameMessage = Extract<HostMessage, { t: 'browser:frame' }>;
 import {
   checkHostInfoCompatible,
   ProtocolIncompatibleError,
@@ -145,6 +148,8 @@ export class HostClient {
   private reconnectNeededListeners = new Set<() => void>();
   // 心跳探活往返耗时(ms)订阅者(组头连接延迟展示;仅 reconnectable client 产生数据)
   private rttListeners = new Set<(ms: number) => void>();
+  // 云端浏览器预览帧订阅者(只有开着预览面板时才有;平时恒空 = 零画面流量)
+  private browserFrameListeners = new Set<(frame: BrowserFrameMessage) => void>();
   // 主动 teardown(reconnect/dispose 内 close 旧 transport)期间抑制自身 onClose 分叉,防 loop。
   private tearingDown = false;
   private heartbeat: Heartbeat | null = null;
@@ -187,6 +192,23 @@ export class HostClient {
     return () => {
       this.reconnectNeededListeners.delete(cb);
     };
+  }
+
+  /**
+   * 订阅云端浏览器预览帧,返回退订函数。
+   * 🔴 收到帧后必须调 ackBrowserFrame,否则 host 不会发下一帧(背压设计:
+   * 隧道上恒最多一帧在途,画面不许把终端输出与心跳挤到队尾)。
+   */
+  onBrowserFrame(cb: (frame: BrowserFrameMessage) => void): () => void {
+    this.browserFrameListeners.add(cb);
+    return () => {
+      this.browserFrameListeners.delete(cb);
+    };
+  }
+
+  /** 确认收到某帧 → host 放行下一帧。 */
+  ackBrowserFrame(tabId: string, seq: number): void {
+    this.post({ t: 'browser:frameAck', tabId, seq });
   }
 
   /**
@@ -665,6 +687,11 @@ export class HostClient {
         break;
       case 'workspace:changed':
         this.workspaceListeners.forEach((cb) => cb(msg.workspaces));
+        break;
+      case 'browser:frame':
+        // 云端浏览器预览帧。没人订阅(预览刚关/组件已卸载)就直接丢——不要 ack,
+        // host 那边的 ack 超时会把推流一并停掉,不留孤儿流。
+        this.browserFrameListeners.forEach((cb) => cb(msg));
         break;
     }
   }

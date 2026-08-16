@@ -35,6 +35,7 @@ export const zh: Record<string, string> = {
   Reconnect: '重连',
   Connect: '连接',
   'Reconnecting…': '重连中…',
+  'Connecting to the cloud browser…': '正在连接云端浏览器…',
   'Round-trip time of the last health probe':
     '最近一次探活的往返耗时(含远端处理;探活迟迟不回时显示已等待时长)',
   'Not connected · Connect to see its projects':
