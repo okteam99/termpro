@@ -189,7 +189,11 @@ export class HostClient {
     };
   }
 
-  /** 订阅心跳探活 RTT(ms;每拍成功回调一次·仅 reconnectable client),返回退订函数。 */
+  /**
+   * 订阅心跳探活 RTT(ms·仅 reconnectable client),返回退订函数。
+   * 探活落定报真实往返;probe 迟迟不回(远端 CPU 打满/链路拥塞)时报「已经等了这么久」的
+   * 下界,所以这个数只会变慢不会假绿(见 heartbeat.ts onRtt)。
+   */
   onRtt(cb: (ms: number) => void): () => void {
     this.rttListeners.add(cb);
     return () => {
@@ -301,7 +305,7 @@ export class HostClient {
     this.heartbeat = new Heartbeat(readHeartbeatEnv(), {
       probe: () => this.rpc('host.info', undefined),
       onDead: () => this.handleHeartbeatDead(),
-      onAlive: (ms) => this.rttListeners.forEach((cb) => cb(ms)),
+      onRtt: (ms) => this.rttListeners.forEach((cb) => cb(ms)),
     });
     this.heartbeat.start();
   }

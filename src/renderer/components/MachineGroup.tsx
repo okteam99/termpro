@@ -98,6 +98,11 @@ export function rttTier(ms: number): 'good' | 'fair' | 'poor' {
   return 'poor';
 }
 
+/** 延迟文案:<1s 取整毫秒;≥1s 转秒 —— 远端卡住时会是 5000/8000 这种数,组头里既挤又难读 */
+export function formatRtt(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
 /** 远程机组头图标:云 */
 export function RemoteMachineIcon() {
   return (
@@ -371,9 +376,12 @@ export function MachineGroup({
         {/* connected 且有 RTT:单一小圆点并入延迟单元(圆点=毫秒数同色,按分级上色);
             其余状态维持原语义状态圆点 */}
         {isRemote && machine.status === 'connected' && machine.rttMs !== undefined ? (
-          <span className={`sidebar-machine-rtt sidebar-machine-rtt--${rttTier(machine.rttMs)}`}>
+          <span
+            className={`sidebar-machine-rtt sidebar-machine-rtt--${rttTier(machine.rttMs)}`}
+            title={t('Round-trip time of the last health probe')}
+          >
             <span className="sidebar-machine-rtt-dot" />
-            {Math.round(machine.rttMs)}ms
+            {formatRtt(machine.rttMs)}
           </span>
         ) : (
           isRemote && (

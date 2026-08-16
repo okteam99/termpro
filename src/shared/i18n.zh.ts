@@ -35,6 +35,8 @@ export const zh: Record<string, string> = {
   Reconnect: '重连',
   Connect: '连接',
   'Reconnecting…': '重连中…',
+  'Round-trip time of the last health probe':
+    '最近一次探活的往返耗时(含远端处理;探活迟迟不回时显示已等待时长)',
   'Not connected · Connect to see its projects':
     '未连接 · 连接后显示该机上的项目',
   'No projects on this machine yet · Add one': '此机器暂无项目 · 添加一个',

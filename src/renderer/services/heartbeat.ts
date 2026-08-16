@@ -32,8 +32,14 @@ export interface HeartbeatDeps {
   probe: () => Promise<unknown>;
   /** 判定断线回调(一次性,判死即触发)。 */
   onDead: () => void;
-  /** 每次探活成功回调,携带该次 probe 往返耗时(ms)——组头连接延迟展示的数据源。 */
-  onAlive?: (rttMs: number) => void;
+  /**
+   * 往返耗时上报(ms)——组头连接延迟展示的**唯一**数据源。两种来源都报:
+   * · probe 落定 → 真实 RTT;**迟到落定照报**(本拍存活判定已让位,不代表数字该撒谎)
+   * · 窗口到期但链路仍在投递字节(拥塞豁免,见文件头)→ 报「至少这么慢」的下界(elapsed)
+   * 🔴 后者是 2026-08-17 用户报告的根因:旧实现只在窗口内 resolve 时报数,远端 CPU 打满
+   * 让 probe 恒慢于 timeoutMs 时一次都不报 —— 终端已经卡死,组头还挂着上一次的 34ms 绿点。
+   */
+  onRtt?: (rttMs: number) => void;
   /** 计时器注入(默认全局 setTimeout;单测走 vi.useFakeTimers 亦可不注入)。 */
   setTimer?: (fn: () => void, ms: number) => TimerHandle;
   clearTimer?: (h: TimerHandle) => void;
@@ -97,9 +103,12 @@ export class Heartbeat {
       this.timeoutTimer = null;
       if (settled || !this.running) return;
       settled = true;
-      // 窗口内有入站流量 → 拥塞非死链:放弃本拍(迟到落定被 settled 闸吞),排下一拍
+      // 窗口内有入站流量 → 拥塞非死链:放弃本拍(迟到落定不再排拍),排下一拍
       // 继续观察;probe 挂起 + 真·静默才判死。陈旧活动(< startedAt)不算。
       if (this.lastActivityAt >= startedAt) {
+        // 存活判定放过它,延迟数字不放过:「等满 timeoutMs 还没回来」是硬事实,
+        // 先把下界报上去(UI 当场变色),probe 真回来时再用真实值覆盖。
+        this.deps.onRtt?.(Date.now() - startedAt);
         this.scheduleNext();
         return;
       }
@@ -107,13 +116,15 @@ export class Heartbeat {
     }, this.cfg.timeoutMs);
     try {
       await this.deps.probe();
-      if (settled || !this.running) return;
+      if (!this.running) return;
+      this.deps.onRtt?.(Date.now() - startedAt);
+      // 迟到落定:本拍早被超时闸放弃并排了下一拍,这里只补数字,不能再排一拍(会翻倍)
+      if (settled) return;
       settled = true;
       if (this.timeoutTimer !== null) {
         this.clearTimer(this.timeoutTimer);
         this.timeoutTimer = null;
       }
-      this.deps.onAlive?.(Date.now() - startedAt);
       this.scheduleNext();
     } catch {
       // probe 抛错(传输错误/rpc 超时)同样判死

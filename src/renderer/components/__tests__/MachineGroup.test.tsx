@@ -140,6 +140,22 @@ describe('MachineGroup · 组头连接延迟(心跳 RTT)', () => {
     expect(screen.getByText('500ms')).toHaveClass('sidebar-machine-rtt--poor');
   });
 
+  // 远端 CPU 打满时心跳会报「已等这么久」的下界(秒级),组头得读得出来
+  it('延迟 ≥1s → 显示秒(不再是 5000ms 这种挤成一排的数字)', () => {
+    const { rerender } = render(
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 999, workspaces: null })} />,
+    );
+    expect(screen.getByText('999ms')).toHaveClass('sidebar-machine-rtt--poor');
+    rerender(
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 5000, workspaces: null })} />,
+    );
+    expect(screen.getByText('5.0s')).toHaveClass('sidebar-machine-rtt--poor');
+    rerender(
+      <MachineGroup machine={remoteMachine({ status: 'connected', rttMs: 8234, workspaces: null })} />,
+    );
+    expect(screen.getByText('8.2s')).toBeInTheDocument();
+  });
+
   it('已连接 + 0 workspace → 渲染「添加项目」入口,点击回调 machineId', () => {
     const onAddWorkspace = vi.fn();
     render(
