@@ -110,6 +110,71 @@ describe.skipIf(!enabled)('真 Chromium 端到端(默认 skip)', () => {
     await expect(service.click('#nonexistent')).rejects.toThrow(/element not found: #nonexistent/);
   }, 60_000);
 
+  it('🔴 预览:真 screencast 出真 JPEG 帧,ack 后续帧继续来', async () => {
+    const tabId = await service.navigate(PAGE);
+    await service.waitFor('#title', 5000, tabId);
+
+    const frames: Array<{ seq: number; data: string }> = [];
+    await service.startPreview((f) => frames.push(f), { tabId });
+
+    // 让页面动起来(screencast 只在有重绘时产帧)
+    for (let i = 0; i < 6 && frames.length < 3; i++) {
+      await service.evaluate(`document.body.style.background = 'hsl(${i * 60},80%,50%)'`, tabId);
+      // 每收到一帧就 ack,放行下一帧
+      for (const f of frames) service.ackFrame(tabId, f.seq);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    expect(frames.length).toBeGreaterThan(0);
+    // JPEG 魔数 FF D8 FF
+    const buf = Buffer.from(frames[0].data, 'base64');
+    expect(buf.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+    expect(frames[0].seq).toBe(1);
+
+    service.stopPreview(tabId);
+    expect(service.previewing).toBe(false);
+  }, 60_000);
+
+  it('🔴 预览输入:转发的点击真的作用到页面上(isTrusted)', async () => {
+    const tabId = await service.navigate(PAGE);
+    await service.waitFor('#go', 5000, tabId);
+    // 取按钮中心坐标,按预览态的方式派发(与 UI 转发同一条路径)
+    const box = (await service.evaluate(
+      `(() => { const r = document.getElementById('go').getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`,
+      tabId,
+    )) as { x: number; y: number };
+
+    await service.dispatchInput({ kind: 'mouse', type: 'mouseMoved', x: box.x, y: box.y }, tabId);
+    await service.dispatchInput(
+      { kind: 'mouse', type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 },
+      tabId,
+    );
+    await service.dispatchInput(
+      { kind: 'mouse', type: 'mouseReleased', x: box.x, y: box.y, button: 'left', clickCount: 1 },
+      tabId,
+    );
+    await expect(
+      service.evaluate('document.getElementById("out").textContent', tabId),
+    ).resolves.toBe('clicked:trusted');
+
+    // 键盘同理:聚焦输入框后逐字符打进去
+    await service.evaluate('document.getElementById("user").focus()', tabId);
+    for (const ch of 'hi') {
+      await service.dispatchInput({ kind: 'key', type: 'char', text: ch }, tabId);
+    }
+    await expect(
+      service.evaluate('document.getElementById("user").value', tabId),
+    ).resolves.toBe('hi');
+  }, 60_000);
+
+  it('resize 真的改变页面看到的视口宽度', async () => {
+    const tabId = await service.navigate(PAGE);
+    await service.resizeViewport(900, 600, 1, tabId);
+    await expect(service.evaluate('window.innerWidth', tabId)).resolves.toBe(900);
+    await expect(service.evaluate('window.innerHeight', tabId)).resolves.toBe(600);
+  }, 60_000);
+
   it('shutdown 后进程真的没了,再调用会重新拉起', async () => {
     await service.navigate(PAGE);
     expect(service.status().running).toBe(true);

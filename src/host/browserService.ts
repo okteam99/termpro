@@ -14,7 +14,12 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { BrowserRuntimeStatus, BrowserTabSnapshot } from '../shared/protocol';
+import type {
+  BrowserFrameMetadata,
+  BrowserInputEvent,
+  BrowserRuntimeStatus,
+  BrowserTabSnapshot,
+} from '../shared/protocol';
 import { CdpConnection, CdpError } from './cdpClient';
 import {
   buildChromiumArgs,
@@ -29,6 +34,13 @@ const LAUNCH_TIMEOUT_MS = 30_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
 /** waitFor 的硬上限:agent 传再大也不许把一个 CDP 调用吊到天荒地老。 */
 const MAX_WAIT_FOR_MS = 120_000;
+/** 预览帧默认参数:JPEG 60 质量 / 长边 1280 —— 够看清,又不至于把隧道占满。 */
+const PREVIEW_DEFAULTS = { maxWidth: 1280, maxHeight: 800, quality: 60 } as const;
+/**
+ * 一帧在途多久没等到 ack 就当预览端没了(关窗/崩了/断线),停掉推流。
+ * 不设这个闸,一次没回的 ack 会让该标签永远停在「等 ack」态,预览再也不动。
+ */
+const FRAME_ACK_TIMEOUT_MS = 15_000;
 
 export interface BrowserProcessLike {
   readonly pid?: number;
@@ -62,6 +74,27 @@ interface RunningBrowser {
   activeTabId: string | null;
 }
 
+/** 一个标签的预览推流态。 */
+interface PreviewStream {
+  tabId: string;
+  session: string;
+  seq: number;
+  /** 已发出、还没等到 ack 的帧号;null = 空闲可发 */
+  inFlight: number | null;
+  ackTimer: ReturnType<typeof setTimeout> | null;
+  /** 丢帧计数(诊断用:隧道跟不上时这个数会涨) */
+  dropped: number;
+  offEvent: () => void;
+}
+
+/** 预览帧回调:host 侧接线把它转成 browser:frame 消息推给开了预览的客户端。 */
+export type BrowserFrameSink = (frame: {
+  tabId: string;
+  seq: number;
+  data: string;
+  metadata: BrowserFrameMetadata;
+}) => void;
+
 /** 页面里跑的求值结果:CDP 的 Runtime.evaluate 返回形状(只取我们要的部分)。 */
 interface EvaluateResult {
   result?: { type?: string; value?: unknown; subtype?: string; description?: string };
@@ -75,9 +108,24 @@ export class BrowserUnavailableError extends Error {
   }
 }
 
+const MOUSE_TYPES = new Set(['mousePressed', 'mouseReleased', 'mouseMoved', 'mouseWheel']);
+const MOUSE_BUTTONS = new Set(['left', 'right', 'middle', 'back', 'forward', 'none']);
+const KEY_TYPES = new Set(['keyDown', 'keyUp', 'char']);
+
+function finite(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(Math.round(value), min), max);
+}
+
 export class BrowserService {
   private running: RunningBrowser | null = null;
   private starting: Promise<RunningBrowser> | null = null;
+  /** tabId → 预览推流态(默认空:没人看就没有画面流量) */
+  private readonly previews = new Map<string, PreviewStream>();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private readonly deps: Required<
@@ -147,6 +195,7 @@ export class BrowserService {
 
   async closeTab(tabId: string): Promise<void> {
     const b = await this.ensure();
+    this.stopPreview(tabId); // 标签没了,推流订阅与 ack 计时器不该留着
     await b.conn.send('Target.closeTarget', { targetId: tabId });
     b.sessions.delete(tabId);
     if (b.activeTabId === tabId) b.activeTabId = null;
@@ -329,10 +378,193 @@ export class BrowserService {
     );
   }
 
+  // ---- 本地预览(默认无头;只有要看的时候才推画面)----
+
+  /**
+   * 开始把该标签的画面推回本地。
+   * 🔴 背压是这里的核心:CDP 的 screencast 本身就是 ack 驱动的,但 Chromium 的产帧
+   * 速度不该由跨洋隧道决定。所以两级:
+   *   ① 对 Chromium **立即** ack(它继续按自己的节奏产帧,页面不卡)
+   *   ② 对隧道**只在空闲时**发(上一帧没被客户端 ack 就丢掉当前帧)
+   * 于是隧道上恒最多一帧在途,画面永远不会把同隧道的终端输出/心跳挤到队尾
+   * ——那条隧道 FIFO 无优先级,这是必须守住的性质。
+   */
+  async startPreview(
+    sink: BrowserFrameSink,
+    opts: { tabId?: string; maxWidth?: number; maxHeight?: number; quality?: number } = {},
+  ): Promise<string> {
+    const { b, session, tabId } = await this.target(opts.tabId);
+    this.stopPreview(tabId); // 重开幂等:先撤旧订阅,不叠加
+
+    const stream: PreviewStream = {
+      tabId,
+      session,
+      seq: 0,
+      inFlight: null,
+      ackTimer: null,
+      dropped: 0,
+      offEvent: () => undefined,
+    };
+    stream.offEvent = b.conn.on('Page.screencastFrame', (e) => {
+      if (e.sessionId !== session) return;
+      const params = e.params as {
+        data?: string;
+        sessionId?: number;
+        metadata?: Partial<BrowserFrameMetadata>;
+      };
+      // ① 先放 Chromium 走:不 ack 它就不再产帧,页面在预览端看起来像冻住
+      if (typeof params.sessionId === 'number') {
+        void b.conn
+          .send('Page.screencastFrameAck', { sessionId: params.sessionId }, session)
+          .catch(() => undefined);
+      }
+      // ② 隧道有帧在途 → 丢掉这一帧(只送最新的,不排队)
+      if (stream.inFlight !== null || !params.data) {
+        stream.dropped++;
+        return;
+      }
+      const seq = ++stream.seq;
+      stream.inFlight = seq;
+      stream.ackTimer = this.deps.setTimer(() => {
+        // 预览端没回 ack(关窗/崩了/断线)→ 停推流,不把该标签永久钉在等 ack 态
+        this.deps.logger.log(`[browser] preview ack timeout tab=${tabId}, stopping`);
+        this.stopPreview(tabId);
+      }, FRAME_ACK_TIMEOUT_MS);
+      sink({
+        tabId,
+        seq,
+        data: params.data,
+        metadata: {
+          deviceWidth: params.metadata?.deviceWidth ?? 0,
+          deviceHeight: params.metadata?.deviceHeight ?? 0,
+          pageScaleFactor: params.metadata?.pageScaleFactor ?? 1,
+          offsetTop: params.metadata?.offsetTop ?? 0,
+          scrollOffsetX: params.metadata?.scrollOffsetX ?? 0,
+          scrollOffsetY: params.metadata?.scrollOffsetY ?? 0,
+        },
+      });
+    });
+    this.previews.set(tabId, stream);
+
+    await b.conn.send(
+      'Page.startScreencast',
+      {
+        format: 'jpeg',
+        quality: opts.quality ?? PREVIEW_DEFAULTS.quality,
+        maxWidth: opts.maxWidth ?? PREVIEW_DEFAULTS.maxWidth,
+        maxHeight: opts.maxHeight ?? PREVIEW_DEFAULTS.maxHeight,
+        // 每帧都要:节流交给上面的丢帧逻辑,那里能按隧道实况自适应
+        everyNthFrame: 1,
+      },
+      session,
+    );
+    return tabId;
+  }
+
+  /** 客户端确认收到某帧 → 放行下一帧。序号对不上(迟到的旧 ack)忽略。 */
+  ackFrame(tabId: string, seq: number): void {
+    const stream = this.previews.get(tabId);
+    if (!stream || stream.inFlight !== seq) return;
+    stream.inFlight = null;
+    if (stream.ackTimer !== null) {
+      this.deps.clearTimer(stream.ackTimer);
+      stream.ackTimer = null;
+    }
+  }
+
+  /** 停止推流(tabId 省略 = 全停)。不关标签、不关浏览器 —— 只是不再要画面。 */
+  stopPreview(tabId?: string): void {
+    const targets = tabId ? [tabId] : [...this.previews.keys()];
+    for (const id of targets) {
+      const stream = this.previews.get(id);
+      if (!stream) continue;
+      this.previews.delete(id);
+      stream.offEvent();
+      if (stream.ackTimer !== null) this.deps.clearTimer(stream.ackTimer);
+      const b = this.running;
+      if (b && !b.conn.closed) {
+        void b.conn
+          .send('Page.stopScreencast', undefined, stream.session)
+          .catch(() => undefined);
+      }
+    }
+  }
+
+  /** 当前是否有标签在推流(空闲回收要避开正在看的画面)。 */
+  get previewing(): boolean {
+    return this.previews.size > 0;
+  }
+
+  /**
+   * 把本地的鼠标/键盘事件派发到云端页面。
+   * 🔴 不盲目透传 renderer 给的对象:类型走白名单、数值做有限性校验后再组装 CDP 参数。
+   * 畸形参数会让 CDP 直接报错甚至撕掉连接,而这条路径上的输入来自 UI 事件,量大且频繁。
+   */
+  async dispatchInput(event: BrowserInputEvent, tabId?: string): Promise<void> {
+    const { b, session } = await this.target(tabId);
+    const modifiers = clampInt(event.modifiers, 0, 15, 0);
+    if (event.kind === 'mouse') {
+      if (!MOUSE_TYPES.has(event.type)) throw new Error(`bad mouse event: ${event.type}`);
+      await b.conn.send(
+        'Input.dispatchMouseEvent',
+        {
+          type: event.type,
+          x: finite(event.x),
+          y: finite(event.y),
+          button: MOUSE_BUTTONS.has(event.button ?? 'none') ? (event.button ?? 'none') : 'none',
+          clickCount: clampInt(event.clickCount, 0, 3, 0),
+          modifiers,
+          ...(event.type === 'mouseWheel'
+            ? { deltaX: finite(event.deltaX), deltaY: finite(event.deltaY) }
+            : {}),
+        },
+        session,
+      );
+      return;
+    }
+    if (!KEY_TYPES.has(event.type)) throw new Error(`bad key event: ${event.type}`);
+    await b.conn.send(
+      'Input.dispatchKeyEvent',
+      {
+        type: event.type,
+        modifiers,
+        ...(event.key ? { key: String(event.key).slice(0, 32) } : {}),
+        ...(event.code ? { code: String(event.code).slice(0, 32) } : {}),
+        // char 事件的 text 才是真正输入的字符;长度设上限防一次灌进整篇文本
+        ...(event.text ? { text: String(event.text).slice(0, 256) } : {}),
+        ...(typeof event.windowsVirtualKeyCode === 'number'
+          ? { windowsVirtualKeyCode: clampInt(event.windowsVirtualKeyCode, 0, 255, 0) }
+          : {}),
+      },
+      session,
+    );
+  }
+
+  /** 同步远端视口尺寸(预览窗口大小变了,否则看到的排版不是这个宽度该有的样子)。 */
+  async resizeViewport(
+    width: number,
+    height: number,
+    deviceScaleFactor = 1,
+    tabId?: string,
+  ): Promise<void> {
+    const { b, session } = await this.target(tabId);
+    await b.conn.send(
+      'Emulation.setDeviceMetricsOverride',
+      {
+        width: clampInt(width, 1, 8192, 1280),
+        height: clampInt(height, 1, 8192, 800),
+        deviceScaleFactor: Math.min(Math.max(deviceScaleFactor || 1, 1), 3),
+        mobile: false,
+      },
+      session,
+    );
+  }
+
   // ---- 生命周期 ----
 
   /** 关掉 Chromium(幂等)。空闲回收与 host 退出都走这里。 */
   async shutdown(): Promise<void> {
+    this.stopPreview(); // 先撤推流(订阅 + ack 计时器),再动连接
     const b = this.running;
     this.running = null;
     this.starting = null;
@@ -356,6 +588,7 @@ export class BrowserService {
   /** host 退出时调用:同步收尾,确保不给用户服务器留僵尸进程。 */
   dispose(): void {
     this.disposed = true;
+    this.stopPreview();
     const b = this.running;
     this.running = null;
     this.starting = null;
@@ -411,6 +644,9 @@ export class BrowserService {
         this.running = null;
         this.deps.logger.error(`[browser] chromium exited code=${code}`);
       }
+      // 浏览器没了,推流态必须一起清:留着的话 previewing 恒 true,
+      // 空闲回收会被一个不存在的预览永久顶住
+      this.stopPreview();
       conn.close();
     });
     // Chromium 自己没了(OOM kill / crash)也要让状态归零,下次调用重新拉起
@@ -525,6 +761,12 @@ export class BrowserService {
     if (this.deps.idleTimeoutMs <= 0) return;
     this.idleTimer = this.deps.setTimer(() => {
       this.idleTimer = null;
+      // 🔴 有人正看着预览就不能回收:画面前一秒还在动,下一秒浏览器被关掉。
+      // 预览本身不算「调用」(帧是 host 推的,不经 ensure),所以这里要单独判。
+      if (this.previewing) {
+        this.touch();
+        return;
+      }
       void this.shutdown();
     }, this.deps.idleTimeoutMs);
   }

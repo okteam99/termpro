@@ -5,6 +5,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import {
+  BrowserInputEvent,
   ClientMessage,
   HostMessage,
   PROTOCOL_MIN_COMPATIBLE,
@@ -65,6 +66,8 @@ export interface Client {
   sessions: Set<string>;
   /** 该客户端在途的远程文件上传登记表(fs.uploadBegin/Chunk/End);端口关闭时 disposeAll。 */
   uploads: UploadRegistry;
+  /** 该客户端开着预览的云端浏览器标签;端口关闭时逐一停流(人走画面停)。 */
+  previewTabs: Set<string>;
 }
 
 export interface HostCore {
@@ -122,6 +125,7 @@ export function createHostCore(
       watches: new WatchService(send),
       sessions: new Set(),
       uploads: createUploadRegistry(),
+      previewTabs: new Set(),
     };
     clients.set(id, client);
     // 注册到 workspace 服务:注册表变更广播会推给该客户端
@@ -147,6 +151,12 @@ export function createHostCore(
             pool.resize(msg.sessionId, msg.cols, msg.rows, client.id);
           }
           break;
+        // 预览帧确认:只认自己开着的标签(别的客户端的帧不该被这边推进)
+        case 'browser:frameAck':
+          if (client.previewTabs.has(msg.tabId)) {
+            browser.ackFrame(msg.tabId, msg.seq);
+          }
+          break;
         case 'pty:ack':
           if (client.sessions.has(msg.sessionId)) {
             // 🔴 ack 只推进【自己】的 unacked(subscriberId=client.id · B6 安全关键):
@@ -169,6 +179,9 @@ export function createHostCore(
       }
       client.watches.dispose();
       void client.uploads.disposeAll();
+      // 人走画面停:该客户端开的预览随连接一起撤(否则远端会对着一个没人收的
+      // sink 继续截帧,白烧 CPU)。浏览器与标签本身不动——agent 可能还在用。
+      for (const tabId of client.previewTabs) browser.stopPreview(tabId);
       workspaces.removeClient(id);
       clients.delete(id);
       console.log(
@@ -447,6 +460,45 @@ async function handleRpc(
       case 'browser.shutdown':
         await browser.shutdown();
         break;
+      // ---- 本地预览:帧只推给**发起预览的那个客户端**(不广播:另一端没要画面,
+      // 白占它的隧道)。该客户端断开时随 client.previewTabs 一并停流。
+      case 'browser.startPreview': {
+        const p = (msg.params ?? {}) as {
+          tabId?: string;
+          maxWidth?: number;
+          maxHeight?: number;
+          quality?: number;
+        };
+        const tabId = await browser.startPreview(
+          (frame) => send({ t: 'browser:frame', ...frame }),
+          p,
+        );
+        client.previewTabs.add(tabId);
+        result = { tabId };
+        break;
+      }
+      case 'browser.stopPreview': {
+        const p = (msg.params ?? {}) as { tabId?: string };
+        if (p.tabId) client.previewTabs.delete(p.tabId);
+        else client.previewTabs.clear();
+        browser.stopPreview(p.tabId);
+        break;
+      }
+      case 'browser.input': {
+        const p = msg.params as { tabId?: string; event: BrowserInputEvent };
+        await browser.dispatchInput(p.event, p.tabId);
+        break;
+      }
+      case 'browser.resize': {
+        const p = msg.params as {
+          tabId?: string;
+          width: number;
+          height: number;
+          deviceScaleFactor?: number;
+        };
+        await browser.resizeViewport(p.width, p.height, p.deviceScaleFactor, p.tabId);
+        break;
+      }
       // ---- 断线重连回放收养(BL-005)----
       case 'session.list': {
         // token 闸后单租户全可见:遍历 pool 全部会话(live + exited)产快照(AC-8)

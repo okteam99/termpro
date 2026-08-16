@@ -369,6 +369,64 @@ export interface RpcMethods {
   };
   /** 显式关掉云端 Chromium(省远端内存;下次调用会重新懒启动)。 */
   'browser.shutdown': { params: undefined; result: undefined };
+  // ---- 本地预览(只有要看的时候才开;关掉即零画面流量)----
+  /**
+   * 开始把该标签的画面推回本地(CDP screencast → browser:frame 事件)。
+   * 🔴 帧走 ack 门控(见 browser:frameAck):隧道上恒最多一帧在途,
+   * 画面不会把同隧道的终端输出与心跳挤到队尾(那条隧道 FIFO 无优先级)。
+   */
+  'browser.startPreview': {
+    params: { tabId?: string; maxWidth?: number; maxHeight?: number; quality?: number };
+    result: { tabId: string };
+  };
+  /** 停止推流(不关标签、不关浏览器)。tabId 省略 = 停全部。 */
+  'browser.stopPreview': { params: { tabId?: string }; result: undefined };
+  /** 把本地的鼠标/键盘事件派发到云端页面(坐标系 = 帧 metadata 的设备像素)。 */
+  'browser.input': {
+    params: { tabId?: string; event: BrowserInputEvent };
+    result: undefined;
+  };
+  /** 预览窗口尺寸变化 → 同步远端视口(否则看到的排版与真实宽度不符)。 */
+  'browser.resize': {
+    params: { tabId?: string; width: number; height: number; deviceScaleFactor?: number };
+    result: undefined;
+  };
+}
+
+/**
+ * 预览态下从本地转发到云端页面的输入事件。字段形状对齐 CDP Input.dispatch*Event,
+ * 但 host 侧会做白名单与数值校验后才转发(不盲目透传 renderer 给的东西)。
+ */
+export type BrowserInputEvent =
+  | {
+      kind: 'mouse';
+      type: 'mousePressed' | 'mouseReleased' | 'mouseMoved' | 'mouseWheel';
+      x: number;
+      y: number;
+      button?: 'left' | 'right' | 'middle' | 'back' | 'forward' | 'none';
+      clickCount?: number;
+      deltaX?: number;
+      deltaY?: number;
+      modifiers?: number;
+    }
+  | {
+      kind: 'key';
+      type: 'keyDown' | 'keyUp' | 'char';
+      key?: string;
+      code?: string;
+      text?: string;
+      windowsVirtualKeyCode?: number;
+      modifiers?: number;
+    };
+
+/** screencast 帧的位置/缩放信息(本地据此把点击坐标换算回页面坐标)。 */
+export interface BrowserFrameMetadata {
+  deviceWidth: number;
+  deviceHeight: number;
+  pageScaleFactor: number;
+  offsetTop: number;
+  scrollOffsetX: number;
+  scrollOffsetY: number;
 }
 
 /**
@@ -427,7 +485,10 @@ export type ClientMessage =
   | { t: 'rpc:req'; id: number; method: RpcMethodName; params?: unknown }
   | { t: 'pty:input'; sessionId: string; data: string }
   | { t: 'pty:resize'; sessionId: string; cols: number; rows: number }
-  | { t: 'pty:ack'; sessionId: string; bytes: number };
+  | { t: 'pty:ack'; sessionId: string; bytes: number }
+  // 云端浏览器预览的帧确认:host 收到才发下一帧(隧道上恒最多一帧在途)。
+  // 不 ack 就不再发 —— 预览端卡住/关掉时画面自动停,不会把隧道灌满。
+  | { t: 'browser:frameAck'; tabId: string; seq: number };
 
 // Host → UI
 export type HostMessage =
@@ -445,4 +506,13 @@ export type HostMessage =
   | { t: 'session:desynced'; sessionId: string }
   | { t: 'fs:changed'; watchId: number }
   // 注册表变更后向全部客户端广播全量快照(非增量);收端按 id 协调本地视图态
-  | { t: 'workspace:changed'; workspaces: WorkspaceEntry[] };
+  | { t: 'workspace:changed'; workspaces: WorkspaceEntry[] }
+  // 云端浏览器预览帧(base64 JPEG)。只发给开了预览的客户端;收端必须回
+  // browser:frameAck,否则不再有下一帧(背压见 ClientMessage 的注释)。
+  | {
+      t: 'browser:frame';
+      tabId: string;
+      seq: number;
+      data: string;
+      metadata: BrowserFrameMetadata;
+    };

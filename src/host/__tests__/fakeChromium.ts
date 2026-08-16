@@ -141,8 +141,20 @@ export function fakeChromium(opts: FakeChromiumOptions = {}) {
     proc,
     targets,
     calls,
+    /** attach 过的 CDP session id(按发放顺序;预览测试要拿它做事件路由) */
+    get attachedSessions() {
+      return [...attached.keys()];
+    },
     get killed() {
       return killed;
+    },
+    /** 主动推一条 CDP 事件(screencastFrame 一类) */
+    event: (
+      method: string,
+      params: Record<string, unknown>,
+      sessionId?: string,
+    ) => {
+      onMessage?.(JSON.stringify({ method, params, ...(sessionId ? { sessionId } : {}) }));
     },
     /** 模拟 Chromium 打印 DevTools endpoint(browserService 靠它拿连接地址) */
     announce: (endpoint = 'ws://127.0.0.1:9999/devtools/browser/fake') => {
