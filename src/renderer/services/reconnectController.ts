@@ -46,6 +46,11 @@ export interface ReconnectControllerDeps {
   stopSync(configId: string): void;
   /** 握手成功后收养回放对账(terminalRegistry.readoptHost)。 */
   readopt(configId: string): Promise<void>;
+  /**
+   * 握手成功后失效该机的缓存判定(可选)。目前用于云端浏览器可用性探测缓存:
+   * 重连后对面可能换了机器/升了 host/刚装上 Chromium,旧结论不能继续用。
+   */
+  onHostRevalidated?(configId: string): void;
   /** 每次重连编排新建一个退避计数器(env 注入·单测控 budget)。 */
   makeBackoff(): ReconnectBackoff;
   /**
@@ -228,6 +233,10 @@ export function createReconnectController(
 
     onReconnected(configId: string): void {
       cleanup(configId);
+      // 按 hostId 缓存的判定(如云端浏览器装没装 Chromium)在重连后不再可信:
+      // 对面可能换了机器/升了 host/刚装上浏览器。经注入 seam 通知,不在本文件
+      // import 那些模块(见文件头「纯可测」约束)。
+      deps.onHostRevalidated?.(configId);
       // 收养回放 + session.list 对账(横幅由 reconnecting 清除驱动消失)。
       // 🔴 由 client.reconnect() resolve 驱动 → 此刻 transport 已就绪·session.attach 不会 reject(A1)。
       // 🔴 收养恒跑,不再以 wasReconnecting 为门(2026-07-23「连着但无法输入」):cancel 后重连/

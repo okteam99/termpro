@@ -16,6 +16,7 @@ import { readReconnectAttemptTimeoutEnv } from './reconnectBackoff';
 import { stopRemoteWorkspaceSync } from './remoteWorkspaceSync';
 import { useRemoteHostRuntimeStore } from '../state/remoteHostStore';
 import { readoptHostSessions } from './sessionReadopt';
+import { invalidateCloudBrowserProbe } from './cloudBrowserRouting';
 
 export { reconcileBadge } from './sessionReadopt';
 
@@ -33,6 +34,8 @@ export const reconnectController: ReconnectController = createReconnectControlle
     useRemoteHostRuntimeStore.getState().isReconnecting(configId),
   stopSync: (configId) => stopRemoteWorkspaceSync(configId),
   readopt: (configId) => readoptHostSessions(configId),
+  // 重连后清掉该机的云端浏览器判定:对面可能换了机器/升了 host/刚装上 Chromium
+  onHostRevalidated: (configId) => invalidateCloudBrowserProbe(configId),
   makeBackoff: defaultBackoffFactory,
   // 单次尝试看门狗(2026-08-10 兜底闸):窗口内无定论 → 按失败推进退避,杜绝「重连中」僵死
   attemptTimeoutMs: readReconnectAttemptTimeoutEnv(),

@@ -160,26 +160,26 @@ describe('弹出窗格守卫(P2:webview 活在壳窗,主窗只有镜像)', () =>
     await expect(bc.evalJs(TERM, '1')).rejects.toThrow(/popped out/);
     await expect(bc.navigate(TERM, 'https://x.dev')).rejects.toThrow(/popped out/);
     await expect(bc.click(TERM, '#x')).rejects.toThrow(/popped out/);
-    expect(() => bc.openTab(TERM, 'https://y.dev')).toThrow(/popped out/);
-    expect(() => bc.closeTab(TERM, 'a')).toThrow(/popped out/);
-    expect(() => bc.activateTab(TERM, 'a')).toThrow(/popped out/);
+    await expect(bc.openTab(TERM, 'https://y.dev')).rejects.toThrow(/popped out/);
+    await expect(bc.closeTab(TERM, 'a')).rejects.toThrow(/popped out/);
+    await expect(bc.activateTab(TERM, 'a')).rejects.toThrow(/popped out/);
 
     // listTabs 读镜像(壳窗持续 sync 回来),仍返回正确数据
-    expect(bc.listTabs(TERM).map((t) => t.id)).toEqual(['a']);
+    expect((await bc.listTabs(TERM)).map((t) => t.id)).toEqual(['a']);
   });
 });
 
 describe('标签管理', () => {
-  it('listTabs:含活跃标记 + 出口(远程 ws 缺省出口=configId)', () => {
+  it('listTabs:含活跃标记 + 出口(远程 ws 缺省出口=configId)', async () => {
     seed({ tabs: [{ id: 'a', url: 'https://a.dev', title: 'A' }, { id: 'b', url: '' }], activeTabId: 'a' });
-    const list = bc.listTabs(TERM);
+    const list = await bc.listTabs(TERM);
     expect(list).toEqual([
       { id: 'a', url: 'https://a.dev', title: 'A', active: true, net: 'cfg-1' },
       { id: 'b', url: '', title: undefined, active: false, net: 'cfg-1' },
     ]);
   });
 
-  it('评审 P2-9:listTabs 对预览标签脱敏 url 为 preview://<文件名>,title 照常保留', () => {
+  it('评审 P2-9:listTabs 对预览标签脱敏 url 为 preview://<文件名>,title 照常保留', async () => {
     seed({
       tabs: [
         {
@@ -192,33 +192,33 @@ describe('标签管理', () => {
       ],
       activeTabId: 'a',
     });
-    const list = bc.listTabs(TERM);
+    const list = await bc.listTabs(TERM);
     expect(list).toEqual([
       { id: 'a', url: 'preview://index.html', title: 'index.html', active: true, net: 'cfg-1' },
       { id: 'b', url: 'https://kept.example.com', title: 'B', active: false, net: 'cfg-1' },
     ]);
   });
 
-  it('评审 P2-9:预览标签 url 解析失败(极端情形)→ 退化成裸 preview://', () => {
+  it('评审 P2-9:预览标签 url 解析失败(极端情形)→ 退化成裸 preview://', async () => {
     seed({
       tabs: [{ id: 'a', url: 'not-a-valid-url', preview: true }],
       activeTabId: 'a',
     });
-    expect(bc.listTabs(TERM)[0].url).toBe('preview://');
+    expect((await bc.listTabs(TERM))[0].url).toBe('preview://');
   });
 
-  it('openTab / activateTab / closeTab', () => {
+  it('openTab / activateTab / closeTab', async () => {
     seed({ tabs: [{ id: 'a', url: 'https://a.dev' }], activeTabId: 'a' });
-    const { browserTabId: nb } = bc.openTab(TERM, 'https://b.dev');
+    const { browserTabId: nb } = await bc.openTab(TERM, 'https://b.dev');
     let pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
     expect(pane.tabs.map((t) => t.id)).toContain(nb);
     expect(pane.activeTabId).toBe(nb); // 新标签活跃
 
-    bc.activateTab(TERM, 'a');
+    await bc.activateTab(TERM, 'a');
     pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
     expect(pane.activeTabId).toBe('a');
 
-    bc.closeTab(TERM, nb);
+    await bc.closeTab(TERM, nb);
     pane = useAppStore.getState().workspaces[0].tabs[0].browser!;
     expect(pane.tabs.map((t) => t.id)).not.toContain(nb);
   });

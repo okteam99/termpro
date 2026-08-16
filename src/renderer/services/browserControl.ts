@@ -9,6 +9,7 @@
 import { getBrowserView } from './browserViewRegistry';
 import { resolveBrowserTabNet, useAppStore } from '../state/store';
 import type { BrowserTabState } from '../state/store';
+import { resolveBrowserBackend, type BrowserBackend } from './cloudBrowserRouting';
 
 export interface BrowserTabInfo {
   id: string;
@@ -85,6 +86,20 @@ function requireView(terminalTabId: string, browserTabId?: string): HTMLWebViewE
   return el;
 }
 
+// ---- 云端 / 本机 后端路由(见 cloudBrowserRouting.ts)----
+
+/**
+ * 解析该终端 tab 该用哪个浏览器后端。远程机 + 装了 Chromium → 云端 headless;
+ * 其余(本机 workspace、旧 host、远端没装浏览器)一律维持现状的本机 webview。
+ * 🔴 找不到终端 tab 时按本机处理:错误留给各原语原有的 findPane 分支报,
+ * 文案与改动前一致(agent 依赖这些文案定位问题)。
+ */
+async function backendFor(terminalTabId: string): Promise<BrowserBackend> {
+  const pane = findPane(terminalTabId);
+  if (!pane) return { kind: 'local', reason: 'local-host' };
+  return resolveBrowserBackend(pane.ownerHostId);
+}
+
 // ---- 控制原语 ----
 
 /** 在已有标签导航;标签不存在时开新标签(store src 自动加载,免竞态)。 */
@@ -93,6 +108,14 @@ export async function navigate(
   url: string,
   browserTabId?: string,
 ): Promise<{ browserTabId: string }> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { tabId } = await backend.client.rpc('browser.navigate', {
+      url,
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return { browserTabId: tabId };
+  }
   const s = useAppStore.getState();
   const pane = findPane(terminalTabId);
   if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
@@ -123,6 +146,14 @@ export async function evalJs(
   code: string,
   browserTabId?: string,
 ): Promise<unknown> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { value } = await backend.client.rpc('browser.eval', {
+      code,
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return value;
+  }
   return requireView(terminalTabId, browserTabId).executeJavaScript(code, false);
 }
 
@@ -131,12 +162,27 @@ export async function screenshot(
   terminalTabId: string,
   browserTabId?: string,
 ): Promise<string> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    // host 侧返回裸 base64;这里补回 data: 前缀,保持与本机路径同一契约
+    const { base64 } = await backend.client.rpc('browser.screenshot', {
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return `data:image/png;base64,${base64}`;
+  }
   const img = await requireView(terminalTabId, browserTabId).capturePage();
   return img.toDataURL();
 }
 
 /** 取整页 HTML(document.documentElement.outerHTML)。 */
 export async function getHtml(terminalTabId: string, browserTabId?: string): Promise<string> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { html } = await backend.client.rpc('browser.getHtml', {
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return html;
+  }
   return String(
     await requireView(terminalTabId, browserTabId).executeJavaScript(
       'document.documentElement.outerHTML',
@@ -147,6 +193,13 @@ export async function getHtml(terminalTabId: string, browserTabId?: string): Pro
 
 /** 取可见文本(document.body.innerText),便于 AI 读页面内容。 */
 export async function getText(terminalTabId: string, browserTabId?: string): Promise<string> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { text } = await backend.client.rpc('browser.getText', {
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return text;
+  }
   return String(
     await requireView(terminalTabId, browserTabId).executeJavaScript(
       'document.body ? document.body.innerText : ""',
@@ -163,6 +216,15 @@ export async function click(
   selector: string,
   browserTabId?: string,
 ): Promise<boolean> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    // 云端派发的是真实鼠标事件(isTrusted=true),比这里的 el.click() 更接近真人
+    const { ok } = await backend.client.rpc('browser.click', {
+      selector,
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return ok;
+  }
   const sel = JSON.stringify(selector);
   const code = `(function(){
     const el = document.querySelector(${sel});
@@ -181,6 +243,15 @@ export async function typeText(
   text: string,
   browserTabId?: string,
 ): Promise<boolean> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { ok } = await backend.client.rpc('browser.type', {
+      selector,
+      text,
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return ok;
+  }
   const sel = JSON.stringify(selector);
   const val = JSON.stringify(text);
   const code = `(function(){
@@ -205,6 +276,14 @@ export async function scroll(
   dy?: number,
   browserTabId?: string,
 ): Promise<number> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { scrollY } = await backend.client.rpc('browser.scroll', {
+      ...(typeof dy === 'number' ? { dy } : {}),
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return scrollY;
+  }
   const amount = typeof dy === 'number' ? dy : 0;
   const code = `(function(){
     const d = ${amount} || Math.round(window.innerHeight * 0.9);
@@ -221,6 +300,15 @@ export async function waitForSelector(
   timeoutMs = 5000,
   browserTabId?: string,
 ): Promise<boolean> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { ok } = await backend.client.rpc('browser.waitFor', {
+      selector,
+      timeoutMs,
+      ...(browserTabId ? { tabId: browserTabId } : {}),
+    });
+    return ok;
+  }
   const sel = JSON.stringify(selector);
   const to = Math.max(0, Math.floor(timeoutMs));
   const code = `new Promise((resolve, reject) => {
@@ -238,7 +326,19 @@ export async function waitForSelector(
 
 /** 列出该终端 tab 的浏览器标签(含活跃标记与出口)。预览标签(preview===true)的 url
  *  脱敏成 preview://<文件名>(见 redactPreviewUrl);title 照常保留。 */
-export function listTabs(terminalTabId: string): BrowserTabInfo[] {
+export async function listTabs(terminalTabId: string): Promise<BrowserTabInfo[]> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { tabs } = await backend.client.rpc('browser.listTabs', undefined);
+    // 云端标签的「出口」就是那台机器本身(没有本机窗格的 per-tab 出口概念)
+    return tabs.map((t) => ({
+      id: t.tabId,
+      url: t.url,
+      title: t.title,
+      active: t.active,
+      net: backend.hostId,
+    }));
+  }
   const pane = findPane(terminalTabId);
   if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
   return pane.tabs.map((b) => ({
@@ -251,7 +351,17 @@ export function listTabs(terminalTabId: string): BrowserTabInfo[] {
 }
 
 /** 开新浏览器标签(url 缺省空);返回新标签 id(addBrowserTab 会把它设为活跃)。 */
-export function openTab(terminalTabId: string, url = ''): { browserTabId: string } {
+export async function openTab(
+  terminalTabId: string,
+  url = '',
+): Promise<{ browserTabId: string }> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    const { tabId } = await backend.client.rpc('browser.openTab', {
+      ...(url ? { url } : {}),
+    });
+    return { browserTabId: tabId };
+  }
   const s = useAppStore.getState();
   const pane = findPane(terminalTabId);
   if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
@@ -261,13 +371,26 @@ export function openTab(terminalTabId: string, url = ''): { browserTabId: string
 }
 
 /** 关闭某浏览器标签。 */
-export function closeTab(terminalTabId: string, browserTabId: string): void {
+export async function closeTab(terminalTabId: string, browserTabId: string): Promise<void> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    await backend.client.rpc('browser.closeTab', { tabId: browserTabId });
+    return;
+  }
   resolveTargetTabId(terminalTabId, browserTabId); // 校验存在
   useAppStore.getState().closeBrowserTab(terminalTabId, browserTabId);
 }
 
 /** 激活某浏览器标签。 */
-export function activateTab(terminalTabId: string, browserTabId: string): void {
+export async function activateTab(
+  terminalTabId: string,
+  browserTabId: string,
+): Promise<void> {
+  const backend = await backendFor(terminalTabId);
+  if (backend.kind === 'cloud') {
+    await backend.client.rpc('browser.activateTab', { tabId: browserTabId });
+    return;
+  }
   resolveTargetTabId(terminalTabId, browserTabId);
   useAppStore.getState().setBrowserActiveTab(terminalTabId, browserTabId);
 }

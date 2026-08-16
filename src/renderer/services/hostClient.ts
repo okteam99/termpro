@@ -232,6 +232,15 @@ export class HostClient {
     return this.info?.capabilities?.includes('fs.transfer') ?? false;
   }
 
+  /**
+   * 远端 Host 是否有 browser.* RPC(云端 headless Chromium)。
+   * 🔴 这只是**协议面**存在性,不代表那台机器上真装了 Chromium —— 装没装要问
+   * browser.status(两层分开:能力位判「能不能发这些 RPC」,status 判「发了有没有用」)。
+   */
+  supportsCloudBrowser(): boolean {
+    return this.info?.capabilities?.includes('browser.headless') ?? false;
+  }
+
   /** 订阅 host 进程退出事件,返回退订函数 */
   onDown(cb: () => void): () => void {
     this.downListeners.add(cb);

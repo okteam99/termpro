@@ -10,6 +10,7 @@
 // 生命周期管理更可测)。
 
 import { hostRegistry } from './hostRegistry';
+import { invalidateCloudBrowserProbe } from './cloudBrowserRouting';
 import { routeSessionEvent } from './sessionEvents';
 import { readoptHostSessions, restoreRemoteTabLayouts } from './sessionReadopt';
 import { useAppStore } from '../state/store';
@@ -107,6 +108,9 @@ export function stopRemoteWorkspaceSync(configId: string): void {
   teardownListeners(configId);
   useAppStore.getState().dropHostWorkspaces(configId);
   hostRegistry.drop(configId);
+  // ④ 清掉按 hostId 缓存的云端浏览器判定:client 已 dispose,再连是新实例、
+  //    甚至可能是另一台机器,旧的「装了/没装 Chromium」结论不能跟着 id 留下来。
+  invalidateCloudBrowserProbe(configId);
 }
 
 /** 该 configId 当前是否正在 sync(测试 / 调用方判定用,如避免重复挂「连接」态)。 */
