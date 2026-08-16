@@ -36,6 +36,9 @@ export const zh: Record<string, string> = {
   Connect: '连接',
   'Reconnecting…': '重连中…',
   'Connecting to the cloud browser…': '正在连接云端浏览器…',
+  'View the cloud browser running on this machine': '查看这台机器上的云端浏览器',
+  'Stop viewing the cloud browser (it keeps running headless)':
+    '停止查看云端浏览器(它会继续无头运行)',
   'Round-trip time of the last health probe':
     '最近一次探活的往返耗时(含远端处理;探活迟迟不回时显示已等待时长)',
   'Not connected · Connect to see its projects':
