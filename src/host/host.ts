@@ -176,6 +176,9 @@ function runInteractiveHost(): void {
             } catch {
               /* 已被清理或从未创建,忽略 */
             }
+            // 云端浏览器是我们 spawn 的子进程:host 走了不 kill 它,用户服务器上
+            // 就会攒下一堆没人管的 Chromium(每个几百 MB)。
+            core.browser.dispose();
             process.exit(0);
           });
         }

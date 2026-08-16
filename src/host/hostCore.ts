@@ -32,6 +32,7 @@ import {
 } from './fsService';
 import { skillStatus, skillInstall } from './skillService';
 import { createPreviewRegistry, PreviewRegistry } from './previewServer';
+import { BrowserService, browserDataDir } from './browserService';
 import {
   gitChangedFiles,
   gitInfo,
@@ -75,6 +76,9 @@ export interface HostCore {
    *  共用同一预览 server 实例(ensure 幂等);客户端断开不回收(不做引用计数);
    *  preview.stop 是全局操作,不分发起方。 */
   previews: PreviewRegistry;
+  /** 云端浏览器(headless Chromium · host/browserService.ts)。全 host 单实例:
+   *  多客户端/多 agent 共用同一个浏览器与同一批标签(同 previews 的共用语义)。 */
+  browser: BrowserService;
 }
 
 /**
@@ -102,6 +106,8 @@ export function createHostCore(
   const hostDataDir =
     process.env.OKWORK_HOST_DATA_DIR || path.join(os.homedir(), '.termpro-host');
   const workspaces = new WorkspaceService(hostDataDir);
+  // 云端浏览器:懒启动(status 探测不拉起进程),空闲自动回收,host 退出必 kill。
+  const browser = new BrowserService({ dataDir: browserDataDir(hostDataDir) });
   // 启动即预读注册表进内存(RPC 到达前完成;handle 内亦 await load 幂等兜底)
   void workspaces.load().catch((err) =>
     console.error('[host] registry initial load failed:', err),
@@ -125,7 +131,9 @@ export function createHostCore(
       const msg = e.data as ClientMessage;
       switch (msg.t) {
         case 'rpc:req':
-          void handleRpc(msg, send, client, pool, workspaces, clients, mode, previews);
+          void handleRpc(
+            msg, send, client, pool, workspaces, clients, mode, previews, browser,
+          );
           break;
         // PTY 控制消息只接受会话归属方(sessionId 不当 capability 用;
         // 多连接下的防御纵深)
@@ -176,7 +184,7 @@ export function createHostCore(
     console.log('[host] client %d attached (total %d)', id, clients.size);
   }
 
-  return { attachClient, pool, clients, previews };
+  return { attachClient, pool, clients, previews, browser };
 }
 
 async function handleRpc(
@@ -188,6 +196,7 @@ async function handleRpc(
   clients: Map<number, Client>,
   mode: 'embedded' | 'standalone',
   previews: PreviewRegistry,
+  browser: BrowserService,
 ): Promise<void> {
   try {
     let result: unknown;
@@ -205,7 +214,15 @@ async function handleRpc(
           // 对旧/本地 host 按各功能安全降级。
           capabilities:
             mode === 'standalone'
-              ? ['session.resume', 'session.mirror', 'fs.temp-png', 'fs.transfer']
+              ? [
+                  'session.resume',
+                  'session.mirror',
+                  'fs.temp-png',
+                  'fs.transfer',
+                  // 云端浏览器 RPC 存在性(不代表远端**装了** Chromium —— 装没装问
+                  // browser.status。两层分开:能力位是协议面,可用性是运行时事实)。
+                  'browser.headless',
+                ]
               : undefined,
           // 应用版本:启动方(远程编排 buildStartCommand / 本机 main fork)经 env 注入,
           // 与部署的 bundle/<version>/ 同源。缺省(旧启动方/手工启动)→ 字段省略,
@@ -362,6 +379,74 @@ async function handleRpc(
         result = { stopped };
         break;
       }
+      // ---- 云端浏览器(headless Chromium · 全 host 单实例,多 agent 共用同一批标签)----
+      // 🔴 status 只探测不启动:UI 拿它决定要不要显示入口,不该因为看了一眼就在
+      // 用户服务器上拉起一个浏览器进程。其余方法首次调用才懒启动。
+      case 'browser.status':
+        result = browser.status();
+        break;
+      case 'browser.listTabs':
+        result = { tabs: await browser.listTabs() };
+        break;
+      case 'browser.openTab':
+        result = {
+          tabId: await browser.openTab((msg.params as { url?: string })?.url),
+        };
+        break;
+      case 'browser.closeTab':
+        await browser.closeTab((msg.params as { tabId: string }).tabId);
+        break;
+      case 'browser.activateTab':
+        await browser.activateTab((msg.params as { tabId: string }).tabId);
+        break;
+      case 'browser.navigate': {
+        const p = msg.params as { tabId?: string; url: string };
+        result = { tabId: await browser.navigate(p.url, p.tabId) };
+        break;
+      }
+      case 'browser.eval': {
+        const p = msg.params as { tabId?: string; code: string };
+        result = { value: await browser.evaluate(p.code, p.tabId) };
+        break;
+      }
+      case 'browser.screenshot': {
+        const p = msg.params as { tabId?: string };
+        result = { base64: await browser.screenshot(p?.tabId) };
+        break;
+      }
+      case 'browser.getHtml': {
+        const p = msg.params as { tabId?: string };
+        result = { html: await browser.getHtml(p?.tabId) };
+        break;
+      }
+      case 'browser.getText': {
+        const p = msg.params as { tabId?: string };
+        result = { text: await browser.getText(p?.tabId) };
+        break;
+      }
+      case 'browser.click': {
+        const p = msg.params as { tabId?: string; selector: string };
+        result = { ok: await browser.click(p.selector, p.tabId) };
+        break;
+      }
+      case 'browser.type': {
+        const p = msg.params as { tabId?: string; selector: string; text: string };
+        result = { ok: await browser.typeText(p.selector, p.text, p.tabId) };
+        break;
+      }
+      case 'browser.scroll': {
+        const p = msg.params as { tabId?: string; dy?: number };
+        result = { scrollY: await browser.scroll(p?.dy, p?.tabId) };
+        break;
+      }
+      case 'browser.waitFor': {
+        const p = msg.params as { tabId?: string; selector: string; timeoutMs?: number };
+        result = { ok: await browser.waitFor(p.selector, p.timeoutMs ?? 5000, p.tabId) };
+        break;
+      }
+      case 'browser.shutdown':
+        await browser.shutdown();
+        break;
       // ---- 断线重连回放收养(BL-005)----
       case 'session.list': {
         // token 闸后单租户全可见:遍历 pool 全部会话(live + exited)产快照(AC-8)

@@ -340,6 +340,54 @@ export interface RpcMethods {
   'preview.ensure': { params: { root: string }; result: PreviewInfo };
   /** 关闭 root 对应的预览 server(全局:不分客户端,同 root 共用同实例故全局停)。 */
   'preview.stop': { params: { root: string }; result: { stopped: boolean } };
+  // ---- 云端浏览器(host/browserService.ts · headless Chromium · 向后兼容追加)----
+  // 默认无头:agent 与浏览器同机,不再经 SSH 反向转发打回本机浏览器。
+  // 只有本地要预览时才起 screencast(browser.startPreview),平时零画面流量。
+  /** 探测远端 Chromium 可用性 + 当前运行状态(不启动;找不到时带安装指引)。 */
+  'browser.status': { params: undefined; result: BrowserRuntimeStatus };
+  /** 列出云端浏览器的标签(首次调用会懒启动 Chromium)。 */
+  'browser.listTabs': { params: undefined; result: { tabs: BrowserTabSnapshot[] } };
+  'browser.openTab': { params: { url?: string }; result: { tabId: string } };
+  'browser.closeTab': { params: { tabId: string }; result: undefined };
+  'browser.activateTab': { params: { tabId: string }; result: undefined };
+  /** tabId 省略 = 当前活跃标签(无标签时自动开一个)。 */
+  'browser.navigate': { params: { tabId?: string; url: string }; result: { tabId: string } };
+  'browser.eval': { params: { tabId?: string; code: string }; result: { value: unknown } };
+  /** 可见区 PNG(base64,不含 data: 前缀)。 */
+  'browser.screenshot': { params: { tabId?: string }; result: { base64: string } };
+  'browser.getHtml': { params: { tabId?: string }; result: { html: string } };
+  'browser.getText': { params: { tabId?: string }; result: { text: string } };
+  'browser.click': { params: { tabId?: string; selector: string }; result: { ok: boolean } };
+  'browser.type': {
+    params: { tabId?: string; selector: string; text: string };
+    result: { ok: boolean };
+  };
+  'browser.scroll': { params: { tabId?: string; dy?: number }; result: { scrollY: number } };
+  'browser.waitFor': {
+    params: { tabId?: string; selector: string; timeoutMs?: number };
+    result: { ok: boolean };
+  };
+  /** 显式关掉云端 Chromium(省远端内存;下次调用会重新懒启动)。 */
+  'browser.shutdown': { params: undefined; result: undefined };
+}
+
+/**
+ * 云端浏览器运行状态(browser.status)。available=false 时 hint 是给人看的安装指引——
+ * host 不替用户往服务器上装浏览器,只告诉他装什么(见 host/chromiumLocator.ts)。
+ */
+export interface BrowserRuntimeStatus {
+  available: boolean;
+  executablePath: string | null;
+  running: boolean;
+  hint?: string;
+}
+
+/** 云端浏览器的一个标签(tabId = CDP targetId)。 */
+export interface BrowserTabSnapshot {
+  tabId: string;
+  url: string;
+  title: string;
+  active: boolean;
 }
 
 /** 项目内 HTML 预览:某 root 对应的静态 server 信息(host/previewServer.ts)。 */
