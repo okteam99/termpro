@@ -8,6 +8,11 @@ import { Socket } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { PortLike } from './hostCore';
 import { verifyToken } from './token';
+import {
+  BROWSER_FRAME_MAX_PAYLOAD,
+  BROWSER_FRAME_PATH,
+  isValidStreamId,
+} from '../shared/browserFrameCodec';
 
 // ---- 常量(TECH §常量表 · 精确落定值)-------------------------------------
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -60,6 +65,12 @@ export interface WsServerOptions {
   token: string;
   /** hostCore.attachClient —— WS 适配器接入点 */
   attachClient: (port: PortLike) => void;
+  /**
+   * 云端浏览器预览帧的独立通道接入点(可选)。
+   * 🔴 这条连接**不参与** host.info-first 门控:它不发 RPC,只收二进制帧、回文本 ack。
+   * token 闸与 origin 闸照旧——鉴权面一点没放宽,放宽的只是「首帧必须是 host.info」。
+   */
+  attachFrameChannel?: (ws: WebSocket, streamId: string) => void;
   handshakeTimeoutMs?: number;
   pingIntervalMs?: number;
   maxPayload?: number;
@@ -217,6 +228,12 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
 
   const httpServer: HttpServer = createServer();
   const wss = new WebSocketServer({ noServer: true, maxPayload });
+  // 帧通道单独一个 server:上限比主连接小得多(画面帧不该是几十 MB),
+  // 且不挂 host.info-first 门控与 attachClient。
+  const frameWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: BROWSER_FRAME_MAX_PAYLOAD,
+  });
 
   // 认证失败滑动窗(告警 only · 不阻断 —— external CR-3:阻断会给同机攻击者
   // DoS 杠杆;真屏障是 128-bit token 熵)
@@ -244,9 +261,13 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
     // ssh2 外层 + forwardOut socket 三处一致)。被拒连接随即 destroy,提前设无副作用。
     socket.setNoDelay(true);
     let provided: string | null = null;
+    let pathname = '/';
+    let streamId: string | null = null;
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       provided = url.searchParams.get('token');
+      pathname = url.pathname;
+      streamId = url.searchParams.get('sid');
     } catch {
       provided = null;
     }
@@ -263,6 +284,21 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
     if (!checkOrigin(req.headers.origin, allowedOrigins)) {
       logger('[host] ws origin rejected');
       socket.destroy();
+      return;
+    }
+    // 预览帧通道:同端口同 token,只是换一条路径 + 换一个 WebSocketServer
+    // (maxPayload 更小)。它承载的是画面,不该和主连接挤同一条 SSH channel。
+    if (pathname === BROWSER_FRAME_PATH) {
+      if (!opts.attachFrameChannel || !isValidStreamId(streamId)) {
+        logger('[host] frame channel rejected (unsupported or bad stream id)');
+        socket.destroy();
+        return;
+      }
+      const sid = streamId;
+      frameWss.handleUpgrade(req, socket, head, (ws) => {
+        logger('[host] frame channel attached');
+        opts.attachFrameChannel?.(ws, sid);
+      });
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -319,8 +355,11 @@ export function startWsServer(opts: WsServerOptions): Promise<WsServerHandle> {
           clearInterval(heartbeat);
           return new Promise<void>((res) => {
             for (const ws of wss.clients) ws.terminate();
-            wss.close(() => {
-              httpServer.close(() => res());
+            for (const ws of frameWss.clients) ws.terminate();
+            frameWss.close(() => {
+              wss.close(() => {
+                httpServer.close(() => res());
+              });
             });
           });
         },

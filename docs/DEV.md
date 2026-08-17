@@ -371,9 +371,23 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
 
 ```
 远端:  agent → 127.0.0.1 MCP(不出机器) ↘
-                                        browserService → CDP(ws) → headless Chromium
-本机:  BrowserPanel ☁ → browser.* RPC  ↗   ← browser:frame(JPEG,ack 门控)
+                                        browserService → CDP(ws · 机器内部环回)→ headless Chromium
+本机:  BrowserPanel ☁ → browser.* RPC  ↗        主连接(WS/JSON,与 pty 同一条 SSH channel)
+       CloudBrowserPreview  ←──────────────  /frames 通道(WS/二进制,**独立** SSH channel)
 ```
+
+**三段传输,分清楚**:
+- renderer ↔ host 是 OkWork 自己的 HostService 协议(`src/shared/protocol.ts`),不是裸 SSH、
+  也不暴露 CDP;renderer 只能发协议里定义好的 `browser.*`,发不了任意 CDP 命令。
+- 承载是 **WebSocket over SSH**:`ssh.ts:forwardOut` 把每条 TCP 连接转成一个 direct-tcpip
+  channel 接到远端 host 的 ws 端口。所以「新开一条 WS」= 「新开一个 SSH channel」。
+- host ↔ Chromium 的 CDP **完全不出远端机器**(本地环回),这一段不加密也不需要。
+
+**为什么画面单开一条通道**:主连接那条 WS 里跑着 pty 输出、RPC、事件,是**一条 FIFO**;
+画面插进去就会把终端输入和心跳推到队尾(2026-08 那次「远端 CPU 打满、组头还挂 34ms」
+就是同一条隧道的拥塞表现)。独立 WS = 独立 SSH channel,有自己的流控窗口,画面再忙也压
+不到终端那条队列。底层 TCP 带宽仍然共享,所以 **ack 门控照旧保留**(见下)。
+帧走二进制:省掉 base64 的 33% 和一次 JSON 解析,字节直接进 `createImageBitmap`。
 
 - **host 侧**:`src/host/browserService.ts`(生命周期 + 13 个控制原语 + 预览推流)、
   `src/host/cdpClient.ts`(裸 ws + JSON 的 CDP 客户端,**零新依赖**——不引 puppeteer:
@@ -389,12 +403,23 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
   `browserControl` 按后端分流。云端的 click/type 走 `Input.dispatchMouseEvent` /
   `Input.insertText` 派发**真实**事件(`isTrusted=true`,真 Chromium 上有断言),
   比本机那套 `el.click()` + 手工 dispatch 更接近真人。
-- **🔴 预览背压(必须守住的性质)**:画面与终端输出、心跳共用同一条 WS/SSH 隧道,
-  那条隧道 **FIFO 无优先级**。帧一旦排队,终端输入会卡、心跳 probe 会被挤出超时窗口。
-  所以两级 ack:① 对 Chromium **立即** ack(它按自己的节奏产帧,页面不因隧道慢而冻住)
-  ② 对隧道**只在空闲时**发(上一帧没被客户端 ack 就丢掉当前帧,只送最新的)。
-  于是隧道上恒最多一帧在途。客户端侧的另一半:**画完才 ack**,不是收到就 ack ——
-  ack 的语义是「我消化完了」。帧走 JPEG q60 / 长边 1280。
+- **帧通道**(`src/host/frameChannel.ts` + `src/renderer/services/browserFrameChannel.ts`,
+  线格式在 `src/shared/browserFrameCodec.ts` 两端共用):路径 `/frames?token=…&sid=<streamId>`,
+  同端口同 token 闸同 origin 闸,**只是不挂 host.info-first 门控**(它不发 RPC,只收二进制帧、
+  回文本 ack)。streamId 由 renderer 生成、两处出示(连通道 + `startPreview` 参数),host 只做
+  关联不签发。顺序:先连通道 → 再 `startPreview({streamId})`;通道没接上就退回主连接的
+  `browser:frame` JSON(旧客户端 / 本地嵌入式零破坏,`startPreview` 的 `binary` 字段如实回报)。
+  帧格式 `[u32 headerLen][JSON 头][JPEG 原始字节]`,畸形一律丢弃不抛。
+- **🔴 预览背压(必须守住的性质)**:独立 channel 解决的是队头阻塞,**带宽仍然共享**,
+  所以 ack 门控一条都不能省。两级 ack:① 对 Chromium **立即** ack(它按自己的节奏产帧,
+  页面不因链路慢而冻住)② 对通道**只在空闲时**发(上一帧没被客户端 ack 就丢掉当前帧,
+  只送最新的)。于是通道上恒最多一帧在途。客户端侧的另一半:**画完才 ack**,不是收到就
+  ack —— ack 的语义是「我消化完了」。帧走 JPEG q60 / 长边 1280。
+- **人真的能操作**:鼠标(点击/移动/滚轮/右键)、键盘、输入法、粘贴都通,页面收到的
+  `isTrusted=true`(真 Chromium 上有断言)。🔴 输入法是这里唯一的结构性坑:`<canvas>`
+  不可编辑,浏览器**不会为它启动 IME**,中文一个字都进不来 —— 所以叠了一块透明的取词区
+  (`pointer-events:none`,鼠标照旧归 canvas,焦点由 canvas 的 mousedown 交过去),
+  合成期不转发按键,`compositionend` / `paste` 整段走 `Input.insertText`。
 - **进程责任**(用户服务器不该被我们堆满 Chromium):懒启动(status 不拉起)、并发首调
   共享同一次启动、空闲 10 分钟回收(有人看着预览时不回收)、Chromium 崩了状态归零下次
   重拉、host SIGTERM 必 `dispose()`、客户端断开则它开的预览随之停。
@@ -420,8 +445,9 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
 - **待办**:① 云端浏览器的 Profile 隔离目前是单份 `user-data-dir`,尚未按 Profile 分
   BrowserContext / 接 `remoteProfileStore` 的登录连续性;② 密码保险箱**未**接云端 ——
   真接的话明文密码要送到远端 Chromium,是安全模型的实质变化,需用户显式授权
-  (per-profile 开关),不该默认开;③ 画面仍与终端共用隧道,极端拥塞下预览会掉帧
-  (设计如此:宁可掉帧也不拖慢终端),要更好的体验需另开独立通道。
+  (per-profile 开关),不该默认开;③ 文件上传按钮弹的是远端的原生文件框,本地看不见
+  (要做得走 `DOM.setFileInputFiles` + 本地选文件后传过去);④ 输入法候选框位置固定在
+  取词区,没跟随远端页面的光标(需要远端回报 caret 位置)。
 
 ---
 

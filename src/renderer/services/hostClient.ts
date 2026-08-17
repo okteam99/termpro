@@ -22,6 +22,10 @@ import {
   ProtocolIncompatibleError,
 } from '../../shared/versionCompat';
 import { Heartbeat, readHeartbeatEnv } from './heartbeat';
+import {
+  openBrowserFrameChannel,
+  type BrowserFrameChannel,
+} from './browserFrameChannel';
 
 export interface PtyListener {
   onData?(data: string, bytes: number): void;
@@ -148,8 +152,12 @@ export class HostClient {
   private reconnectNeededListeners = new Set<() => void>();
   // 心跳探活往返耗时(ms)订阅者(组头连接延迟展示;仅 reconnectable client 产生数据)
   private rttListeners = new Set<(ms: number) => void>();
-  // 云端浏览器预览帧订阅者(只有开着预览面板时才有;平时恒空 = 零画面流量)
+  // 云端浏览器预览帧订阅者(只有开着预览面板时才有;平时恒空 = 零画面流量)。
+  // 🔴 这条是**退路**:新客户端走独立二进制通道(openBrowserFrameChannel),
+  // 只有拿不到那条通道时才让帧退回主连接的 JSON 消息。
   private browserFrameListeners = new Set<(frame: BrowserFrameMessage) => void>();
+  /** 最近一次 ws 连接地址(帧通道据此推出 /frames?sid=…;嵌入式为 null) */
+  private lastWsUrl: string | null = null;
   // 主动 teardown(reconnect/dispose 内 close 旧 transport)期间抑制自身 onClose 分叉,防 loop。
   private tearingDown = false;
   private heartbeat: Heartbeat | null = null;
@@ -480,7 +488,18 @@ export class HostClient {
     });
   }
 
+  /**
+   * 为云端浏览器预览开一条独立的帧通道(同端口同 token,路径 /frames)。
+   * 🔴 独立连接 = 独立的 SSH direct-tcpip channel:画面不与 pty 输出挤同一条 FIFO。
+   * 本地嵌入式 client(没有 ws url)返回 null —— 本机不需要这条通道。
+   */
+  openBrowserFrameChannel(streamId: string): BrowserFrameChannel | null {
+    if (!this.lastWsUrl) return null;
+    return openBrowserFrameChannel(this.lastWsUrl, streamId);
+  }
+
   private connectViaWebSocket(url: string): Promise<HostInfo> {
+    this.lastWsUrl = url;
     return new Promise<HostInfo>((resolve, reject) => {
       let ws: WebSocket;
       try {

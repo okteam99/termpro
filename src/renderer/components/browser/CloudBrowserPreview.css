@@ -41,3 +41,27 @@
 .cloud-browser-preview__overlay--error {
   color: var(--danger, #e5534b);
 }
+
+/* 输入法取词区:透明覆盖,但不接鼠标(鼠标归 canvas)。
+   不能用 display:none / visibility:hidden —— 那样拿不到焦点,IME 也不会启动。 */
+.cloud-browser-preview__ime {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  resize: none;
+  opacity: 0;
+  pointer-events: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  outline: none;
+}
+
+/* 焦点在取词区时给画面一圈提示:此刻键盘归远端页面,不再触发本地快捷键 */
+.cloud-browser-preview__ime:focus + .cloud-browser-preview__canvas,
+.cloud-browser-preview:focus-within .cloud-browser-preview__canvas {
+  box-shadow: 0 0 0 2px var(--accent, #e06c4f);
+}

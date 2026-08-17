@@ -37,6 +37,7 @@ export const zh: Record<string, string> = {
   'Reconnecting…': '重连中…',
   'Connecting to the cloud browser…': '正在连接云端浏览器…',
   'View the cloud browser running on this machine': '查看这台机器上的云端浏览器',
+  'Keyboard input for the cloud browser': '云端浏览器的键盘输入',
   'Stop viewing the cloud browser (it keeps running headless)':
     '停止查看云端浏览器(它会继续无头运行)',
   'Round-trip time of the last health probe':

@@ -106,6 +106,9 @@ function runInteractiveHost(): void {
       port,
       token,
       attachClient: (p: PortLike) => core.attachClient(p),
+      // 预览帧的独立通道(见 host/frameChannel.ts):画面不与终端挤同一条 SSH channel
+      attachFrameChannel: (ws, streamId) =>
+        core.frames.register(ws, streamId, (line) => console.warn(line)),
       allowedOrigins,
     }).then(
       (handle) => {

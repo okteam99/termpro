@@ -34,6 +34,7 @@ import {
 import { skillStatus, skillInstall } from './skillService';
 import { createPreviewRegistry, PreviewRegistry } from './previewServer';
 import { BrowserService, browserDataDir } from './browserService';
+import { FrameChannelRegistry } from './frameChannel';
 import {
   gitChangedFiles,
   gitInfo,
@@ -82,6 +83,8 @@ export interface HostCore {
   /** 云端浏览器(headless Chromium · host/browserService.ts)。全 host 单实例:
    *  多客户端/多 agent 共用同一个浏览器与同一批标签(同 previews 的共用语义)。 */
   browser: BrowserService;
+  /** 预览帧的独立二进制通道注册表(wsServer 的 /frames 路径接进来)。 */
+  frames: FrameChannelRegistry;
 }
 
 /**
@@ -111,6 +114,7 @@ export function createHostCore(
   const workspaces = new WorkspaceService(hostDataDir);
   // 云端浏览器:懒启动(status 探测不拉起进程),空闲自动回收,host 退出必 kill。
   const browser = new BrowserService({ dataDir: browserDataDir(hostDataDir) });
+  const frames = new FrameChannelRegistry();
   // 启动即预读注册表进内存(RPC 到达前完成;handle 内亦 await load 幂等兜底)
   void workspaces.load().catch((err) =>
     console.error('[host] registry initial load failed:', err),
@@ -136,7 +140,7 @@ export function createHostCore(
       switch (msg.t) {
         case 'rpc:req':
           void handleRpc(
-            msg, send, client, pool, workspaces, clients, mode, previews, browser,
+            msg, send, client, pool, workspaces, clients, mode, previews, browser, frames,
           );
           break;
         // PTY 控制消息只接受会话归属方(sessionId 不当 capability 用;
@@ -197,7 +201,7 @@ export function createHostCore(
     console.log('[host] client %d attached (total %d)', id, clients.size);
   }
 
-  return { attachClient, pool, clients, previews, browser };
+  return { attachClient, pool, clients, previews, browser, frames };
 }
 
 async function handleRpc(
@@ -210,6 +214,7 @@ async function handleRpc(
   mode: 'embedded' | 'standalone',
   previews: PreviewRegistry,
   browser: BrowserService,
+  frames: FrameChannelRegistry,
 ): Promise<void> {
   try {
     let result: unknown;
@@ -468,11 +473,23 @@ async function handleRpc(
           maxWidth?: number;
           maxHeight?: number;
           quality?: number;
+          streamId?: string;
         };
-        const tabId = await browser.startPreview(
-          (frame) => send({ t: 'browser:frame', ...frame }),
-          p,
-        );
+        // 帧优先走独立二进制通道:主连接那条 WS 与 pty 输出同挤一个 SSH channel,
+        // 画面插进去会把终端输入和心跳推到队尾。通道没接上(旧客户端/还没连)→
+        // 退回主连接的 JSON 消息,功能不缺,只是贵一点。
+        const channel = p.streamId ? frames.get(p.streamId) : undefined;
+        const binary = channel !== undefined;
+        const tabId = await browser.startPreview((frame) => {
+          if (channel) {
+            channel.send(
+              { tabId: frame.tabId, seq: frame.seq, metadata: frame.metadata },
+              Buffer.from(frame.data, 'base64'),
+            );
+          } else {
+            send({ t: 'browser:frame', ...frame });
+          }
+        }, p);
         // 🔴 所有权转移(last-preview-wins,同 session.attach 的 exclusive 惯例):
         // browserService 每标签只留一个 sink,后开的顶掉先开的。若不把该 tabId 从
         // 其他客户端的 previewTabs 里摘掉,先开的那个断开时会去 stopPreview,
@@ -481,7 +498,11 @@ async function handleRpc(
           if (other !== client) other.previewTabs.delete(tabId);
         }
         client.previewTabs.add(tabId);
-        result = { tabId };
+        // 帧通道自己就是「人还在不在」的信号:它断了就停这个标签的推流
+        // (比等 ack 超时快,也比主连接断开更贴近「关掉了预览窗」)。
+        channel?.onClose(() => browser.stopPreview(tabId));
+        channel?.onAck((ackTabId, seq) => browser.ackFrame(ackTabId, seq));
+        result = { tabId, binary };
         break;
       }
       case 'browser.stopPreview': {

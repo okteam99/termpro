@@ -35,6 +35,10 @@ export function CloudBrowserPreview({
 }: CloudBrowserPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  /** 输入法取词区(canvas 起不了 IME,键盘与 composition 都挂它) */
+  const imeRef = useRef<HTMLTextAreaElement>(null);
+  /** 是否正在输入法合成中:合成期的按键不转发,上屏时整段发 */
+  const composingRef = useRef(false);
   /** 已建立推流的标签 id(host 解析出来的,可能与传入的 tabId 不同) */
   const streamTabRef = useRef<string | null>(null);
   /** 最近一帧的 metadata:输入坐标换算的依据 */
@@ -57,36 +61,77 @@ export function CloudBrowserPreview({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    // 独立二进制通道(独立 SSH channel);拿不到就退回主连接的 JSON 帧
+    const streamId = crypto.randomUUID();
+    const channel = client.openBrowserFrameChannel(streamId);
+    let ackFrame = (frameTabId: string, seq: number) =>
+      client.ackBrowserFrame(frameTabId, seq);
 
-    const offFrame = client.onBrowserFrame((frame) => {
+    /** 把一帧画到 canvas 上,画完才 ack。 */
+    const paint = (
+      frameTabId: string,
+      seq: number,
+      source: CanvasImageSource,
+      width: number,
+      height: number,
+    ) => {
+      if (disposed) return;
+      // 画布尺寸跟随帧的真实像素,避免每帧重设导致的闪烁
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      ctx?.drawImage(source, 0, 0);
+      setLive(true);
+      // 🔴 画完才 ack:ack 是「我消化完了」,不是「我收到了」。
+      // 提前 ack 会让 host 按网络速度而不是本地渲染速度推帧,越积越卡。
+      ackFrame(frameTabId, seq);
+    };
+
+    const offChannelFrame = channel?.onFrame((header, jpeg) => {
+      if (disposed || header.tabId !== streamTabRef.current) return;
+      metaRef.current = header.metadata;
+      // 二进制帧直接交给 createImageBitmap:不经 base64、不经 data: URL
+      // 复制成独立 ArrayBuffer:jpeg 是收帧缓冲的视图,直接塞进 Blob 会带上
+      // SharedArrayBuffer 的类型歧义,也不该让 Blob 持有整条接收缓冲
+      const bytes = new Uint8Array(jpeg.length);
+      bytes.set(jpeg);
+      void createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }))
+        .then((bitmap) => {
+          if (disposed) {
+            bitmap.close();
+            return;
+          }
+          paint(header.tabId, header.seq, bitmap, bitmap.width, bitmap.height);
+          bitmap.close();
+        })
+        .catch(() => {
+          // 单帧解码失败不该让推流卡死:照样 ack,等下一帧
+          if (!disposed) ackFrame(header.tabId, header.seq);
+        });
+    });
+
+    // 退路:没有独立通道时(本地嵌入式 / 旧 host),帧走主连接的 JSON 消息
+    const offJsonFrame = client.onBrowserFrame((frame) => {
       if (disposed || frame.tabId !== streamTabRef.current) return;
       metaRef.current = frame.metadata;
       const img = new Image();
-      img.onload = () => {
-        if (disposed) return;
-        // 画布尺寸跟随帧的真实像素,避免每帧重设导致的闪烁
-        if (canvas.width !== img.width || canvas.height !== img.height) {
-          canvas.width = img.width;
-          canvas.height = img.height;
-        }
-        ctx?.drawImage(img, 0, 0);
-        setLive(true);
-        // 🔴 画完才 ack:ack 是「我消化完了」,不是「我收到了」。
-        // 提前 ack 会让 host 按网络速度而不是本地渲染速度推帧,越积越卡。
-        client.ackBrowserFrame(frame.tabId, frame.seq);
-      };
+      img.onload = () => paint(frame.tabId, frame.seq, img, img.width, img.height);
       img.onerror = () => {
-        // 单帧解码失败不该让推流卡死:照样 ack,等下一帧
-        if (!disposed) client.ackBrowserFrame(frame.tabId, frame.seq);
+        if (!disposed) ackFrame(frame.tabId, frame.seq);
       };
       img.src = `data:image/jpeg;base64,${frame.data}`;
     });
 
-    void client
-      .rpc('browser.startPreview', {
-        ...(tabId ? { tabId } : {}),
-        ...(quality ? { quality } : {}),
-      })
+    // 通道要先连上,host 才能按 streamId 找到它(顺序错了就退回 JSON,不会丢帧)
+    void (channel ? channel.ready.catch(() => undefined) : Promise.resolve())
+      .then(() =>
+        client.rpc('browser.startPreview', {
+          ...(tabId ? { tabId } : {}),
+          ...(quality ? { quality } : {}),
+          ...(channel ? { streamId } : {}),
+        }),
+      )
       .then((res) => {
         if (disposed) {
           // 卸载与 startPreview 返回的竞态:已经不看了就立刻停,别留孤儿流
@@ -94,12 +139,18 @@ export function CloudBrowserPreview({
           return;
         }
         streamTabRef.current = res.tabId;
+        // host 说帧走了二进制通道 → ack 也走那条(别再回主连接添堵)
+        if (res.binary && channel) {
+          ackFrame = (frameTabId, seq) => channel.ack(frameTabId, seq);
+        }
       })
       .catch(fail);
 
     return () => {
       disposed = true;
-      offFrame();
+      offChannelFrame?.();
+      offJsonFrame();
+      channel?.close();
       const streaming = streamTabRef.current;
       streamTabRef.current = null;
       if (streaming) {
@@ -200,7 +251,10 @@ export function CloudBrowserPreview({
   );
 
   const onKey = useCallback(
-    (type: 'keyDown' | 'keyUp') => (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+    (type: 'keyDown' | 'keyUp') => (e: React.KeyboardEvent<HTMLElement>) => {
+      // 🔴 输入法合成期间不转发按键:那些 keydown 是给本地 IME 的(key='Process'
+      // 之类),转过去只会在远端页面里打出乱码。上屏结果由 compositionend 整段发。
+      if (composingRef.current || e.nativeEvent.isComposing) return;
       // 预览区拿到焦点时,按键归远端页面——别让它顺带触发本地快捷键
       e.preventDefault();
       e.stopPropagation();
@@ -219,19 +273,59 @@ export function CloudBrowserPreview({
     [sendInput],
   );
 
+  /** 输入法上屏:整段发过去(中文一次给若干字,拆成 char 会丢合成语义)。 */
+  const onCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+      composingRef.current = false;
+      const text = e.data;
+      e.currentTarget.value = ''; // 这块只是输入法的取词区,不留内容
+      if (text) sendInput({ kind: 'text', text });
+    },
+    [sendInput],
+  );
+
+  /** 粘贴:整段插入。密码、URL 这类东西靠手打进远端页面是不现实的。 */
+  const onPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      e.preventDefault();
+      const text = e.clipboardData.getData('text/plain');
+      if (text) sendInput({ kind: 'text', text });
+    },
+    [sendInput],
+  );
+
   return (
     <div className="cloud-browser-preview" ref={wrapRef}>
       <canvas
         ref={canvasRef}
         className="cloud-browser-preview__canvas"
-        tabIndex={0}
-        onMouseDown={onMouse('mousePressed')}
+        onMouseDown={(e) => {
+          // 键盘/输入法都挂在下面那块隐藏输入区上:点画面即把焦点交给它
+          imeRef.current?.focus();
+          onMouse('mousePressed')(e);
+        }}
         onMouseUp={onMouse('mouseReleased')}
         onMouseMove={onMouse('mouseMoved')}
         onWheel={onWheel}
+        onContextMenu={(e) => e.preventDefault()}
+      />
+      {/* 🔴 输入法取词区。canvas 不可编辑,浏览器不会为它启动 IME —— 中文一个字都
+          进不来。标准做法(远程桌面同款):叠一块透明输入区接管键盘与 composition,
+          pointer-events:none 让鼠标照旧归 canvas,焦点由 canvas 的 mousedown 交过来。 */}
+      <textarea
+        ref={imeRef}
+        className="cloud-browser-preview__ime"
+        aria-label={t('Keyboard input for the cloud browser')}
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         onKeyDown={onKey('keyDown')}
         onKeyUp={onKey('keyUp')}
-        onContextMenu={(e) => e.preventDefault()}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={onCompositionEnd}
+        onPaste={onPaste}
       />
       {!live && !error && (
         <div className="cloud-browser-preview__overlay">{t('Connecting to the cloud browser…')}</div>

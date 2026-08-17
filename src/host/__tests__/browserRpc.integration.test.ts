@@ -7,7 +7,13 @@
 // 默认 skip(CI 上没有浏览器):
 //   OKWORK_TEST_REAL_CHROMIUM=1 npx vitest run src/host/__tests__/browserRpc.integration.test.ts
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
 import type { HostMessage } from '../../shared/protocol';
+import {
+  decodeBrowserFrame,
+  encodeFrameAck,
+  type BrowserFrameHeader,
+} from '../../shared/browserFrameCodec';
 import { startTestHost, TestClient, waitFor, type TestHost } from './wsTestHarness';
 
 const enabled = process.env.OKWORK_TEST_REAL_CHROMIUM === '1';
@@ -30,11 +36,35 @@ afterAll(async () => {
   await host.close();
 });
 
-/** 取该客户端收到的全部预览帧。 */
+/** 取该客户端收到的全部预览帧(JSON 退路那条)。 */
 function framesOf(client: TestClient) {
   return client.messages.filter(
     (m): m is Extract<HostMessage, { t: 'browser:frame' }> => m.t === 'browser:frame',
   );
+}
+
+/** 连一条独立的二进制帧通道(等价 renderer 的 openBrowserFrameChannel)。 */
+async function openFrameChannel(streamId: string) {
+  const url = new URL(host!.url());
+  url.pathname = '/frames';
+  url.searchParams.set('sid', streamId);
+  const ws = new WebSocket(url.toString());
+  const frames: Array<{ header: BrowserFrameHeader; bytes: Uint8Array }> = [];
+  ws.on('message', (raw: Buffer, isBinary: boolean) => {
+    if (!isBinary) return;
+    const decoded = decodeBrowserFrame(new Uint8Array(raw));
+    if (decoded) frames.push({ header: decoded.header, bytes: decoded.data });
+  });
+  await new Promise<void>((resolve, reject) => {
+    ws.once('open', () => resolve());
+    ws.once('error', reject);
+  });
+  return {
+    ws,
+    frames,
+    ack: (tabId: string, seq: number) => ws.send(encodeFrameAck({ tabId, seq })),
+    close: () => ws.close(),
+  };
 }
 
 describe.skipIf(!enabled)('云端浏览器 RPC 全链路(默认 skip)', () => {
@@ -215,6 +245,120 @@ describe.skipIf(!enabled)('云端浏览器 RPC 全链路(默认 skip)', () => {
     });
     client.close();
   }, 60_000);
+
+  it('🔴 帧走独立二进制通道:主连接上一条 browser:frame 都不出现', async () => {
+    const client = new TestClient(host!.url());
+    await client.handshake();
+    const streamId = crypto.randomUUID();
+    const channel = await openFrameChannel(streamId);
+
+    const { tabId } = (await client.rpc('browser.navigate', { url: PAGE })) as {
+      tabId: string;
+    };
+    const started = (await client.rpc('browser.startPreview', { tabId, streamId })) as {
+      binary: boolean;
+    };
+    expect(started.binary).toBe(true); // host 确认走了二进制通道
+
+    const paint = (i: number) =>
+      client.rpc('browser.eval', {
+        tabId,
+        code: `document.body.style.background='hsl(${i * 40},80%,50%)'`,
+      });
+    for (let i = 0; i < 5; i++) await paint(i);
+    await waitFor(() => channel.frames.length >= 1, 8000);
+
+    // 帧是真 JPEG 原始字节(不是 base64 字符串)
+    const first = channel.frames[0];
+    expect(Array.from(first.bytes.subarray(0, 3))).toEqual([0xff, 0xd8, 0xff]);
+    expect(first.header.tabId).toBe(tabId);
+    expect(first.header.seq).toBe(1);
+    expect(first.header.metadata.deviceWidth).toBeGreaterThan(0);
+
+    // 🔴 主连接一条画面消息都没有——终端那条 FIFO 上没有画面流量
+    expect(framesOf(client)).toHaveLength(0);
+
+    // ack 也走这条通道,背压照旧成立
+    for (let i = 5; i < 9; i++) await paint(i);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(channel.frames).toHaveLength(1); // 没 ack → 只有一帧在途
+
+    channel.ack(tabId, first.header.seq);
+    for (let i = 9; i < 13; i++) await paint(i);
+    await waitFor(() => channel.frames.length >= 2, 8000);
+    expect(channel.frames[1].header.seq).toBe(2);
+
+    await client.rpc('browser.stopPreview', { tabId });
+    channel.close();
+    client.close();
+  }, 60_000);
+
+  it('帧通道断开 → 该标签停流(关掉预览窗即止,不等 ack 超时)', async () => {
+    const client = new TestClient(host!.url());
+    await client.handshake();
+    const streamId = crypto.randomUUID();
+    const channel = await openFrameChannel(streamId);
+    const { tabId } = (await client.rpc('browser.navigate', { url: PAGE })) as {
+      tabId: string;
+    };
+    await client.rpc('browser.startPreview', { tabId, streamId });
+    expect(host!.core.browser.previewing).toBe(true);
+
+    channel.close();
+    await waitFor(() => host!.core.browser.previewing === false, 5000);
+    expect(host!.core.browser.previewing).toBe(false);
+    // 浏览器与标签不动:agent 可能还在用
+    expect(host!.core.browser.status().running).toBe(true);
+    client.close();
+  }, 60_000);
+
+  it('不带 streamId(旧客户端)→ 退回主连接 JSON 帧,功能不缺', async () => {
+    const client = new TestClient(host!.url());
+    await client.handshake();
+    const { tabId } = (await client.rpc('browser.navigate', { url: PAGE })) as {
+      tabId: string;
+    };
+    const started = (await client.rpc('browser.startPreview', { tabId })) as {
+      binary: boolean;
+    };
+    expect(started.binary).toBe(false);
+
+    for (let i = 0; i < 5; i++) {
+      await client.rpc('browser.eval', {
+        tabId,
+        code: `document.body.style.background='hsl(${i * 30},60%,60%)'`,
+      });
+    }
+    await waitFor(() => framesOf(client).length >= 1, 8000);
+    expect(framesOf(client)[0].data.length).toBeGreaterThan(0);
+
+    await client.rpc('browser.stopPreview', { tabId });
+    client.close();
+  }, 60_000);
+
+  it('帧通道的 token / streamId 闸:缺 token 或形状不合法一律拒', async () => {
+    const bad = new URL(host!.url(null)); // 不带 token
+    bad.pathname = '/frames';
+    bad.searchParams.set('sid', crypto.randomUUID());
+    await expect(
+      new Promise((resolve, reject) => {
+        const ws = new WebSocket(bad.toString());
+        ws.once('open', () => resolve('opened'));
+        ws.once('error', reject);
+      }),
+    ).rejects.toBeTruthy();
+
+    const badSid = new URL(host!.url());
+    badSid.pathname = '/frames';
+    badSid.searchParams.set('sid', '../../etc');
+    await expect(
+      new Promise((resolve, reject) => {
+        const ws = new WebSocket(badSid.toString());
+        ws.once('open', () => resolve('opened'));
+        ws.once('error', reject);
+      }),
+    ).rejects.toBeTruthy();
+  }, 30_000);
 
   it('browser.shutdown 关掉浏览器,后续调用重新懒启动', async () => {
     const client = new TestClient(host!.url());

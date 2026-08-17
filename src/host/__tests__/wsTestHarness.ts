@@ -80,6 +80,9 @@ export async function startTestHost(
     port: 0,
     token,
     attachClient: (p) => core.attachClient(p),
+    // 云端浏览器预览帧的独立通道(与 host.ts 同一条接线;不接则 /frames 一律被拒)
+    attachFrameChannel: (ws, streamId) =>
+      core.frames.register(ws, streamId, (l) => logs.push(l)),
     handshakeTimeoutMs: opts.handshakeTimeoutMs,
     pingIntervalMs: opts.pingIntervalMs,
     maxPayload: opts.maxPayload,

@@ -376,8 +376,19 @@ export interface RpcMethods {
    * 画面不会把同隧道的终端输出与心跳挤到队尾(那条隧道 FIFO 无优先级)。
    */
   'browser.startPreview': {
-    params: { tabId?: string; maxWidth?: number; maxHeight?: number; quality?: number };
-    result: { tabId: string };
+    params: {
+      tabId?: string;
+      maxWidth?: number;
+      maxHeight?: number;
+      quality?: number;
+      /**
+       * 独立帧通道的关联 id(客户端自己生成的 UUID,先连 /frames?sid=<它> 再发本调用)。
+       * 带上 → 帧走那条**二进制**通道(独立 SSH channel,不与终端挤同一条 FIFO);
+       * 省略 → 退回主连接的 browser:frame JSON 消息(旧客户端零破坏)。
+       */
+      streamId?: string;
+    };
+    result: { tabId: string; /** 帧是否走了独立二进制通道(false = 退回 JSON) */ binary: boolean };
   };
   /** 停止推流(不关标签、不关浏览器)。tabId 省略 = 停全部。 */
   'browser.stopPreview': { params: { tabId?: string }; result: undefined };
@@ -417,7 +428,13 @@ export type BrowserInputEvent =
       text?: string;
       windowsVirtualKeyCode?: number;
       modifiers?: number;
-    };
+    }
+  /**
+   * 整段文本插入(输入法上屏 / 粘贴)。
+   * 🔴 中文一类的输入法上屏是「一次给出若干字」,粘贴更是任意长度——都不是按键事件,
+   * 硬拆成 char 会丢掉合成语义,也过不了监听 composition 的页面。
+   */
+  | { kind: 'text'; text: string };
 
 /** screencast 帧的位置/缩放信息(本地据此把点击坐标换算回页面坐标)。 */
 export interface BrowserFrameMetadata {

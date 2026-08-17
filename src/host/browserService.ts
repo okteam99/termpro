@@ -46,6 +46,8 @@ const LAUNCH_ATTEMPTS = 3;
 const LAUNCH_RETRY_DELAY_MS = 700;
 /** Browser.close 之后等进程自己退出的上限(超了就 SIGKILL,不无限等)。 */
 const GRACEFUL_EXIT_WAIT_MS = 3_000;
+/** 单次整段插入的上限(粘贴一篇长文是合理用法,但不能没有边)。 */
+const MAX_INSERT_TEXT_LENGTH = 32_768;
 
 export interface BrowserProcessLike {
   readonly pid?: number;
@@ -534,7 +536,12 @@ export class BrowserService {
    */
   async dispatchInput(event: BrowserInputEvent, tabId?: string): Promise<void> {
     const { b, session } = await this.target(tabId);
-    const modifiers = clampInt(event.modifiers, 0, 15, 0);
+    const modifiers = clampInt(
+      event.kind === 'text' ? 0 : event.modifiers,
+      0,
+      15,
+      0,
+    );
     if (event.kind === 'mouse') {
       if (!MOUSE_TYPES.has(event.type)) throw new Error(`bad mouse event: ${event.type}`);
       await b.conn.send(
@@ -552,6 +559,14 @@ export class BrowserService {
         },
         session,
       );
+      return;
+    }
+    if (event.kind === 'text') {
+      // 输入法上屏 / 粘贴:整段插入。走 Input.insertText 而不是拆成 char ——
+      // 中文一次上屏若干字,拆开发会丢掉合成语义,也过不了监听 composition 的页面。
+      const text = String(event.text ?? '').slice(0, MAX_INSERT_TEXT_LENGTH);
+      if (!text) return;
+      await b.conn.send('Input.insertText', { text }, session);
       return;
     }
     if (!KEY_TYPES.has(event.type)) throw new Error(`bad key event: ${event.type}`);
