@@ -123,7 +123,14 @@ npx vitest run src/renderer/services/__tests__/sessionReadoptNotice.test.ts \
 
 ## §6 fix-retry 历史
 
-无 fix-retry。dev 阶段先以旧生产实现得到预期红灯（1 failed / 5 passed），generation 修复后 focused 6/6、邻近 48/48 通过；Test stage 本轮直接复验绿灯。
+dev 阶段先以旧生产实现得到预期红灯（1 failed / 5 passed），generation 修复后 focused 6/6、邻近 48/48 通过。
+
+Test stage 首次让 `state.py --run-tests` 自采证据时，runner 实际 cwd 是 Feature 目录；使用 repo-relative `src/...` 路径导致 Vitest 报 `No test files found`。这是测试命令编排错误，不是产品测试失败。修正为先显式 `cd` 到绝对 repo root 后，复跑同一 integration 集合与 Python 驱动。
+
+| Round | test_commit | integration_exit | e2e_exit | fix_commit | addresses_findings | 备注 |
+|---|---|---|---|---|---|---|
+| 1 | `6811782` | 1 | 0 | cwd-correction commit | - | 环境/命令错误：runner cwd 在 Feature 目录，Vitest 找不到 repo-relative 测试路径 |
+| 2 | cwd-correction commit | 0 | 0 | - | - | 显式进入 repo root；邻近 48/48 + Python JSON PASS |
 
 ## §7 已知问题（不阻塞 · audit 留痕）
 
