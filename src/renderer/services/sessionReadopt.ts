@@ -139,6 +139,9 @@ function reapUnmappedLocalSession(
 
 /** hostId → 在途收养 promise(串行化尾指针) */
 const inflight = new Map<string, Promise<void>>();
+/** hostId → 最新收养请求代次。新请求会作废旧代的重试与用户提示,
+ * 但仍沿用 inflight 串行化,不让两代并发重建 tab。object token 避免清理后 ABA。 */
+const latestGeneration = new Map<string, object>();
 
 /** 收养失败重试退避(2026-07-23「连着但无法输入」):readoptHost 幂等(已收养 inst
  *  增量 re-attach 近零成本),整轮重跑安全。host 已 drop 时 getClient 落空 → readopt
@@ -173,6 +176,7 @@ function notifyAdoptFailed(tabId: string, error: unknown): void {
 /** 测试钩子:清空「已提示」记忆(生产由收养成功经 reconcileBadge 清位)。 */
 export function __resetAdoptNoticeMemoForTests(): void {
   noticedTabs.clear();
+  latestGeneration.clear();
 }
 
 /**
@@ -192,6 +196,10 @@ export function readoptHostSessions(
     sleep?: (ms: number) => Promise<void>;
   },
 ): Promise<void> {
+  const generation = {};
+  latestGeneration.set(hostId, generation);
+  const isLatestGeneration = (): boolean =>
+    latestGeneration.get(hostId) === generation;
   const delays = opts?.retryDelaysMs ?? READOPT_RETRY_DELAYS_MS;
   const sleep =
     opts?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -200,7 +208,15 @@ export function readoptHostSessions(
       reconcileBadge,
       rebuildTab: rebuildTabForSnapshot,
       // 终端可见提示只挂末次尝试:中间尝试静默重试,避免瞬断场景刷重复提示行
-      ...(isFinal ? { onAdoptFailed: notifyAdoptFailed } : {}),
+      ...(isFinal
+        ? {
+            onAdoptFailed: (tabId: string, error: unknown) => {
+              // 提示一旦写进 xterm 不可撤回。若新一轮重连收养已排队,
+              // 旧代的传输错误已过期,绝不能污染恢复成功后的终端。
+              if (isLatestGeneration()) notifyAdoptFailed(tabId, error);
+            },
+          }
+        : {}),
       // 本地孤儿回收策略仅挂 'local'(评审 P2-2);远程不传 → 默认 no-op 只做加法
       ...(hostId === 'local' ? { onUnadopted: reapUnmappedLocalSession } : {}),
     });
@@ -208,11 +224,28 @@ export function readoptHostSessions(
   const next = prev
     .then(async () => {
       for (let i = 0; ; i++) {
+        // 首次尝试始终执行,保持既有「并发调用串行各跑一轮」语义;
+        // 一旦已失败并准备重试,更新代次就取代旧代,避免继续白跑。
+        if (i > 0 && !isLatestGeneration()) {
+          console.warn(
+            '[sessionReadopt] obsolete readopt superseded hostId=%s before retry',
+            hostId,
+          );
+          return;
+        }
         const isFinal = i >= delays.length;
         try {
           await attempt(isFinal);
           return;
         } catch (err) {
+          if (!isLatestGeneration()) {
+            console.warn(
+              '[sessionReadopt] obsolete readopt failed hostId=%s — superseded by newer generation',
+              hostId,
+              err,
+            );
+            return;
+          }
           if (isFinal) throw err;
           console.warn(
             '[sessionReadopt] readopt attempt %d failed hostId=%s — retrying in %dms',
@@ -230,6 +263,7 @@ export function readoptHostSessions(
     })
     .finally(() => {
       if (inflight.get(hostId) === next) inflight.delete(hostId);
+      if (isLatestGeneration()) latestGeneration.delete(hostId);
     });
   inflight.set(hostId, next);
   return next;

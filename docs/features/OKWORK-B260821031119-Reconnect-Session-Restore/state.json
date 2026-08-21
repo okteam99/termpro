@@ -18,11 +18,17 @@
       "at": "2026-08-21T07:11:00Z",
       "source": "diagnose-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-21T08:07:35Z",
+      "source": "dev-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "diagnose",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "a96ab0a684fe04e97b2106d1f4f290d6d93267eb",
   "worktree": {
     "strategy": "auto",
     "branch": "fix/okwork-b260821031119-reconnect-session-restore",
@@ -40,18 +46,36 @@
   "auto_mode": false,
   "yolo": false,
   "concerns": [
-    "[WARN] prepare-check audit 仅 prefix 命中:窗内最近 record stem='OKWORK-B260821071051' ≠ 本次 feature_id='OKWORK-B260821031119-Reconnect-Session-Restore' · 并行多 feature 场景请确认 prepare 确为本 feature 跑过 · 必要时重跑 prepare-check 取本 feature 的 next_available_id_stem"
+    "[WARN] prepare-check audit 仅 prefix 命中:窗内最近 record stem='OKWORK-B260821071051' ≠ 本次 feature_id='OKWORK-B260821031119-Reconnect-Session-Restore' · 并行多 feature 场景请确认 prepare 确为本 feature 跑过 · 必要时重跑 prepare-check 取本 feature 的 next_available_id_stem",
+    "2026-08-21T08:13:37Z WARN dev lint baseline: full npm run lint exits 1 with 574 problems before cleanup (144 errors, 430 warnings); this change introduced 2 no-empty-function errors, both fixed together with 2 same-file pre-existing errors. Touched-file eslint now expected green; full-repo lint debt is outside this Bug scope and must be reviewed as baseline, not attributed to this fix."
   ],
   "review_round": 0,
   "stage_contracts": {
     "diagnose": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-21T07:11:00Z",
+      "await_minutes": 52,
+      "evidence": {},
+      "completed_at": "2026-08-21T08:07:31Z",
+      "auto_commit": "a96ab0a684fe04e97b2106d1f4f290d6d93267eb",
+      "artifacts": [
+        "bugfix/BUG-OKWORK-B260821031119-001.md"
+      ],
+      "duration_minutes": 56,
+      "active_minutes": 4
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-21T07:11:00Z"
+      "started_at": "2026-08-21T08:07:31Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "diagnose"
+  ],
   "created_at": "2026-08-21T07:10:56Z",
   "stage_review_roles": {
     "goal": [
@@ -71,16 +95,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-21T07:15:12Z",
-  "updated_by": "pause-mark",
+  "updated_at": "2026-08-21T08:13:37Z",
+  "updated_by": "add-concern",
   "_schema_version": 1,
-  "_state_checksum": "sha256:442a07a4555012dc3f2974153abddb782c224e1faa11ef84efc0b70e8a2bbeb0",
+  "_state_checksum": "sha256:d35dc7fc6e9c069b864a837c58ca08fa63071a85cbafcad964f49335fe2d02fe",
   "legal_next_stages": [
-    "dev"
+    "review"
   ],
-  "open_pause": {
-    "stage": "diagnose",
-    "label": "diagnose 根因与修复方案确认",
-    "started_at": "2026-08-21T07:15:12Z"
-  }
+  "execution_hints": {}
 }
