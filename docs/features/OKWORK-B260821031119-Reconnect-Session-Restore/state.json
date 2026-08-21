@@ -30,9 +30,15 @@
       "at": "2026-08-21T08:14:56Z",
       "source": "review-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-21T08:18:47Z",
+      "source": "test-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "a96ab0a684fe04e97b2106d1f4f290d6d93267eb",
   "worktree": {
@@ -92,15 +98,44 @@
       "active_minutes": 7
     },
     "review": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-21T08:14:48Z",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "completed_at": "2026-08-21T08:18:40Z",
+      "auto_commit": "89c12e1b5bf61843e3973776c6ea0a3a49283b61",
+      "artifacts": [
+        "REVIEW.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-21T08:14:48Z",
+          "completed_at": "2026-08-21T08:18:40Z",
+          "review_commit": "89c12e1b5bf61843e3973776c6ea0a3a49283b61",
+          "verdict": "APPROVE",
+          "new_findings_count": 0,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [],
+      "duration_minutes": 3,
+      "active_minutes": 3
+    },
+    "test": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-21T08:14:48Z"
+      "started_at": "2026-08-21T08:18:40Z"
     }
   },
   "completed_stages": [
     "diagnose",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-08-21T07:10:56Z",
   "stage_review_roles": {
@@ -121,13 +156,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-21T08:14:56Z",
-  "updated_by": "stage-cost",
+  "updated_at": "2026-08-21T08:18:47Z",
+  "updated_by": "review-preventability",
   "_schema_version": 1,
-  "_state_checksum": "sha256:49b2bb1f1f3ec17fb5c89c3595354c49e305f12a440ad9b8fa384f3d50968b56",
+  "_state_checksum": "sha256:819e56645aa6b1253b61c9a1c38010129b55d1d1fd9938017c8ad9e516817cab",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "pm_acceptance"
   ],
   "execution_hints": {},
   "stage_cost": [
@@ -140,6 +174,24 @@
       ],
       "note": "全仓 lint 既有 574 个问题，需定向归因并清掉本次 2 个新增错误；其余实现与验证一次收敛。",
       "at": "2026-08-21T08:14:56Z"
+    },
+    {
+      "stage": "review",
+      "rounds": 1,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "单路 fast 冷审一次 APPROVE，无 finding、无返工。",
+      "at": "2026-08-21T08:18:47Z"
+    }
+  ],
+  "authoring_preventability": [
+    {
+      "stage": "review",
+      "preventable": 0,
+      "total": 0,
+      "missing": [],
+      "note": "",
+      "at": "2026-08-21T08:18:47Z"
     }
   ]
 }
