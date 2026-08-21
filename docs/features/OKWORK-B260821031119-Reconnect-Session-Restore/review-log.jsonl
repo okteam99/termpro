@@ -1,6 +1,0 @@
-{"at": "2026-08-21T08:07:31Z", "event": "stage_completed", "stage": "diagnose", "auto_commit": "a96ab0a684fe04e97b2106d1f4f290d6d93267eb", "duration_minutes": 56, "artifacts": ["bugfix/BUG-OKWORK-B260821031119-001.md"]}
-{"at": "2026-08-21T08:14:48Z", "event": "stage_completed", "stage": "dev", "auto_commit": "fbc2be4b8e55fb9fa0566e07d1151b1eab11b236", "duration_minutes": 7, "artifacts": ["src/renderer/services/sessionReadopt.ts", "src/renderer/services/__tests__/sessionReadoptNotice.test.ts", "docs/features/OKWORK-B260821031119-Reconnect-Session-Restore/bugfix/BUG-OKWORK-B260821031119-001.md"]}
-{"at": "2026-08-21T08:18:40Z", "event": "stage_completed", "stage": "review", "auto_commit": "89c12e1b5bf61843e3973776c6ea0a3a49283b61", "duration_minutes": 3, "artifacts": ["REVIEW.md"]}
-{"at": "2026-08-21T08:22:11Z", "event": "stage_completed", "stage": "test", "auto_commit": "681178263119e265dbb2ba9195f3a8c69800da2a", "duration_minutes": 3, "artifacts": ["TEST-REPORT.md", "e2e/"]}
-{"at": "2026-08-21T08:23:13Z", "event": "stage_completed", "stage": "test", "auto_commit": "a18cb64a983151f46d0ae7e8690689cb96b5d16b", "duration_minutes": 0, "artifacts": ["TEST-REPORT.md", "e2e/"]}
-{"at": "2026-08-21T08:33:44Z", "event": "stage_completed", "stage": "pm_acceptance", "auto_commit": "91e285a6e209725bbd48db4c2f599d8fc118e351", "duration_minutes": 10, "artifacts": []}
