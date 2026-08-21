@@ -24,9 +24,15 @@
       "at": "2026-08-21T08:07:35Z",
       "source": "dev-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-21T08:14:56Z",
+      "source": "review-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "a96ab0a684fe04e97b2106d1f4f290d6d93267eb",
   "worktree": {
@@ -67,14 +73,34 @@
       "active_minutes": 4
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-21T08:07:31Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "PASS: npm test 210 files passed/4 skipped, 2128 tests passed/33 skipped; typecheck exit 0; touched eslint exit 0; Electron smoke SMOKE_OK exit 0."
+      },
+      "completed_at": "2026-08-21T08:14:48Z",
+      "auto_commit": "fbc2be4b8e55fb9fa0566e07d1151b1eab11b236",
+      "artifacts": [
+        "src/renderer/services/sessionReadopt.ts",
+        "src/renderer/services/__tests__/sessionReadoptNotice.test.ts",
+        "docs/features/OKWORK-B260821031119-Reconnect-Session-Restore/bugfix/BUG-OKWORK-B260821031119-001.md"
+      ],
+      "duration_minutes": 7,
+      "active_minutes": 7
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-21T08:07:31Z"
+      "started_at": "2026-08-21T08:14:48Z"
     }
   },
   "completed_stages": [
-    "diagnose"
+    "diagnose",
+    "dev"
   ],
   "created_at": "2026-08-21T07:10:56Z",
   "stage_review_roles": {
@@ -95,12 +121,25 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-21T08:13:37Z",
-  "updated_by": "add-concern",
+  "updated_at": "2026-08-21T08:14:56Z",
+  "updated_by": "stage-cost",
   "_schema_version": 1,
-  "_state_checksum": "sha256:d35dc7fc6e9c069b864a837c58ca08fa63071a85cbafcad964f49335fe2d02fe",
+  "_state_checksum": "sha256:49b2bb1f1f3ec17fb5c89c3595354c49e305f12a440ad9b8fa384f3d50968b56",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
-  "execution_hints": {}
+  "execution_hints": {},
+  "stage_cost": [
+    {
+      "stage": "dev",
+      "rounds": 4,
+      "overhead_rounds": 1,
+      "kinds": [
+        "lint-baseline-attribution"
+      ],
+      "note": "全仓 lint 既有 574 个问题，需定向归因并清掉本次 2 个新增错误；其余实现与验证一次收敛。",
+      "at": "2026-08-21T08:14:56Z"
+    }
+  ]
 }
