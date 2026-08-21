@@ -36,9 +36,15 @@
       "at": "2026-08-21T08:18:47Z",
       "source": "test-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-21T08:23:19Z",
+      "source": "pm_acceptance-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "pm_acceptance",
   "merge_target": "main",
   "review_base_commit": "a96ab0a684fe04e97b2106d1f4f290d6d93267eb",
   "worktree": {
@@ -129,13 +135,12 @@
       "input_satisfied": true,
       "process_satisfied": true,
       "output_satisfied": true,
-      "started_at": "2026-08-21T08:18:40Z",
+      "started_at": "2026-08-21T08:23:00Z",
       "evidence": {
-        "integration_test_exit_code": 1,
+        "integration_test_exit_code": 0,
         "e2e_test_exit_code": 0
       },
-      "completed_at": "2026-08-21T08:22:11Z",
-      "auto_commit": "681178263119e265dbb2ba9195f3a8c69800da2a",
+      "auto_commit": "a18cb64a983151f46d0ae7e8690689cb96b5d16b",
       "artifacts": [
         "TEST-REPORT.md",
         "e2e/"
@@ -149,17 +154,39 @@
           "integration_test_exit_code": 1,
           "e2e_test_exit_code": 0,
           "integration_diff_clean": null,
-          "current_failures": ""
+          "current_failures": "",
+          "fix_commit": "a18cb64a983151f46d0ae7e8690689cb96b5d16b",
+          "fix_at": "2026-08-21T08:23:00Z"
+        },
+        {
+          "round": 2,
+          "test_commit": "a18cb64a983151f46d0ae7e8690689cb96b5d16b",
+          "fix_commit": null,
+          "started_at": "2026-08-21T08:23:00Z",
+          "integration_test_exit_code": 0,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": null,
+          "current_failures": "",
+          "completed_at": "2026-08-21T08:23:13Z"
         }
       ],
-      "duration_minutes": 3,
-      "active_minutes": 3
+      "await_minutes": 0,
+      "completed_at": "2026-08-21T08:23:13Z",
+      "duration_minutes": 0,
+      "active_minutes": 0
+    },
+    "pm_acceptance": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-21T08:23:13Z"
     }
   },
   "completed_stages": [
     "diagnose",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-08-21T07:10:56Z",
   "stage_review_roles": {
@@ -180,12 +207,13 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-21T08:22:11Z",
-  "updated_by": "review-preventability",
+  "updated_at": "2026-08-21T08:23:38Z",
+  "updated_by": "pause-mark",
   "_schema_version": 1,
-  "_state_checksum": "sha256:78db0a4e228fc6bd2df066ecfb8552d0e7ef777b07a3b39a1fe7ffdf6649f3d2",
+  "_state_checksum": "sha256:bb6321962b94d0ed506077232c5be04ec2830ff23a21fadb9bb49579fda8e3eb",
   "legal_next_stages": [
-    "pm_acceptance"
+    "ship",
+    "dev"
   ],
   "execution_hints": {},
   "stage_cost": [
@@ -206,6 +234,16 @@
       "kinds": [],
       "note": "单路 fast 冷审一次 APPROVE，无 finding、无返工。",
       "at": "2026-08-21T08:18:47Z"
+    },
+    {
+      "stage": "test",
+      "rounds": 2,
+      "overhead_rounds": 1,
+      "kinds": [
+        "runner-cwd-correction"
+      ],
+      "note": "首轮 state.py runner 从 Feature 目录执行，repo-relative 路径导致假红；改显式 repo root 后 48/48 + Python PASS。",
+      "at": "2026-08-21T08:23:19Z"
     }
   ],
   "authoring_preventability": [
@@ -217,5 +255,10 @@
       "note": "",
       "at": "2026-08-21T08:18:47Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "pm_acceptance",
+    "label": "PM 验收发布决策",
+    "started_at": "2026-08-21T08:23:38Z"
+  }
 }
