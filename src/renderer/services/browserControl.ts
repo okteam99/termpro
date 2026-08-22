@@ -6,7 +6,10 @@
 // 说明:AI 操作的就是用户真实登录会话(带 cookie)——刻意为之(用户指令 2026-07-15,
 // 安全隔离暂不做)。控制层只做「能力」,不做「隔离/consent」。
 
-import { getBrowserView } from './browserViewRegistry';
+import {
+  getBrowserView,
+  requestBrowserViewMount,
+} from './browserViewRegistry';
 import { resolveBrowserTabNet, useAppStore } from '../state/store';
 import type { BrowserTabState } from '../state/store';
 import { resolveBrowserBackend, type BrowserBackend } from './cloudBrowserRouting';
@@ -134,9 +137,20 @@ export async function navigate(
   }
   const el = getBrowserView(targetId);
   // 先写 store 再导航:失败页(SSL/DNS 错)did-navigate 不回写,url 得先落镜像
-  // (与地址栏手动导航同语义);未挂载时写 store 兼触发 src 首次加载
+  // (与地址栏手动导航同语义)。未挂载的后台标签须显式请求 BrowserPanel lazy mount
+  // 并等 ref 注册;否则只改 store 就返回会形成「成功但零网络请求」的假成功。
   s.updateBrowserTab(terminalTabId, targetId, { url });
-  if (el) await el.loadURL(url);
+  if (el) {
+    await el.loadURL(url);
+  } else {
+    // browserControl 需要真实 view 才能完成后续 eval/screenshot。面板隐藏时把它打开,
+    // 但不切 workspace/terminal/browser tab 焦点;mount request 只增加后台 keep-alive。
+    if (!useAppStore.getState().browserPanelOpen) {
+      useAppStore.setState({ browserPanelOpen: true, filePanelCollapsed: true });
+    }
+    await requestBrowserViewMount(targetId);
+    // 新 webview 的初始 src 已取上面写入的 store URL,不可再 loadURL 一次造成双导航。
+  }
   return { browserTabId: targetId };
 }
 

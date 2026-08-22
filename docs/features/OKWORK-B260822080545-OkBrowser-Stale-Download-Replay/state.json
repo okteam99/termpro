@@ -89,10 +89,42 @@
       "active_minutes": 5
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
-      "started_at": "2026-08-22T10:20:26Z"
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-22T10:20:26Z",
+      "evidence": {
+        "verdict": "NEEDS_REVISION"
+      },
+      "completed_at": "2026-08-22T10:25:19Z",
+      "auto_commit": "1fb83e91fbe4d40b0a5932d58b268005ac50c339",
+      "artifacts": [
+        "REVIEW.md"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-22T10:20:26Z",
+          "completed_at": "2026-08-22T10:25:19Z",
+          "review_commit": "1fb83e91fbe4d40b0a5932d58b268005ac50c339",
+          "verdict": "NEEDS_REVISION",
+          "new_findings_count": 1,
+          "carried_open_count": 0
+        }
+      ],
+      "findings_ledger": [
+        {
+          "id": "F1",
+          "severity": "MAJOR",
+          "status": "open",
+          "title": "Programmatic browser_navigate on an unvisited background tab can report success without creating or loading a webview",
+          "source": "qa",
+          "deferred_reason": "",
+          "round_opened": 1
+        }
+      ],
+      "duration_minutes": 4,
+      "active_minutes": 4
     }
   },
   "completed_stages": [
@@ -118,10 +150,10 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-22T10:20:33Z",
+  "updated_at": "2026-08-22T10:25:19Z",
   "updated_by": "stage-cost",
   "_schema_version": 1,
-  "_state_checksum": "sha256:779eb5e30250fa8ac1cbb2c2b0346df7a532c361e1216b670b39dc967d7fe38f",
+  "_state_checksum": "sha256:285bc264247f49ccaf1316490d64cc46982b96174db262781fb1c6f92d32dcaa",
   "legal_next_stages": [
     "test",
     "dev"

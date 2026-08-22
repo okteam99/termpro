@@ -29,6 +29,7 @@ vi.mock('../../terminal/terminalRegistry', () => ({
 import { BrowserPanel } from '../BrowserPanel';
 import { useAppStore } from '../../state/store';
 import type { BrowserPaneState, WorkspaceState } from '../../state/store';
+import { requestBrowserViewMount } from '../../services/browserViewRegistry';
 
 const TERM = 'term1';
 
@@ -412,6 +413,50 @@ describe('BrowserPanel', () => {
         'https://downloads.example.test/solib/vbclient-so-1.1.4.zip',
       ]),
     );
+  });
+
+  it('AI 请求后台浏览器标签挂载时不切终端焦点,ref 注册后 resolve 且视图隐藏', async () => {
+    const ws: WorkspaceState = {
+      id: 'ws1',
+      name: 'w',
+      root: '/w',
+      hostId: 'local',
+      tabs: [
+        {
+          id: 'term-safe',
+          title: 'safe',
+          cwd: '/w',
+          browser: {
+            tabs: [
+              { id: 'safe-tab', url: 'https://safe.example.test' },
+              { id: 'background-tab', url: 'https://background.example.test' },
+            ],
+            activeTabId: 'safe-tab',
+          },
+        },
+      ],
+      activeTabId: 'term-safe',
+    };
+    useAppStore.setState({
+      workspaces: [ws],
+      activeWorkspaceId: 'ws1',
+      browserPanelOpen: true,
+    });
+
+    render(<BrowserPanel />);
+    expect(document.querySelector('webview[src="https://safe.example.test"]')).not.toBeNull();
+    expect(document.querySelector('webview[src="https://background.example.test"]')).toBeNull();
+
+    const mountPromise = requestBrowserViewMount('background-tab');
+    await waitFor(() =>
+      expect(document.querySelector('webview[src="https://background.example.test"]')).not.toBeNull(),
+    );
+    const backgroundView = document.querySelector(
+      'webview[src="https://background.example.test"]',
+    )!;
+    await expect(mountPromise).resolves.toBe(backgroundView);
+    expect(useAppStore.getState().workspaces[0].activeTabId).toBe('term-safe');
+    expect(backgroundView).toHaveStyle({ visibility: 'hidden' });
   });
 });
 

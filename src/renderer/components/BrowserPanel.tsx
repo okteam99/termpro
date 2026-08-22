@@ -16,7 +16,10 @@ import {
   isPasswordGuestStatus,
   type PasswordGuestStatus,
 } from '../../shared/passwordVault';
-import { registerBrowserView } from '../services/browserViewRegistry';
+import {
+  onBrowserViewMountRequested,
+  registerBrowserView,
+} from '../services/browserViewRegistry';
 import { describeNavError } from '../services/navErrorText';
 import type {
   BrowserNetworkSnapshot,
@@ -724,15 +727,24 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const [draft, setDraft] = useState('');
   const addressInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!activeTabId) return;
+  const retainBrowserTab = useCallback((browserTabId: string) => {
     setMountedBrowserTabIds((prev) => {
-      if (prev.has(activeTabId)) return prev;
+      if (prev.has(browserTabId)) return prev;
       const next = new Set(prev);
-      next.add(activeTabId);
+      next.add(browserTabId);
       return next;
     });
-  }, [activeTabId]);
+  }, []);
+
+  useEffect(() => {
+    if (!activeTabId) return;
+    retainBrowserTab(activeTabId);
+  }, [activeTabId, retainBrowserTab]);
+
+  useEffect(
+    () => onBrowserViewMountRequested(retainBrowserTab),
+    [retainBrowserTab],
+  );
 
   // 新开标签订阅(webview 内 target=_blank/window.open 经主进程回传);测试环境
   // window.okwork 可能不存在,可选链防御。
