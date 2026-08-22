@@ -24,9 +24,15 @@
       "at": "2026-08-22T10:14:48Z",
       "source": "dev-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-22T10:20:33Z",
+      "source": "review-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "dev",
+  "current_stage": "review",
   "merge_target": "main",
   "review_base_commit": "9b29c76000b1cd30d561ac5255046cdeed2c884c",
   "worktree": {
@@ -64,14 +70,34 @@
       "active_minutes": 1
     },
     "dev": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-22T10:14:41Z",
+      "evidence": {
+        "test_exit_code": 0,
+        "test_stdout": "PASS: touched eslint exit 0 (0 errors, 18 existing warnings); typecheck exit 0; npm test 202 files passed/12 skipped, 2048 tests passed/114 skipped; Electron smoke SMOKE_OK exit 0."
+      },
+      "completed_at": "2026-08-22T10:20:26Z",
+      "auto_commit": "f9375fe572ee48844a2484b10f26baa79c4f54f1",
+      "artifacts": [
+        "src/renderer/components/BrowserPanel.tsx",
+        "src/renderer/components/__tests__/BrowserPanel.test.tsx",
+        "docs/features/OKWORK-B260822080545-OkBrowser-Stale-Download-Replay/bugfix/BUG-OKWORK-B260822080545-001.md"
+      ],
+      "duration_minutes": 5,
+      "active_minutes": 5
+    },
+    "review": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-22T10:14:41Z"
+      "started_at": "2026-08-22T10:20:26Z"
     }
   },
   "completed_stages": [
-    "diagnose"
+    "diagnose",
+    "dev"
   ],
   "created_at": "2026-08-22T08:13:16Z",
   "stage_review_roles": {
@@ -92,12 +118,23 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-22T10:14:48Z",
-  "updated_by": "pause-mark",
+  "updated_at": "2026-08-22T10:20:33Z",
+  "updated_by": "stage-cost",
   "_schema_version": 1,
-  "_state_checksum": "sha256:7b6b0c7304cae6f74d521ba23ddd520783132955ab8208f58efd2d95daae1900",
+  "_state_checksum": "sha256:779eb5e30250fa8ac1cbb2c2b0346df7a532c361e1216b670b39dc967d7fe38f",
   "legal_next_stages": [
-    "review"
+    "test",
+    "dev"
   ],
-  "execution_hints": {}
+  "execution_hints": {},
+  "stage_cost": [
+    {
+      "stage": "dev",
+      "rounds": 3,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "红灯测试、lazy keep-alive 实现、既有 window.open 测试前置校正均产生有效验证价值，一轮收敛。",
+      "at": "2026-08-22T10:20:33Z"
+    }
+  ]
 }
