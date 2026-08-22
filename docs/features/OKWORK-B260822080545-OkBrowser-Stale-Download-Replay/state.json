@@ -30,9 +30,15 @@
       "at": "2026-08-22T10:20:33Z",
       "source": "review-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-22T10:34:04Z",
+      "source": "test-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "review",
+  "current_stage": "test",
   "merge_target": "main",
   "review_base_commit": "9b29c76000b1cd30d561ac5255046cdeed2c884c",
   "worktree": {
@@ -89,12 +95,14 @@
       "active_minutes": 5
     },
     "review": {
-      "input_satisfied": false,
-      "process_satisfied": false,
-      "output_satisfied": false,
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
       "started_at": "2026-08-22T10:30:24Z",
-      "evidence": {},
-      "auto_commit": "0765eaf018c1ab5d9ccdc747122afcc244668907",
+      "evidence": {
+        "verdict": "APPROVE"
+      },
+      "auto_commit": "44dc46c9d495f272241aec4e53794a948911209b",
       "artifacts": [
         "REVIEW.md"
       ],
@@ -115,29 +123,43 @@
         },
         {
           "round": 2,
-          "review_commit": null,
+          "review_commit": "44dc46c9d495f272241aec4e53794a948911209b",
           "fix_commit": null,
           "started_at": "2026-08-22T10:30:24Z",
-          "verdict": null
+          "verdict": "APPROVE",
+          "completed_at": "2026-08-22T10:33:52Z",
+          "new_findings_count": 0,
+          "carried_open_count": 0
         }
       ],
       "findings_ledger": [
         {
           "id": "F1",
           "severity": "MAJOR",
-          "status": "open",
+          "status": "fixed",
           "title": "Programmatic browser_navigate on an unvisited background tab can report success without creating or loading a webview",
           "source": "qa",
           "deferred_reason": "",
-          "round_opened": 1
+          "round_opened": 1,
+          "last_updated_round": 2
         }
       ],
-      "await_minutes": 0
+      "await_minutes": 0,
+      "completed_at": "2026-08-22T10:33:52Z",
+      "duration_minutes": 3,
+      "active_minutes": 3
+    },
+    "test": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-22T10:33:52Z"
     }
   },
   "completed_stages": [
     "diagnose",
-    "dev"
+    "dev",
+    "review"
   ],
   "created_at": "2026-08-22T08:13:16Z",
   "stage_review_roles": {
@@ -158,13 +180,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-22T10:30:24Z",
-  "updated_by": "stage-cost",
+  "updated_at": "2026-08-22T10:34:04Z",
+  "updated_by": "review-preventability",
   "_schema_version": 1,
-  "_state_checksum": "sha256:28619dc06a4513c64ba8907a643bbfeee840d292a18dd43b05b72dec192e2934",
+  "_state_checksum": "sha256:4486084e7a29675e7e2c8666944f2517f687a1f8455e25e9e460b64f31c6eb32",
   "legal_next_stages": [
-    "test",
-    "dev"
+    "pm_acceptance"
   ],
   "execution_hints": {},
   "stage_cost": [
@@ -175,6 +196,26 @@
       "kinds": [],
       "note": "红灯测试、lazy keep-alive 实现、既有 window.open 测试前置校正均产生有效验证价值，一轮收敛。",
       "at": "2026-08-22T10:20:33Z"
+    },
+    {
+      "stage": "review",
+      "rounds": 2,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "首轮发现后台 MCP navigate 假成功 MAJOR，修复后验证轮确认闭环；两轮均产生实际质量价值。",
+      "at": "2026-08-22T10:34:04Z"
+    }
+  ],
+  "authoring_preventability": [
+    {
+      "stage": "review",
+      "preventable": 1,
+      "total": 1,
+      "missing": [
+        "改变 BrowserView 挂载生命周期时枚举 browserControl/MCP 等程序化消费者"
+      ],
+      "note": "",
+      "at": "2026-08-22T10:34:04Z"
     }
   ]
 }
