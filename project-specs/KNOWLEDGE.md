@@ -25,6 +25,7 @@
 | RD-6 | **存进共享表、会被别人 `race`/`await` 的 promise,是已 `.catch` 的那条吗?** 裸 promise 一旦 reject,下游的 `.then` 整条不执行 | `pendingDisconnects` 存了裸 promise → reject 时排队的连接意图永久卡死 + 未处理 rejection |
 | RD-7 | **"有反馈"是给眼睛的还是只给读屏的?** `aria-busy` / `aria-live` 不产生任何像素 | 忙碌态只写 `aria-busy`,截图与常态**像素级相同** —— 用户点了 5 秒看不到任何变化,正是该 AC 明令禁止的症状 |
 | RD-8 | **同构分支复制了几份?** 每多一份,下一个新增的不变式就要记得在每一处各写一遍 —— 本 Feature 因此栽了**两次**(握手实现两份 / 三个只差 label 的按钮分支) | 设置页有独立的一份 `beginHandshake`,只给侧栏设闸 → 设置页留一条无人管理的活连接 |
+| RD-18 | **队列串行化是否被误当成了代次作废?** 同 key 的 Promise 排队只保证不并发,不会自动撤销旧任务的重试、提示或其它不可逆副作用;后到请求能取代前一代时,须另设 generation/token,且旧回调在副作用发生前动态验代 | `readoptHostSessions` 已按 hostId 串行,但旧轮最终 `session.attach` 失败仍把不可撤回提示写进 xterm;新轮随即成功后侧栏已绿,终端仍显示 `host connection lost`。修为 per-host object token:旧代失败停止重试,最终提示只允许最新代输出 |
 
 ### 🧪 测试工装类(写测试时防 · 这几条的共同特征是「长得像通过」)
 
@@ -43,7 +44,7 @@
 | RD-16 | **远端目标的 `ready` 是否和当前连接代的协议兼容性一起进入“可选 + 可提交”条件?** 只在 main 最终提交时拒绝会把确定性不兼容暴露成用户点 Continue 后才失败 | BL-007 迁移选择器最初只看 Host stage；review 发现旧 bundle 仍可选择，修为 generation-scoped `describe` 缓存/失效、renderer 禁用与 main 签计划前复验 |
 | RD-17 | **这条断言的输入，生产上谁会产生它?** 覆盖矩阵绿 ≠ 生产路径被验证 —— 这是本项目第二次栽(GO-033 是 seam 没接生产；GO-041 是接了生产但**测的分支不可达**)。写完 TC 逐条反问:该实现符号除了定义，有没有测试**从生产入口**触达它 | BL-008 的 T-006 断言 Host 会拒绝一个 `kind:'evicted'` 的 RPC——而设备侧 `if (cause === 'evicted') return;` 决定了它永远不会被发出;矩阵显示 AC-4 已覆盖，真正的抑制逻辑却零测试。同轮 AC-5 的 `host_upgrade` 提示链路同样零触达(两者均在 pm_acceptance 才被逐条对照抓出) |
 
-📌 **判据来源**:RD-1..RD-8、RD-15..RD-17 每条对应相关 Feature `REVIEW.md` 的 confirmed finding；RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
+📌 **判据来源**:RD-1..RD-8、RD-15..RD-17 每条对应相关 Feature `REVIEW.md` 的 confirmed finding；RD-18 来自 `OKWORK-B260821031119-Reconnect-Session-Restore` 的稳定竞态复现；RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
 📌 **清单会长**:同类第 2 次被抓即入;**已在清单里还复发 = 规避法不够硬,该强化那一条**,而不是再记一遍。
 
 ---

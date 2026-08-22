@@ -18,7 +18,14 @@ const { readoptHostSessions, reconcileBadge, __resetAdoptNoticeMemoForTests } =
   await import('../sessionReadopt');
 const { useAppStore } = await import('../../state/store');
 
-type Hooks = { onAdoptFailed?: (tabId: string, err: unknown) => void };
+type Hooks = {
+  onAdoptFailed?: (tabId: string, err: unknown) => void;
+  reconcileBadge?: (
+    hostId: string,
+    sessionId: string,
+    snapshot: Parameters<typeof reconcileBadge>[2],
+  ) => void;
+};
 
 /** 每次收养都在末次尝试对 tabId 报失败(= 生产里 per-inst 容错的失败回调)。 */
 function failingReadopt(tabId: string, message = 'rpc timeout: session.attach') {
@@ -32,8 +39,16 @@ function failingReadopt(tabId: string, message = 'rpc timeout: session.attach') 
 const runReconnect = (readopt: ReturnType<typeof failingReadopt>) =>
   readoptHostSessions('cfg-1', readopt as never, {
     retryDelaysMs: [0, 0],
-    sleep: async () => {},
+    sleep: async () => undefined,
   });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 const snap = (sessionId = 's1') =>
   ({
@@ -48,7 +63,7 @@ const snap = (sessionId = 's1') =>
   });
 
 beforeEach(() => {
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   writeTerminalNotice.mockClear();
   findTab.mockReset();
   __resetAdoptNoticeMemoForTests();
@@ -56,6 +71,37 @@ beforeEach(() => {
 });
 
 describe('收养失败提示去重', () => {
+  it('新一轮已排队并成功 → 旧一轮最终失败不写过期提示', async () => {
+    const firstStarted = deferred<void>();
+    const releaseFirst = deferred<void>();
+    const firstReadopt = vi.fn(async (_hostId: string, hooks: Hooks) => {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+      hooks.onAdoptFailed?.('t1', new Error('host connection lost'));
+      throw new Error('readopt incomplete');
+    });
+    const secondReadopt = vi.fn(async (_hostId: string, hooks: Hooks) => {
+      findTab.mockReturnValue('t1');
+      hooks.reconcileBadge?.('cfg-1', 's1', snap());
+    });
+
+    const first = readoptHostSessions('cfg-1', firstReadopt as never, {
+      retryDelaysMs: [],
+      sleep: async () => undefined,
+    });
+    await firstStarted.promise;
+    const second = readoptHostSessions('cfg-1', secondReadopt as never, {
+      retryDelaysMs: [],
+      sleep: async () => undefined,
+    });
+
+    releaseFirst.resolve();
+    await Promise.all([first, second]);
+
+    expect(secondReadopt).toHaveBeenCalledTimes(1);
+    expect(writeTerminalNotice).not.toHaveBeenCalled();
+  });
+
   it('反复闪断 → 同一 tab 只写一条提示(回归:连刷 5 遍)', async () => {
     for (let i = 0; i < 5; i++) await runReconnect(failingReadopt('t1'));
     expect(writeTerminalNotice).toHaveBeenCalledTimes(1);
