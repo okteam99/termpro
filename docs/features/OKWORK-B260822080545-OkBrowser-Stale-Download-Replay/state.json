@@ -1,0 +1,84 @@
+{
+  "feature_id": "OKWORK-B260822080545-OkBrowser-Stale-Download-Replay",
+  "bl": null,
+  "clarity": "explicit",
+  "preset": "full",
+  "sub_project": "",
+  "flow_type": "Bug",
+  "artifact_root": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-B260822080545-OkBrowser-Stale-Download-Replay/docs/features/OKWORK-B260822080545-OkBrowser-Stale-Download-Replay",
+  "host": "codex-cli",
+  "host_history": [
+    {
+      "host": "codex-cli",
+      "at": "2026-08-22T08:13:16Z",
+      "source": "init-feature"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-22T08:13:21Z",
+      "source": "diagnose-start",
+      "previous": "codex-cli"
+    }
+  ],
+  "current_stage": "diagnose",
+  "merge_target": "main",
+  "review_base_commit": null,
+  "worktree": {
+    "strategy": "auto",
+    "branch": "fix/okwork-b260822080545-okbrowser-stale-download-replay",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-B260822080545-OkBrowser-Stale-Download-Replay",
+    "base_branch": "origin/main",
+    "created_at": "2026-08-22T08:13:16Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "fix/okwork-b260822080545-okbrowser-stale-download-replay",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-08-22T08:13:16Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [],
+  "review_round": 0,
+  "stage_contracts": {
+    "diagnose": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-22T08:13:21Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-08-22T08:13:16Z",
+  "stage_review_roles": {
+    "goal": [
+      "fast"
+    ],
+    "blueprint": [],
+    "review": [
+      "fast"
+    ]
+  },
+  "stage_review_roles_adjustments": [
+    {
+      "stage": "*",
+      "roles": [],
+      "reason": "fast_mode(localconfig)· goal/review 各留单路合并评审 · 其余评审跳",
+      "adjusted_via": "fast_mode"
+    }
+  ],
+  "fast_mode": true,
+  "updated_at": "2026-08-22T08:14:55Z",
+  "updated_by": "pause-mark",
+  "_schema_version": 1,
+  "_state_checksum": "sha256:6f1b8451b3761bc3b332b9108b2de1ab48fb766d66c762db3b96cae1b8fec714",
+  "legal_next_stages": [
+    "dev"
+  ],
+  "open_pause": {
+    "stage": "diagnose",
+    "label": "diagnose 根因与修复方案确认",
+    "started_at": "2026-08-22T08:14:55Z"
+  }
+}
