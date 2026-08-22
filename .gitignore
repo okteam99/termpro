@@ -119,3 +119,5 @@ review_start.log
 # Teamwork local sensitive config dir (secrets · 绝不提交 · v8.89)
 .teamwork-local-env/
 .gstack/
+# Teamwork per-feature scratch (worktree 内 · ignored · 随 worktree 消亡)
+.teamwork-scratch*

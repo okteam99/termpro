@@ -10,3 +10,4 @@
 | [ADR-0002](ADR-0002-profile-password-vault-trust-boundaries.md) | Profile 密码库采用 main 权威与 guest/ordinary/trusted 三层最小权限边界 | accepted | 2026-08-10 | browser, password-vault, security, electron |
 | [ADR-0003](ADR-0003-remote-profile-authority-and-migration.md) | Remote Profile 采用单一权威、显式迁移与 Remote Host 同 UID 信任边界 | accepted | 2026-08-10 | browser, remote-host, profile, migration, security |
 | [ADR-0004](ADR-0004-profile-cookie-continuity-authority.md) | 登录连续性采用 Profile 级 Cookie 权威、Host 定序 revision 与 fail-closed hydration gate | accepted | 2026-08-13 | browser, remote-host, profile, cookie, concurrency, security |
+| [ADR-0005](ADR-0005-agent-harness-adapter.md) | Agent/Chat 模式经 ACP 形中立契约的 AgentHarness 适配层接入,opencode 为首个后端 | proposed(待 Spike S1) | 2026-08-18 | agent, harness, protocol, host, opencode |

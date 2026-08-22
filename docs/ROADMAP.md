@@ -96,6 +96,53 @@ graph LR
 | BL-007 | BL-006 | 远程 provider 复用已稳定的 Vault、guest 安全边界和 Profile 密码语义 |
 | BL-008 | BL-007 | Cookie 多设备对账复用 Profile 唯一权威位置、迁移和远程持久化协议 |
 
+## WS-03 · Agent/Chat 会话模式(多模型 API 接入)
+
+> 状态:🟡 评估完成 · BL-009(Spike)通过后进入开发。评估与设计权威 = [docs/features/agent-chat-mode.md](features/agent-chat-mode.md) + [ADR-0005](adr/ADR-0005-agent-harness-adapter.md)。
+> harness = opencode(适配层隔离,后端可换);workstream 机读文档待 /teamwork 启动时生成。
+> ⚠️ 前置开放决策 D1(README non-goal 措辞)/ D2(二进制按需下载)/ D3(key 存储)见 feature 文档 §0.3。
+
+### Wave 1(Spike 定案,并行度:1)
+
+| Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
+|-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
+| BL-009 | opencode Spike 验证与选型定案 | P0 | S1 流式稳定性压测(一票否决)+ S2 多项目并发路由 + S3 审批闭环与断线对账 | ① 20+ 轮长任务无断流、RSS 无单调上涨、abort 即时 ② 3 directory 并发零串台 ③ 审批往返 + 重连后待批/历史无丢失;产出 go/no-go 并翻转 ADR-0005 状态 | 无 | 📋 规划 | - | - | WS-03 |
+
+### Wave 2(前置:BL-009 go)
+
+| Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
+|-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
+| BL-010 | agent.* 协议 + Host 适配层 | P0 | SessionSnapshot 加可选 kind + agent.* RPC 族/事件 + 能力位;AgentSessionService(seq 事件日志 + attach 回放);AgentHarness 接口 + MockHarness + OpencodeHarness(supervisor/SSE 解复用/part 投影/对账) | ① 契约测试 Mock 与 opencode 双后端全绿 ② agent.attach 断线增量补齐 ③ 防泄漏纪律 grep 检查过(protocol/renderer 零 opencode 痕迹)④ 旧客户端零破坏 | BL-009 | 📋 规划 | - | - | WS-03 |
+
+### Wave 3(前置:BL-010)
+
+| Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
+|-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
+| BL-011 | Agent Chat UI 最小可用 | P0 | TabState/PersistedTab 加 kind;App 按 kind 分派;AgentChatView(流式渲染/工具卡片/停止)+ chatRegistry 跨挂载存活;TabBar 新建入口与图标 | ① 对 MockHarness 全流程可用(发送/流式/工具态/停止)② 真实 opencode 联调冒烟过 ③ terminal 功能零回归 | BL-010 | 📋 规划 | - | - | WS-03 |
+
+### Wave 4(前置:BL-011,并行度:2 ⚠️ 同改 protocol.ts,分区块追加、先合先赢)
+
+| Feature ID | 功能名称 | 优先级 | 描述 | 核心验收标准 | 依赖 | 状态 | 当前阶段 | 对应 F编号 | 关联 WS |
+|-----------|---------|--------|------|-------------|------|------|----------|----------|--------|
+| BL-012 | 审批 + diff + provider 配置 | P0 | ApprovalCard 审批卡片;diff 查看(worker 化);provider/模型选择与 API key 管理 UI(D3:key 经协议写 opencode auth,不落 renderer);预置三方算力 provider(OpenAI 兼容,feature 文档 §1.5 清单核实后经 OPENCODE_CONFIG_CONTENT 注入)+ 自定义 OpenAI 兼容端点表单 | ① ask 工具走 UI 审批闭环(含重连恢复)② agent 改动 diff 可视 ③ key 不经 renderer 持久化、远程场景落远端 host | BL-011 | 📋 规划 | - | - | WS-03 |
+| BL-013 | 持久化 / 收养 / 分发 | P1 | sessionReadopt 按 kind 分叉收养;opencode 二进制按需下载(D2,本机与远程 host 复用);standalone 断线续跑语义对齐 | ① 重启/断线后 agent 会话收养回放 ② 远程 workspace 可开 agent 会话 ③ 未安装 opencode 时优雅降级不影响 terminal | BL-011 | 📋 规划 | - | - | WS-03 |
+
+## WS-03 依赖关系
+
+```mermaid
+graph LR
+  BL-009 --> BL-010
+  BL-010 --> BL-011
+  BL-011 --> BL-012
+  BL-011 --> BL-013
+```
+
+| Feature | 依赖 | 原因 |
+|---------|------|------|
+| BL-010 | BL-009 | Spike no-go 则整线转向(opencode ACP 模式或等 dsh),不预付开发成本 |
+| BL-011 | BL-010 | UI 对着 MockHarness 开发,依赖协议与适配层先行 |
+| BL-012 / BL-013 | BL-011 | 审批/diff 与收养/分发都建立在最小可用 chat 链路上 |
+
 ## 技术债清单
 
 | 债务 ID | 描述 | 产生原因 | 影响范围 | 严重程度 | 建议清理时间 | 来源 | 状态 |
@@ -106,5 +153,6 @@ graph LR
 
 | 日期 | 变更 |
 |------|------|
+| 2026-08-18 | WS-03(Agent/Chat 会话模式)拆出 BL-009…BL-013;harness=opencode 经 AgentHarness 适配层(ADR-0005);评估与设计见 docs/features/agent-chat-mode.md |
 | 2026-08-05 | WS-02 登录连续性拆出 BL-006…BL-008；用户确认 3A 范围与三阶段串行交付 |
 | 2026-07-09 | 初始规划：WS-01（M5 远程 Host · 模型 A）拆出 BL-001…BL-005 |
