@@ -24,3 +24,4 @@
 | OKWORK-F260810051623-Remote-Profile-Authority | 为每个 Browser Profile 提供本机或 Remote Host 唯一权威存储，远端加密保存配置与密码，支持可恢复迁移、断线 fail-closed、兼容性校验与 Host 删除依赖保护。 | 2026-08-10T14:51:59Z | `OKWORK-F260810051623-Remote-Profile-Authority.zip` |
 | OKWORK-F260810151932-Browser-Profile-Login-Continuity | Browser Profile 登录连续性漫游:同一 Profile 的登录 Cookie 以 Profile 级权威在多设备与多网络出口间对账,换设备连接同一 Remote Host 即可延续常见站点登录;session-only Cookie 留在本机,LocalStorage/IndexedDB/Cache 不上传。 | 2026-08-13T03:01:17Z | `OKWORK-F260810151932-Browser-Profile-Login-Continuity.zip` |
 | OKWORK-B260821031119-Reconnect-Session-Restore | 修复远程 Host 重连期间会话收养代次竞态：新恢复已排队并成功时，不再把旧轮 host connection lost 提示写入终端；保留最新轮真实失败的按键自愈语义。 | 2026-08-21T08:36:10Z | `OKWORK-B260821031119-Reconnect-Session-Restore.zip` |
+| OKWORK-B260822080545-OkBrowser-Stale-Download-Replay | 修复 OkBrowser 打开任意链接时重放历史下载的问题：持久化后台标签改为按需挂载，并保证程序化后台导航等待真实 webview 就绪且不抢焦点。 | 2026-08-23T00:27:56Z | `OKWORK-B260822080545-OkBrowser-Stale-Download-Replay.zip` |

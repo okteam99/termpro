@@ -16,7 +16,10 @@ import {
   isPasswordGuestStatus,
   type PasswordGuestStatus,
 } from '../../shared/passwordVault';
-import { registerBrowserView } from '../services/browserViewRegistry';
+import {
+  onBrowserViewMountRequested,
+  registerBrowserView,
+} from '../services/browserViewRegistry';
 import { describeNavError } from '../services/navErrorText';
 import type {
   BrowserNetworkSnapshot,
@@ -713,10 +716,35 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
   const [passwordStates, setPasswordStates] = useState<
     Record<string, { status: PasswordGuestStatus; guestId: number }>
   >({});
+  // 本次 BrowserPanel 挂载期间真正访问过的标签。面板每次从隐藏态重开时从空集开始,
+  // 当前标签由下面渲染门立即放行并在 effect 中加入;之后切走仍保活,但磁盘恢复的
+  // 后台历史标签不会被 eager mount——尤其避免直接下载 URL 在不可见 webview 中重放。
+  const [mountedBrowserTabIds, setMountedBrowserTabIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   // 地址栏编辑态:聚焦进入(draft=当前 url),Enter 提交/Esc 放弃后失焦退出
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const addressInputRef = useRef<HTMLInputElement>(null);
+
+  const retainBrowserTab = useCallback((browserTabId: string) => {
+    setMountedBrowserTabIds((prev) => {
+      if (prev.has(browserTabId)) return prev;
+      const next = new Set(prev);
+      next.add(browserTabId);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!activeTabId) return;
+    retainBrowserTab(activeTabId);
+  }, [activeTabId, retainBrowserTab]);
+
+  useEffect(
+    () => onBrowserViewMountRequested(retainBrowserTab),
+    [retainBrowserTab],
+  );
 
   // 新开标签订阅(webview 内 target=_blank/window.open 经主进程回传);测试环境
   // window.okwork 可能不存在,可选链防御。
@@ -805,6 +833,10 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
       return kept.length === Object.keys(prev).length
         ? prev
         : Object.fromEntries(kept);
+    });
+    setMountedBrowserTabIds((prev) => {
+      const kept = new Set([...prev].filter((id) => liveIds.has(id)));
+      return kept.size === prev.size ? prev : kept;
     });
   }, [workspaces]);
 
@@ -1244,10 +1276,9 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
           )}
 
           <div className="browser-panel__views">
-            {/* 🔴 保活:遍历所有 workspace 的所有终端 tab 的浏览器窗格(不止活跃终端 tab),
-            为每个浏览器标签渲染一个常驻 webview,可见性用 CSS visibility 切换——绝不能
-            只挂载活跃 tab 的 webview,否则切终端 tab/切 workspace 时旧标签会被卸载重挂,
-            <webview> reparent/remount 必重新加载页面。
+            {/* 🔴 lazy keep-alive:遍历全局标签只为找到当前/本次已访问的集合;首次打开
+            面板不复活磁盘恢复的后台 webview。当前标签立即挂载,访问过的标签切走后仍以
+            visibility 隐藏保活——不能退化成「永远只挂 active」,否则每次切换都会 reload。
             已弹出窗格(poppedOut)跳过:其 webview 活在壳窗,主窗渲染=同页双载。 */}
             {workspaces.flatMap((w) => {
               // 分区 = profile × 出口 二维:workspace 的 profile 定第一维,标签出口定第二维。
@@ -1265,6 +1296,10 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
               return w.tabs.flatMap((tb) =>
                 (tb.browser?.poppedOut ? [] : (tb.browser?.tabs ?? [])).map(
                   (bt) => {
+                    const isActive =
+                      tb.id === activeTermTabId &&
+                      bt.id === (tb.browser?.activeTabId ?? null);
+                    if (!isActive && !mountedBrowserTabIds.has(bt.id)) return null;
                     // 分区/UA 掺进 key——换出口/换 profile/改 UA 即重挂重载该标签
                     // (webview partition 创建后不可变,Chromium 语义;UA 变更同语义处理)
                     const netHostId = resolveBrowserTabNet(bt, w.hostId);
@@ -1280,10 +1315,7 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
                         partition={partition}
                         useragent={userAgent}
                         url={bt.url}
-                        active={
-                          tb.id === activeTermTabId &&
-                          bt.id === (tb.browser?.activeTabId ?? null)
-                        }
+                        active={isActive}
                         onWebviewRef={handleWebviewRef}
                         onNavChange={handleNavChange}
                         onUrlChange={handleUrlChange}

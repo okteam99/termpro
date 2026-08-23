@@ -4,7 +4,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '../../state/store';
 import type { WorkspaceState } from '../../state/store';
-import { registerBrowserView, __clearBrowserViewsForTest } from '../browserViewRegistry';
+import {
+  registerBrowserView,
+  onBrowserViewMountRequested,
+  __clearBrowserViewsForTest,
+} from '../browserViewRegistry';
 import * as bc from '../browserControl';
 
 const TERM = 'term1';
@@ -95,6 +99,40 @@ describe('控制原语', () => {
     expect(useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url).toBe(
       'https://new.dev',
     );
+  });
+
+  it('navigate:后台标签未挂载 → 请求 BrowserPanel 挂载并等待 ref,不对新 view 二次 loadURL', async () => {
+    seed({
+      tabs: [
+        { id: 'a', url: 'https://active.dev' },
+        { id: 'b', url: 'https://background.dev' },
+      ],
+      activeTabId: 'a',
+    });
+    useAppStore.setState({ browserPanelOpen: false });
+
+    let requestedId: string | undefined;
+    const unsubscribe = onBrowserViewMountRequested((browserTabId) => {
+      requestedId = browserTabId;
+    });
+    let settled = false;
+    const navigation = bc.navigate(TERM, 'https://new.dev', 'b').then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await vi.waitFor(() => expect(requestedId).toBe('b'));
+    expect(settled).toBe(false);
+
+    const view = fakeView();
+    registerBrowserView('b', view);
+    await expect(navigation).resolves.toEqual({ browserTabId: 'b' });
+    expect(useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[1].url).toBe(
+      'https://new.dev',
+    );
+    expect(useAppStore.getState().browserPanelOpen).toBe(true);
+    expect(view.loadURL).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it('评审 P2-9:navigate 拒绝预览标签(preview===true,出口钉死 + URL 含一次性 token)', async () => {

@@ -29,6 +29,7 @@ vi.mock('../../terminal/terminalRegistry', () => ({
 import { BrowserPanel } from '../BrowserPanel';
 import { useAppStore } from '../../state/store';
 import type { BrowserPaneState, WorkspaceState } from '../../state/store';
+import { requestBrowserViewMount } from '../../services/browserViewRegistry';
 
 const TERM = 'term1';
 
@@ -333,6 +334,130 @@ describe('BrowserPanel', () => {
     expect(screen.getByText('B')).toBeInTheDocument();
     expect(screen.queryByText('A')).not.toBeInTheDocument();
   });
+
+  it('只挂当前终端的浏览器标签,激活后台 ZIP 后挂载并在切回时保活', async () => {
+    const ws: WorkspaceState = {
+      id: 'ws1',
+      name: 'w',
+      root: '/w',
+      hostId: 'local',
+      tabs: [
+        {
+          id: 'term-safe',
+          title: 'safe',
+          cwd: '/w',
+          browser: {
+            tabs: [
+              {
+                id: 'github-tab',
+                url: 'https://github.com/openai/codex/pulls',
+                title: 'GitHub',
+              },
+            ],
+            activeTabId: 'github-tab',
+          },
+        },
+        {
+          id: 'term-download',
+          title: 'download',
+          cwd: '/w',
+          browser: {
+            tabs: [
+              {
+                id: 'zip-tab',
+                url: 'https://downloads.example.test/solib/vbclient-so-1.1.4.zip',
+                title: 'vbclient-so-1.1.4.zip',
+              },
+            ],
+            activeTabId: 'zip-tab',
+          },
+        },
+      ],
+      activeTabId: 'term-safe',
+    };
+    useAppStore.setState({
+      workspaces: [ws],
+      activeWorkspaceId: 'ws1',
+      browserPanelOpen: true,
+    });
+
+    render(<BrowserPanel />);
+
+    const mountedUrls = () =>
+      Array.from(document.querySelectorAll('webview')).map((view) =>
+        view.getAttribute('src'),
+      );
+    expect(mountedUrls()).toEqual([
+      'https://github.com/openai/codex/pulls',
+    ]);
+    expect(mountedUrls()).not.toContain(
+      'https://downloads.example.test/solib/vbclient-so-1.1.4.zip',
+    );
+
+    act(() => {
+      useAppStore.getState().setActiveTab('ws1', 'term-download');
+    });
+    await waitFor(() =>
+      expect(mountedUrls()).toEqual([
+        'https://github.com/openai/codex/pulls',
+        'https://downloads.example.test/solib/vbclient-so-1.1.4.zip',
+      ]),
+    );
+
+    act(() => {
+      useAppStore.getState().setActiveTab('ws1', 'term-safe');
+    });
+    await waitFor(() =>
+      expect(mountedUrls()).toEqual([
+        'https://github.com/openai/codex/pulls',
+        'https://downloads.example.test/solib/vbclient-so-1.1.4.zip',
+      ]),
+    );
+  });
+
+  it('AI 请求后台浏览器标签挂载时不切终端焦点,ref 注册后 resolve 且视图隐藏', async () => {
+    const ws: WorkspaceState = {
+      id: 'ws1',
+      name: 'w',
+      root: '/w',
+      hostId: 'local',
+      tabs: [
+        {
+          id: 'term-safe',
+          title: 'safe',
+          cwd: '/w',
+          browser: {
+            tabs: [
+              { id: 'safe-tab', url: 'https://safe.example.test' },
+              { id: 'background-tab', url: 'https://background.example.test' },
+            ],
+            activeTabId: 'safe-tab',
+          },
+        },
+      ],
+      activeTabId: 'term-safe',
+    };
+    useAppStore.setState({
+      workspaces: [ws],
+      activeWorkspaceId: 'ws1',
+      browserPanelOpen: true,
+    });
+
+    render(<BrowserPanel />);
+    expect(document.querySelector('webview[src="https://safe.example.test"]')).not.toBeNull();
+    expect(document.querySelector('webview[src="https://background.example.test"]')).toBeNull();
+
+    const mountPromise = requestBrowserViewMount('background-tab');
+    await waitFor(() =>
+      expect(document.querySelector('webview[src="https://background.example.test"]')).not.toBeNull(),
+    );
+    const backgroundView = document.querySelector(
+      'webview[src="https://background.example.test"]',
+    )!;
+    await expect(mountPromise).resolves.toBe(backgroundView);
+    expect(useAppStore.getState().workspaces[0].activeTabId).toBe('term-safe');
+    expect(backgroundView).toHaveStyle({ visibility: 'hidden' });
+  });
 });
 
 describe('BrowserPanel · window.open 按来源落位', () => {
@@ -374,15 +499,29 @@ describe('BrowserPanel · window.open 按来源落位', () => {
     return { fire: (url, sourceId) => captured?.(url, sourceId) };
   }
 
-  it('后台终端 tab 的 webview 弹窗 → 新标签落回该 tab 的窗格并激活,不抢终端焦点、不动活跃窗格', () => {
+  it('后台终端 tab 的 webview 弹窗 → 新标签落回该 tab 的窗格并激活,不抢终端焦点、不动活跃窗格', async () => {
     const channel = mockOpenUrlChannel();
     seedTwoTermTabs();
     render(<BrowserPanel />);
 
-    // jsdom 的 <webview> 是惰性元素,不带 getWebContentsId——给「来源」(term2 的 b)打上桩
-    const views = Array.from(document.querySelectorAll('webview'));
-    const sourceView = views.find((v) => v.getAttribute('src') === 'https://b.com')!;
+    // lazy mount 下先真实激活来源终端,让 b.com webview 创建并进入本次面板会话保活集合。
+    act(() => {
+      useAppStore.getState().setActiveTab('ws1', 'term2');
+    });
+    await waitFor(() =>
+      expect(document.querySelector('webview[src="https://b.com"]')).not.toBeNull(),
+    );
+    const sourceView = document.querySelector('webview[src="https://b.com"]')!;
     (sourceView as unknown as { getWebContentsId(): number }).getWebContentsId = () => 222;
+
+    // 切回 term1 后来源 webview 应仍存在,但已隐藏为后台视图,证明它是 keep-alive 而非当前视图偶然命中。
+    act(() => {
+      useAppStore.getState().setActiveTab('ws1', 'term1');
+    });
+    await waitFor(() => {
+      expect(sourceView).toBeInTheDocument();
+      expect(sourceView).toHaveStyle({ visibility: 'hidden' });
+    });
 
     act(() => channel.fire('https://popup.com', 222));
 

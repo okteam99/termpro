@@ -107,6 +107,7 @@
 | GO-039 | remote/security | **Remote Profile 的 main-only RPC 是应用接口隔离，不是同 SSH UID 的 OS 隔离**：配置 SSH 用户、Remote Host 管理员及以该用户运行的任意 FS/PTY 进程都可读取 master key 与密文并解密；`0700/0600` 只挡其他 UID | 产品与确认 UI 必须明确该信任边界；普通 renderer 仍不得获得专用 Profile/Vault API 或 capability。若要隔离同 UID Agent，只能改为独立 OS principal/第二 SSH 身份或 E2EE，不能靠路径 deny、capability 或权限位话术 | 2026-08 | OKWORK-F260810051623-Remote-Profile-Authority |
 | GO-040 | test/worktree | **worktree 里不装 node_modules 时，起真实子进程的测试会整片挂掉且症状像回归**：`src/host/__tests__/hostSubprocessHarness.ts` 把 host 打成临时目录里的 CJS bundle，再用 `NODE_PATH = path.resolve(__dirname,'../../..') + '/node_modules'` 让子进程解析 external 依赖（node-pty / ws / bufferutil / utf-8-validate）。vitest 自身靠 Node 向上查找命中**父仓库**的 node_modules 所以照常跑，但那条显式 NODE_PATH 指的是 **worktree 根**——空目录 → `Cannot find module 'node-pty'` → `portFile.test.ts` 7 例全红 | 在 worktree 跑测试前先确认依赖可解析：`npm ci`，或对 external 依赖软链父仓库（`ln -s ../../node_modules/node-pty node_modules/node-pty`，另需 ws；跑 `electron-forge` 还要 electron）。**判据**：只有起子进程的套件红、其余全绿 → 先怀疑依赖解析而非代码回归 | 2026-08 | OKWORK-F260810151932-Browser-Profile-Login-Continuity |
 | GO-041 | test/coverage | **「测了一个真实系统不会发生的输入」= 比幽灵覆盖更难识破的假覆盖**：TC 声称覆盖某 AC，测试也真跑真绿，但它构造的输入在生产路径上**永远不会出现**（BL-008 的 T-006 构造了一个 `kind:'evicted'` 的 RPC 请求断言 Host schema 会拒绝它——而设备侧代码 `if (cause === 'evicted') return;` 决定了这种请求根本不会被发出）。矩阵显示 10/10 覆盖，真正的抑制逻辑却是黑盒。与 GO-033 的区别：GO-033 是 seam 没接生产，这条是**接了生产但测的分支不可达** | 写 TC 时对每条断言追问「生产上**谁**会产生这个输入」；review/pm_acceptance 对声称覆盖的 AC 做反向 grep（该实现符号除了定义还有没有测试**从生产入口**触达）。识别信号：测试断言的是"防御性拒绝"，而真实防御在更上游 | 2026-08 | OKWORK-F260810151932-Browser-Profile-Login-Continuity |
+| GO-042 | browser/lifecycle | **持久化 browser tab 的“可恢复”不能等同于 BrowserPanel 挂载时“立即执行”**：eager mount 所有 workspace/terminal 的历史 webview 会重新请求后台 URL；历史 `application/zip` 标签因此在用户打开任意安全链接时重放 Save As。改成 lazy mount 后，还须枚举 `browserControl`/MCP 等程序化消费者，否则后台 navigate 会只改 store 并返回假成功 | BrowserPanel 首帧只挂当前标签；本次 panel 生命周期实际访问或收到显式 mount request 的标签进入 keep-alive。程序化后台导航必须请求挂载并等待真实 webview ref，且不得抢用户焦点或对新 view 重复 `loadURL` | 2026-08 | OKWORK-B260822080545-OkBrowser-Stale-Download-Replay |
 
 ---
 
@@ -152,6 +153,7 @@
 - **notify**: GO-012, GO-014, GO-016
 - **test**: GO-017, GO-038(security), GO-040(worktree 依赖), GO-041(不可达输入假覆盖)
 - **lifecycle**: GO-019
+- **browser/lifecycle**: GO-042
 - **remote/security**: GO-025, GO-039
 - **remote/concurrency**: GO-026
 - **remote/deploy**: GO-027, GO-024(build), GO-037
