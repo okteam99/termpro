@@ -36,9 +36,15 @@
       "at": "2026-08-22T10:34:04Z",
       "source": "test-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-22T10:37:56Z",
+      "source": "pm_acceptance-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "test",
+  "current_stage": "pm_acceptance",
   "merge_target": "main",
   "review_base_commit": "9b29c76000b1cd30d561ac5255046cdeed2c884c",
   "worktree": {
@@ -150,16 +156,47 @@
       "active_minutes": 3
     },
     "test": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-22T10:33:52Z",
+      "evidence": {
+        "integration_test_exit_code": 0,
+        "e2e_test_exit_code": 0
+      },
+      "completed_at": "2026-08-22T10:37:47Z",
+      "auto_commit": "59c79ba",
+      "artifacts": [
+        "TEST-REPORT.md",
+        "e2e/"
+      ],
+      "rounds": [
+        {
+          "round": 1,
+          "started_at": "2026-08-22T10:33:52Z",
+          "completed_at": "2026-08-22T10:37:47Z",
+          "test_commit": "59c79ba",
+          "integration_test_exit_code": 0,
+          "e2e_test_exit_code": 0,
+          "integration_diff_clean": null,
+          "current_failures": ""
+        }
+      ],
+      "duration_minutes": 3,
+      "active_minutes": 3
+    },
+    "pm_acceptance": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-22T10:33:52Z"
+      "started_at": "2026-08-22T10:37:47Z"
     }
   },
   "completed_stages": [
     "diagnose",
     "dev",
-    "review"
+    "review",
+    "test"
   ],
   "created_at": "2026-08-22T08:13:16Z",
   "stage_review_roles": {
@@ -180,12 +217,13 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-22T10:34:04Z",
-  "updated_by": "review-preventability",
+  "updated_at": "2026-08-22T10:38:02Z",
+  "updated_by": "pause-mark",
   "_schema_version": 1,
-  "_state_checksum": "sha256:4486084e7a29675e7e2c8666944f2517f687a1f8455e25e9e460b64f31c6eb32",
+  "_state_checksum": "sha256:8ada6cd6dc9add0d05e7dde3cc163ed6c05faff290d826b6084a354bcad929ea",
   "legal_next_stages": [
-    "pm_acceptance"
+    "ship",
+    "dev"
   ],
   "execution_hints": {},
   "stage_cost": [
@@ -204,6 +242,14 @@
       "kinds": [],
       "note": "首轮发现后台 MCP navigate 假成功 MAJOR，修复后验证轮确认闭环；两轮均产生实际质量价值。",
       "at": "2026-08-22T10:34:04Z"
+    },
+    {
+      "stage": "test",
+      "rounds": 1,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "定向 integration 与可重跑 Python 驱动首轮全绿，状态机复跑采证无返工。",
+      "at": "2026-08-22T10:37:52Z"
     }
   ],
   "authoring_preventability": [
@@ -217,5 +263,10 @@
       "note": "",
       "at": "2026-08-22T10:34:04Z"
     }
-  ]
+  ],
+  "open_pause": {
+    "stage": "pm_acceptance",
+    "label": "PM 验收决策",
+    "started_at": "2026-08-22T10:38:02Z"
+  }
 }
