@@ -42,9 +42,15 @@
       "at": "2026-08-22T10:37:56Z",
       "source": "pm_acceptance-start",
       "previous": "codex-cli"
+    },
+    {
+      "host": "codex-cli",
+      "at": "2026-08-23T00:26:41Z",
+      "source": "ship-start",
+      "previous": "codex-cli"
     }
   ],
-  "current_stage": "pm_acceptance",
+  "current_stage": "ship",
   "merge_target": "main",
   "review_base_commit": "9b29c76000b1cd30d561ac5255046cdeed2c884c",
   "worktree": {
@@ -186,17 +192,36 @@
       "active_minutes": 3
     },
     "pm_acceptance": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-22T10:37:47Z",
+      "await_minutes": 828,
+      "evidence": {
+        "decision": "approved_and_ship",
+        "note": ""
+      },
+      "completed_at": "2026-08-23T00:26:37Z",
+      "auto_commit": "0b0ace2",
+      "artifacts": [
+        "PM-NOTE.md"
+      ],
+      "duration_minutes": 828,
+      "active_minutes": 0
+    },
+    "ship": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-22T10:37:47Z"
+      "started_at": "2026-08-23T00:26:37Z"
     }
   },
   "completed_stages": [
     "diagnose",
     "dev",
     "review",
-    "test"
+    "test",
+    "pm_acceptance"
   ],
   "created_at": "2026-08-22T08:13:16Z",
   "stage_review_roles": {
@@ -217,13 +242,12 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-22T10:38:02Z",
+  "updated_at": "2026-08-23T00:26:41Z",
   "updated_by": "pause-mark",
   "_schema_version": 1,
-  "_state_checksum": "sha256:8ada6cd6dc9add0d05e7dde3cc163ed6c05faff290d826b6084a354bcad929ea",
+  "_state_checksum": "sha256:6acb6c14b3693f9f88f0101025f051e53d1901efd14af3fbb5b4dce0f4a555b7",
   "legal_next_stages": [
-    "ship",
-    "dev"
+    "completed"
   ],
   "execution_hints": {},
   "stage_cost": [
@@ -263,10 +287,5 @@
       "note": "",
       "at": "2026-08-22T10:34:04Z"
     }
-  ],
-  "open_pause": {
-    "stage": "pm_acceptance",
-    "label": "PM 验收决策",
-    "started_at": "2026-08-22T10:38:02Z"
-  }
+  ]
 }
