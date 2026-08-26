@@ -374,7 +374,7 @@ export function BrowserProfilesSection() {
   // 存储迁移层必须在 capture 阶段截停，先关自己（AC-3 二级表单）。
   useEffect(() => {
     if (!storageProfile) return;
-    function onKey(e: KeyboardEvent) {
+    function onKey(e: globalThis.KeyboardEvent) {
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopImmediatePropagation();
