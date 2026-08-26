@@ -30,11 +30,9 @@ jobs:
       matrix:
         include:
           - arch: darwin-arm64
-            runner: macos-14
+            runner: [self-hosted, macOS, ARM64]
           - arch: linux-x64
-            runner: ubuntu-latest
-          - arch: linux-arm64
-            runner: ubuntu-24.04-arm
+            runner: [ubuntu-ci, linux-x64]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -43,7 +41,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
 
       - name: 安装依赖(node-pty 按 runner 平台自动取预编译/源码编译)
         run: npm ci
@@ -78,8 +75,8 @@ jobs:
     # 逐个存在性判断:darwin-arm64/linux-x64 缺失 → fail release(必需);
     # linux-arm64 缺失 → 跳过复制、继续 make(该 arch 运行时走 detectArch 降级阀)。
     if: ${{ !cancelled() }}
-    # Apple Silicon(arm64)。如需 Intel 包,改为矩阵并加 macos-13。
-    runs-on: macos-14
+    # Apple Silicon(arm64)。如需 Intel 包,改为矩阵并加对应 self-hosted runner。
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 40
     env:
       HAS_SIGNING: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
@@ -89,7 +86,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
 
       - name: 安装依赖
         run: npm ci
