@@ -257,6 +257,28 @@ export class BrowserService {
     return target;
   }
 
+  /** 刷新(☁ 预览把云端浏览器当普通浏览器用时的工具栏动作)。 */
+  async reload(tabId?: string): Promise<void> {
+    const { b, session } = await this.target(tabId);
+    await b.conn.send('Page.reload', undefined, session);
+  }
+
+  /**
+   * 历史后退(delta=-1)/前进(delta=1)。没有可去的条目 → false,不报错——
+   * 本地 webview 的 goBack/goForward 也是静默 no-op,工具栏按钮不该因此弹错。
+   */
+  async navigateHistory(delta: -1 | 1, tabId?: string): Promise<boolean> {
+    const { b, session } = await this.target(tabId);
+    const { currentIndex, entries } = await b.conn.send<{
+      currentIndex: number;
+      entries: Array<{ id: number }>;
+    }>('Page.getNavigationHistory', undefined, session);
+    const entry = entries[currentIndex + delta];
+    if (!entry) return false;
+    await b.conn.send('Page.navigateToHistoryEntry', { entryId: entry.id }, session);
+    return true;
+  }
+
   async evaluate(code: string, tabId?: string): Promise<unknown> {
     return this.evalInPage(code, tabId, false);
   }

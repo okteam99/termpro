@@ -96,6 +96,12 @@ export function fakeChromium(opts: FakeChromiumOptions = {}) {
       }
       case 'Page.captureScreenshot':
         return { data: 'ZmFrZS1wbmc=' };
+      case 'Page.reload':
+      case 'Page.navigateToHistoryEntry':
+        return {};
+      case 'Page.getNavigationHistory':
+        // 默认只有当前一条(不能后退也不能前进);更丰富的历史用 override 提供
+        return { currentIndex: 0, entries: [{ id: 1, url: 'about:blank' }] };
       case 'Runtime.evaluate':
         return { result: { type: 'string', value: `evaluated:${String(params.expression).slice(0, 24)}` } };
       case 'Input.dispatchMouseEvent':

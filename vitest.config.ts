@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 // Vitest 根配置。此前项目无显式配置(走内置默认)。新增仅为放宽超时:
 // host WS 集成测(真实 ws + 真实 node-pty 登录 shell)在并行 worker 下 shell
@@ -8,5 +8,9 @@ export default defineConfig({
   test: {
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    // 并行 session 的 git worktree 落在仓库目录里,其中的测试副本会被根目录的
+    // vitest 重复跑一遍(同名套件 ×N,门禁信噪比直接掉光);worktree 内各自跑
+    // 自己的 vitest 用的是自己那份配置,不受这里影响。
+    exclude: [...configDefaults.exclude, '.worktree/**', '.claude/worktrees/**'],
   },
 });

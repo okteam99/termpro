@@ -312,6 +312,39 @@ describe('BrowserService 标签与控制原语', () => {
     );
   });
 
+  it('reload 落到 Page.reload;goBack/goForward 走真实历史条目(☁ 工具栏动作)', async () => {
+    const chromium = fakeChromium({
+      override: (method) =>
+        method === 'Page.getNavigationHistory'
+          ? {
+              currentIndex: 1,
+              entries: [
+                { id: 11, url: 'about:blank' },
+                { id: 22, url: 'https://a.test/' },
+                { id: 33, url: 'https://b.test/' },
+              ],
+            }
+          : undefined,
+    });
+    const { service } = setup({ chromium });
+    const tabId = await service.navigate('https://a.test/');
+    await service.reload(tabId);
+    expect(countOf(chromium, 'Page.reload')).toBe(1);
+    await expect(service.navigateHistory(-1, tabId)).resolves.toBe(true);
+    await expect(service.navigateHistory(1, tabId)).resolves.toBe(true);
+    const entryCalls = chromium.calls.filter((c) => c.method === 'Page.navigateToHistoryEntry');
+    expect(entryCalls.map((c) => c.params.entryId)).toEqual([11, 33]);
+  });
+
+  it('历史尽头的 goBack/goForward → false,不发 navigateToHistoryEntry(静默 no-op)', async () => {
+    const chromium = fakeChromium();
+    const { service } = setup({ chromium });
+    const tabId = await service.navigate('https://a.test/');
+    await expect(service.navigateHistory(-1, tabId)).resolves.toBe(false);
+    await expect(service.navigateHistory(1, tabId)).resolves.toBe(false);
+    expect(countOf(chromium, 'Page.navigateToHistoryEntry')).toBe(0);
+  });
+
   it('每个标签只 attach 一次(session 复用,不给 Chromium 攒 fd)', async () => {
     const chromium = fakeChromium();
     const { service } = setup({ chromium });

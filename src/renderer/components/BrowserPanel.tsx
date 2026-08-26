@@ -29,8 +29,10 @@ import type {
 import { PanelHeader, PanelHeaderButton } from './PanelHeader';
 import { PasswordChip, continuityRow } from './browser/PasswordChip';
 import { CloudBrowserPreview } from './browser/CloudBrowserPreview';
+import { isBlankCloudUrl } from './browser/cloudTabUtils';
 import { resolveBrowserBackend } from '../services/cloudBrowserRouting';
 import type { HostClient } from '../services/hostClient';
+import type { BrowserTabSnapshot } from '../../shared/protocol';
 import './BrowserPanel.css';
 
 // webview 是 Electron 专属标签;@types/react 已内置 JSX.IntrinsicElements.webview
@@ -711,6 +713,77 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     };
   }, [cloudHostId]);
 
+  // ☁ 工具栏接管:进入云模式后,标签条/地址栏/前进后退/刷新全部落到这几个云端状态,
+  // 不再读本机 tabs/activeTab——本机标签保活不动,只是暂时不展示(用户指令:
+  // 云模式下用户在工具栏的所有操作都落到远端)。
+  const [cloudTabs, setCloudTabs] = useState<BrowserTabSnapshot[]>([]);
+  // 用户点选要看哪个云端标签;null = 跟随流/跟随云端活跃标签(见下面的派生值)
+  const [cloudTabId, setCloudTabId] = useState<string | null>(null);
+  // CloudBrowserPreview 回报的真正在播的标签(可能与 cloudTabId 不同,比如刚点了
+  // 新标签、推流还没接上前的空窗期)
+  const [cloudStreamTabId, setCloudStreamTabId] = useState<string | null>(null);
+  const [cloudNavError, setCloudNavError] = useState<string | null>(null);
+  // 地址栏乐观回写:提交即显示目标地址,commit 后由轮询接管;失败保留在栏里配合
+  // 错误条(与本机「失败页地址栏不退回旧地址」同语义,用户报告 2026-07-23 的云端版)
+  const [cloudPendingUrl, setCloudPendingUrl] = useState<string | null>(null);
+  // 代次守卫:退出云模式/换机器后,旧机器在途的 listTabs 响应不得把已清空的列表填回来
+  // (窄带链路上这窗口有几百毫秒,期间点了外来标签会把钉选打进死角;评审 P2-6)
+  const cloudEpochRef = useRef(0);
+
+  const refreshCloudTabs = useCallback((): Promise<void> => {
+    if (!cloudBackend) return Promise.resolve();
+    const epoch = cloudEpochRef.current;
+    return cloudBackend
+      .rpc('browser.listTabs', undefined)
+      .then((res) => {
+        if (epoch !== cloudEpochRef.current) return;
+        setCloudTabs(res.tabs);
+        // 🔴 钉选必须与远端对账(评审 P1-1):agent 或页面自身关掉被钉的标签后,
+        // 若不降级,地址栏空、按钮打向死 tabId 被静默吞掉、预览冻在最后一帧——
+        // UI 假死且无线索。在播标签消失时要**显式钉到远端活跃标签**:只清成 null
+        // 的话预览的 tabId prop(null 时为 undefined)不变化,不会触发换流。
+        const alive = (id: string | null) => id !== null && res.tabs.some((t) => t.tabId === id);
+        const fallback = res.tabs.find((t) => t.active)?.tabId ?? res.tabs[0]?.tabId ?? null;
+        if (cloudTabId !== null && !alive(cloudTabId)) {
+          setCloudTabId(alive(cloudStreamTabId) ? null : fallback);
+          setCloudPendingUrl(null);
+        } else if (cloudTabId === null && cloudStreamTabId !== null && !alive(cloudStreamTabId)) {
+          setCloudTabId(fallback);
+        }
+        if (cloudStreamTabId !== null && !alive(cloudStreamTabId)) setCloudStreamTabId(null);
+      })
+      .catch(() => undefined); // 瞬时失败保留旧列表,下一轮再试
+  }, [cloudBackend, cloudTabId, cloudStreamTabId]);
+
+  // 轮询是唯一让地址栏/标签名跟上「页面内导航」的办法:agent 或用户在云端页面里
+  // 点了链接,host 不会主动推一条通知过来,只能定期问 listTabs。
+  // 窗格弹出为独立窗口时暂停:预览已随占位卸载、没人在看,继续轮询只会把远端
+  // Chromium 的空闲回收计时器无限顺延(远端内存不是免费的;评审 P2-5)。
+  useEffect(() => {
+    if (!cloudMode || !cloudBackend || activePopped) return;
+    void refreshCloudTabs();
+    const timer = setInterval(() => void refreshCloudTabs(), 2000);
+    return () => clearInterval(timer);
+  }, [cloudMode, cloudBackend, activePopped, refreshCloudTabs]);
+
+  // 退出云模式(再按一次 ☁)→ 作废在途响应并复位全部云端状态,下次进入不带残留
+  useEffect(() => {
+    if (cloudMode) return;
+    cloudEpochRef.current++;
+    setCloudTabs([]);
+    setCloudTabId(null);
+    setCloudStreamTabId(null);
+    setCloudNavError(null);
+    setCloudPendingUrl(null);
+  }, [cloudMode]);
+
+  // 展示优先级:用户点选 > 推流已解析出的真实标签 > 云端自报的活跃标签
+  const cloudSelectedTabId =
+    cloudTabId ?? cloudStreamTabId ?? cloudTabs.find((tab) => tab.active)?.tabId ?? null;
+  const cloudActiveTab = cloudTabs.find((tab) => tab.tabId === cloudSelectedTabId) ?? null;
+  const cloudDisplayUrl =
+    cloudActiveTab && !isBlankCloudUrl(cloudActiveTab.url) ? cloudActiveTab.url : '';
+
   const webviewRefs = useRef(new Map<string, WebviewElement>());
   const [navStates, setNavStates] = useState<Record<string, NavState>>({});
   const [passwordStates, setPasswordStates] = useState<
@@ -792,10 +865,11 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     return () => unsubscribe?.();
   }, []);
 
-  // 切换活跃终端 tab 或其浏览器标签 → 退出地址栏编辑态
+  // 切换活跃终端 tab 或其浏览器标签、或进/出云模式 → 退出地址栏编辑态
+  // (草稿值的语义随之整个换了一套,留着旧 draft 会把上一态的输入提交到新态上)
   useEffect(() => {
     setEditing(false);
-  }, [activeTermTabId, activeTabId]);
+  }, [activeTermTabId, activeTabId, cloudMode]);
 
   // 面板打开、但当前活跃终端 tab 尚无浏览器窗格(或窗格已空)→ 种一个空标签。
   // 覆盖两种情形:刚打开面板(toggleBrowserPanel 本身也会种,这里幂等)、以及面板已开着时
@@ -842,11 +916,25 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
 
   // 空标签(未导航)自动聚焦地址栏。🔴 推迟到下一帧:首开面板时终端/webview 的
   // 焦点竞争可能在同一轮 effect 后又把焦点抢走,rAF 保证我们是最后落焦的一方
+  // 云模式下本机标签不在展示,交给下面那个对称的云端版本处理
   useEffect(() => {
+    if (cloudMode) return;
     if (!(activeTab && activeTab.url === '')) return;
     const raf = requestAnimationFrame(() => addressInputRef.current?.focus());
     return () => cancelAnimationFrame(raf);
-  }, [activeTab?.id, activeTab?.url]);
+  }, [cloudMode, activeTab?.id, activeTab?.url]);
+
+  // 云端空标签同样自动聚焦地址栏:同一个焦点竞争(推流画面接管容器后可能抢焦点),
+  // 同一个 rAF 兜底手法。只对「本地发起」的空白标签生效(钉选非空,或推流还没建立
+  // 的进入瞬间)——推流建立后若还跟随远端活跃标签,agent 在远端开/切空白页会把
+  // 正在预览画布上打字的焦点抢进地址栏(评审 P2-8)。
+  useEffect(() => {
+    if (!cloudMode) return;
+    if (cloudTabId === null && cloudStreamTabId !== null) return;
+    if (!(cloudActiveTab && isBlankCloudUrl(cloudActiveTab.url))) return;
+    const raf = requestAnimationFrame(() => addressInputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [cloudMode, cloudTabId, cloudStreamTabId, cloudSelectedTabId, cloudActiveTab?.url]);
 
   // 切换活跃标签时,后退/前进可用态从对应 webview 即时刷新一次(补首帧,事件到达前的窗口)
   useEffect(() => {
@@ -978,9 +1066,86 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
     if (el) void el.loadURL(url);
   }
 
+  // 云模式下的地址栏提交:不碰 store、不碰 webview——目标机器是远端那个云浏览器,
+  // 一切经 RPC。失败(DNS/证书等)由 host reject 带回文案,套本机同款错误条框架。
+  async function handleCloudNavigate(raw: string) {
+    if (!cloudBackend) return;
+    const url = normalizeUrlInput(raw);
+    if (!url) return;
+    // 乐观回写:提交即显示目标地址。commit 以 host 的 Page.navigate 为准(慢站可达
+    // 30s),不回写的话地址栏在此期间退回旧地址——本机模式 2026-07-23 修过的同款缺陷。
+    setCloudPendingUrl(url);
+    try {
+      const res = await cloudBackend.rpc('browser.navigate', {
+        url,
+        ...(cloudSelectedTabId ? { tabId: cloudSelectedTabId } : {}),
+      });
+      // 导航落在正在播的标签上就不动钉选:钉选值变化会让预览整个重连一次
+      // (停流+重开帧通道,画面闪一次 Connecting),而播的本来就是这个标签。
+      if (res.tabId !== cloudStreamTabId) setCloudTabId(res.tabId);
+      setCloudNavError(null);
+      await refreshCloudTabs();
+      setCloudPendingUrl(null);
+    } catch (err) {
+      // pending 保留:地址栏停在目标地址配合错误条,「失败页不退回旧地址」同语义
+      setCloudNavError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function handleCloudTabSelect(id: string) {
+    if (!cloudBackend) return;
+    setCloudTabId(id);
+    setCloudNavError(null);
+    setCloudPendingUrl(null);
+    void cloudBackend.rpc('browser.activateTab', { tabId: id }).catch(() => undefined);
+    void refreshCloudTabs();
+  }
+
+  function handleCloudTabClose(id: string) {
+    if (!cloudBackend) return;
+    // 🔴 关的恰是当前在看的标签时必须**显式钉到下一个标签**,不能只清空钉选:
+    // 预览只在 tabId prop 变化时才换流,清成 null(prop 维持 undefined)不会触发
+    // 重启,画面会冻在已关标签的最后一帧上。关掉最后一个标签则种新空白页,
+    // 与本机窗格「关光自动种空标签」同语义。
+    const wasViewing = id === cloudSelectedTabId;
+    setCloudPendingUrl(null);
+    void cloudBackend
+      .rpc('browser.closeTab', { tabId: id })
+      .then(() => {
+        if (!wasViewing) {
+          void refreshCloudTabs();
+          return;
+        }
+        const next = cloudTabs.find((tab) => tab.tabId !== id)?.tabId;
+        setCloudStreamTabId(null);
+        if (next) {
+          setCloudTabId(next);
+          void refreshCloudTabs();
+        } else {
+          handleCloudTabAdd();
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  function handleCloudTabAdd() {
+    if (!cloudBackend) return;
+    setCloudPendingUrl(null);
+    void cloudBackend
+      .rpc('browser.openTab', {})
+      .then((res) => {
+        setCloudTabId(res.tabId);
+        void refreshCloudTabs();
+        // 新标签是空白页,同上面的空标签聚焦效应一个道理:交互上让用户直接能打字
+        requestAnimationFrame(() => addressInputRef.current?.focus());
+      })
+      .catch(() => undefined);
+  }
+
   function handleAddressKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
-      void handleNavigate(draft);
+      if (cloudMode) void handleCloudNavigate(draft);
+      else void handleNavigate(draft);
       setEditing(false);
       e.currentTarget.blur();
     } else if (e.key === 'Escape') {
@@ -1066,37 +1231,68 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
       {!activePopped && (
         <>
           <div className="browser-panel__tabs">
-            {tabs.map((tab) => {
-              const isActive = tab.id === activeTabId;
-              const label = tab.title ?? hostOf(tab.url) ?? t('New Tab');
-              return (
-                <div
-                  key={tab.id}
-                  className={`browser-panel__tab${isActive ? ' browser-panel__tab--active' : ''}`}
-                  onClick={() =>
-                    activeTermTabId &&
-                    setBrowserActiveTab(activeTermTabId, tab.id)
-                  }
-                  title={label}
-                >
-                  <span className="browser-panel__tab-title">{label}</span>
-                  <button
-                    className="browser-panel__tab-close"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (activeTermTabId)
-                        closeBrowserTab(activeTermTabId, tab.id);
-                    }}
-                    title={t('Close tab')}
-                  >
-                    &times;
-                  </button>
-                </div>
-              );
-            })}
+            {cloudMode && cloudBackend
+              ? cloudTabs.map((tab) => {
+                  const isActive = tab.tabId === cloudSelectedTabId;
+                  const label = isBlankCloudUrl(tab.url)
+                    ? t('New Tab')
+                    : tab.title || hostOf(tab.url) || t('New Tab');
+                  return (
+                    <div
+                      key={tab.tabId}
+                      className={`browser-panel__tab${isActive ? ' browser-panel__tab--active' : ''}`}
+                      onClick={() => handleCloudTabSelect(tab.tabId)}
+                      title={label}
+                    >
+                      <span className="browser-panel__tab-title">{label}</span>
+                      <button
+                        className="browser-panel__tab-close"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCloudTabClose(tab.tabId);
+                        }}
+                        title={t('Close tab')}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  );
+                })
+              : tabs.map((tab) => {
+                  const isActive = tab.id === activeTabId;
+                  const label = tab.title ?? hostOf(tab.url) ?? t('New Tab');
+                  return (
+                    <div
+                      key={tab.id}
+                      className={`browser-panel__tab${isActive ? ' browser-panel__tab--active' : ''}`}
+                      onClick={() =>
+                        activeTermTabId &&
+                        setBrowserActiveTab(activeTermTabId, tab.id)
+                      }
+                      title={label}
+                    >
+                      <span className="browser-panel__tab-title">{label}</span>
+                      <button
+                        className="browser-panel__tab-close"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (activeTermTabId)
+                            closeBrowserTab(activeTermTabId, tab.id);
+                        }}
+                        title={t('Close tab')}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  );
+                })}
             <button
               className="browser-panel__tab-add"
-              onClick={() => activeTermTabId && addBrowserTab(activeTermTabId)}
+              onClick={() =>
+                cloudMode && cloudBackend
+                  ? handleCloudTabAdd()
+                  : activeTermTabId && addBrowserTab(activeTermTabId)
+              }
               title={t('New tab')}
             >
               +
@@ -1106,8 +1302,26 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
           <div className="browser-panel__nav">
             <button
               className="browser-panel__nav-btn"
-              disabled={isEmptyTab || !activeNav.canGoBack}
+              disabled={
+                cloudMode ? !cloudSelectedTabId : isEmptyTab || !activeNav.canGoBack
+              }
               onClick={() => {
+                if (cloudMode) {
+                  if (!cloudBackend || !cloudSelectedTabId) return;
+                  void cloudBackend
+                    .rpc('browser.goBack', { tabId: cloudSelectedTabId })
+                    .then(() => {
+                      setCloudNavError(null);
+                      return refreshCloudTabs();
+                    })
+                    // 🔴 不能静默吞:旧 host 没有这个方法(向后兼容追加不 bump 协议版本,
+                    // 握手拦不住),reject 文案 "unknown rpc method" 是用户升级远端 host
+                    // 的唯一线索(评审 P2-3)
+                    .catch((err: unknown) =>
+                      setCloudNavError(err instanceof Error ? err.message : String(err)),
+                    );
+                  return;
+                }
                 if (!activeTab) return;
                 const el = webviewRefs.current.get(activeTab.id);
                 if (!el) return;
@@ -1128,8 +1342,23 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             </button>
             <button
               className="browser-panel__nav-btn"
-              disabled={isEmptyTab || !activeNav.canGoForward}
+              disabled={
+                cloudMode ? !cloudSelectedTabId : isEmptyTab || !activeNav.canGoForward
+              }
               onClick={() => {
+                if (cloudMode) {
+                  if (!cloudBackend || !cloudSelectedTabId) return;
+                  void cloudBackend
+                    .rpc('browser.goForward', { tabId: cloudSelectedTabId })
+                    .then(() => {
+                      setCloudNavError(null);
+                      return refreshCloudTabs();
+                    })
+                    .catch((err: unknown) =>
+                      setCloudNavError(err instanceof Error ? err.message : String(err)),
+                    );
+                  return;
+                }
                 if (!activeTab) return;
                 const el = webviewRefs.current.get(activeTab.id);
                 if (!el) return;
@@ -1150,8 +1379,21 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             </button>
             <button
               className="browser-panel__nav-btn"
-              disabled={isEmptyTab}
+              disabled={cloudMode ? !cloudSelectedTabId : isEmptyTab}
               onClick={() => {
+                if (cloudMode) {
+                  if (!cloudBackend || !cloudSelectedTabId) return;
+                  void cloudBackend
+                    .rpc('browser.reload', { tabId: cloudSelectedTabId })
+                    .then(() => {
+                      setCloudNavError(null);
+                      return refreshCloudTabs();
+                    })
+                    .catch((err: unknown) =>
+                      setCloudNavError(err instanceof Error ? err.message : String(err)),
+                    );
+                  return;
+                }
                 if (!activeTab) return;
                 const el = webviewRefs.current.get(activeTab.id);
                 if (!el) return;
@@ -1169,26 +1411,33 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
                     );
                 }
               }}
-              title={activeNav.loading ? t('Stop') : t('Refresh')}
+              // 云端不追踪 loading(host 没上报这个态),刷新按钮恒显示同一个图标/文案
+              title={!cloudMode && activeNav.loading ? t('Stop') : t('Refresh')}
             >
-              {activeNav.loading ? <StopIcon /> : <RefreshIcon />}
+              {!cloudMode && activeNav.loading ? <StopIcon /> : <RefreshIcon />}
             </button>
             <input
               ref={addressInputRef}
               className="browser-panel__address-input"
               type="text"
-              value={editing ? draft : activeUrl}
+              value={
+                editing
+                  ? draft
+                  : cloudMode
+                    ? (cloudPendingUrl ?? cloudDisplayUrl)
+                    : activeUrl
+              }
               // 🔴 Electron webview 持焦时,宿主页输入框的原生点击聚焦可能失效——
-              // mousedown 先摘掉 webview 焦点,原生聚焦流程才可靠
+              // mousedown 先摘掉 webview 焦点,原生聚焦流程才可靠(云模式下没有活跃 webview 要摘)
               onMouseDown={() => {
-                if (activeTab) webviewRefs.current.get(activeTab.id)?.blur();
+                if (!cloudMode && activeTab) webviewRefs.current.get(activeTab.id)?.blur();
               }}
               onFocus={() => {
                 setEditing(true);
-                setDraft(activeUrl);
+                setDraft(cloudMode ? (cloudPendingUrl ?? cloudDisplayUrl) : activeUrl);
               }}
               onChange={(e) => {
-                // 🔴 自愈:任何竞态把 editing 留在 false(受控值钉死在 activeUrl,表现为
+                // 🔴 自愈:任何竞态把 editing 留在 false(受控值钉死在展示值上,表现为
                 // 「打不进字」)时,首次按键即恢复编辑态,以 DOM 实际值为准
                 if (!editing) setEditing(true);
                 setDraft(e.target.value);
@@ -1197,21 +1446,28 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
               onBlur={() => setEditing(false)}
               spellCheck={false}
             />
-            <button
-              className="browser-panel__nav-btn"
-              disabled={!activeUrl}
-              onClick={() =>
-                activeTab && window.okwork.openExternal(activeTab.url)
-              }
-              title={t('Open in system browser')}
-            >
-              ↗
-            </button>
-            <BrowserNetSelector
-              terminalTabId={activeTermTabId}
-              tab={activeTab}
-              ownerHostId={activeWorkspace?.hostId ?? 'local'}
-            />
+            {/* 云模式下地址栏之后的这几件本机专属控件全部让路:出口/密码都是本机 webview
+                的分区语义,云端页面跑在远端浏览器里,套本机这套没有意义(用户指令:
+                云模式下所有操作都对应远端)。*/}
+            {!cloudMode && (
+              <button
+                className="browser-panel__nav-btn"
+                disabled={!activeUrl}
+                onClick={() =>
+                  activeTab && window.okwork.openExternal(activeTab.url)
+                }
+                title={t('Open in system browser')}
+              >
+                ↗
+              </button>
+            )}
+            {!cloudMode && (
+              <BrowserNetSelector
+                terminalTabId={activeTermTabId}
+                tab={activeTab}
+                ownerHostId={activeWorkspace?.hostId ?? 'local'}
+              />
+            )}
             {/* 云端浏览器:agent 平时用的是远端那个无头浏览器,画面默认不传回来。
                 这枚开关才是「让我看看」——按下才起 screencast,松开即零画面流量。
                 只在远端真装了 Chromium 时出现(见 cloudBrowserRouting 的三条判定)。 */}
@@ -1234,45 +1490,57 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
             {/* 密码状态 / 保险箱位置 / 登录连续性 三件事都收进这枚胶囊(用户指令
                 2026-08-14:地址栏下方那一叠常驻横幅太多太乱,不该占页面位置)。
                 状态只用颜色点表达,详情点开看;读屏另有隐藏 live region 播报。 */}
-            <PasswordChip
-              status={
-                activeProfileStorageUnavailable
-                  ? { kind: 'unavailable' }
-                  : (activePassword?.status ?? { kind: 'idle' })
-              }
-              profileName={activeProfileName}
-              storageLabel={activeProfileStorageLabel}
-              storageUnavailable={activeProfileStorageUnavailable}
-              continuity={activeContinuity}
-              onChooseAccount={
-                activePassword
-                  ? () =>
-                      void window.okwork?.passwordVault.openAccountMenu({
-                        guestWebContentsId: activePassword.guestId,
-                      })
-                  : undefined
-              }
-            />
+            {!cloudMode && (
+              <PasswordChip
+                status={
+                  activeProfileStorageUnavailable
+                    ? { kind: 'unavailable' }
+                    : (activePassword?.status ?? { kind: 'idle' })
+                }
+                profileName={activeProfileName}
+                storageLabel={activeProfileStorageLabel}
+                storageUnavailable={activeProfileStorageUnavailable}
+                continuity={activeContinuity}
+                onChooseAccount={
+                  activePassword
+                    ? () =>
+                        void window.okwork?.passwordVault.openAccountMenu({
+                          guestWebContentsId: activePassword.guestId,
+                        })
+                    : undefined
+                }
+              />
+            )}
           </div>
 
-          {/* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎。
-              走远程出口的标签额外翻成人话——原始码分不清「隧道挂了」与「远端端口没人监听」,
-              而这两件事的处置正相反(见 navErrorText.ts 的实测表)。 */}
-          {activeNav.errorText && (
-            <div className="browser-panel__load-error" role="alert">
-              {t('Page failed to load: {error}', {
-                error:
-                  typeof activeNav.errorCode === 'number'
-                    ? describeNavError({
-                        errorCode: activeNav.errorCode,
-                        raw: activeNav.errorText,
-                        url: activeNav.errorUrl ?? activeTab?.url ?? '',
-                        exitHostId: activeExitHostId,
-                        exitAlias: activeExitAlias,
-                      })
-                    : activeNav.errorText,
-              })}
-            </div>
+          {/* 错误条:云模式与本机模式各说各的,互不串台——云端导航失败是 RPC reject
+              带回来的现成文案,本机是 webview 的 did-fail-load 事件驱动,两条互斥展示。 */}
+          {cloudMode ? (
+            cloudNavError && (
+              <div className="browser-panel__load-error" role="alert">
+                {t('Page failed to load: {error}', { error: cloudNavError })}
+              </div>
+            )
+          ) : (
+            /* 主帧加载失败错误条(空白页必须自解释):显示 Chromium 错误码,重试=地址栏 ⏎。
+               走远程出口的标签额外翻成人话——原始码分不清「隧道挂了」与「远端端口没人监听」,
+               而这两件事的处置正相反(见 navErrorText.ts 的实测表)。 */
+            activeNav.errorText && (
+              <div className="browser-panel__load-error" role="alert">
+                {t('Page failed to load: {error}', {
+                  error:
+                    typeof activeNav.errorCode === 'number'
+                      ? describeNavError({
+                          errorCode: activeNav.errorCode,
+                          raw: activeNav.errorText,
+                          url: activeNav.errorUrl ?? activeTab?.url ?? '',
+                          exitHostId: activeExitHostId,
+                          exitAlias: activeExitAlias,
+                        })
+                      : activeNav.errorText,
+                })}
+              </div>
+            )
           )}
 
           <div className="browser-panel__views">
@@ -1338,8 +1606,18 @@ export function BrowserPanel({ shell = false }: { shell?: boolean } = {}) {
               <div className="browser-panel__cloud">
                 <CloudBrowserPreview
                   client={cloudBackend}
-                  onError={() => setCloudMode(false)}
+                  tabId={cloudTabId ?? undefined}
+                  onStream={setCloudStreamTabId}
+                  // 🔴 出错不再静默退出云模式(旧行为:☁ 自己弹回去,错误文案随组件
+                  // 卸载一起消失,用户零线索——正是这次白屏排查的起点)。留在云模式,
+                  // 组件自己的错误蒙层 + 工具栏错误条把原因亮出来,退出交给用户。
+                  onError={(message) => setCloudNavError(message)}
                 />
+                {cloudActiveTab && isBlankCloudUrl(cloudActiveTab.url) && (
+                  <div className="browser-panel__empty">
+                    {t('Enter a URL or search to get started')}
+                  </div>
+                )}
               </div>
             )}
           </div>

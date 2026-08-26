@@ -110,6 +110,50 @@ describe.skipIf(!enabled)('云端浏览器 RPC 全链路(默认 skip)', () => {
     client.close();
   }, 60_000);
 
+  it('☁ 工具栏动作经 RPC:goBack/goForward 真的动历史,reload 后页面仍在', async () => {
+    const client = new TestClient(host!.url());
+    await client.handshake();
+    const PAGE2 = `data:text/html,${encodeURIComponent(
+      '<!doctype html><meta charset="utf-8"><title>second</title><body><h2 id="p2">two</h2></body>',
+    )}`;
+    // 历史导航是异步 commit;逐次轮询标题直到换页完成(context 销毁期的 eval 失败要吞掉)
+    const titleBecomes = async (tabId: string, expected: string) => {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        try {
+          const { value } = (await client.rpc('browser.eval', {
+            tabId,
+            code: 'document.title',
+          })) as { value: unknown };
+          if (value === expected) return;
+        } catch {
+          // 换页瞬间 execution context 被销毁,eval 会失败——等下一轮
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      throw new Error(`title never became ${expected}`);
+    };
+
+    const { tabId } = (await client.rpc('browser.navigate', { url: PAGE })) as {
+      tabId: string;
+    };
+    await client.rpc('browser.waitFor', { tabId, selector: '#t', timeoutMs: 5000 });
+    await client.rpc('browser.navigate', { tabId, url: PAGE2 });
+    await titleBecomes(tabId, 'second');
+
+    const back = (await client.rpc('browser.goBack', { tabId })) as { ok: boolean };
+    expect(back.ok).toBe(true);
+    await titleBecomes(tabId, 'rpc probe');
+
+    const fwd = (await client.rpc('browser.goForward', { tabId })) as { ok: boolean };
+    expect(fwd.ok).toBe(true);
+    await titleBecomes(tabId, 'second');
+
+    await client.rpc('browser.reload', { tabId });
+    await titleBecomes(tabId, 'second');
+    client.close();
+  }, 60_000);
+
   it('🔴 预览帧沿 ws 推回并受 ack 门控:不 ack 就只有一帧', async () => {
     const client = new TestClient(host!.url());
     await client.handshake();
