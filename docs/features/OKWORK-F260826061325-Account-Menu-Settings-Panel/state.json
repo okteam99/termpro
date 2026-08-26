@@ -8,9 +8,9 @@
   "artifact_root": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260826061325-Account-Menu-Settings-Panel/docs/features/OKWORK-F260826061325-Account-Menu-Settings-Panel",
   "host": null,
   "host_history": [],
-  "current_stage": "goal",
+  "current_stage": "dev",
   "merge_target": "main",
-  "review_base_commit": null,
+  "review_base_commit": "b9cfd49c2d5bec79d4a66845823cb13194c87e95",
   "worktree": {
     "strategy": "auto",
     "branch": "feature/okwork-f260826061325-account-menu-settings-panel",
@@ -27,17 +27,55 @@
   },
   "auto_mode": false,
   "yolo": false,
-  "concerns": [],
+  "concerns": [
+    "2026-08-26T07:06:56Z WARN ui_design L1: sitemap 无节点增删移(只更新 /sidebar/settings-about-entry 描述)；无 token/共享基线变更；受影响 Features 扫描=入口原 owner 已归档，/settings/* 内容预览路由保留、无 in-flight 冲突"
+  ],
   "review_round": 0,
   "stage_contracts": {
     "goal": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-26T06:36:00Z",
+      "await_minutes": 10,
+      "evidence": {
+        "needs_browser_e2e": "false"
+      },
+      "completed_at": "2026-08-26T07:01:15Z",
+      "auto_commit": "4db1391f4608334bbe4624a89ca95bfbc7bfeb4a",
+      "artifacts": [
+        "PRD.md",
+        "PRD-REVIEW.md"
+      ],
+      "duration_minutes": 25,
+      "active_minutes": 25
+    },
+    "ui_design": {
+      "input_satisfied": true,
+      "process_satisfied": true,
+      "output_satisfied": true,
+      "started_at": "2026-08-26T07:01:15Z",
+      "await_minutes": 69,
+      "evidence": {},
+      "completed_at": "2026-08-26T08:17:42Z",
+      "auto_commit": "b9cfd49c2d5bec79d4a66845823cb13194c87e95",
+      "artifacts": [
+        "UI.md"
+      ],
+      "duration_minutes": 76,
+      "active_minutes": 7
+    },
+    "dev": {
       "input_satisfied": false,
       "process_satisfied": false,
       "output_satisfied": false,
-      "started_at": "2026-08-26T06:36:00Z"
+      "started_at": "2026-08-26T08:17:42Z"
     }
   },
-  "completed_stages": [],
+  "completed_stages": [
+    "goal",
+    "ui_design"
+  ],
   "created_at": "2026-08-26T06:35:49Z",
   "assembly_plan": {
     "tier": "full",
@@ -49,12 +87,10 @@
       "ui": true,
       "review": {
         "goal": [
-          "pl",
-          "external"
+          "fast"
         ],
         "review": [
-          "architect",
-          "external"
+          "fast"
         ],
         "pm_acceptance": [
           "pm"
@@ -78,18 +114,42 @@
         "to": true,
         "evidence": "入口、账号菜单、全局设置面板均为用户可见 UI 改动",
         "at": "2026-08-26T06:50:17Z"
+      },
+      {
+        "at_stage": "goal",
+        "dim": "review.goal",
+        "from": [
+          "pl",
+          "external"
+        ],
+        "to": [
+          "fast"
+        ],
+        "evidence": "fast_mode 本就单路合并；revise-plan 拧 spec_depth 时把 goal roster 打回 pl+external，与已完成的 fast 冷审不一致",
+        "at": "2026-08-26T07:01:07Z"
+      },
+      {
+        "at_stage": "goal",
+        "dim": "review.review",
+        "from": [
+          "architect",
+          "external"
+        ],
+        "to": [
+          "fast"
+        ],
+        "evidence": "fast_mode 代码评审也是单路合并；与 goal 冷审同一装配，不升回 architect+external 两路",
+        "at": "2026-08-26T07:01:07Z"
       }
     ]
   },
   "stage_review_roles": {
     "goal": [
-      "pl",
-      "external"
+      "fast"
     ],
     "blueprint": [],
     "review": [
-      "architect",
-      "external"
+      "fast"
     ],
     "pm_acceptance": [
       "pm"
@@ -104,16 +164,51 @@
     }
   ],
   "fast_mode": true,
-  "updated_at": "2026-08-26T06:50:37Z",
-  "updated_by": "pause-mark",
+  "updated_at": "2026-08-26T08:18:03Z",
+  "updated_by": "stage-cost",
   "_schema_version": 1,
-  "_state_checksum": "sha256:a68c6506419434841635f6b8f65d2195b2101076bf4ae773fcbd7e2147430c16",
+  "_state_checksum": "sha256:3dd377bb138903c0fb3e7b235179e328c00c987b9eb609e8148dc95493e03926",
   "legal_next_stages": [
-    "blueprint"
+    "review"
   ],
-  "open_pause": {
-    "stage": "goal",
-    "label": "PRD 终确认",
-    "started_at": "2026-08-26T06:50:37Z"
-  }
+  "execution_hints": {
+    "browser_e2e_needed": false,
+    "ui_design_needed": true,
+    "blueprint_needed": false
+  },
+  "stage_cost": [
+    {
+      "stage": "goal",
+      "rounds": 3,
+      "overhead_rounds": 1,
+      "kinds": [
+        "门禁重试"
+      ],
+      "note": "revise-plan 拧 spec_depth 把 fast roster 打回 pl+external，goal-complete reviewers_match 失败重试一次",
+      "at": "2026-08-26T07:02:16Z"
+    },
+    {
+      "stage": "ui_design",
+      "rounds": 1,
+      "overhead_rounds": 0,
+      "kinds": [],
+      "note": "一次预览确认通过",
+      "at": "2026-08-26T08:18:03Z"
+    }
+  ],
+  "authoring_preventability": [
+    {
+      "stage": "goal",
+      "preventable": 4,
+      "total": 4,
+      "missing": [
+        "面板嵌入可判定口径",
+        "面板内跳转=切分类",
+        "深链与About互斥BDD",
+        "Logout反馈单一形态"
+      ],
+      "note": "EXT-EMBED/NAV/MUTEX 与 AC-6 过宽均是首稿可写死的 AC 口径，不是调研后才出现的事实",
+      "at": "2026-08-26T07:02:16Z"
+    }
+  ]
 }

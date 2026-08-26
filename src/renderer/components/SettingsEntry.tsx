@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { t } from '../../shared/i18n';
-import type { LocalePref } from '../../shared/i18n';
 import { useAppStore } from '../state/store';
 import { BrowserSettingsPage } from './settings/BrowserSettingsPage';
 import { LanguagePage } from './settings/LanguagePage';
 import { RemoteHostsPage } from './settings/RemoteHostsPage';
 import { SavedPasswordsPage } from './settings/SavedPasswordsPage';
+import {
+  SettingsPanel,
+  type SettingsSection,
+} from './settings/SettingsPanel';
 
 // 应用图标(About 弹窗 logo)· Vite 把资源打进 renderer bundle(dev + 打包均生效)
 const appIconUrl = new URL('../../../assets/icon.png', import.meta.url).href;
@@ -47,75 +50,6 @@ function InfoIcon() {
       <circle cx="7.5" cy="7.5" r="6" />
       <line x1="7.5" y1="7" x2="7.5" y2="10.5" />
       <circle cx="7.5" cy="4.7" r="0.55" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-/** 远程机:简化机箱/服务器轮廓 */
-function ServerIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="1.5" y="2" width="11" height="4" rx="1" />
-      <rect x="1.5" y="8" width="11" height="4" rx="1" />
-      <circle cx="3.7" cy="4" r="0.55" fill="currentColor" stroke="none" />
-      <circle cx="3.7" cy="10" r="0.55" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-/** 语言:地球轮廓 + 经纬线 */
-function GlobeIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="7" cy="7" r="5.5" />
-      <ellipse cx="7" cy="7" rx="2.4" ry="5.5" />
-      <line x1="1.5" y1="7" x2="12.5" y2="7" />
-    </svg>
-  );
-}
-
-/** 底部输入栏固定:外框 + 底部填充条 */
-function BottomBarIcon() {
-  return (
-    <svg
-      width="15"
-      height="15"
-      viewBox="0 0 15 15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.2"
-      aria-hidden="true"
-    >
-      <rect x="1.8" y="2.5" width="11.4" height="10" rx="1.5" />
-      <rect
-        x="1.8"
-        y="9.5"
-        width="11.4"
-        height="3"
-        rx="0"
-        fill="currentColor"
-        stroke="none"
-      />
     </svg>
   );
 }
@@ -168,25 +102,7 @@ export function AboutModal({ version, onClose }: AboutModalProps) {
 
 // ---- SettingsEntry --------------------------------------------------------
 
-// 菜单里各设置项的当前值(右侧灰字);语言名以本族语显示,有意不译。
-// t() 须在 render 期取词,故走函数而非模块级常量。
-function localePrefLabel(pref: LocalePref): string {
-  if (pref === 'en') return 'English';
-  if (pref === 'zh-CN') return '简体中文';
-  return t('System');
-}
-
-/** 菜单项挂载的弹层(互斥单选;null = 都不开)。设置项一律独立 modal,
- *  不再行内展开(用户指令 2026-07-20)。 */
-type SettingsPage =
-  | 'language'
-  | 'browser'
-  | 'passwords'
-  | 'remoteHosts'
-  | 'about';
-
-/** 浏览器设置:指针点击链接轮廓 */
-function LinkIcon() {
+function LogoutIcon() {
   return (
     <svg
       width="14"
@@ -199,40 +115,58 @@ function LinkIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M5.8 8.2 8.6 5.4" />
-      <path d="M6.9 3.9 8 2.8a2.3 2.3 0 0 1 3.2 3.2L10.1 7.1" />
-      <path d="M7.5 10.1 6.4 11.2a2.3 2.3 0 0 1-3.2-3.2L4.3 6.9" />
+      <path d="M6 2.5H3.2A1.2 1.2 0 0 0 2 3.7v6.6c0 .66.54 1.2 1.2 1.2H6" />
+      <path d="M8.2 9.5 11 7 8.2 4.5" />
+      <path d="M11 7H5.5" />
     </svg>
   );
 }
+
+function GearIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M6.8 1.8h2.4l.5 1.5 1.4.6 1.4-.7 1.7 1.7-.7 1.4.6 1.4 1.5.5v2.4l-1.5.5-.6 1.4.7 1.4-1.7 1.7-1.4-.7-1.4.6-.5 1.5H6.8l-.5-1.5-1.4-.6-1.4.7-1.7-1.7.7-1.4-.6-1.4-1.5-.5V8.2l1.5-.5.6-1.4-.7-1.4 1.7-1.7 1.4.7 1.4-.6.5-1.5Z" />
+    </svg>
+  );
+}
+
+type Overlay =
+  | { kind: 'none' }
+  | { kind: 'about' }
+  | { kind: 'panel'; section: SettingsSection };
 
 interface SettingsEntryProps {
   devChannel?: boolean;
 }
 
 /**
- * 左下角用户信息入口:头像占位 + Settings + 上弹菜单(仅 About)→ About 弹版本。
- * devChannel / version 从 window.okwork 读取(安全读,bridge 缺失不抛错)。
+ * 左下角账号入口:Login + 账号菜单(Settings / About / Logout)。
+ * Settings 打开全局两栏面板;深链 openRemoteHostsPage 落到 Remote Hosts 分类。
  */
 export function SettingsEntry({ devChannel }: SettingsEntryProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [page, setPage] = useState<SettingsPage | null>(null);
+  const [overlay, setOverlay] = useState<Overlay>({ kind: 'none' });
+  const [logoutHint, setLogoutHint] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
-  // 持有打开弹窗前的聚焦元素,关闭时还原(AC-6 · 各设置弹层共用同一归还机制)
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const pinBottomBar = useAppStore((s) => s.pinBottomBar);
   const setPinBottomBar = useAppStore((s) => s.setPinBottomBar);
-  const localePref = useAppStore((s) => s.localePref);
   const browserProfiles = useAppStore((s) => s.browserProfiles);
   const remoteHostsPageNonce = useAppStore((s) => s.remoteHostsPageNonce);
-  // 首次挂载读到的 nonce 是「初值」,不算触发——只有后续自增(store.openRemoteHostsPage,
-  // 如「host 过旧」死胡同提示引导)才应该弹开该页
   const prevRemoteHostsPageNonceRef = useRef(remoteHostsPageNonce);
-
-  // 安全读 version:bridge 缺失或 version 空都回退 ""
   const version = window.okwork?.version ?? '';
 
-  // 菜单:点击外部 / Esc 关闭(对齐 NotificationCenter 交互)
   useEffect(() => {
     if (!menuOpen) return;
     function onDown(e: MouseEvent) {
@@ -251,36 +185,41 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
     };
   }, [menuOpen]);
 
-  function openPage(next: SettingsPage) {
-    // 焦点返还(AC-6):打开弹窗前捕获当前聚焦元素
+  function captureFocus() {
     prevFocusRef.current = document.activeElement as HTMLElement | null;
-    setMenuOpen(false); // 菜单先关
-    setPage(next); // 弹窗后开(两态不共存)
   }
 
-  function handleClosePage() {
-    setPage(null);
+  function openAbout() {
+    captureFocus();
+    setMenuOpen(false);
+    setLogoutHint(false);
+    setOverlay({ kind: 'about' });
+  }
+
+  function openPanel(section: SettingsSection) {
+    captureFocus();
+    setMenuOpen(false);
+    setLogoutHint(false);
+    setOverlay({ kind: 'panel', section });
+  }
+
+  function handleCloseOverlay() {
+    setOverlay({ kind: 'none' });
     prevFocusRef.current?.focus();
     prevFocusRef.current = null;
   }
 
-  // 远程机页深链打开信号(store.openRemoteHostsPage,如 FilePanel/terminalRegistry 里
-  // 「host 过旧」死胡同提示的引导入口):nonce 变化(非初值)→ 复用 openPage,走同一套
-  // 焦点捕获/菜单收起路径,不绕过焦点归还机制。
   useEffect(() => {
     if (remoteHostsPageNonce === prevRemoteHostsPageNonceRef.current) return;
     prevRemoteHostsPageNonceRef.current = remoteHostsPageNonce;
-    openPage('remoteHosts');
+    captureFocus();
+    setMenuOpen(false);
+    setLogoutHint(false);
+    setOverlay({ kind: 'panel', section: 'remoteHosts' });
   }, [remoteHostsPageNonce]);
 
-  useEffect(() => {
-    if (page !== 'passwords') return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') handleClosePage();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [page]);
+  const panelSection =
+    overlay.kind === 'panel' ? overlay.section : null;
 
   return (
     <div className="settings-anchor" ref={anchorRef}>
@@ -288,102 +227,59 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
         <div className="settings-menu" role="menu">
           <button
             className="settings-menu-item"
-            role="menuitemcheckbox"
-            aria-checked={pinBottomBar}
+            role="menuitem"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => setPinBottomBar(!pinBottomBar)}
-            title={t(
-              'Keep the bottom input bar pinned to the viewport when scrolling up through history (visible and typeable)',
-            )}
+            onClick={() => openPanel('general')}
           >
             <span className="settings-menu-icon">
-              <BottomBarIcon />
+              <GearIcon />
             </span>
-            <span className="settings-menu-label">{t('Pin bottom bar')}</span>
-            <span
-              className="settings-switch"
-              data-on={pinBottomBar ? 'true' : 'false'}
-              aria-hidden="true"
-            >
-              <span className="settings-switch-knob" />
-            </span>
+            <span className="settings-menu-label">{t('Settings')}</span>
           </button>
           <button
             className="settings-menu-item"
             role="menuitem"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => openPage('language')}
-          >
-            <span className="settings-menu-icon">
-              <GlobeIcon />
-            </span>
-            <span className="settings-menu-label">{t('Language')}</span>
-            <span className="settings-menu-value">
-              {localePrefLabel(localePref)}
-            </span>
-          </button>
-          <button
-            className="settings-menu-item"
-            role="menuitem"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => openPage('browser')}
-            title={t(
-              'Where terminal links open, and how the built-in browser opens.',
-            )}
-          >
-            <span className="settings-menu-icon">
-              <LinkIcon />
-            </span>
-            <span className="settings-menu-label">{t('Browser Settings')}</span>
-          </button>
-          <button
-            className="settings-menu-item"
-            role="menuitem"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => openPage('passwords')}
-          >
-            <span className="settings-menu-icon" aria-hidden="true">
-              ◇
-            </span>
-            <span className="settings-menu-label">{t('Saved Passwords')}</span>
-          </button>
-          <button
-            className="settings-menu-item"
-            role="menuitem"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => openPage('remoteHosts')}
-          >
-            <span className="settings-menu-icon">
-              <ServerIcon />
-            </span>
-            <span className="settings-menu-label">{t('Remote Hosts')}</span>
-          </button>
-          <button
-            className="settings-menu-item"
-            role="menuitem"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => openPage('about')}
+            onClick={openAbout}
           >
             <span className="settings-menu-icon">
               <InfoIcon />
             </span>
             <span className="settings-menu-label">{t('About')}</span>
           </button>
+          <div className="settings-menu-sep" />
+          <button
+            className="settings-menu-item"
+            role="menuitem"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            onClick={() => setLogoutHint(true)}
+          >
+            <span className="settings-menu-icon">
+              <LogoutIcon />
+            </span>
+            <span className="settings-menu-label">{t('Log out')}</span>
+          </button>
+          {logoutHint && (
+            <span className="settings-menu-hint">{t('Not signed in')}</span>
+          )}
         </div>
       )}
 
       <button
         className={`settings-entry${menuOpen ? ' settings-entry--open' : ''}`}
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        onClick={() => setMenuOpen((v) => !v)}
-        title={t('Settings')}
+        onClick={() => {
+          setLogoutHint(false);
+          setMenuOpen((v) => !v);
+        }}
+        title={t('Login')}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
       >
         <span className="settings-avatar">
           <PersonIcon />
         </span>
-        <span className="settings-entry-label">{t('Settings')}</span>
+        <span className="settings-entry-label">{t('Login')}</span>
         {devChannel && (
           <span
             className="sidebar-dev-badge"
@@ -397,38 +293,74 @@ export function SettingsEntry({ devChannel }: SettingsEntryProps) {
         <span className="settings-entry-chevron">⌄</span>
       </button>
 
-      {page === 'about' && (
-        <AboutModal version={version} onClose={handleClosePage} />
+      {overlay.kind === 'about' && (
+        <AboutModal version={version} onClose={handleCloseOverlay} />
       )}
-      {page === 'language' && <LanguagePage onClose={handleClosePage} />}
-      {page === 'browser' && (
-        <BrowserSettingsPage
-          onClose={handleClosePage}
-          onOpenPasswords={() => setPage('passwords')}
-        />
-      )}
-      {page === 'passwords' && (
-        <div
-          className="settings-modal__backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) handleClosePage();
-          }}
+      {panelSection && (
+        <SettingsPanel
+          section={panelSection}
+          onSection={(next) => setOverlay({ kind: 'panel', section: next })}
+          onClose={handleCloseOverlay}
         >
-          <SavedPasswordsPage
-            onBack={() => setPage('browser')}
-            onClose={handleClosePage}
-            profiles={browserProfiles.map((profile) => ({
-              id: profile.id,
-              name: profile.name,
-            }))}
-          />
-        </div>
-      )}
-      {page === 'remoteHosts' && (
-        <RemoteHostsPage
-          onClose={handleClosePage}
-          onOpenBrowserProfiles={() => setPage('browser')}
-        />
+          {panelSection === 'general' && (
+            <div>
+              <div className="settings-panel__group-title">{t('Appearance')}</div>
+              <button
+                className="settings-panel__row"
+                role="switch"
+                aria-checked={pinBottomBar}
+                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                onClick={() => setPinBottomBar(!pinBottomBar)}
+                title={t(
+                  'Keep the bottom input bar pinned to the viewport when scrolling up through history (visible and typeable)',
+                )}
+              >
+                <span>
+                  <span className="settings-panel__row-label" style={{ display: 'block' }}>
+                    {t('Pin bottom bar')}
+                  </span>
+                </span>
+                <span
+                  className="settings-switch"
+                  data-on={pinBottomBar ? 'true' : 'false'}
+                  aria-hidden="true"
+                >
+                  <span className="settings-switch-knob" />
+                </span>
+              </button>
+            </div>
+          )}
+          {panelSection === 'language' && (
+            <LanguagePage onClose={handleCloseOverlay} embedded />
+          )}
+          {panelSection === 'browser' && (
+            <BrowserSettingsPage
+              onClose={handleCloseOverlay}
+              onOpenPasswords={() =>
+                setOverlay({ kind: 'panel', section: 'passwords' })
+              }
+              embedded
+            />
+          )}
+          {panelSection === 'passwords' && (
+            <SavedPasswordsPage
+              onBack={() => setOverlay({ kind: 'panel', section: 'browser' })}
+              profiles={browserProfiles.map((profile) => ({
+                id: profile.id,
+                name: profile.name,
+              }))}
+            />
+          )}
+          {panelSection === 'remoteHosts' && (
+            <RemoteHostsPage
+              onClose={handleCloseOverlay}
+              onOpenBrowserProfiles={() =>
+                setOverlay({ kind: 'panel', section: 'browser' })
+              }
+              embedded
+            />
+          )}
+        </SettingsPanel>
       )}
     </div>
   );

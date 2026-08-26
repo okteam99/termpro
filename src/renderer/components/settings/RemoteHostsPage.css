@@ -4,11 +4,14 @@
    green/amber/red 三色变量本仓 :root 尚未定义(该调色板随本弹层首次引入),
    scope 在 backdrop 内,不污染全局 index.css。 */
 
-.remote-hosts__backdrop {
+.remote-hosts__backdrop,
+.remote-hosts__embedded {
   --green: #98c379;
   --amber: #d19a66;
   --red: #e06c75;
+}
 
+.remote-hosts__backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -17,6 +20,26 @@
   justify-content: center;
   z-index: 100;
   -webkit-app-region: no-drag;
+}
+
+.remote-hosts__embedded {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.remote-hosts__embedded-card {
+  position: relative;
+  width: 100%;
+  max-height: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .remote-hosts__card {

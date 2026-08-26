@@ -70,71 +70,88 @@ afterEach(() => {
   delete (window as unknown as Record<string, unknown>).okwork;
 });
 
-// --- T-003: renders avatar placeholder and Settings label (AC-1) ---
-describe('settingsEntry_renders_avatar_placeholder_and_settings_label', () => {
-  it('renders Settings label and avatar container', () => {
+function openAccountMenu() {
+  fireEvent.click(screen.getByTitle('Login'));
+}
+
+function openSettingsFromMenu() {
+  openAccountMenu();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }));
+}
+
+// --- AC-1: Login label, no login form ---
+describe('settingsEntry_renders_avatar_placeholder_and_login_label', () => {
+  it('renders Login label and avatar container', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    // Settings label
-    expect(screen.getByText('Settings')).toBeInTheDocument();
-
-    // Avatar container (settings-avatar span)
+    expect(screen.getByText('Login')).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Settings' })).toBeNull();
     const avatar = document.querySelector('.settings-avatar');
     expect(avatar).toBeInTheDocument();
+
+    openAccountMenu();
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
+    expect(screen.queryByLabelText(/password/i)).toBeNull();
   });
 });
 
-// --- T-004: toggles menu with Remote Hosts + About items (AC-2 · BL-003 adds Remote Hosts) ---
-describe('settingsEntry_toggles_menu_with_remote_hosts_and_about_items', () => {
-  it('shows Remote Hosts + About menuitems on click and hides on second click', () => {
+// --- AC-2: account menu has Settings / About / Log out only ---
+describe('settingsEntry_logout_shows_not_signed_in', () => {
+  it('keeps the menu open and shows Not signed in', () => {
+    mockOkwork();
+    render(<SettingsEntry />);
+    openAccountMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Log out' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByText('Not signed in')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Log out' })).toBeInTheDocument();
+  });
+});
+
+describe('settingsEntry_toggles_account_menu', () => {
+  it('shows Settings, About, Log out and hides on second click', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    const entryBtn = screen.getByTitle('Settings');
-
-    // Initially no menu
+    const entryBtn = screen.getByTitle('Login');
     expect(screen.queryByRole('menu')).toBeNull();
 
-    // First click: open
     fireEvent.click(entryBtn);
-    const menu = screen.getByRole('menu');
-    expect(menu).toBeInTheDocument();
+    expect(screen.getByRole('menu')).toBeInTheDocument();
     const menuItems = screen.getAllByRole('menuitem');
-    expect(menuItems).toHaveLength(5);
-    expect(menuItems[0]).toHaveTextContent('Language');
-    expect(menuItems[1]).toHaveTextContent('Browser Settings');
-    expect(menuItems[2]).toHaveTextContent('Saved Passwords');
-    expect(menuItems[3]).toHaveTextContent('Remote Hosts');
-    expect(menuItems[4]).toHaveTextContent('About');
+    expect(menuItems).toHaveLength(3);
+    expect(menuItems[0]).toHaveTextContent('Settings');
+    expect(menuItems[1]).toHaveTextContent('About');
+    expect(menuItems[2]).toHaveTextContent('Log out');
+    expect(screen.queryByRole('menuitem', { name: /Language/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Browser Settings' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Remote Hosts' })).toBeNull();
+    expect(screen.queryByRole('menuitemcheckbox')).toBeNull();
 
-    // Second click: close (toggle)
     fireEvent.click(entryBtn);
     expect(screen.queryByRole('menu')).toBeNull();
   });
 });
 
-// --- 底部输入栏固定:开关项渲染 + 点击切换 store(默认开)---
-describe('settingsEntry_pin_bottom_bar_toggle', () => {
-  it('shows checked toggle by default and flips store on click', () => {
+describe('settingsEntry_pin_bottom_bar_lives_in_general_panel', () => {
+  it('toggles pin from General, not from the account menu', () => {
     mockOkwork();
     useAppStore.setState({ pinBottomBar: true });
     render(<SettingsEntry />);
 
-    fireEvent.click(screen.getByTitle('Settings'));
-    const toggle = screen.getByRole('menuitemcheckbox');
+    openSettingsFromMenu();
+    expect(screen.queryByRole('menu')).toBeNull();
+    const toggle = screen.getByRole('switch');
     expect(toggle).toHaveTextContent('Pin bottom bar');
     expect(toggle).toHaveAttribute('aria-checked', 'true');
 
     fireEvent.click(toggle);
     expect(useAppStore.getState().pinBottomBar).toBe(false);
-    // 菜单保持打开,勾随状态消失
-    expect(screen.getByRole('menuitemcheckbox')).toHaveAttribute(
-      'aria-checked',
-      'false',
-    );
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
+    expect(document.querySelector('.settings-panel')).toBeInTheDocument();
 
-    // 复位,避免污染其它用例共享的 store 单例
     useAppStore.setState({ pinBottomBar: true });
   });
 });
@@ -147,14 +164,8 @@ describe('settingsEntry_language_switcher', () => {
     useAppStore.setState({ localePref: 'system' });
     render(<SettingsEntry />);
 
-    fireEvent.click(screen.getByTitle('Settings'));
-    // 弹层未开时无单选项;当前值显示在 Language 行右侧
-    expect(screen.queryAllByRole('radio')).toHaveLength(0);
-    const langItem = screen.getByRole('menuitem', { name: /Language/ });
-    expect(langItem).toHaveTextContent('System');
-
-    fireEvent.click(langItem);
-    // 菜单关闭,弹层打开(两态不共存)
+    openSettingsFromMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Language' }));
     expect(screen.queryByRole('menu')).toBeNull();
     const options = screen.getAllByRole('radio');
     expect(options.map((o) => o.textContent)).toEqual([
@@ -184,21 +195,19 @@ describe('settingsEntry_language_switcher', () => {
     mockOkwork();
     useAppStore.setState({ localePref: 'system' });
     render(<SettingsEntry />);
-    const entryBtn = screen.getByTitle('Settings');
+    const entryBtn = screen.getByTitle('Login');
 
     for (const close of [
-      () => fireEvent.click(screen.getByRole('button', { name: 'Done' })),
       () => fireEvent.click(screen.getByTitle('Close')),
       () => fireEvent.keyDown(document, { key: 'Escape' }),
-      () => fireEvent.mouseDown(document.querySelector('.settings-modal__backdrop')!),
+      () => fireEvent.mouseDown(document.querySelector('.settings-panel__backdrop')!),
     ]) {
       entryBtn.focus();
-      fireEvent.click(entryBtn);
-      fireEvent.click(screen.getByRole('menuitem', { name: /Language/ }));
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      openSettingsFromMenu();
+      expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
 
       close();
-      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
       expect(document.activeElement).toBe(entryBtn);
     }
   });
@@ -211,8 +220,8 @@ describe('settingsEntry_browser_settings_modal', () => {
     useAppStore.setState({ linkBrowserMode: 'builtin', builtinBrowserSurface: 'window' });
     render(<SettingsEntry />);
 
-    fireEvent.click(screen.getByTitle('Settings'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Browser Settings' }));
+    openSettingsFromMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Browser Settings' }));
     expect(screen.queryByRole('menu')).toBeNull();
 
     // 两组 radiogroup:链接打开方式(3 项)+ 内置浏览器默认打开方式(2 项)
@@ -243,7 +252,7 @@ describe('settingsEntry_menu_closes_on_outside_click_and_esc', () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByTitle('Login'));
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
     // Outside mousedown
@@ -255,7 +264,7 @@ describe('settingsEntry_menu_closes_on_outside_click_and_esc', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByTitle('Login'));
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -270,7 +279,7 @@ describe('settingsEntry_about_click_opens_modal_and_closes_menu', () => {
     render(<SettingsEntry />);
 
     // Open menu
-    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByTitle('Login'));
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
     // Click About
@@ -290,7 +299,7 @@ describe('settingsEntry_no_menu_behind_open_about_modal', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByTitle('Login'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     // Modal is open, menu is gone
@@ -306,7 +315,7 @@ describe('aboutModal_shows_version_from_bridge', () => {
     render(<SettingsEntry />);
 
     // Open menu → click About
-    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByTitle('Login'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     expect(screen.getByText('Version 0.3.12')).toBeInTheDocument();
@@ -319,7 +328,7 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
     mockOkwork({ version: '' });
     render(<SettingsEntry />);
 
-    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByTitle('Login'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     expect(screen.getByText('Version unknown')).toBeInTheDocument();
@@ -328,7 +337,7 @@ describe('aboutModal_shows_unknown_fallback_when_version_empty', () => {
   it('shows 版本未知 when window.okwork is undefined (bridge absent)', () => {
     // No mockOkwork() — afterEach deletes window.okwork so it is absent here.
     render(<SettingsEntry />);
-    fireEvent.click(screen.getByTitle('Settings'));
+    fireEvent.click(screen.getByTitle('Login'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     expect(screen.getByText('Version unknown')).toBeInTheDocument();
@@ -343,7 +352,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    const entryBtn = screen.getByTitle('Settings');
+    const entryBtn = screen.getByTitle('Login');
     entryBtn.focus();
 
     fireEvent.click(entryBtn);
@@ -365,7 +374,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    const entryBtn = screen.getByTitle('Settings');
+    const entryBtn = screen.getByTitle('Login');
     entryBtn.focus();
 
     fireEvent.click(entryBtn);
@@ -382,7 +391,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    const entryBtn = screen.getByTitle('Settings');
+    const entryBtn = screen.getByTitle('Login');
     entryBtn.focus();
 
     fireEvent.click(entryBtn);
@@ -405,13 +414,12 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     mockOkwork();
     render(<SettingsEntry />);
 
-    fireEvent.click(screen.getByTitle('Settings'));
-    expect(screen.getByRole('menu')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
+    openSettingsFromMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Remote Hosts' }));
 
     // Modal open, menu closed, About modal absent
-    expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getAllByText('Remote Hosts').length).toBeGreaterThan(0);
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.queryByText('OkWork')).toBeNull();
 
@@ -423,32 +431,32 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
   it('closes via close button, Esc, and backdrop, restoring focus each time (AC-6 parity)', () => {
     mockOkwork();
     const { unmount } = render(<SettingsEntry />);
-    const entryBtn = screen.getByTitle('Settings');
+    const entryBtn = screen.getByTitle('Login');
 
     // close button
     entryBtn.focus();
-    fireEvent.click(entryBtn);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
+    openSettingsFromMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Remote Hosts' }));
     fireEvent.click(screen.getByTitle('Close'));
-    expect(screen.queryByText('Remote Hosts')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
     expect(document.activeElement).toBe(entryBtn);
 
     // Esc
     entryBtn.focus();
-    fireEvent.click(entryBtn);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
+    openSettingsFromMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Remote Hosts' }));
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByText('Remote Hosts')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
     expect(document.activeElement).toBe(entryBtn);
 
     // backdrop
     entryBtn.focus();
-    fireEvent.click(entryBtn);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Remote Hosts' }));
-    const backdrop = document.querySelector('.remote-hosts__backdrop')!;
+    openSettingsFromMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Remote Hosts' }));
+    const backdrop = document.querySelector('.settings-panel__backdrop')!;
     expect(backdrop).toBeInTheDocument();
     fireEvent.mouseDown(backdrop);
-    expect(screen.queryByText('Remote Hosts')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
     expect(document.activeElement).toBe(entryBtn);
 
     unmount();
@@ -462,7 +470,7 @@ describe('settingsEntry_remote_hosts_page_deep_link_via_store_nonce', () => {
     mockOkwork();
     useAppStore.setState({ remoteHostsPageNonce: 0 });
     render(<SettingsEntry />);
-    const entryBtn = screen.getByTitle('Settings');
+    const entryBtn = screen.getByTitle('Login');
 
     // 菜单先开着,验证深链触发会顺手关掉它(而不是与页面共存)
     fireEvent.click(entryBtn);
@@ -472,7 +480,8 @@ describe('settingsEntry_remote_hosts_page_deep_link_via_store_nonce', () => {
       useAppStore.getState().openRemoteHostsPage();
     });
     expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getAllByText('Remote Hosts').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByTitle('Close'));
     expect(screen.queryByText('Remote Hosts')).toBeNull();
@@ -481,7 +490,8 @@ describe('settingsEntry_remote_hosts_page_deep_link_via_store_nonce', () => {
     act(() => {
       useAppStore.getState().openRemoteHostsPage();
     });
-    expect(screen.getByText('Remote Hosts')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getAllByText('Remote Hosts').length).toBeGreaterThan(0);
 
     // 复位共享单例,避免污染其它用例
     useAppStore.setState({ remoteHostsPageNonce: 0 });
@@ -505,8 +515,7 @@ describe('footer_renders_entry_devbadge_updatepill_as_siblings', () => {
 
     // DEV badge inside the entry
     expect(screen.getByText('DEV')).toBeInTheDocument();
-    // Settings label also present
-    expect(screen.getByText('Settings')).toBeInTheDocument();
+    expect(screen.getByText('Login')).toBeInTheDocument();
   });
 
   it('SettingsEntry does not render DEV badge when devChannel is false', () => {

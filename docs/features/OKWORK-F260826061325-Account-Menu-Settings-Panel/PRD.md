@@ -7,47 +7,60 @@ acceptance_criteria:
   - id: AC-1
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_renders_avatar_placeholder_and_login_label
+    ui_refs: [sidebar-settings-about]
   - id: AC-2
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_toggles_account_menu
+    ui_refs: [sidebar-settings-about]
   - id: AC-3
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_pin_bottom_bar_lives_in_general_panel
+    ui_refs: [sidebar-settings-about]
   - id: AC-4
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_language_switcher
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_browser_settings_modal
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_pin_bottom_bar_lives_in_general_panel
+    ui_refs: [sidebar-settings-about]
   - id: AC-5
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_about_click_opens_modal_and_closes_menu
+    ui_refs: [sidebar-settings-about]
   - id: AC-6
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_logout_shows_not_signed_in
+    ui_refs: [sidebar-settings-about]
   - id: AC-7
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_remote_hosts_page_deep_link_via_store_nonce
+    ui_refs: [sidebar-settings-about]
   - id: AC-8
     category: functional
     priority: P0
-    test_refs: []
-    ui_refs: []
+    test_refs:
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::settingsEntry_language_switcher
+      - src/renderer/components/__tests__/SettingsEntry.test.tsx::aboutModal_closes_via_esc_backdrop_button_and_restores_focus
+    ui_refs: [sidebar-settings-about]
   - id: AC-9
     category: functional
     priority: P1
-    test_refs: []
+    test_refs:
+      - src/renderer/services/__tests__/openPreview.test.ts
+      - src/renderer/components/viewer/__tests__/HtmlPreview.test.tsx
     ui_refs: []
 revision_history:
   - {version: "0.1", date: "2026-08-26", changes: "首版草稿"}
