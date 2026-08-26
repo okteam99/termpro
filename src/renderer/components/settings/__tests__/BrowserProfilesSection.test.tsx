@@ -315,6 +315,17 @@ describe('BrowserProfilesSection', () => {
     );
   });
 
+  it('Escape closes the storage dialog and leaves the profiles section mounted', async () => {
+    mockBridge();
+    useAppStore.setState({ browserProfiles: [profile()] });
+    render(<BrowserProfilesSection />);
+    fireEvent.click(screen.getAllByText('Change location')[1]);
+    await screen.findByRole('dialog', { name: /Change storage location/ });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: /Change storage location/ })).toBeNull();
+    expect(screen.getByText('Browser profiles')).toBeInTheDocument();
+  });
+
   it('test_AC2_disables_ready_but_incompatible_target_with_actionable_reason_before_submit', async () => {
     const bridge = mockBridge({
       storageTargets: async () => [

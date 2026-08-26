@@ -465,6 +465,34 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
 
 // --- 远程机页深链:store.openRemoteHostsPage()(nonce 自增)由「host 过旧」死胡同提示等
 // 入口触发,复用菜单项同一条 openPage 路径(焦点捕获 + 关菜单),连点两次也能重新打开 ---
+describe('settingsEntry_panel_does_not_stack_settings_backdrops', () => {
+  it('opens the global panel without a nested settings-modal or remote-hosts backdrop', () => {
+    mockOkwork();
+    render(<SettingsEntry />);
+    openSettingsFromMenu();
+    expect(document.querySelector('.settings-panel')).toBeInTheDocument();
+    expect(document.querySelector('.settings-modal__backdrop')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Remote Hosts' }));
+    expect(document.querySelector('.remote-hosts__backdrop')).toBeNull();
+    expect(document.querySelector('.remote-hosts__embedded')).toBeInTheDocument();
+  });
+});
+
+describe('settingsEntry_deep_link_replaces_open_about', () => {
+  it('closes About when openRemoteHostsPage fires', () => {
+    mockOkwork({ version: '0.3.12' });
+    render(<SettingsEntry />);
+    fireEvent.click(screen.getByTitle('Login'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
+    expect(screen.getByText('OkWork')).toBeInTheDocument();
+    act(() => {
+      useAppStore.getState().openRemoteHostsPage();
+    });
+    expect(screen.queryByText('OkWork')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+  });
+});
+
 describe('settingsEntry_remote_hosts_page_deep_link_via_store_nonce', () => {
   it('nonce 自增打开远程机页并关掉已开着的菜单;关闭后再次自增可重新打开', () => {
     mockOkwork();
