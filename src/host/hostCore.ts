@@ -422,6 +422,21 @@ async function handleRpc(
         result = { tabId: await browser.navigate(p.url, p.tabId) };
         break;
       }
+      case 'browser.reload': {
+        const p = (msg.params ?? {}) as { tabId?: string };
+        await browser.reload(p.tabId);
+        break;
+      }
+      case 'browser.goBack': {
+        const p = (msg.params ?? {}) as { tabId?: string };
+        result = { ok: await browser.navigateHistory(-1, p.tabId) };
+        break;
+      }
+      case 'browser.goForward': {
+        const p = (msg.params ?? {}) as { tabId?: string };
+        result = { ok: await browser.navigateHistory(1, p.tabId) };
+        break;
+      }
       case 'browser.eval': {
         const p = msg.params as { tabId?: string; code: string };
         result = { value: await browser.evaluate(p.code, p.tabId) };

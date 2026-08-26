@@ -1,5 +1,7 @@
 # dependencies & build
-node_modules/
+# 不带斜杠:`node_modules/` 只匹配目录,挡不住同名符号链接(cd95cdb 曾以符号链接
+# 形态误入库,在别人的 clone/CI 上会展开成指向绝对路径的悬空链接)
+node_modules
 dist/
 out/
 .vite/
