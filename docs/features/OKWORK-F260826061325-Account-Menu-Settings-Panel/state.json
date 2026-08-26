@@ -1,0 +1,119 @@
+{
+  "feature_id": "OKWORK-F260826061325-Account-Menu-Settings-Panel",
+  "bl": null,
+  "clarity": "normal",
+  "preset": "full",
+  "sub_project": "",
+  "flow_type": "Feature",
+  "artifact_root": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260826061325-Account-Menu-Settings-Panel/docs/features/OKWORK-F260826061325-Account-Menu-Settings-Panel",
+  "host": null,
+  "host_history": [],
+  "current_stage": "goal",
+  "merge_target": "main",
+  "review_base_commit": null,
+  "worktree": {
+    "strategy": "auto",
+    "branch": "feature/okwork-f260826061325-account-menu-settings-panel",
+    "path": "/Users/liam/apps/okok/TermPro/.worktree/OKWORK-F260826061325-Account-Menu-Settings-Panel",
+    "base_branch": "origin/main",
+    "created_at": "2026-08-26T06:35:49Z"
+  },
+  "environment_config": {
+    "worktree_mode": "auto",
+    "branch": "feature/okwork-f260826061325-account-menu-settings-panel",
+    "merge_target": "main",
+    "base": "origin/main",
+    "executed_at": "2026-08-26T06:35:49Z"
+  },
+  "auto_mode": false,
+  "yolo": false,
+  "concerns": [],
+  "review_round": 0,
+  "stage_contracts": {
+    "goal": {
+      "input_satisfied": false,
+      "process_satisfied": false,
+      "output_satisfied": false,
+      "started_at": "2026-08-26T06:36:00Z"
+    }
+  },
+  "completed_stages": [],
+  "created_at": "2026-08-26T06:35:49Z",
+  "assembly_plan": {
+    "tier": "full",
+    "set_at": "goal",
+    "dims": {
+      "spec_depth": "prd",
+      "evidence_gate": true,
+      "verify_depth": "test",
+      "ui": true,
+      "review": {
+        "goal": [
+          "pl",
+          "external"
+        ],
+        "review": [
+          "architect",
+          "external"
+        ],
+        "pm_acceptance": [
+          "pm"
+        ]
+      }
+    },
+    "axes": {},
+    "revisions": [
+      {
+        "at_stage": "goal",
+        "dim": "spec_depth",
+        "from": "prd_tech",
+        "to": "prd",
+        "evidence": "调研后：无协议/存储/Host 契约，方案空间是把现有设置页嵌进两栏壳，不值得写 TECH",
+        "at": "2026-08-26T06:50:17Z"
+      },
+      {
+        "at_stage": "goal",
+        "dim": "ui",
+        "from": false,
+        "to": true,
+        "evidence": "入口、账号菜单、全局设置面板均为用户可见 UI 改动",
+        "at": "2026-08-26T06:50:17Z"
+      }
+    ]
+  },
+  "stage_review_roles": {
+    "goal": [
+      "pl",
+      "external"
+    ],
+    "blueprint": [],
+    "review": [
+      "architect",
+      "external"
+    ],
+    "pm_acceptance": [
+      "pm"
+    ]
+  },
+  "stage_review_roles_adjustments": [
+    {
+      "stage": "*",
+      "roles": [],
+      "reason": "fast_mode(localconfig)· goal/review 各留单路合并评审 · 其余评审跳",
+      "adjusted_via": "fast_mode"
+    }
+  ],
+  "fast_mode": true,
+  "updated_at": "2026-08-26T06:50:37Z",
+  "updated_by": "pause-mark",
+  "_schema_version": 1,
+  "_state_checksum": "sha256:a68c6506419434841635f6b8f65d2195b2101076bf4ae773fcbd7e2147430c16",
+  "legal_next_stages": [
+    "blueprint"
+  ],
+  "open_pause": {
+    "stage": "goal",
+    "label": "PRD 终确认",
+    "started_at": "2026-08-26T06:50:37Z"
+  }
+}
