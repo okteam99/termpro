@@ -192,6 +192,44 @@ describe('推流生命周期', () => {
     );
   });
 
+  it('🔴 推流建立后立即补发一次视口同步(ResizeObserver 首发早于推流,不补远端视口永远停在默认尺寸)', async () => {
+    // 预览容器给个确定尺寸(jsdom 无排版,div 默认全 0 → push 会被跳过)
+    const rect = {
+      left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0,
+      toJSON: () => ({}),
+    };
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(rect as DOMRect);
+    const f = fakeClient();
+    render(<CloudBrowserPreview client={f.client} />);
+    await waitFor(() =>
+      expect(f.rpc).toHaveBeenCalledWith('browser.resize', {
+        tabId: 'cloud-tab-1',
+        width: 800,
+        height: 600,
+        deviceScaleFactor: 1,
+      }),
+    );
+  });
+
+  it('推流建立后经 onStream 回报真正在播的标签(host 解析出来的 id)', async () => {
+    const f = fakeClient();
+    const onStream = vi.fn();
+    render(<CloudBrowserPreview client={f.client} tabId="t1" onStream={onStream} />);
+    await waitFor(() => expect(onStream).toHaveBeenCalledWith('cloud-tab-1'));
+  });
+
+  it('tabId 变更 → 停旧流开新流(☁ 模式下点标签条切换看的页面)', async () => {
+    const f = fakeClient();
+    const view = render(<CloudBrowserPreview client={f.client} tabId="t1" />);
+    await waitFor(() => expect(f.rpc).toHaveBeenCalledWith('browser.startPreview', { tabId: 't1' }));
+
+    view.rerender(<CloudBrowserPreview client={f.client} tabId="t2" />);
+    await waitFor(() => {
+      expect(f.rpc).toHaveBeenCalledWith('browser.stopPreview', { tabId: 'cloud-tab-1' });
+      expect(f.rpc).toHaveBeenCalledWith('browser.startPreview', { tabId: 't2' });
+    });
+  });
+
   it('startPreview 失败 → 显示错误,不静默空白', async () => {
     const f = fakeClient({ startError: new Error('no Chromium found on this host') });
     const onError = vi.fn();

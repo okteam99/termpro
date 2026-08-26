@@ -17,6 +17,8 @@ export interface CloudBrowserPreviewProps {
   tabId?: string;
   /** 画质(JPEG quality),默认由 host 定 */
   quality?: number;
+  /** 推流建立后回报真正在播的标签(host 解析出来的,可能与传入的 tabId 不同)。 */
+  onStream?(tabId: string): void;
   onError?(message: string): void;
 }
 
@@ -31,6 +33,7 @@ export function CloudBrowserPreview({
   client,
   tabId,
   quality,
+  onStream,
   onError,
 }: CloudBrowserPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -43,23 +46,35 @@ export function CloudBrowserPreview({
   const streamTabRef = useRef<string | null>(null);
   /** 最近一帧的 metadata:输入坐标换算的依据 */
   const metaRef = useRef<BrowserFrameMetadata | null>(null);
+  /** 视口同步的最新 push 函数(推流建立时要立即补发一次,见下) */
+  const pushViewportRef = useRef<() => void>(() => undefined);
   const [live, setLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fail = useCallback(
-    (err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      onError?.(message);
-    },
-    [onError],
-  );
+  // 🔴 回调走 ref:父组件每次渲染传新 lambda 不该导致推流效应重跑
+  // (那等于「父组件任何一次 setState 都重连一次 screencast」)。
+  const onStreamRef = useRef(onStream);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onStreamRef.current = onStream;
+    onErrorRef.current = onError;
+  });
+
+  const fail = useCallback((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    setError(message);
+    onErrorRef.current?.(message);
+  }, []);
 
   // ---- 推流生命周期:挂上就开,卸载必停(组件在 = 有人在看)----
   useEffect(() => {
     let disposed = false;
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // tabId 切换会重跑本效应(换流):上一个标签的画面/错误/metadata 都不再作数
+    setLive(false);
+    setError(null);
+    metaRef.current = null;
     const ctx = canvas.getContext('2d');
     // 独立二进制通道(独立 SSH channel);拿不到就退回主连接的 JSON 帧
     const streamId = crypto.randomUUID();
@@ -143,6 +158,11 @@ export function CloudBrowserPreview({
         if (res.binary && channel) {
           ackFrame = (frameTabId, seq) => channel.ack(frameTabId, seq);
         }
+        onStreamRef.current?.(res.tabId);
+        // 🔴 立即补一次视口同步:ResizeObserver 的首次回调发生在推流建立**之前**
+        // (streamTabRef 还是 null,push 会跳过),不补这一发,远端视口会一直停在
+        // 默认尺寸——画面在面板里永远是错误比例的信箱式小窗(用户报告 2026-08-26)。
+        pushViewportRef.current();
       })
       .catch(fail);
 
@@ -178,6 +198,8 @@ export function CloudBrowserPreview({
         })
         .catch(() => undefined);
     };
+    // 暴露给推流效应:startPreview 返回时立即补发一次(见那边的注释)
+    pushViewportRef.current = push;
     const observer = new ResizeObserver(() => {
       // 拖动窗口会连发几十次;去抖,免得把隧道灌满 resize RPC
       if (timer) clearTimeout(timer);
@@ -185,6 +207,7 @@ export function CloudBrowserPreview({
     });
     observer.observe(wrap);
     return () => {
+      pushViewportRef.current = () => undefined;
       observer.disconnect();
       if (timer) clearTimeout(timer);
     };
