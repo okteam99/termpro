@@ -11,6 +11,7 @@ import '../../../../src/renderer/components/SideRail.css';
 import '../../../../src/renderer/components/PanelHeader.css';
 import '../../../../src/renderer/components/FilePanel.css';
 import './latest-ui-sync.css';
+import './account-settings-panel.css';
 
 const scenarios = {
   worktree: {
@@ -99,7 +100,7 @@ function normalizeInitialPath(pathname) {
 
 const DEVBAR_ROUTES = [
   { path: '/terminal/file-panel-path-location', label: 'Terminal · FilePanel' },
-  { path: '/sidebar/settings-about-entry', label: 'Sidebar · About' },
+  { path: '/sidebar/settings-about-entry', label: 'Sidebar · Login' },
   { path: '/shell/close-install-confirmation', label: 'Close/Install' },
   { path: '/workspace/add-workspace', label: 'Add Workspace' },
   { path: '/settings/remote-hosts', label: 'Remote Hosts' },
@@ -203,6 +204,8 @@ function Sidebar({
   onOpenRemoteHosts,
   onOpenBrowserSettings,
   onReconnectWorkspace,
+  previewLayer = null,
+  previewSection = 'general',
 } = {}) {
   return (
     <aside className="sidebar" aria-label="Workspaces">
@@ -247,8 +250,8 @@ function Sidebar({
         updatePillLabel={updatePillLabel}
         updatePillTitle={updatePillTitle}
         updatePillState={updatePillState}
-        onOpenRemoteHosts={onOpenRemoteHosts}
-        onOpenBrowserSettings={onOpenBrowserSettings}
+        previewLayer={previewLayer}
+        previewSection={previewSection}
       />
     </aside>
   );
@@ -662,6 +665,183 @@ function LocalMachineIcon() {
   );
 }
 
+function LogoutIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+      strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 2.5H3.2A1.2 1.2 0 0 0 2 3.7v6.6c0 .66.54 1.2 1.2 1.2H6" />
+      <path d="M8.2 9.5 11 7 8.2 4.5" />
+      <path d="M11 7H5.5" />
+    </svg>
+  );
+}
+
+function LanguageIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor"
+      strokeWidth="1.2" aria-hidden="true">
+      <circle cx="7" cy="7" r="5.5" />
+      <ellipse cx="7" cy="7" rx="2.4" ry="5.5" />
+      <line x1="1.5" y1="7" x2="12.5" y2="7" />
+    </svg>
+  );
+}
+
+function PinBarIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor"
+      strokeWidth="1.2" aria-hidden="true">
+      <rect x="1.8" y="2.5" width="11.4" height="10" rx="1.5" />
+      <rect x="1.8" y="9.5" width="11.4" height="3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+const SETTINGS_NAV = [
+  { id: 'general', label: 'General', Icon: PinBarIcon },
+  { id: 'language', label: 'Language', Icon: LanguageIcon },
+  { id: 'browser', label: 'Browser Settings', Icon: BrowserIdentityIcon },
+  { id: 'passwords', label: 'Saved Passwords', Icon: GearIcon },
+  { id: 'remoteHosts', label: 'Remote Hosts', Icon: RemoteIcon },
+];
+
+function SettingsPanelOption({ selected, label, desc, onSelect }) {
+  return (
+    <button
+      className={`settings-panel__opt${selected ? ' settings-panel__opt--selected' : ''}`}
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+    >
+      <span className="settings-panel__opt-check" aria-hidden="true">{selected ? '✓' : ''}</span>
+      <span className="settings-panel__row-text">
+        <span className="settings-panel__row-label">{label}</span>
+        {desc && <span className="settings-panel__row-desc">{desc}</span>}
+      </span>
+    </button>
+  );
+}
+
+function GlobalSettingsPanel({ section, onSection, onClose }) {
+  const [pinBottomBar, setPinBottomBar] = useState(true);
+  const [locale, setLocale] = useState('system');
+  const [linkMode, setLinkMode] = useState('builtin');
+  const [surface, setSurface] = useState('window');
+  const active = SETTINGS_NAV.find((item) => item.id === section) || SETTINGS_NAV[0];
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="settings-panel__backdrop"
+      data-ac="AC-3 AC-4 AC-8"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="settings-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <nav className="settings-panel__nav" aria-label="Settings categories">
+          <div className="settings-panel__nav-title">Settings</div>
+          {SETTINGS_NAV.map((item) => (
+            <button
+              key={item.id}
+              className={`settings-panel__nav-item${item.id === active.id ? ' settings-panel__nav-item--active' : ''}`}
+              onClick={() => onSection(item.id)}
+            >
+              <item.Icon />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-panel__main">
+          <div className="settings-panel__header">
+            <div>
+              <div className="settings-panel__title">{active.label}</div>
+              <div className="settings-panel__subtitle">Changes apply immediately</div>
+            </div>
+            <button className="settings-panel__close" onClick={onClose} title="Close">×</button>
+          </div>
+          <div className="settings-panel__body">
+            {active.id === 'general' && (
+              <div data-ac="AC-4">
+                <div className="settings-panel__group-title">Appearance</div>
+                <button
+                  className="settings-panel__row"
+                  role="switch"
+                  aria-checked={pinBottomBar}
+                  onClick={() => setPinBottomBar((v) => !v)}
+                >
+                  <span className="settings-panel__row-text">
+                    <span className="settings-panel__row-label">Pin bottom bar</span>
+                    <span className="settings-panel__row-desc">
+                      Keep the bottom input bar pinned when scrolling up through history.
+                    </span>
+                  </span>
+                  <span className="settings-switch" data-on={pinBottomBar ? 'true' : 'false'} aria-hidden="true">
+                    <span className="settings-switch-knob" />
+                  </span>
+                </button>
+              </div>
+            )}
+            {active.id === 'language' && (
+              <div data-ac="AC-4" role="radiogroup" aria-label="Interface language">
+                <div className="settings-panel__group-title">Interface language</div>
+                <SettingsPanelOption selected={locale === 'system'} label="System" desc="Follow the system language." onSelect={() => setLocale('system')} />
+                <SettingsPanelOption selected={locale === 'en'} label="English" onSelect={() => setLocale('en')} />
+                <SettingsPanelOption selected={locale === 'zh-CN'} label="简体中文" onSelect={() => setLocale('zh-CN')} />
+              </div>
+            )}
+            {active.id === 'browser' && (
+              <div data-ac="AC-4">
+                <div className="settings-panel__group-title">Open links in</div>
+                <SettingsPanelOption selected={linkMode === 'builtin'} label="Built-in browser" desc="Terminal links open in OkWork’s own browser." onSelect={() => setLinkMode('builtin')} />
+                <SettingsPanelOption selected={linkMode === 'system'} label="System browser" desc="Terminal links open in your default browser." onSelect={() => setLinkMode('system')} />
+                <SettingsPanelOption selected={linkMode === 'builtinForRemote'} label="Built-in for remote terminals only" desc="Remote terminals use the built-in browser; local terminals use the system browser." onSelect={() => setLinkMode('builtinForRemote')} />
+                <div className="settings-panel__group-title" style={{ marginTop: 18 }}>Built-in browser surface</div>
+                <SettingsPanelOption selected={surface === 'window'} label="Separate window" desc="Opens as its own OkBrowser window." onSelect={() => setSurface('window')} />
+                <SettingsPanelOption selected={surface === 'pane'} label="In the app panel" desc="Opens in the panel on the right of the main window." onSelect={() => setSurface('pane')} />
+                <button className="settings-panel__link" onClick={() => onSection('passwords')}>
+                  Saved Passwords →
+                </button>
+              </div>
+            )}
+            {active.id === 'passwords' && (
+              <div data-ac="AC-4">
+                <div className="settings-panel__group-title">Work profile</div>
+                <div className="settings-panel__pwd"><span>github.com</span><span>liam@example.com</span><span>•</span></div>
+                <div className="settings-panel__pwd"><span>github.com</span><span>liam@okteam99.com</span><span>•</span></div>
+                <div className="settings-panel__pwd"><span>console.aws.amazon.com</span><span>liam@okteam99.com</span><span>•</span></div>
+                <button className="settings-panel__link" onClick={() => onSection('browser')}>
+                  ← Browser Settings
+                </button>
+              </div>
+            )}
+            {active.id === 'remoteHosts' && (
+              <div data-ac="AC-4 AC-7">
+                <div className="settings-panel__host"><span>mini-pc</span><span className="settings-panel__row-desc">connected</span></div>
+                <div className="settings-panel__host"><span>build-mac</span><span className="settings-panel__row-desc">disconnected</span></div>
+                <button className="settings-panel__link" onClick={() => onSection('browser')}>
+                  Open Browser Profiles →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** About 弹窗:展示应用名 + 当前版本(version 为空 → 「版本未知」)。Esc / 遮罩 / × 关闭。 */
 function AboutModal({ version, onClose }) {
   useEffect(() => {
@@ -685,7 +865,7 @@ function AboutModal({ version, onClose }) {
   );
 }
 
-/** 左下角用户信息入口:头像占位 + Settings + 上弹菜单(仅 About)→ About 弹版本。 */
+/** 左下角账号入口:Login + 账号菜单(Settings / About / Logout)→ 全局 Settings 面板或 About。 */
 function SidebarFooter({
   devChannel = false,
   updateAvailable = false,
@@ -693,14 +873,24 @@ function SidebarFooter({
   updatePillLabel = '⬆ 新版本 v0.4.0 — 点击升级',
   updatePillTitle = '下载新版本并自动重启升级',
   updatePillState = 'available',
-  onOpenRemoteHosts,
-  onOpenBrowserSettings,
+  previewLayer = null,
+  previewSection = 'general',
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [aboutOpen, setAboutOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(previewLayer === 'menu' || previewLayer === 'logout');
+  const [aboutOpen, setAboutOpen] = useState(previewLayer === 'about');
+  const [panelSection, setPanelSection] = useState(
+    previewLayer === 'panel' || previewLayer === 'deeplink' ? previewSection : null,
+  );
+  const [logoutHint, setLogoutHint] = useState(previewLayer === 'logout');
   const footerRef = useRef(null);
 
-  // 菜单:点击外部 / Esc 关闭(对齐通知中心交互)
+  useEffect(() => {
+    setMenuOpen(previewLayer === 'menu' || previewLayer === 'logout');
+    setAboutOpen(previewLayer === 'about');
+    setPanelSection(previewLayer === 'panel' || previewLayer === 'deeplink' ? previewSection : null);
+    setLogoutHint(previewLayer === 'logout');
+  }, [previewLayer, previewSection]);
+
   useEffect(() => {
     if (!menuOpen) return;
     function onDown(e) {
@@ -715,9 +905,22 @@ function SidebarFooter({
     };
   }, [menuOpen]);
 
+  function closeOverlays() {
+    setMenuOpen(false);
+    setAboutOpen(false);
+    setPanelSection(null);
+  }
+
+  function openSettings() {
+    setMenuOpen(false);
+    setAboutOpen(false);
+    setPanelSection('general');
+  }
+
   function openAbout() {
-    setMenuOpen(false);   // 点 About:菜单先关
-    setAboutOpen(true);   // 弹窗后开(两态不共存)
+    setMenuOpen(false);
+    setPanelSection(null);
+    setAboutOpen(true);
   }
 
   return (
@@ -731,51 +934,57 @@ function SidebarFooter({
         </button>
       )}
 
-      <div className="settings-anchor">
+      <div className="settings-anchor" data-ac="AC-1 AC-2">
         {menuOpen && (
           <div className="settings-menu" role="menu">
-            {onOpenBrowserSettings && (
-              <button
-                className="settings-menu-item"
-                role="menuitem"
-                onClick={() => { setMenuOpen(false); onOpenBrowserSettings(); }}
-              >
-                <span className="settings-menu-icon"><BrowserIdentityIcon /></span>
-                <span className="settings-menu-label">Browser Settings</span>
-              </button>
-            )}
-            {onOpenRemoteHosts && (
-              <button
-                className="settings-menu-item"
-                role="menuitem"
-                onClick={() => { setMenuOpen(false); onOpenRemoteHosts(); }}
-              >
-                <span className="settings-menu-icon"><RemoteIcon /></span>
-                <span className="settings-menu-label">Remote Hosts</span>
-              </button>
-            )}
+            <button className="settings-menu-item" role="menuitem" onClick={openSettings}>
+              <span className="settings-menu-icon"><GearIcon /></span>
+              <span className="settings-menu-label">Settings</span>
+            </button>
             <button className="settings-menu-item" role="menuitem" onClick={openAbout}>
               <span className="settings-menu-icon"><InfoIcon /></span>
               <span className="settings-menu-label">About</span>
             </button>
+            <div className="settings-menu-sep" />
+            <button
+              className="settings-menu-item settings-menu-item--logout"
+              role="menuitem"
+              data-ac="AC-6"
+              onClick={() => setLogoutHint(true)}
+            >
+              <span className="settings-menu-icon"><LogoutIcon /></span>
+              <span className="settings-menu-label">Log out</span>
+            </button>
+            {logoutHint && (
+              <span className="settings-menu-hint">Not signed in</span>
+            )}
           </div>
         )}
 
         <button
           className={`settings-entry${menuOpen ? ' settings-entry--open' : ''}`}
-          onClick={() => setMenuOpen((v) => !v)}
-          title="Settings"
+          onClick={() => { setLogoutHint(false); setMenuOpen((v) => !v); }}
+          title="Login"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
         >
           <span className="settings-avatar"><PersonIcon /></span>
-          <span className="settings-entry-label">Settings</span>
+          <span className="settings-entry-label">Login</span>
           {devChannel && <span className="sidebar-dev-badge">DEV</span>}
           <span className="settings-entry-chevron">⌄</span>
         </button>
       </div>
 
-      {aboutOpen && <AboutModal version={version} onClose={() => setAboutOpen(false)} />}
+      {aboutOpen && (
+        <AboutModal version={version} onClose={() => { setAboutOpen(false); }} />
+      )}
+      {panelSection && (
+        <GlobalSettingsPanel
+          section={panelSection}
+          onSection={(next) => { setAboutOpen(false); setMenuOpen(false); setPanelSection(next); }}
+          onClose={closeOverlays}
+        />
+      )}
     </div>
   );
 }
@@ -3727,6 +3936,45 @@ function ReconnectContinuityPage({ currentPath, onNavigate }) {
   );
 }
 
+const ACCOUNT_ENTRY_PRESETS = [
+  { key: 'idle', label: 'Login 入口', layer: null, section: 'general' },
+  { key: 'menu', label: '账号菜单', layer: 'menu', section: 'general' },
+  { key: 'logout', label: 'Logout · 未登录', layer: 'logout', section: 'general' },
+  { key: 'about', label: 'About', layer: 'about', section: 'general' },
+  { key: 'panel-general', label: 'Settings · General', layer: 'panel', section: 'general' },
+  { key: 'panel-language', label: 'Settings · Language', layer: 'panel', section: 'language' },
+  { key: 'panel-browser', label: 'Settings · Browser', layer: 'panel', section: 'browser' },
+  { key: 'panel-passwords', label: 'Settings · Passwords', layer: 'panel', section: 'passwords' },
+  { key: 'panel-hosts', label: 'Settings · Remote Hosts', layer: 'panel', section: 'remoteHosts' },
+  { key: 'deeplink', label: '深链 → Remote Hosts', layer: 'deeplink', section: 'remoteHosts' },
+];
+
+function SettingsAboutEntryPage({ currentPath, onNavigate }) {
+  const [state, setState] = useState('idle');
+  const preset = ACCOUNT_ENTRY_PRESETS.find((item) => item.key === state) || ACCOUNT_ENTRY_PRESETS[0];
+  return (
+    <PreviewPage
+      currentPath={currentPath}
+      onNavigate={onNavigate}
+      statePresets={ACCOUNT_ENTRY_PRESETS}
+      activeStateKey={state}
+      onSelectState={setState}
+    >
+      <div className="app-shell">
+        <Sidebar previewLayer={preset.layer} previewSection={preset.section} />
+        <div className="pane-handle" />
+        <main className="main-column">
+          <TabBar />
+          <div className="terminal-area"><PlainTerminal /></div>
+        </main>
+        <div className="pane-handle" />
+        <FilePanel scenario={scenarios.worktree} />
+        <SideRail />
+      </div>
+    </PreviewPage>
+  );
+}
+
 function App() {
   const [path, setPath] = useState(() => normalizeInitialPath(window.location.pathname));
   const [scenarioKey, setScenarioKey] = useState('worktree');
@@ -3783,6 +4031,10 @@ function App() {
 
   if (path === '/session/reconnect-continuity') {
     return <ReconnectContinuityPage currentPath={path} onNavigate={navigate} />;
+  }
+
+  if (path === '/sidebar/settings-about-entry') {
+    return <SettingsAboutEntryPage currentPath={path} onNavigate={navigate} />;
   }
 
   const scenario = scenarios[scenarioKey];
