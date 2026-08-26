@@ -13,16 +13,29 @@ interface SettingsModalProps {
   subtitle?: string;
   onClose(): void;
   children: ReactNode;
+  /** 嵌进全局 Settings 面板右栏时去掉独立 backdrop/页头/Done */
+  embedded?: boolean;
 }
 
-export function SettingsModal({ title, subtitle, onClose, children }: SettingsModalProps) {
+export function SettingsModal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  embedded = false,
+}: SettingsModalProps) {
   useEffect(() => {
+    if (embedded) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, embedded]);
+
+  if (embedded) {
+    return <div className="settings-modal__body settings-modal__body--embedded">{children}</div>;
+  }
 
   return (
     <div

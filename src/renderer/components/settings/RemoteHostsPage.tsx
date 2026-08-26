@@ -162,12 +162,14 @@ function omitKey<T>(obj: Record<string, T>, key: string): Record<string, T> {
 export interface RemoteHostsPageProps {
   onClose(): void;
   onOpenBrowserProfiles?(): void;
+  embedded?: boolean;
 }
 
 /** 「远程机」管理弹层:最近使用快捷区(一键连接)+ 手动添加区(增/改/删/测试连接/连接生命周期)。 */
 export function RemoteHostsPage({
   onClose,
   onOpenBrowserProfiles,
+  embedded = false,
 }: RemoteHostsPageProps) {
   const [configs, setConfigs] = useState<RemoteHostConfig[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -328,14 +330,33 @@ export function RemoteHostsPage({
     return unsubscribe;
   }, [applyEvent, refreshList]);
 
-  // Esc 关闭(对齐既有 AboutModal 交互)
+  // Esc:二级表单先关;无二级层时独立弹层关自己,嵌入面板则交给 SettingsPanel
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (formMode) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setFormMode(null);
+        return;
+      }
+      if (deleteConfirmId) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setDeleteConfirmId(null);
+        return;
+      }
+      if (upgradeConfirmId) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setUpgradeConfirmId(null);
+        return;
+      }
+      if (!embedded) onClose();
     }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose, embedded, formMode, deleteConfirmId, upgradeConfirmId]);
 
   const recentHosts = useMemo(
     () =>
@@ -966,15 +987,20 @@ export function RemoteHostsPage({
 
   return (
     <div
-      className="remote-hosts__backdrop"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      className={embedded ? 'remote-hosts__embedded' : 'remote-hosts__backdrop'}
+      onMouseDown={
+        embedded
+          ? undefined
+          : (e) => {
+              if (e.target === e.currentTarget) onClose();
+            }
+      }
     >
       <div
-        className="remote-hosts__card"
+        className={embedded ? 'remote-hosts__embedded-card' : 'remote-hosts__card'}
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {!embedded && (
         <div className="remote-hosts__header">
           <div>
             <div className="remote-hosts__title">{t('Remote Hosts')}</div>
@@ -992,6 +1018,7 @@ export function RemoteHostsPage({
             ×
           </button>
         </div>
+        )}
 
         <div className="remote-hosts__body">
           {encryptionAvailable === false && (

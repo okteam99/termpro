@@ -1,0 +1,150 @@
+.settings-panel__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  -webkit-app-region: no-drag;
+}
+
+.settings-panel {
+  width: min(920px, calc(100vw - 48px));
+  height: min(640px, calc(100vh - 64px));
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  overflow: hidden;
+}
+
+.settings-panel__nav {
+  width: 220px;
+  flex: none;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 8px;
+  gap: 2px;
+  background: var(--bg);
+}
+
+.settings-panel__nav-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  padding: 6px 10px 10px;
+}
+
+.settings-panel__nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.settings-panel__nav-item:hover {
+  background: var(--bg-active);
+}
+
+.settings-panel__nav-item--active {
+  background: var(--bg-active);
+}
+
+.settings-panel__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.settings-panel__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.settings-panel__close {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.settings-panel__close:hover {
+  color: var(--fg);
+}
+
+.settings-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 24px;
+}
+
+.settings-panel__group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  margin: 4px 0 10px;
+}
+
+.settings-panel__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-panel__row-label {
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.settings-menu-sep {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--border);
+}
+
+.settings-menu-hint {
+  display: block;
+  margin: 2px 10px 8px 35px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}

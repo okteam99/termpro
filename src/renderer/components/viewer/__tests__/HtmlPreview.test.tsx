@@ -298,7 +298,7 @@ describe('HtmlPreview', () => {
       />,
     );
     await screen.findByText(
-      "This machine's host is too old for preview — update it from Settings → Remote Hosts",
+      "This machine's host is too old for preview — update it from Settings (Remote Hosts)",
     );
     rpc.mockReset();
     rpc.mockImplementation((method: string) => {

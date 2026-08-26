@@ -26,6 +26,7 @@
 | RD-7 | **"有反馈"是给眼睛的还是只给读屏的?** `aria-busy` / `aria-live` 不产生任何像素 | 忙碌态只写 `aria-busy`,截图与常态**像素级相同** —— 用户点了 5 秒看不到任何变化,正是该 AC 明令禁止的症状 |
 | RD-8 | **同构分支复制了几份?** 每多一份,下一个新增的不变式就要记得在每一处各写一遍 —— 本 Feature 因此栽了**两次**(握手实现两份 / 三个只差 label 的按钮分支) | 设置页有独立的一份 `beginHandshake`,只给侧栏设闸 → 设置页留一条无人管理的活连接 |
 | RD-18 | **队列串行化是否被误当成了代次作废?** 同 key 的 Promise 排队只保证不并发,不会自动撤销旧任务的重试、提示或其它不可逆副作用;后到请求能取代前一代时,须另设 generation/token,且旧回调在副作用发生前动态验代 | `readoptHostSessions` 已按 hostId 串行,但旧轮最终 `session.attach` 失败仍把不可撤回提示写进 xterm;新轮随即成功后侧栏已绿,终端仍显示 `host connection lost`。修为 per-host object token:旧代失败停止重试,最终提示只允许最新代输出 |
+| RD-19 | **全局 overlay 里每一个二级 dialog，Esc 有没有 capture + `stopImmediatePropagation`？** 父级 `document` listener 会把 Esc 当成「关整块面板」。二级层 `close()` 若在 loading/busy 时 early-return，等于既不关自己也不拦父级 | `SettingsPanel` 已对 Esc 关面板；Remote Hosts 二级表单拦了，Profile 存储迁移 dialog 没拦 —— Esc 在 load 中途关掉整块 Settings。修为 capture Esc，且 loading 允许关 dialog（只禁 confirm 在途） |
 
 ### 🧪 测试工装类(写测试时防 · 这几条的共同特征是「长得像通过」)
 
@@ -44,7 +45,7 @@
 | RD-16 | **远端目标的 `ready` 是否和当前连接代的协议兼容性一起进入“可选 + 可提交”条件?** 只在 main 最终提交时拒绝会把确定性不兼容暴露成用户点 Continue 后才失败 | BL-007 迁移选择器最初只看 Host stage；review 发现旧 bundle 仍可选择，修为 generation-scoped `describe` 缓存/失效、renderer 禁用与 main 签计划前复验 |
 | RD-17 | **这条断言的输入，生产上谁会产生它?** 覆盖矩阵绿 ≠ 生产路径被验证 —— 这是本项目第二次栽(GO-033 是 seam 没接生产；GO-041 是接了生产但**测的分支不可达**)。写完 TC 逐条反问:该实现符号除了定义，有没有测试**从生产入口**触达它 | BL-008 的 T-006 断言 Host 会拒绝一个 `kind:'evicted'` 的 RPC——而设备侧 `if (cause === 'evicted') return;` 决定了它永远不会被发出;矩阵显示 AC-4 已覆盖，真正的抑制逻辑却零测试。同轮 AC-5 的 `host_upgrade` 提示链路同样零触达(两者均在 pm_acceptance 才被逐条对照抓出) |
 
-📌 **判据来源**:RD-1..RD-8、RD-15..RD-17 每条对应相关 Feature `REVIEW.md` 的 confirmed finding；RD-18 来自 `OKWORK-B260821031119-Reconnect-Session-Restore` 的稳定竞态复现；RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
+📌 **判据来源**:RD-1..RD-8、RD-15..RD-17 每条对应相关 Feature `REVIEW.md` 的 confirmed finding；RD-18 来自 `OKWORK-B260821031119-Reconnect-Session-Restore` 的稳定竞态复现；RD-19 来自 `OKWORK-F260826061325-Account-Menu-Settings-Panel` REVIEW F1；RD-9..RD-14 对应 `TEST-REPORT.md §6` 的测试自身缺陷登记(均含失败时序与实证)。
 📌 **清单会长**:同类第 2 次被抓即入;**已在清单里还复发 = 规避法不够硬,该强化那一条**,而不是再记一遍。
 
 ---
@@ -57,6 +58,7 @@
 | ID | 模糊词 | 澄清结论 | 触发 Feature | 时间 |
 |----|--------|---------|-------------|------|
 | FA-001 | "Root / WorkTree" | Root = tab 首次进入时锁定的主目录(不随 cd 漂移);WorkTree = 用户显式选绑的 worktree 根(从 `git worktree list` 选)。两者均与**单个 tab** 绑定持久化,不是全局 | M2 | 2026-06 |
+| FA-002 | "Login / 登录" | 侧栏账号位文案 Login（中文「登录」）**不是** Browser Login continuity，也不是 SSH/远程机「登录」。必须用独立 i18n key `Login`，禁止复用 continuity/SSH 那条「登录」译文。真登录流程本期不做 | OKWORK-F260826061325-Account-Menu-Settings-Panel | 2026-08 |
 
 ---
 
@@ -108,6 +110,7 @@
 | GO-040 | test/worktree | **worktree 里不装 node_modules 时，起真实子进程的测试会整片挂掉且症状像回归**：`src/host/__tests__/hostSubprocessHarness.ts` 把 host 打成临时目录里的 CJS bundle，再用 `NODE_PATH = path.resolve(__dirname,'../../..') + '/node_modules'` 让子进程解析 external 依赖（node-pty / ws / bufferutil / utf-8-validate）。vitest 自身靠 Node 向上查找命中**父仓库**的 node_modules 所以照常跑，但那条显式 NODE_PATH 指的是 **worktree 根**——空目录 → `Cannot find module 'node-pty'` → `portFile.test.ts` 7 例全红 | 在 worktree 跑测试前先确认依赖可解析：`npm ci`，或对 external 依赖软链父仓库（`ln -s ../../node_modules/node-pty node_modules/node-pty`，另需 ws；跑 `electron-forge` 还要 electron）。**判据**：只有起子进程的套件红、其余全绿 → 先怀疑依赖解析而非代码回归 | 2026-08 | OKWORK-F260810151932-Browser-Profile-Login-Continuity |
 | GO-041 | test/coverage | **「测了一个真实系统不会发生的输入」= 比幽灵覆盖更难识破的假覆盖**：TC 声称覆盖某 AC，测试也真跑真绿，但它构造的输入在生产路径上**永远不会出现**（BL-008 的 T-006 构造了一个 `kind:'evicted'` 的 RPC 请求断言 Host schema 会拒绝它——而设备侧代码 `if (cause === 'evicted') return;` 决定了这种请求根本不会被发出）。矩阵显示 10/10 覆盖，真正的抑制逻辑却是黑盒。与 GO-033 的区别：GO-033 是 seam 没接生产，这条是**接了生产但测的分支不可达** | 写 TC 时对每条断言追问「生产上**谁**会产生这个输入」；review/pm_acceptance 对声称覆盖的 AC 做反向 grep（该实现符号除了定义还有没有测试**从生产入口**触达）。识别信号：测试断言的是"防御性拒绝"，而真实防御在更上游 | 2026-08 | OKWORK-F260810151932-Browser-Profile-Login-Continuity |
 | GO-042 | browser/lifecycle | **持久化 browser tab 的“可恢复”不能等同于 BrowserPanel 挂载时“立即执行”**：eager mount 所有 workspace/terminal 的历史 webview 会重新请求后台 URL；历史 `application/zip` 标签因此在用户打开任意安全链接时重放 Save As。改成 lazy mount 后，还须枚举 `browserControl`/MCP 等程序化消费者，否则后台 navigate 会只改 store 并返回假成功 | BrowserPanel 首帧只挂当前标签；本次 panel 生命周期实际访问或收到显式 mount request 的标签进入 keep-alive。程序化后台导航必须请求挂载并等待真实 webview ref，且不得抢用户焦点或对新 view 重复 `loadURL` | 2026-08 | OKWORK-B260822080545-OkBrowser-Stale-Download-Replay |
+| GO-043 | ui/overlay | **全局面板的 document Esc 会吃掉二级 dialog 的 Esc**：父级 `keydown` 关面板；子 dialog 若只用冒泡、或不 `preventDefault`，Esc 会关整块 Settings。更糟的是 `close()` 在 `storageBusy` 时 early-return —— 加载中既关不了自己，也拦不住父级 | 二级层用 capture 听 Esc 并 `stopImmediatePropagation`；loading 允许关 dialog，只在 confirm 在途拒绝。每加一个全局 overlay 内的确认/存储层都要过一遍，不能只拦 Remote Hosts | 2026-08 | OKWORK-F260826061325-Account-Menu-Settings-Panel |
 
 ---
 
@@ -160,8 +163,9 @@
 - **renderer/multi-host**: GO-028
 - **build/gate**: GO-029
 - **ui/remote**: GO-030
+- **ui/overlay**: GO-043
 - **发版**: PR-001
-- **歧义**: FA-001
+- **歧义**: FA-001, FA-002
 - **拒绝**: OS-001, OS-002, OS-003, OS-004, OS-005
 
 ---

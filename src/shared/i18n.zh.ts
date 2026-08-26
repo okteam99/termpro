@@ -134,8 +134,8 @@ export const zh: Record<string, string> = {
   // --- 项目内 HTML 预览(openPreview.ts · openHtmlPreview 失败文案)---
   'This file is outside the project — cannot start a preview':
     '该文件不在当前项目内,无法启动预览',
-  "This machine's host is too old for preview — update it from Settings → Remote Hosts":
-    '该机器的 host 版本过旧,到 设置 → 远程机 点「升级」后可用预览',
+  "This machine's host is too old for preview — update it from Settings (Remote Hosts)":
+    '该机器的 host 版本过旧,到设置面板的「远程机」点「升级」后可用预览',
   'Failed to start the preview server: {error}': '预览服务器启动失败:{error}',
   'Failed to build the preview URL': '预览地址生成失败',
 
@@ -502,8 +502,8 @@ export const zh: Record<string, string> = {
     '本机剪贴板中没有可粘贴的图片或文本',
   'Could not paste the clipboard into the remote terminal: {message}':
     '无法把剪贴板内容粘贴到远程终端：{message}',
-  'The Remote Host is running an older version; update it from Settings → Remote Hosts to enable image paste':
-    '远程 Host 版本过旧;到 设置 → 远程机 点「升级」后即可粘贴图片',
+  'The Remote Host is running an older version; update it from Settings (Remote Hosts) to enable image paste':
+    '远程 Host 版本过旧;到设置面板的「远程机」点「升级」后即可粘贴图片',
 
   // --- main/remote 凭据与编排 ---
   'Local credential encryption is unavailable — cannot store the password safely':
@@ -537,6 +537,11 @@ export const zh: Record<string, string> = {
   '{count} entries': '{count} 项',
   About: '关于',
   Settings: '设置',
+  Login: '登录',
+  'Log out': '退出登录',
+  'Not signed in': '未登录',
+  General: '通用',
+  Appearance: '外观',
   Language: '语言',
   System: '跟随系统',
   '‹ OUTLINE': '‹ 大纲',

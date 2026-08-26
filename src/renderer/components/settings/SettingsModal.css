@@ -67,6 +67,10 @@
   min-height: 0;
 }
 
+.settings-modal__body--embedded {
+  padding: 0;
+}
+
 .settings-modal__footer {
   display: flex;
   justify-content: flex-end;

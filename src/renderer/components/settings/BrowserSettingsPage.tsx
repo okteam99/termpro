@@ -54,9 +54,11 @@ const SURFACE_OPTIONS: {
 export function BrowserSettingsPage({
   onClose,
   onOpenPasswords,
+  embedded = false,
 }: {
   onClose(): void;
   onOpenPasswords?(): void;
+  embedded?: boolean;
 }) {
   const linkBrowserMode = useAppStore((s) => s.linkBrowserMode);
   const setLinkBrowserMode = useAppStore((s) => s.setLinkBrowserMode);
@@ -68,6 +70,7 @@ export function BrowserSettingsPage({
       title={t('Browser Settings')}
       subtitle={t('⌘/Ctrl+click a terminal link always opens the system browser.')}
       onClose={onClose}
+      embedded={embedded}
     >
       <SettingsOptionGroup title={t('Open links in')}>
         {LINK_MODE_OPTIONS.map((o) => (

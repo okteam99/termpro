@@ -15,12 +15,18 @@ const LOCALE_OPTIONS: { pref: LocalePref; label(): string; desc?(): string }[] =
   { pref: 'zh-CN', label: () => '简体中文' },
 ];
 
-export function LanguagePage({ onClose }: { onClose(): void }) {
+export function LanguagePage({
+  onClose,
+  embedded = false,
+}: {
+  onClose(): void;
+  embedded?: boolean;
+}) {
   const localePref = useAppStore((s) => s.localePref);
   const setLocalePref = useAppStore((s) => s.setLocalePref);
 
   return (
-    <SettingsModal title={t('Language')} onClose={onClose}>
+    <SettingsModal title={t('Language')} onClose={onClose} embedded={embedded}>
       <SettingsOptionGroup title={t('Interface language')}>
         {LOCALE_OPTIONS.map((o) => (
           <SettingsOptionRow

@@ -39,7 +39,7 @@ export async function openHtmlPreview(args: {
     if (msg.includes('unknown rpc method')) {
       return {
         ok: false,
-        message: t("This machine's host is too old for preview — update it from Settings → Remote Hosts"),
+        message: t("This machine's host is too old for preview — update it from Settings (Remote Hosts)"),
       };
     }
     return { ok: false, message: t('Failed to start the preview server: {error}', { error: msg }) };

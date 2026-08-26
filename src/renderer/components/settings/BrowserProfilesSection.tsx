@@ -362,12 +362,27 @@ export function BrowserProfilesSection() {
   }, [loadStorageLocations, storageProfile]);
 
   function closeStorageDialog() {
-    if (storageBusy) return;
+    // 加载目标列表时可关掉；真正 Copy→Verify 进行中才挡住。
+    if (storageBusy && storagePlan) return;
     storageLoadGeneration.current += 1;
     setStorageProfile(null);
     setStoragePlan(null);
     setStorageError(null);
   }
+
+  // 嵌入全局 Settings 面板时，document 上的 Esc 会关整块面板。
+  // 存储迁移层必须在 capture 阶段截停，先关自己（AC-3 二级表单）。
+  useEffect(() => {
+    if (!storageProfile) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeStorageDialog();
+    }
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [storageProfile, storageBusy]);
 
   async function planStorageChange() {
     if (!storageProfile) return;
