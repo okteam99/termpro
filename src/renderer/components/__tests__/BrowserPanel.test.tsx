@@ -26,6 +26,66 @@ vi.mock('../../terminal/terminalRegistry', () => ({
   getSessionId: vi.fn(),
 }));
 
+// ☁ 云端浏览器模式:workspace.hostId === CLOUD_HOST 时路由判定为「云」,其余(包括
+// 'local')一律「本机」——复刻真实 resolveBrowserBackend 的分支语义,不让本文件其余
+// 本机模式用例意外冒出一枚 ☁ 按钮。fakeCloudClient 记录全部 RPC 调用供各用例断言。
+const CLOUD_HOST = 'cloud-host';
+const { fakeCloudClient, resolveBrowserBackendMock, cloudRpcState } = vi.hoisted(() => {
+  const cloudRpcState: {
+    tabs: Array<{ tabId: string; url: string; title: string; active: boolean }>;
+    navigateError: string | null;
+  } = {
+    tabs: [
+      { tabId: 'c1', url: 'about:blank', title: '', active: true },
+      { tabId: 'c2', url: 'https://github.com/x', title: 'GitHub', active: false },
+    ],
+    navigateError: null,
+  };
+  const rpc = vi.fn(async (method: string, params?: unknown) => {
+    switch (method) {
+      case 'browser.listTabs':
+        return { tabs: cloudRpcState.tabs };
+      case 'browser.navigate': {
+        if (cloudRpcState.navigateError) throw new Error(cloudRpcState.navigateError);
+        return { tabId: (params as { tabId?: string })?.tabId ?? 'c1' };
+      }
+      case 'browser.openTab':
+        return { tabId: 'c3' };
+      case 'browser.activateTab':
+      case 'browser.closeTab':
+      case 'browser.reload':
+        return undefined;
+      case 'browser.goBack':
+      case 'browser.goForward':
+        return { ok: true };
+      default:
+        return undefined;
+    }
+  });
+  const fakeCloudClient = { rpc };
+  const resolveBrowserBackendMock = vi.fn(async (hostId: string) =>
+    hostId === 'cloud-host'
+      ? { kind: 'cloud' as const, client: fakeCloudClient, hostId }
+      : { kind: 'local' as const, reason: 'local-host' as const },
+  );
+  return { fakeCloudClient, resolveBrowserBackendMock, cloudRpcState };
+});
+vi.mock('../../services/cloudBrowserRouting', () => ({
+  resolveBrowserBackend: resolveBrowserBackendMock,
+}));
+
+// CloudBrowserPreview 本身有独立测试(推流生命周期/坐标换算);这里只关心 BrowserPanel
+// 传给它的 props(尤其是 tabId 跟随选中标签切换)与它回报的 onStream,占位渲染即可。
+const { cloudPreviewProps } = vi.hoisted(() => ({
+  cloudPreviewProps: { current: null as null | Record<string, unknown> },
+}));
+vi.mock('../browser/CloudBrowserPreview', () => ({
+  CloudBrowserPreview: (props: Record<string, unknown>) => {
+    cloudPreviewProps.current = props;
+    return <div data-testid="cloud-preview-stub" />;
+  },
+}));
+
 import { BrowserPanel } from '../BrowserPanel';
 import { useAppStore } from '../../state/store';
 import type { BrowserPaneState, WorkspaceState } from '../../state/store';
@@ -813,5 +873,187 @@ describe('头部 ✕ 三态确认(Cancel/Close All/Hide · 用户指令 2026-08-
 
     expect(useAppStore.getState().browserPanelOpen).toBe(false);
     expect(useAppStore.getState().workspaces[0].tabs[0].browser?.tabs).toHaveLength(2); // 标签保留
+  });
+});
+
+describe('☁ 云端浏览器模式工具栏接管', () => {
+  const CLOUD_BTN_OFF = 'View the cloud browser running on this machine';
+  const CLOUD_BTN_ON = 'Stop viewing the cloud browser (it keeps running headless)';
+
+  /** 种一个含单个终端 tab 的云端 workspace(hostId=CLOUD_HOST → 路由判定为云),
+   *  该终端 tab 自带一个本机浏览器标签,用来验证退出云模式后本机工具栏原样恢复。 */
+  function seedCloudWorkspace(browser?: BrowserPaneState): void {
+    const ws: WorkspaceState = {
+      id: 'ws1',
+      name: 'w',
+      root: '/w',
+      hostId: CLOUD_HOST,
+      tabs: [{ id: TERM, title: 't', cwd: '/w', browser }],
+      activeTabId: TERM,
+    };
+    useAppStore.setState({
+      workspaces: [ws],
+      activeWorkspaceId: 'ws1',
+      browserPanelOpen: true,
+    });
+  }
+
+  beforeEach(() => {
+    cloudRpcState.tabs = [
+      { tabId: 'c1', url: 'about:blank', title: '', active: true },
+      { tabId: 'c2', url: 'https://github.com/x', title: 'GitHub', active: false },
+    ];
+    cloudRpcState.navigateError = null;
+    fakeCloudClient.rpc.mockClear();
+    cloudPreviewProps.current = null;
+  });
+
+  /** 种本机标签 + 渲染 + 按 ☁ 进云模式,等云端标签条(GitHub 那个)真正渲染出来。 */
+  async function enterCloudMode(): Promise<void> {
+    seedCloudWorkspace({
+      tabs: [{ id: 'local-a', url: 'https://local.example/', title: 'Local' }],
+      activeTabId: 'local-a',
+    });
+    render(<BrowserPanel />);
+    await waitFor(() => expect(screen.getByTitle(CLOUD_BTN_OFF)).toBeInTheDocument());
+    fireEvent.click(screen.getByTitle(CLOUD_BTN_OFF));
+    await waitFor(() => expect(screen.getByText('GitHub')).toBeInTheDocument());
+  }
+
+  it('点 ☁ 进入云模式:标签条显示云端标签,地址栏为空(活跃标签是 about:blank)', async () => {
+    await enterCloudMode();
+
+    expect(screen.getByText('GitHub')).toBeInTheDocument();
+    const input = document.querySelector<HTMLInputElement>(
+      '.browser-panel__address-input',
+    )!;
+    expect(input.value).toBe('');
+  });
+
+  it('点另一个云标签 → activateTab RPC + Preview 收到新 tabId prop;地址栏跟着变', async () => {
+    await enterCloudMode();
+
+    fireEvent.click(screen.getByText('GitHub'));
+
+    expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.activateTab', { tabId: 'c2' });
+    await waitFor(() => expect(cloudPreviewProps.current?.tabId).toBe('c2'));
+    const input = document.querySelector<HTMLInputElement>(
+      '.browser-panel__address-input',
+    )!;
+    expect(input.value).toBe('https://github.com/x');
+  });
+
+  it('地址栏输入 example.com 回车 → browser.navigate 收到归一后的 url;不碰本机 store', async () => {
+    await enterCloudMode();
+
+    const input = document.querySelector<HTMLInputElement>(
+      '.browser-panel__address-input',
+    )!;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'example.com' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.navigate', {
+        url: 'https://example.com', // normalizeUrlInput 对形如域名的输入只补协议,不加尾斜杠
+        tabId: 'c1',
+      }),
+    );
+    expect(
+      useAppStore.getState().workspaces[0].tabs[0].browser!.tabs[0].url,
+    ).toBe('https://local.example/'); // 云端导航绝不回写本机标签
+  });
+
+  it('后退/前进/刷新按钮 → 对应 RPC,带上当前选中的云端标签', async () => {
+    await enterCloudMode();
+
+    fireEvent.click(screen.getByTitle('Back'));
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.goBack', { tabId: 'c1' }),
+    );
+    fireEvent.click(screen.getByTitle('Forward'));
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.goForward', { tabId: 'c1' }),
+    );
+    fireEvent.click(screen.getByTitle('Refresh'));
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.reload', { tabId: 'c1' }),
+    );
+  });
+
+  it('+ / × → openTab / closeTab RPC', async () => {
+    await enterCloudMode();
+
+    fireEvent.click(screen.getByTitle('New tab'));
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.openTab', {}),
+    );
+
+    const closeBtn = screen
+      .getByText('GitHub')
+      .closest('.browser-panel__tab')!
+      .querySelector('.browser-panel__tab-close') as HTMLElement;
+    fireEvent.click(closeBtn);
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.closeTab', { tabId: 'c2' }),
+    );
+  });
+
+  it('关闭正在看的云端标签 → 显式钉到下一个标签(预览换流,不冻在死标签的最后一帧)', async () => {
+    await enterCloudMode();
+    // 当前在看 c1(active);关掉它,预览必须切到 c2 而不是停留在 undefined
+    const blankTab = screen
+      .getByText('New Tab')
+      .closest('.browser-panel__tab')!
+      .querySelector('.browser-panel__tab-close') as HTMLElement;
+    fireEvent.click(blankTab);
+
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.closeTab', { tabId: 'c1' }),
+    );
+    await waitFor(() => expect(cloudPreviewProps.current?.tabId).toBe('c2'));
+  });
+
+  it('云模式下 ↗、出口选择器、密码胶囊不渲染;退出云模式后本机工具栏恢复', async () => {
+    await enterCloudMode();
+
+    expect(screen.queryByTitle('Open in system browser')).not.toBeInTheDocument();
+    expect(document.querySelector('.browser-panel__net')).toBeNull();
+    expect(document.querySelector('.password-chip')).toBeNull();
+
+    fireEvent.click(screen.getByTitle(CLOUD_BTN_ON));
+
+    await waitFor(() =>
+      expect(
+        (document.querySelector('.browser-panel__address-input') as HTMLInputElement).value,
+      ).toBe('https://local.example/'),
+    );
+    expect(screen.getByTitle('Open in system browser')).toBeInTheDocument();
+    expect(document.querySelector('.password-chip')).not.toBeNull();
+  });
+
+  it('navigate reject → 错误条显示 message;下次成功导航清除', async () => {
+    await enterCloudMode();
+    cloudRpcState.navigateError = 'navigation failed: net::ERR_NAME_NOT_RESOLVED';
+
+    const input = document.querySelector<HTMLInputElement>(
+      '.browser-panel__address-input',
+    )!;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'bad-host' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'navigation failed: net::ERR_NAME_NOT_RESOLVED',
+      ),
+    );
+
+    cloudRpcState.navigateError = null;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'good-host.com' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   });
 });
