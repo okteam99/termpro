@@ -53,6 +53,10 @@ const RPC_TIMEOUT_OVERRIDES_MS: Partial<Record<RpcMethodName, number>> = {
   // 与 session.attach 同口径:真死链路由 send 守卫/onclose 立刻拒,不靠超时兜底。
   'fs.readFileRange': 60_000,
   'fs.uploadChunk': 60_000,
+  // 云端导航以 host 侧 Page.navigate 的 commit 为准(那边给了 30s):客户端 15s 先
+  // 超时的话,错误条亮 "rpc timeout" 而远端其实还在加载并最终成功,轮询随后把新
+  // URL 显示出来——错误条和地址栏互相打脸。与 host 同口径对齐。
+  'browser.navigate': 30_000,
 };
 
 /** 传输契约:嵌入式 MessagePort 与 standalone WebSocket 两实现。 */

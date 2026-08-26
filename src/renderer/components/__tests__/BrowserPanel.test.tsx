@@ -34,12 +34,14 @@ const { fakeCloudClient, resolveBrowserBackendMock, cloudRpcState } = vi.hoisted
   const cloudRpcState: {
     tabs: Array<{ tabId: string; url: string; title: string; active: boolean }>;
     navigateError: string | null;
+    goBackError: string | null;
   } = {
     tabs: [
       { tabId: 'c1', url: 'about:blank', title: '', active: true },
       { tabId: 'c2', url: 'https://github.com/x', title: 'GitHub', active: false },
     ],
     navigateError: null,
+    goBackError: null,
   };
   const rpc = vi.fn(async (method: string, params?: unknown) => {
     switch (method) {
@@ -56,6 +58,8 @@ const { fakeCloudClient, resolveBrowserBackendMock, cloudRpcState } = vi.hoisted
       case 'browser.reload':
         return undefined;
       case 'browser.goBack':
+        if (cloudRpcState.goBackError) throw new Error(cloudRpcState.goBackError);
+        return { ok: true };
       case 'browser.goForward':
         return { ok: true };
       default:
@@ -904,6 +908,7 @@ describe('☁ 云端浏览器模式工具栏接管', () => {
       { tabId: 'c2', url: 'https://github.com/x', title: 'GitHub', active: false },
     ];
     cloudRpcState.navigateError = null;
+    cloudRpcState.goBackError = null;
     fakeCloudClient.rpc.mockClear();
     cloudPreviewProps.current = null;
   });
@@ -1030,6 +1035,78 @@ describe('☁ 云端浏览器模式工具栏接管', () => {
     );
     expect(screen.getByTitle('Open in system browser')).toBeInTheDocument();
     expect(document.querySelector('.password-chip')).not.toBeNull();
+  });
+
+  it('🔴 钉选与远端对账:agent 关掉被钉的标签后,预览显式落到远端活跃标签(评审 P1-1)', async () => {
+    await enterCloudMode();
+    fireEvent.click(screen.getByText('GitHub')); // 钉选 c2
+    await waitFor(() => expect(cloudPreviewProps.current?.tabId).toBe('c2'));
+
+    // 远端(agent / 页面自身)把 c2 关了;下一次 listTabs 回来的列表里没有它
+    cloudRpcState.tabs = [{ tabId: 'c1', url: 'about:blank', title: '', active: true }];
+    fireEvent.click(screen.getByTitle('Refresh')); // 任意动作触发 refresh,轮询同理
+
+    // 不能只清成 null(prop 维持 undefined 不换流):必须显式钉到远端活跃标签
+    await waitFor(() => expect(cloudPreviewProps.current?.tabId).toBe('c1'));
+    expect(
+      (document.querySelector('.browser-panel__address-input') as HTMLInputElement).value,
+    ).toBe('');
+  });
+
+  it('导航落在正在播的标签上不动钉选(不为同一个标签重连一次推流;评审 P2-1)', async () => {
+    await enterCloudMode();
+    act(() => {
+      (cloudPreviewProps.current!.onStream as (id: string) => void)('c1');
+    });
+
+    const input = document.querySelector<HTMLInputElement>('.browser-panel__address-input')!;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'example.com' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(fakeCloudClient.rpc).toHaveBeenCalledWith('browser.navigate', {
+        url: 'https://example.com',
+        tabId: 'c1',
+      }),
+    );
+    // res.tabId === 正在播的标签 → 钉选保持 null,prop 维持 undefined,不触发换流
+    expect(cloudPreviewProps.current?.tabId).toBeUndefined();
+  });
+
+  it('导航失败地址栏停在目标地址(不退回旧地址;本机 2026-07-23 同语义)', async () => {
+    await enterCloudMode();
+    cloudRpcState.navigateError = 'navigation failed: net::ERR_CONNECTION_REFUSED';
+
+    const input = document.querySelector<HTMLInputElement>('.browser-panel__address-input')!;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'bad.example.com' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(input.value).toBe('https://bad.example.com');
+  });
+
+  it('后退按钮 RPC 失败不静默(旧 host 缺方法的唯一线索;评审 P2-3)', async () => {
+    await enterCloudMode();
+    cloudRpcState.goBackError = 'unknown rpc method: browser.goBack';
+
+    fireEvent.click(screen.getByTitle('Back'));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('unknown rpc method: browser.goBack'),
+    );
+  });
+
+  it('推流出错留在云模式亮错误条,不再静默弹回本机(评审 P2-4)', async () => {
+    await enterCloudMode();
+    act(() => {
+      (cloudPreviewProps.current!.onError as (msg: string) => void)('no Chromium found');
+    });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('no Chromium found'));
+    // 仍在云模式:云端标签条还在,预览占位还在
+    expect(screen.getByText('GitHub')).toBeInTheDocument();
+    expect(screen.getByTestId('cloud-preview-stub')).toBeInTheDocument();
   });
 
   it('navigate reject → 错误条显示 message;下次成功导航清除', async () => {
