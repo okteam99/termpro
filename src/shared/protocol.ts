@@ -352,6 +352,11 @@ export interface RpcMethods {
   'browser.activateTab': { params: { tabId: string }; result: undefined };
   /** tabId 省略 = 当前活跃标签(无标签时自动开一个)。 */
   'browser.navigate': { params: { tabId?: string; url: string }; result: { tabId: string } };
+  /** 刷新标签(☁ 预览的工具栏动作;tabId 省略 = 当前活跃标签)。 */
+  'browser.reload': { params: { tabId?: string }; result: undefined };
+  /** 历史后退/前进。ok=false = 没有可去的历史条目(与本地 webview 的静默 no-op 同语义)。 */
+  'browser.goBack': { params: { tabId?: string }; result: { ok: boolean } };
+  'browser.goForward': { params: { tabId?: string }; result: { ok: boolean } };
   'browser.eval': { params: { tabId?: string; code: string }; result: { value: unknown } };
   /** 可见区 PNG(base64,不含 data: 前缀)。 */
   'browser.screenshot': { params: { tabId?: string }; result: { base64: string } };
