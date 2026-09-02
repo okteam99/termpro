@@ -55,4 +55,15 @@ describe('Sidebar CSS Invariants', () => {
       expect(css).toMatch(overrideRegex);
     });
   });
+
+  describe('本机空态不得挡住远程机组', () => {
+    it('height:100% 只挂在 .sidebar-list > .sidebar-empty:only-child', () => {
+      const css = readCssFile();
+      const block = css.match(/\.sidebar-empty\s*{([^}]*)}/);
+      expect(block?.[1] ?? '').not.toMatch(/height\s*:\s*100%/);
+      expect(css).toMatch(
+        /\.sidebar-list\s*>\s*\.sidebar-empty:only-child\s*{[^}]*height\s*:\s*100%/,
+      );
+    });
+  });
 });
