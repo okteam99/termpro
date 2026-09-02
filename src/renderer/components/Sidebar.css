@@ -205,15 +205,19 @@
   color: var(--fg);
 }
 
-/* 空状态 */
+/* 空状态:仅本机且无远程机组时铺满列表(首次安装 CTA)。
+ * 有远程机组时不能 height:100%——否则远程组被顶出视口,表现为「左侧不显示」。 */
 .sidebar-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  height: 100%;
   padding: 24px;
+}
+
+.sidebar-list > .sidebar-empty:only-child {
+  height: 100%;
 }
 
 .sidebar-empty-text {

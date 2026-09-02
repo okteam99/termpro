@@ -273,6 +273,24 @@ describe('AC-2 · 连接后展开 workspace + 会话徽标(含 0)', () => {
     const badge = screen.getByLabelText('0 session');
     expect(badge).toHaveClass('sidebar-machine-sessions--zero');
   });
+
+  it('无本机项目时远程机组仍与空态并列,空态不是 sidebar-list 唯一子节点', async () => {
+    useAppStore.setState({
+      workspaces: [remoteWs('r1', 'aon-edge', 'cfg-1', 0)],
+      activeWorkspaceId: 'r1',
+    });
+    installOkwork(async () => [makeConfig({ id: 'cfg-1', alias: 'mini-pc' })]);
+    useRemoteHostRuntimeStore.setState({
+      runtime: { 'cfg-1': { configId: 'cfg-1', stage: 'ready' } },
+    });
+
+    render(<Sidebar />);
+    await waitFor(() => expect(screen.getByText('aon-edge')).toBeInTheDocument());
+    expect(screen.getByText('No projects')).toBeInTheDocument();
+    const list = document.querySelector('.sidebar-list');
+    expect(list?.children.length).toBeGreaterThan(1);
+    expect(list?.querySelector(':scope > .sidebar-empty:only-child')).toBeNull();
+  });
 });
 
 describe('AC-8 · 组头连接生命周期', () => {
