@@ -1,4 +1,5 @@
-// agent 的 browser_* 该打到哪个浏览器:远端 headless Chromium,还是本机 webview。
+// headless-remote 工具该不该打到远端 Chromium(能力位 + 真装了浏览器)。
+// inner_browser_* 不走这里,直接本机 webview。
 //
 // 背景:agent 跑在远端 session 里,浏览器却在用户本机——中间靠 SSH 反向转发把 MCP
 // 打回来,链路长且脆(那条转发"经常挂死"是有记录的)。远端自己有浏览器后,

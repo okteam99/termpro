@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
-// agent 的 browser_* 打到哪个浏览器:云端 headless vs 本机 webview。
-// 🔴 这组测试守的是「渐进启用,零破坏」——远端没装 Chromium 的存量用户升级后
-// 行为必须一字不变(继续走本机 webview + 反向转发)。
+// 后端判定 + MCP 显式表面:inner 恒本机 webview;headless-remote 恒远端 Chromium。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '../../state/store';
 import type { WorkspaceState } from '../../state/store';
@@ -164,39 +162,62 @@ describe('后端判定', () => {
   });
 });
 
-describe('browserControl 按后端分流', () => {
-  it('云端:navigate / getText / screenshot / listTabs 走 browser.* RPC,不碰 webview', async () => {
+describe('browserControl 显式表面分流', () => {
+  const remote = 'headless-remote' as const;
+
+  it('headless-remote:navigate / getText / screenshot / listTabs 走 browser.* RPC,不碰 webview', async () => {
     const client = fakeClient();
     registerRemote(client);
     seedWorkspace(REMOTE);
     const view = fakeView();
     registerBrowserView('local-a', view);
 
-    await expect(bc.navigate(TERM, 'https://cloud.test')).resolves.toEqual({
+    await expect(bc.navigate(TERM, 'https://cloud.test', undefined, remote)).resolves.toEqual({
       browserTabId: 'cloud-1',
     });
-    await expect(bc.getText(TERM)).resolves.toBe('cloud text');
-    // 裸 base64 在这层补回 data: 前缀,与本机路径同一契约
-    await expect(bc.screenshot(TERM)).resolves.toBe('data:image/png;base64,Q0xPVUQ=');
-    await expect(bc.listTabs(TERM)).resolves.toEqual([
+    await expect(bc.getText(TERM, undefined, remote)).resolves.toBe('cloud text');
+    await expect(bc.screenshot(TERM, undefined, remote)).resolves.toBe(
+      'data:image/png;base64,Q0xPVUQ=',
+    );
+    await expect(bc.listTabs(TERM, remote)).resolves.toEqual([
       { id: 'cloud-1', url: 'https://cloud.test', title: 'C', active: true, net: REMOTE },
     ]);
 
-    // 本机 webview 全程没被碰过
     expect((view.loadURL as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     expect((view.executeJavaScript as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     expect((view.capturePage as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
-  it('🔴 远端没装 Chromium:同样的调用落回本机 webview(行为与改动前一致)', async () => {
-    registerRemote(fakeClient({ status: { available: false } }));
+  it('inner:即便远端有 Chromium 也走本机 webview', async () => {
+    registerRemote(fakeClient());
     seedWorkspace(REMOTE);
     const view = fakeView();
     registerBrowserView('local-a', view);
 
-    await expect(bc.getText(TERM)).resolves.toBe('local text');
-    await expect(bc.screenshot(TERM)).resolves.toBe('data:image/png;base64,LOCAL');
+    await expect(bc.getText(TERM, undefined, 'inner')).resolves.toBe('local text');
+    await expect(bc.screenshot(TERM, undefined, 'inner')).resolves.toBe(
+      'data:image/png;base64,LOCAL',
+    );
     expect((view.executeJavaScript as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+  });
+
+  it('headless-remote 且没装 Chromium → 报错,不偷落到本机 webview', async () => {
+    registerRemote(fakeClient({ status: { available: false, hint: 'apt-get install chromium' } }));
+    seedWorkspace(REMOTE);
+    const view = fakeView();
+    registerBrowserView('local-a', view);
+
+    await expect(bc.getText(TERM, undefined, remote)).rejects.toThrow(
+      /headless remote browser is not available/,
+    );
+    expect((view.executeJavaScript as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('headless-remote 在本机 session → 报错', async () => {
+    seedWorkspace('local');
+    await expect(bc.navigate(TERM, 'https://x.test', undefined, remote)).rejects.toThrow(
+      /only available in a remote OkWork session/,
+    );
   });
 
   it('云端标签 id 原样透传(agent 拿到什么就能传回什么)', async () => {
@@ -204,18 +225,17 @@ describe('browserControl 按后端分流', () => {
     registerRemote(client);
     seedWorkspace(REMOTE);
 
-    await expect(bc.openTab(TERM, 'https://x.test')).resolves.toEqual({
+    await expect(bc.openTab(TERM, 'https://x.test', remote)).resolves.toEqual({
       browserTabId: 'cloud-2',
     });
-    await bc.closeTab(TERM, 'cloud-2');
+    await bc.closeTab(TERM, 'cloud-2', remote);
     expect(client.rpc).toHaveBeenCalledWith('browser.closeTab', { tabId: 'cloud-2' });
-    await bc.activateTab(TERM, 'cloud-1');
+    await bc.activateTab(TERM, 'cloud-1', remote);
     expect(client.rpc).toHaveBeenCalledWith('browser.activateTab', { tabId: 'cloud-1' });
   });
 
-  it('云端路径不受本机窗格状态影响(弹出/无窗格都照常打远端)', async () => {
+  it('headless-remote 不受本机窗格弹出影响', async () => {
     registerRemote(fakeClient());
-    // 本机窗格被弹出到独立窗口——本机路径会拒绝,云端路径与它无关
     const ws: WorkspaceState = {
       id: 'ws1',
       name: 'w',
@@ -226,7 +246,7 @@ describe('browserControl 按后端分流', () => {
     };
     useAppStore.setState({ workspaces: [ws], activeWorkspaceId: 'ws1' });
 
-    await expect(bc.navigate(TERM, 'https://cloud.test')).resolves.toEqual({
+    await expect(bc.navigate(TERM, 'https://cloud.test', undefined, remote)).resolves.toEqual({
       browserTabId: 'cloud-1',
     });
   });
