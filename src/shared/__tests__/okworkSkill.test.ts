@@ -20,10 +20,12 @@ describe('okwork skill 模块', () => {
   });
 
   it('含连接引导 + 真登录会话安全提醒 + 浏览器工具引用', () => {
-    expect(OKWORK_SKILL_MD).toContain('claude mcp add --transport http okbrowser');
+    expect(OKWORK_SKILL_MD).toContain('claude mcp add --transport stdio okbrowser -- okwork-browser-mcp');
     expect(OKWORK_SKILL_MD).toContain('$OKWORK_BROWSER_MCP_URL');
     expect(OKWORK_SKILL_MD).toContain('真实浏览器会话');
-    expect(OKWORK_SKILL_MD).toContain('browser_wait_for');
+    expect(OKWORK_SKILL_MD).toContain('inner_browser_wait_for');
+    expect(OKWORK_SKILL_MD).toContain('headless_remote_browser_');
+    expect(OKWORK_SKILL_MD).toContain('旧名');
   });
 
   it('以 YAML frontmatter 起始(--- 界定),host 可解析', () => {

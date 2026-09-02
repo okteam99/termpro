@@ -77,6 +77,10 @@ describe('skillInstall(canonical 真身 + claude 软链,codex 不放东西)', ()
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     expect(after.claude.version).toBe('v1.0.0');
     expect(after.shared.version).toBe('v1.0.0');
+    const bridge = path.join(home, '.agents/skills', NAME, 'okwork-browser-mcp');
+    expect(fs.existsSync(bridge)).toBe(true);
+    expect(fs.readFileSync(bridge, 'utf8')).toMatch(/^#!/);
+    expect(fs.readFileSync(bridge, 'utf8')).toContain('OKWORK_BROWSER_MCP_URL');
   });
 
   it('codex 在场 → canonical 就位,【不】往 ~/.codex/skills 放东西;codex 已装版本=canonical', () => {

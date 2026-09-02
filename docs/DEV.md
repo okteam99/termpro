@@ -235,7 +235,10 @@ session 内的 agent（Claude Code / Codex 等）可经内置 MCP server 驱动 
 - **控制原语**：`src/renderer/services/browserControl.ts`（读取 navigate/eval/screenshot/getHtml/getText;交互 click/typeText/scroll/waitForSelector,均经 `executeJavaScript`,选择器/文本 `JSON.stringify` 注入防转义;标签 list/open/close/activate 走 store action）。
 - **webview 触达**：`src/renderer/services/browserViewRegistry.ts`——模块级 `Map<browserTabId, webview>`,让控制层在组件外拿到 webview（`registerBrowserView` 在 `BrowserPanel` 挂载时登记）。
 
-**13 个工具**：`browser_navigate` `browser_eval` `browser_screenshot` `browser_get_html` `browser_get_text` `browser_click` `browser_type` `browser_scroll` `browser_wait_for` `browser_list_tabs` `browser_open_tab` `browser_close_tab` `browser_activate_tab`。
+**26 个工具**(两套,互不自动分流;旧名 `browser_*` 已删):
+
+- **内置窗格** `inner_browser_*`:navigate / eval / screenshot / get_html / get_text / click / type / scroll / wait_for / list_tabs / open_tab / close_tab / activate_tab
+- **远程 headless** `headless_remote_browser_*`:同上 13 个。只在远程 session 且该机有 Chromium 时可用,否则硬报错,不偷落到本机 webview。
 
 **端点发现（env 注入）**：OkWork spawn **本地**终端时,经 `SpawnOptions.env`（host 合并进 pty）注入两个环境变量:
 
@@ -244,11 +247,13 @@ session 内的 agent（Claude Code / Codex 等）可经内置 MCP server 驱动 
 
 接线:`main` 的 `browserControl:mcp-base` IPC 暴露 base URL → renderer `browserMcpEnv`（惰性缓存,ensureSession spawn 前 await,规避 hydrate 首终端漏注入竞态）→ `pty.spawn` 带 env。
 
-把该端点接上 agent（终端里跑一次,本地/远程同一条）:
+接线(终端里跑一次,本地/远程同一条)。**不要**把 `$OKWORK_BROWSER_MCP_URL` 写进 MCP 配置(URL 含终端 uuid,会冻在旧 tab):
 
 ```bash
-claude mcp add --transport http okbrowser "$OKWORK_BROWSER_MCP_URL"
+claude mcp add --transport stdio okbrowser -- okwork-browser-mcp
 ```
+
+`okwork-browser-mcp` 是 skill.install 写到 `~/.agents/skills/okwork/` 的 stdio 桥;spawn 时该目录已在 PATH。桥启动时读当前进程的 `OKWORK_BROWSER_MCP_URL` 再转到 HTTP MCP。
 
 **远程 session（阶段3）**:URL 指容器回环固定端口 `http://127.0.0.1:39217/mcp/<tabId>`（`BROWSER_MCP_REMOTE_PORT`,`src/shared/browserMcp.ts`）。因 OkWork 直连 `okwork-node` 容器（sshd 在容器内,`EXPOSE 22`),转发端口与远端 pty 同 netns,pty 直接 127.0.0.1 可达,**无需 `host.docker.internal`**;每台远程机各自独立容器/netns,同端口互不冲突。
 
@@ -399,8 +404,8 @@ FilePanel/查看器 → preview.ensure({root}) → host 懒启动/复用该 root
   云端 —— 远程 host + 有能力位 + 真装了 Chromium。差任何一条都维持现状(本机 webview +
   反向转发),远端没装浏览器的存量用户升级后行为一字不变。判定按 hostId 缓存(每次
   `browser_*` 都探一遍等于给每个 agent 动作加一个跨洋往返);重连/删机时失效。
-- **MCP 契约未变**:13 个 `browser_*` 工具一字未改,agent 侧零改动;只是 renderer 的
-  `browserControl` 按后端分流。云端的 click/type 走 `Input.dispatchMouseEvent` /
+- **MCP 契约**:agent 显式选表面。`inner_browser_*` 恒打本机内置 webview;`headless_remote_browser_*`
+  恒打远端 Chromium。不再按 host 自动分流。云端的 click/type 走 `Input.dispatchMouseEvent` /
   `Input.insertText` 派发**真实**事件(`isTrusted=true`,真 Chromium 上有断言),
   比本机那套 `el.click()` + 手工 dispatch 更接近真人。
 - **帧通道**(`src/host/frameChannel.ts` + `src/renderer/services/browserFrameChannel.ts`,

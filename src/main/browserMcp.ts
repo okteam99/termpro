@@ -34,99 +34,113 @@ const obj = (props: Record<string, unknown>, required: string[] = []) => ({
 const S = { type: 'string' } as const;
 const N = { type: 'number' } as const;
 
-// 工具全集(13 个)。browserTabId 缺省 → 该终端 tab 的活跃浏览器标签。
+type BrowserSurface = 'inner' | 'headless-remote';
+
+function toolsFor(surface: BrowserSurface): ToolDef[] {
+  const prefix = surface === 'inner' ? 'inner_browser' : 'headless_remote_browser';
+  const where =
+    surface === 'inner'
+      ? 'OkWork built-in browser (the user\'s real logged-in session on this machine)'
+      : 'headless Chromium on the remote machine (not the laptop webview)';
+  return [
+    {
+      name: `${prefix}_navigate`,
+      description: `Navigate ${where} to a URL (opens a new tab if none exists).`,
+      inputSchema: obj({ url: S, browserTabId: S }, ['url']),
+      method: 'navigate',
+      buildArgs: (t, a) => [t, a.url, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_eval`,
+      description: `Run JavaScript in ${where} and return the (structured-cloneable) result.`,
+      inputSchema: obj({ code: S, browserTabId: S }, ['code']),
+      method: 'evalJs',
+      buildArgs: (t, a) => [t, a.code, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_screenshot`,
+      description: `Capture a PNG screenshot of the visible page in ${where}.`,
+      inputSchema: obj({ browserTabId: S }),
+      method: 'screenshot',
+      buildArgs: (t, a) => [t, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_get_html`,
+      description: `Get the full page HTML (document.documentElement.outerHTML) from ${where}.`,
+      inputSchema: obj({ browserTabId: S }),
+      method: 'getHtml',
+      buildArgs: (t, a) => [t, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_get_text`,
+      description: `Get the visible page text (document.body.innerText) from ${where}.`,
+      inputSchema: obj({ browserTabId: S }),
+      method: 'getText',
+      buildArgs: (t, a) => [t, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_click`,
+      description: `Click the first element matching a CSS selector in ${where} (scrolls it into view first).`,
+      inputSchema: obj({ selector: S, browserTabId: S }, ['selector']),
+      method: 'click',
+      buildArgs: (t, a) => [t, a.selector, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_type`,
+      description: `Fill an input/textarea in ${where} (by CSS selector) with text, firing input/change events.`,
+      inputSchema: obj({ selector: S, text: S, browserTabId: S }, ['selector', 'text']),
+      method: 'typeText',
+      buildArgs: (t, a) => [t, a.selector, a.text, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_scroll`,
+      description: `Scroll ${where} vertically by dy pixels (default ~one viewport); returns new scrollY.`,
+      inputSchema: obj({ dy: N, browserTabId: S }),
+      method: 'scroll',
+      buildArgs: (t, a) => [t, a.dy, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_wait_for`,
+      description: `Wait until a CSS selector appears in ${where}, up to timeoutMs (default 5000).`,
+      inputSchema: obj({ selector: S, timeoutMs: N, browserTabId: S }, ['selector']),
+      method: 'waitForSelector',
+      buildArgs: (t, a) => [t, a.selector, a.timeoutMs ?? 5000, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_list_tabs`,
+      description: `List tabs in ${where} (id, url, title, active, net exit).`,
+      inputSchema: obj({}),
+      method: 'listTabs',
+      buildArgs: (t) => [t, surface],
+    },
+    {
+      name: `${prefix}_open_tab`,
+      description: `Open a new tab in ${where} (optional url); returns the new tab id.`,
+      inputSchema: obj({ url: S }),
+      method: 'openTab',
+      buildArgs: (t, a) => [t, a.url ?? '', surface],
+    },
+    {
+      name: `${prefix}_close_tab`,
+      description: `Close a tab in ${where} by id.`,
+      inputSchema: obj({ browserTabId: S }, ['browserTabId']),
+      method: 'closeTab',
+      buildArgs: (t, a) => [t, a.browserTabId, surface],
+    },
+    {
+      name: `${prefix}_activate_tab`,
+      description: `Activate (focus) a tab in ${where} by id.`,
+      inputSchema: obj({ browserTabId: S }, ['browserTabId']),
+      method: 'activateTab',
+      buildArgs: (t, a) => [t, a.browserTabId, surface],
+    },
+  ];
+}
+
+// 两套工具族,互不自动分流。旧名 browser_* 已移除。
 const TOOLS: ToolDef[] = [
-  {
-    name: 'browser_navigate',
-    description: 'Navigate the browser to a URL (opens a new tab if none exists).',
-    inputSchema: obj({ url: S, browserTabId: S }, ['url']),
-    method: 'navigate',
-    buildArgs: (t, a) => [t, a.url, a.browserTabId],
-  },
-  {
-    name: 'browser_eval',
-    description: 'Run JavaScript in the active page and return the (structured-cloneable) result.',
-    inputSchema: obj({ code: S, browserTabId: S }, ['code']),
-    method: 'evalJs',
-    buildArgs: (t, a) => [t, a.code, a.browserTabId],
-  },
-  {
-    name: 'browser_screenshot',
-    description: 'Capture a PNG screenshot of the visible page.',
-    inputSchema: obj({ browserTabId: S }),
-    method: 'screenshot',
-    buildArgs: (t, a) => [t, a.browserTabId],
-  },
-  {
-    name: 'browser_get_html',
-    description: 'Get the full page HTML (document.documentElement.outerHTML).',
-    inputSchema: obj({ browserTabId: S }),
-    method: 'getHtml',
-    buildArgs: (t, a) => [t, a.browserTabId],
-  },
-  {
-    name: 'browser_get_text',
-    description: 'Get the visible page text (document.body.innerText).',
-    inputSchema: obj({ browserTabId: S }),
-    method: 'getText',
-    buildArgs: (t, a) => [t, a.browserTabId],
-  },
-  {
-    name: 'browser_click',
-    description: 'Click the first element matching a CSS selector (scrolls it into view first).',
-    inputSchema: obj({ selector: S, browserTabId: S }, ['selector']),
-    method: 'click',
-    buildArgs: (t, a) => [t, a.selector, a.browserTabId],
-  },
-  {
-    name: 'browser_type',
-    description: 'Fill an input/textarea (by CSS selector) with text, firing input/change events.',
-    inputSchema: obj({ selector: S, text: S, browserTabId: S }, ['selector', 'text']),
-    method: 'typeText',
-    buildArgs: (t, a) => [t, a.selector, a.text, a.browserTabId],
-  },
-  {
-    name: 'browser_scroll',
-    description: 'Scroll the page vertically by dy pixels (default ~one viewport); returns new scrollY.',
-    inputSchema: obj({ dy: N, browserTabId: S }),
-    method: 'scroll',
-    buildArgs: (t, a) => [t, a.dy, a.browserTabId],
-  },
-  {
-    name: 'browser_wait_for',
-    description: 'Wait until a CSS selector appears in the page, up to timeoutMs (default 5000).',
-    inputSchema: obj({ selector: S, timeoutMs: N, browserTabId: S }, ['selector']),
-    method: 'waitForSelector',
-    buildArgs: (t, a) => [t, a.selector, a.timeoutMs ?? 5000, a.browserTabId],
-  },
-  {
-    name: 'browser_list_tabs',
-    description: 'List the browser tabs bound to this terminal (id, url, title, active, net exit).',
-    inputSchema: obj({}),
-    method: 'listTabs',
-    buildArgs: (t) => [t],
-  },
-  {
-    name: 'browser_open_tab',
-    description: 'Open a new browser tab (optional url); returns the new tab id.',
-    inputSchema: obj({ url: S }),
-    method: 'openTab',
-    buildArgs: (t, a) => [t, a.url ?? ''],
-  },
-  {
-    name: 'browser_close_tab',
-    description: 'Close a browser tab by id.',
-    inputSchema: obj({ browserTabId: S }, ['browserTabId']),
-    method: 'closeTab',
-    buildArgs: (t, a) => [t, a.browserTabId],
-  },
-  {
-    name: 'browser_activate_tab',
-    description: 'Activate (focus) a browser tab by id.',
-    inputSchema: obj({ browserTabId: S }, ['browserTabId']),
-    method: 'activateTab',
-    buildArgs: (t, a) => [t, a.browserTabId],
-  },
+  ...toolsFor('inner'),
+  ...toolsFor('headless-remote'),
 ];
 
 /** 建一个绑定到某终端 tab 的 MCP Server(工具经 invoke 调 browserControl)。 */
@@ -149,7 +163,7 @@ export function buildBrowserMcpServer(
     try {
       const args = def.buildArgs(terminalTabId, (req.params.arguments ?? {}) as Record<string, unknown>);
       const result = await invoke(def.method, args);
-      if (def.name === 'browser_screenshot') {
+      if (def.method === 'screenshot') {
         const data = String(result).replace(/^data:image\/png;base64,/, '');
         return { content: [{ type: 'image', data, mimeType: 'image/png' }] };
       }

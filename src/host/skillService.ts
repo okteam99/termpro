@@ -8,6 +8,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SkillStatusResult } from '../shared/protocol';
+import {
+  OKWORK_BROWSER_MCP_BRIDGE_NAME,
+  OKWORK_BROWSER_MCP_BRIDGE_SOURCE,
+} from '../shared/okworkBrowserMcpBridge';
 
 function existsSafe(p: string): boolean {
   try {
@@ -97,6 +101,7 @@ export function skillInstall(
   const canonicalDir = path.join(loc.sharedSkills, name);
   fs.mkdirSync(canonicalDir, { recursive: true });
   fs.writeFileSync(path.join(canonicalDir, 'SKILL.md'), content, 'utf8');
+  if (name === 'okwork') writeOkworkBrowserMcpBridge(canonicalDir);
   // 2. claude 只读 ~/.claude/skills:软链到 canonical(失败退拷贝)
   if (existsSafe(loc.claude.homeMarker)) {
     try {
@@ -135,5 +140,19 @@ function linkToCanonical(canonicalDir: string, linkPath: string, content: string
     // 软链失败(如 Windows 无权限)→ 退拷贝
     fs.mkdirSync(linkPath, { recursive: true });
     fs.writeFileSync(path.join(linkPath, 'SKILL.md'), content, 'utf8');
+    if (path.basename(canonicalDir) === 'okwork') {
+      writeOkworkBrowserMcpBridge(linkPath);
+    }
+  }
+}
+
+/** stdio 桥:配置里只存命令名,tab 从进程 env 现取。 */
+function writeOkworkBrowserMcpBridge(dir: string): void {
+  const dest = path.join(dir, OKWORK_BROWSER_MCP_BRIDGE_NAME);
+  fs.writeFileSync(dest, OKWORK_BROWSER_MCP_BRIDGE_SOURCE, 'utf8');
+  try {
+    fs.chmodSync(dest, 0o755);
+  } catch {
+    /* windows / 无 chmod */
   }
 }

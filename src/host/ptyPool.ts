@@ -164,6 +164,16 @@ export class PtyPool {
       cwd = resolved;
     }
     const baseEnv = { ...process.env, ...opts.env } as Record<string, string>;
+    // 浏览器 MCP stdio 桥在 ~/.agents/skills/okwork/okwork-browser-mcp。
+    // 注入 PATH 后 `claude mcp add -- okwork-browser-mcp` 不用把 tab uuid 写进配置。
+    if (baseEnv.OKWORK_BROWSER_MCP_URL) {
+      const mcpBin = path.join(os.homedir(), '.agents', 'skills', 'okwork');
+      const prev = baseEnv.PATH || process.env.PATH || '';
+      const parts = prev.split(path.delimiter).filter(Boolean);
+      if (!parts.includes(mcpBin)) {
+        baseEnv.PATH = `${mcpBin}${path.delimiter}${prev}`;
+      }
+    }
     // zsh 自动注入 shell integration(OSC 133/7);失败或非 zsh 静默跳过
     const integration = integrationEnv(shell, baseEnv);
     const initCols = Math.max(2, opts.cols);
