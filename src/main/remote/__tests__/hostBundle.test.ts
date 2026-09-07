@@ -1,6 +1,10 @@
 // hostBundle.detectArch:uname -sm → HostArch 归一化(AC-4)。
 import { describe, it, expect } from 'vitest';
-import { detectArch, resolveBundleDir } from '../hostBundle';
+import {
+  detectArch,
+  resolveBundleDir,
+  resolveExistingBundleDir,
+} from '../hostBundle';
 
 describe('detectArch', () => {
   it('Darwin arm64 → darwin-arm64', () => {
@@ -33,5 +37,24 @@ describe('resolveBundleDir', () => {
   it('dev 态取 <repoRoot>/out/host-bundles/<arch>', () => {
     const dir = resolveBundleDir('linux-x64', { resourcesPath: '/repo', isPackaged: false });
     expect(dir).toBe('/repo/out/host-bundles/linux-x64');
+  });
+});
+
+describe('resolveExistingBundleDir', () => {
+  const packaged = { resourcesPath: '/App/Resources', isPackaged: true };
+
+  it('host.js 在位 → 返回目录', () => {
+    const seen: string[] = [];
+    const dir = resolveExistingBundleDir('linux-x64', packaged, (p) => {
+      seen.push(p);
+      return true;
+    });
+    expect(dir).toBe('/App/Resources/host-bundles/linux-x64');
+    // 判据是 host.js 而非目录本身(空/半成品目录同样不可部署)
+    expect(seen).toEqual(['/App/Resources/host-bundles/linux-x64/host.js']);
+  });
+
+  it('该 arch 未随本版应用发出 → null(0.3.123 linux-arm64 事故:此前一路走到 SFTP 才抛裸 ENOENT)', () => {
+    expect(resolveExistingBundleDir('linux-arm64', packaged, () => false)).toBeNull();
   });
 });

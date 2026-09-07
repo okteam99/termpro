@@ -238,8 +238,11 @@ export function failReasonCopyMap(): Record<FailReason, FailReasonCopy> {
     archUnsupported: {
       label: t('Unsupported architecture'),
       detail: t('No bundled host build for this remote architecture'),
+      // 🔴 曾写「在远端 npm i -g okwork-host 后重试」——该包从未发布,且部署链只认
+      // 应用内置 bundle(orchestrator 恒把 bundle 传到 $dataDir/bundle/<v>/host.js
+      // 再起它),远端手装的 host 没有任何通道被用上。别再给死路引导。
       guidance: t(
-        'Run `npm i -g okwork-host` on the remote machine, then retry',
+        'Supported remote architectures: macOS arm64 / Linux x64 / Linux arm64 · if the remote is one of these, upgrade the app and retry',
       ),
     },
     deployFailed: {

@@ -186,8 +186,13 @@ export interface OrchestratorDeps {
   connectSsh: ConnectSsh;
   credentials: CredentialStore;
   configStore: HostConfigStore;
-  /** 本地(应用侧)resources/host-bundles/<arch>/ 定位。 */
-  bundleDir: (arch: HostArch) => string;
+  /**
+   * 本地(应用侧)resources/host-bundles/<arch>/ 定位。
+   * 🔴 null = 本版应用未内置该 arch 的 bundle(CI 那条腿缺位 / 本地 make 未预置)
+   * → 连接在碰远端之前走 archUnsupported 降级阀(见 hostBundle.ts
+   * resolveExistingBundleDir)。
+   */
+  bundleDir: (arch: HostArch) => string | null;
   appVersion: string;
   /** 测试注入替换 main 侧 host.info 探测(默认真实 probeHostInfo)。 */
   probeHostInfo?: ProbeHostInfoLike;
@@ -1235,6 +1240,21 @@ export class RemoteHostOrchestrator {
         return;
       }
 
+      // 🔴 0.3.123 事故:detectArch 认的 arch ≠ 本版应用真带了那个 arch 的 bundle
+      // (linux-arm64 的 CI 腿当时根本不存在)。缺失必须在【碰远端之前】判掉——
+      // 否则 forceRedeploy 分支会先取部署锁、residency 会先 reap 在跑的 host,
+      // 最后才在 sftpWriteDir 的 readdirSync 抛裸 ENOENT scandir:用户既看不懂,
+      // 会话还白死一次。此处判空 → archUnsupported(detail 带 arch),零远端副作用。
+      const localBundleDir = this.deps.bundleDir(arch);
+      if (localBundleDir === null) {
+        failIfCurrent(
+          'archUnsupported',
+          `this app version ships no host bundle for ${arch}`,
+        );
+        ssh.close();
+        return;
+      }
+
       // 🔴 多设备同屏 Phase 2(TECH §A.4):hostTag=服务端身份键,isolate 缺省
       // 【false=收敛】——同(服务器指纹+SSH 用户)的所有设备派生同一 tag,共享一个
       // Host。指纹缺失/isolate=true → 退化 tag==configId(隔离,现状行为)。
@@ -1265,7 +1285,7 @@ export class RemoteHostOrchestrator {
             ssh,
             dataDir,
             appVersion: this.deps.appVersion,
-            localBundleDir: this.deps.bundleDir(arch),
+            localBundleDir,
             sleep,
             onProgress: (pct) => {
               this.emit(configId, { stage: 'deploying', percent: pct, arch });
@@ -1356,7 +1376,6 @@ export class RemoteHostOrchestrator {
       }
       this.emit(configId, { stage: 'deploying', percent: 0, arch });
 
-      const localBundleDir = this.deps.bundleDir(arch);
       try {
         await deployBundle({
           ssh,

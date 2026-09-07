@@ -66,6 +66,8 @@ function makeHarness(
     startTimeoutMs?: number;
     /** 覆盖默认「瞬时 resolve」的 sleep 桩(如反向转发重试用例需可控放行)。 */
     sleep?: (ms: number) => Promise<void>;
+    /** 覆盖 bundle 定位桩;返回 null = 本版应用未内置该 arch 的 bundle。 */
+    bundleDir?: () => string | null;
   } = {},
 ): Harness {
   const configStore = new HostConfigStore({ userDataDir: () => tmpDir });
@@ -93,7 +95,7 @@ function makeHarness(
     connectSsh: connectSsh as never,
     credentials,
     configStore,
-    bundleDir: () => '/local/bundle/darwin-arm64',
+    bundleDir: opts.bundleDir ?? (() => '/local/bundle/darwin-arm64'),
     appVersion: '1.0.0',
     probeHostInfo: probe as never,
     sleep: opts.sleep ?? (async () => undefined),
@@ -800,6 +802,28 @@ describe('AC-11 缺 node / node<20 中止,无半成品', () => {
     expect(failEvent?.reason).toBe('nodeMissing');
     expect(routed.sftpWriteDir).not.toHaveBeenCalled();
     expect(routed.execDetached).not.toHaveBeenCalled();
+  });
+
+  it('本版应用未内置该 arch 的 bundle → failed·archUnsupported,零远端副作用(0.3.123 linux-arm64 事故)', async () => {
+    const routed = createRoutedSsh({ execHandlers: healthyDefaults() });
+    const h = makeHarness({
+      connectSshImpl: async () => routed,
+      bundleDir: () => null,
+    });
+    saveConfig(h.configStore);
+
+    await h.orchestrator.connect('vps-hk');
+
+    const failEvent = h.events.find((e) => e.stage === 'failed');
+    expect(failEvent?.reason).toBe('archUnsupported');
+    // 裸 ENOENT scandir 不再外泄给用户,detail 指名缺的是哪个 arch
+    expect(failEvent?.detail).toContain('darwin-arm64');
+    expect(failEvent?.detail).not.toContain('ENOENT');
+    // 判空前置到碰远端之前:不取部署锁、不 reap、不上传
+    expect(routed.sftpWriteDir).not.toHaveBeenCalled();
+    expect(routed.execDetached).not.toHaveBeenCalled();
+    expect(routed.execCalls.some((c) => c.startsWith('mkdir'))).toBe(false);
+    expect(routed.execCalls.some((c) => c.startsWith('kill'))).toBe(false);
   });
 
   it('T-024 node18(< 20)→ failed·nodeMissing,detail 携带实测版本与路径,无半成品', async () => {

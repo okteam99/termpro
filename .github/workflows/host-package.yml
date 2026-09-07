@@ -5,7 +5,8 @@
 # matrix:
 #   self-hosted macOS ARM64 → darwin-arm64
 #   ubuntu-ci linux-x64     → linux-x64
-# linux-arm64 等自建 ARM Linux runner 后再加;不再用 GitHub-hosted runner。
+#   ubuntu-24.04-arm        → linux-arm64(GitHub 托管 ARM Linux,公开仓库免费;
+#     node-pty 1.1.0 无 linux prebuilds,必须在原生 arm64 上源码编译)
 #
 # 每个 job:npm ci → 打包 standalone 产物(scripts/package-host.mjs)→ 起真实进程验证
 # (scripts/verify-host-artifact.mjs:token 握手 + host.info-first 门控 + PTY 真实 spawn)
@@ -18,6 +19,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   package-and-verify:
     strategy:
@@ -28,6 +33,8 @@ jobs:
             platform: darwin-arm64
           - runner: [ubuntu-ci, linux-x64]
             platform: linux-x64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -56,3 +63,16 @@ jobs:
           name: okwork-host-${{ matrix.platform }}
           path: out/okwork-host-${{ matrix.platform }}.tar.gz
           retention-days: 14
+
+      - name: 同名 Host Artifact 仅保留最新一份
+        # fork / Dependabot PR 的 GITHUB_TOKEN 强制只读；它们留下的副本会由
+        # 下一次主仓库 push / workflow_dispatch 清理。
+        if: >-
+          ${{
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository) &&
+            github.actor != 'dependabot[bot]'
+          }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/retain-latest-artifacts.mjs okwork-host-${{ matrix.platform }}

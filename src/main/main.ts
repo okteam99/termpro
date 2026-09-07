@@ -46,7 +46,7 @@ import { initUpdater } from './updater';
 import { registerRemoteHostIpc } from './remote/remoteHostIpc';
 import { RemoteHostOrchestrator } from './remote/orchestrator';
 import { CredentialStore, HostConfigStore } from './remote/credentialStore';
-import { resolveBundleDir } from './remote/hostBundle';
+import { resolveExistingBundleDir } from './remote/hostBundle';
 import { SshConnection } from './remote/ssh';
 import { BrowserNetworkController } from './browserNetwork';
 import { ExitHoldLedger, filterHoldRequest } from './exitHolds';
@@ -260,8 +260,10 @@ const remoteHostOrchestrator = new RemoteHostOrchestrator({
   connectSsh: SshConnection.connect,
   credentials: remoteHostCredentials,
   configStore: remoteHostConfigStore,
+  // 本版应用未内置该 arch 的 bundle 时返回 null → orchestrator 走 archUnsupported
+  // 降级阀(而非让 SFTP 上传撞裸 ENOENT scandir,见 hostBundle.ts 注释)。
   bundleDir: (arch) =>
-    resolveBundleDir(arch, {
+    resolveExistingBundleDir(arch, {
       resourcesPath: app.isPackaged ? process.resourcesPath : app.getAppPath(),
       isPackaged: app.isPackaged,
     }),

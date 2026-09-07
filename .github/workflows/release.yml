@@ -15,15 +15,18 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   # BL-003 SSH-5:三架构 host standalone 部署产物,并入 tag 流水线同一 commit
   # 现产(消版本偏斜——旧 host-package.yml 无 tag 触发器,`bundle.version` 可能
   # ≠ 本次 release version)。产物随后被 build-macos 下载、随应用 extraResource
   # 打进 Contents/Resources/host-bundles/<arch>/(见 forge.config.ts)。
-  # fail-fast:false:三腿互相隔离,linux-arm64 单腿失败不牵连另外两腿;
-  # 是否因此拖累 build-macos(整个发版)由下方 build-macos 的 if:!cancelled()
-  # + 逐 arch 存在性判断兜底(R2-2)。
+  # fail-fast:false:三腿互相隔离,单腿失败不牵连另外两腿;失败腿的 artifact
+  # 缺位由下方 build-macos 的「组装」步骤逐 arch 判定(三腿【均为必需】,缺任一
+  # 即 fail release —— 2026-09 事故教训:linux-arm64 曾是「允许缺失」的可选腿,
+  # 于是它整段缺席了若干个版本而只留下一行 ::warning,没人看见,直到用户连
+  # aarch64 远端机才炸)。
   build-host-bundles:
     strategy:
       fail-fast: false
@@ -33,6 +36,14 @@ jobs:
             runner: [self-hosted, macOS, ARM64]
           - arch: linux-x64
             runner: [ubuntu-ci, linux-x64]
+          # linux-arm64:GitHub 托管 ARM Linux runner(公开仓库免费额度内)。
+          # node-pty 1.1.0 的 prebuilds 只有 darwin/win32,linux 必须在目标架构
+          # 上源码编译 —— 故不能在 x64 腿上顺手产出,必须有这条原生 arm64 腿。
+          # 🔴 此腿缺位即「app 不含 linux-arm64 bundle」,远端 aarch64 机连接时
+          # 本地 bundle 目录不存在(0.3.123 事故:sftpWriteDir 抛裸 ENOENT scandir;
+          # 现已由 resolveExistingBundleDir 前置成 archUnsupported 降级阀)。
+          - arch: linux-arm64
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -68,12 +79,10 @@ jobs:
 
   build-macos:
     needs: build-host-bundles
-    # 🔴 R2-2(external verify):裸 needs 下,build-host-bundles 若因 linux-arm64
-    # 单腿失败而整体报 failure,GitHub Actions 会默认跳过本 job → 整个 macOS
-    # 发版被跳过,与「arm64 缺位应运行时降级、不阻断发版」相反。改
-    # if:!cancelled()(上游非取消即运行),缺失的具体 arch 交给下方「组装」步骤
-    # 逐个存在性判断:darwin-arm64/linux-x64 缺失 → fail release(必需);
-    # linux-arm64 缺失 → 跳过复制、继续 make(该 arch 运行时走 detectArch 降级阀)。
+    # if:!cancelled()(上游非取消即运行):三腿现均为必需,单腿失败最终仍会 fail
+    # release —— 但让本 job 跑到下方「组装」步骤再失败,报的是「host bundle
+    # missing for required arch: <arch>」这样的明确错误,而不是一个被 GitHub
+    # 默认 skip 掉、需要翻上游 job 才知道为什么的 build-macos。
     if: ${{ !cancelled() }}
     # Apple Silicon(arm64)。如需 Intel 包,改为矩阵并加对应 self-hosted runner。
     runs-on: [self-hosted, macOS, ARM64]
@@ -99,10 +108,10 @@ jobs:
         run: OKWORK_SMOKE=1 npx electron-forge start
         timeout-minutes: 6
 
-      # ---- SSH-5:下载三架构 host bundle,逐 arch 存在性判断(R2-2 降级阀)----
+      # ---- SSH-5:下载三架构 host bundle,逐 arch 存在性判断 ----
       # continue-on-error:任一 arch 的 build-host-bundles 腿失败时该 artifact
       # 从未上传,download 步骤本身会报错;不让它直接中断 job,统一交给下方
-      # 「组装」步骤按 darwin-arm64/linux-x64(必需) vs linux-arm64(可选)分别判定。
+      # 「组装」步骤按 arch 逐个判定并汇总报错(三腿均为必需)。
       - name: 下载 darwin-arm64 host bundle
         uses: actions/download-artifact@v5
         continue-on-error: true
@@ -117,14 +126,18 @@ jobs:
           name: host-bundle-linux-x64
           path: /tmp/host-bundle-linux-x64
 
-      - name: 下载 linux-arm64 host bundle(允许缺失)
+      - name: 下载 linux-arm64 host bundle
         uses: actions/download-artifact@v5
         continue-on-error: true
         with:
           name: host-bundle-linux-arm64
           path: /tmp/host-bundle-linux-arm64
 
-      - name: 组装 resources/host-bundles/<arch>/(darwin-arm64/linux-x64 必需 · linux-arm64 允许缺失)
+      # 🔴 三架构均为必需:detectArch 支持的每个 arch 都必须真的随包发出,否则
+      # 用户连该架构远端机时只能撞 archUnsupported(app 内无 bundle 可传,且没有
+      # 任何「手装」通道能救 —— 见 remoteHost.ts archUnsupported 文案)。缺任一
+      # 即 fail release,不再用 ::warning 放行。
+      - name: 组装 resources/host-bundles/<arch>/(三架构均为必需)
         run: |
           set -euo pipefail
           mkdir -p resources/host-bundles
@@ -135,7 +148,7 @@ jobs:
             tar -xzf "$tgz" -C "resources/host-bundles/$1" --strip-components 1
           }
           missing_required=()
-          for arch in darwin-arm64 linux-x64; do
+          for arch in darwin-arm64 linux-x64 linux-arm64; do
             if extract "$arch"; then
               echo "[host-bundles] $arch: 就绪"
             else
@@ -143,15 +156,18 @@ jobs:
               missing_required+=("$arch")
             fi
           done
-          if extract linux-arm64; then
-            echo "[host-bundles] linux-arm64: 就绪"
-          else
-            echo "::warning::linux-arm64 host bundle missing — 运行时 detectArch 命中该架构时走手装引导降级阀,不阻断本次发版"
-          fi
           if [ ${#missing_required[@]} -gt 0 ]; then
             echo "::error::required host bundle(s) missing, failing release: ${missing_required[*]}"
             exit 1
           fi
+          # 🔴 每个 arch 的 host.js 都必须在位:extract 只保证 tar 解开了,空/半成品
+          # 目录同样会让运行时 resolveExistingBundleDir 判缺失。
+          for arch in darwin-arm64 linux-x64 linux-arm64; do
+            [ -f "resources/host-bundles/$arch/host.js" ] || {
+              echo "::error::host.js 缺失:resources/host-bundles/$arch/host.js"
+              exit 1
+            }
+          done
           # 🔴 最后一道闸:spawn-helper 丢执行位 → darwin 远端 pty.spawn 必挂
           # posix_spawnp failed,且要到用户真连远程机才暴露 —— 在发版前直接 fail。
           helper="resources/host-bundles/darwin-arm64/node_modules/node-pty/build/Release/spawn-helper"
@@ -159,6 +175,18 @@ jobs:
             echo "::error::spawn-helper 非可执行(打包链丢执行位):$helper"
             exit 1
           fi
+
+      # 已下载到本 job 后不再依赖云端副本。清理限制在 Host Artifact 白名单内；
+      # 并发工作流仍在使用的旧产物会跳过，待对应运行结束后再清理。
+      - name: 每种 Host bundle Artifact 仅保留最新一份
+        if: ${{ always() && !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          node .github/scripts/retain-latest-artifacts.mjs
+          host-bundle-darwin-arm64
+          host-bundle-linux-x64
+          host-bundle-linux-arm64
 
       # ---- 签名证书导入(复用 cmux-pro 的临时 keychain 方案)----
       - name: Import signing cert

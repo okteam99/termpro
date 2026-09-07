@@ -341,8 +341,8 @@ export const zh: Record<string, string> = {
   'Unsupported architecture': '架构不支持',
   'No bundled host build for this remote architecture':
     '该远端架构暂无内置 host 产物',
-  'Run `npm i -g okwork-host` on the remote machine, then retry':
-    '请在远端执行 `npm i -g okwork-host` 手动安装后重试',
+  'Supported remote architectures: macOS arm64 / Linux x64 / Linux arm64 · if the remote is one of these, upgrade the app and retry':
+    '支持的远端架构:macOS arm64 / Linux x64 / Linux arm64 · 若远端属于其一,请升级应用后重试',
   'Deploy failed': '部署失败',
   'Host bundle upload interrupted (network / disk / permissions)':
     '上传 host 产物中断（网络 / 磁盘 / 权限）',

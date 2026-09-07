@@ -1,6 +1,8 @@
 // 远端架构探测(uname 归一化)+ 本地 host bundle 资源路径定位(SSH-5 · AC-4)。
-// 纯函数,无 IO 副作用(detectArch);resolveBundleDir 只做路径拼接,不触碰文件系统。
+// 纯函数,无 IO 副作用(detectArch);resolveBundleDir 只做路径拼接,不触碰文件系统
+// (唯一碰 fs 的是 resolveExistingBundleDir 的存在性判断,exists 可注入)。
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { HostArch } from '../../shared/remoteHost';
 
@@ -41,4 +43,25 @@ export function resolveBundleDir(arch: HostArch, deps: BundleLocatorDeps): strin
     return path.join(deps.resourcesPath, 'host-bundles', arch);
   }
   return path.join(deps.resourcesPath, 'out', 'host-bundles', arch);
+}
+
+/**
+ * 定位 + 存在性判断:该 arch 的 bundle 没有随本版应用发出(CI 那条腿缺位 / 本地
+ * `npm run make` 未预置 resources/host-bundles/)时返回 null。
+ *
+ * 🔴 0.3.123 事故:linux-arm64 的 CI 腿从未存在,detectArch 却认这个 arch —— 用户
+ * 连 aarch64 远端机时路径拼得出来、目录不存在,一路走到 sftpWriteDir 的
+ * readdirSync 才炸,UI 只显示「ENOENT: no such file or directory, scandir
+ * '/Applications/OkWork.app/.../host-bundles/linux-arm64'」。判空前置到碰远端之前,
+ * 让它走 archUnsupported 降级阀(不取部署锁、不 reap 在跑 host)。
+ *
+ * 判据取 host.js 而非目录本身:空目录/半成品目录(解包中断)同样不可部署。
+ */
+export function resolveExistingBundleDir(
+  arch: HostArch,
+  deps: BundleLocatorDeps,
+  exists: (p: string) => boolean = (p) => fs.existsSync(p),
+): string | null {
+  const dir = resolveBundleDir(arch, deps);
+  return exists(path.join(dir, 'host.js')) ? dir : null;
 }
