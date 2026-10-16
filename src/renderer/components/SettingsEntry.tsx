@@ -92,8 +92,8 @@ export function AboutModal({ version, onClose }: AboutModalProps) {
         >
           ×
         </button>
-        <img className="about-logo" src={appIconUrl} alt="OkWork" />
-        <div className="about-name">OkWork</div>
+        <img className="about-logo" src={appIconUrl} alt="OkWorkPro" />
+        <div className="about-name">OkWorkPro</div>
         <div className="about-version">{versionText}</div>
       </div>
     </div>

@@ -167,7 +167,7 @@ function notifyAdoptFailed(tabId: string, error: unknown): void {
   writeTerminalNotice(
     tabId,
     t(
-      '[OkWork] Could not restore this session after reconnecting: {message} — press any key to retry',
+      '[OkWorkPro] Could not restore this session after reconnecting: {message} — press any key to retry',
       { message },
     ),
   );

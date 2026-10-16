@@ -92,7 +92,7 @@ export class BrowserProfileStore {
     if (profile.id === DEFAULT_PROFILE_ID) {
       return {
         id: DEFAULT_PROFILE_ID,
-        name: t('OkWork (built-in)'),
+        name: t('OkWorkPro (built-in)'),
         createdAt: 0,
       };
     }

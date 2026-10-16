@@ -211,7 +211,7 @@ export function TrustedPasswordWindow({
 
       <div className="trusted-password-window__body">
         <div className="trusted-password-window__seal">
-          {t('Isolated presentation · ordinary OkWork pages cannot trigger decryption')}
+          {t('Isolated presentation · ordinary OkWorkPro pages cannot trigger decryption')}
         </div>
 
         {loading ? (
@@ -275,7 +275,7 @@ export function TrustedPasswordWindow({
               <h2 id="trusted-password-copy-title">{t('Copy password')}</h2>
               <div className="trusted-password-window__warning">
                 {t(
-                  'Copying exports the password to the system clipboard. Other apps and ordinary OkWork pages may read it.',
+                  'Copying exports the password to the system clipboard. Other apps and ordinary OkWorkPro pages may read it.',
                 )}
               </div>
               <p>

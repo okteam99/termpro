@@ -351,7 +351,7 @@ export function SavedPasswordsPage({
               <strong>{t('Password protection is unavailable')}</strong>
               <small>
                 {t(
-                  'The selected password storage is unavailable. OkWork will not save, fill, reveal or copy passwords until it reconnects.',
+                  'The selected password storage is unavailable. OkWorkPro will not save, fill, reveal or copy passwords until it reconnects.',
                 )}
               </small>
             </span>
@@ -544,7 +544,7 @@ export function SavedPasswordsPage({
             <strong>{t('After copying to the clipboard')}</strong>
             <span>
               {t(
-                'Other apps and ordinary OkWork pages may read the exported value until it is cleared.',
+                'Other apps and ordinary OkWorkPro pages may read the exported value until it is cleared.',
               )}
             </span>
           </div>

@@ -306,21 +306,21 @@ export const zh: Record<string, string> = {
   '{label} · Command finished': '{label} · 命令完成',
   '{label} · Command finished (exit code {code})':
     '{label} · 命令完成(退出码 {code})',
-  'OkWork · Done': 'OkWork · 完成',
+  'OkWorkPro · Done': 'OkWorkPro · 完成',
   '{label} · Bell rang (may be waiting for input)':
     '{label} · 响铃(可能在等输入)',
-  'OkWork · Attention': 'OkWork · 注意',
+  'OkWorkPro · Attention': 'OkWorkPro · 注意',
   '{label} · Quiet for 1+ min, may be waiting for input':
     '{label} · 静默 1 分钟+,可能在等输入',
 
   // --- terminalRegistry ---
-  '[OkWork] Terminal failed to start: {message}':
-    '[OkWork] 终端启动失败:{message}',
+  '[OkWorkPro] Terminal failed to start: {message}':
+    '[OkWorkPro] 终端启动失败:{message}',
   'Close this tab and reopen it to retry': '关闭该 tab 后重新打开即可重试',
-  '[OkWork] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror':
-    '[OkWork] 会话已被另一设备独占接管 · 回到此 tab 自动恢复镜像',
-  '[OkWork] Could not restore this session after reconnecting: {message} — press any key to retry':
-    '[OkWork] 重连后未能恢复此会话:{message} —— 按任意键即重试恢复',
+  '[OkWorkPro] Session mirrored on another device took exclusive control — switch back to this tab to re-mirror':
+    '[OkWorkPro] 会话已被另一设备独占接管 · 回到此 tab 自动恢复镜像',
+  '[OkWorkPro] Could not restore this session after reconnecting: {message} — press any key to retry':
+    '[OkWorkPro] 重连后未能恢复此会话:{message} —— 按任意键即重试恢复',
 
   // --- bottomBarPin ---
   '↓ Back to bottom': '↓ 回到底部',
@@ -360,14 +360,14 @@ export const zh: Record<string, string> = {
   'Tab content may be lost after closing and reopening. Cancel to keep Project, Tab, and Terminal views available.':
     '关闭后再打开，Tab 内容可能丢失。取消后 Project、Tab 和 Terminal 视图保持可用。',
   'Close Window': '关闭窗口',
-  'Quit OkWork?': '退出 OkWork？',
+  'Quit OkWorkPro?': '退出 OkWorkPro？',
   'Tab content may be lost after quitting and reopening. State still gets a chance to persist before exit.':
     '退出后再打开，Tab 内容可能丢失。确认退出前会保留原有状态落盘机会。',
   Quit: '退出',
   'Install v{version} and restart?': '安装 v{version} 并重启？',
   'Install the update and restart?': '安装更新并重启？',
-  'The update has been downloaded. After confirming, OkWork restarts and hands off to Squirrel.Mac to finish installing.':
-    '升级包已下载完成。确认后 OkWork 会重启并交给 Squirrel.Mac 完成安装。',
+  'The update has been downloaded. After confirming, OkWorkPro restarts and hands off to Squirrel.Mac to finish installing.':
+    '升级包已下载完成。确认后 OkWorkPro 会重启并交给 Squirrel.Mac 完成安装。',
   Later: '稍后',
   'Install and Restart': '安装并重启',
 
@@ -386,8 +386,8 @@ export const zh: Record<string, string> = {
     '⌘/Ctrl+点击终端链接恒用系统浏览器。',
   'Open links in': '链接打开方式',
   'Built-in browser': '内置浏览器',
-  'Terminal links open in OkWork’s own browser.':
-    '终端链接落 OkWork 自带的浏览器。',
+  'Terminal links open in OkWorkPro’s own browser.':
+    '终端链接落 OkWorkPro 自带的浏览器。',
   'System browser': '系统浏览器',
   'Terminal links open in your default browser.':
     '终端链接交给系统默认浏览器。',
@@ -408,7 +408,7 @@ export const zh: Record<string, string> = {
     '每个 Profile 拥有独立的 cookie、已保存密码与存储空间，并可自定义 User-Agent。项目在其编辑弹层里选择使用哪个 Profile。',
   'Passwords are encrypted on this device. After filling, the website and connected OkBrowser Agents can read them.':
     '密码已在此设备上加密。填入网页后，网站和已连接的 OkBrowser Agent 可以读取它们。',
-  'OkWork (built-in)': 'OkWork(内置)',
+  'OkWorkPro (built-in)': 'OkWorkPro(内置)',
   'Default Profile': '默认 Profile',
   'Built-in': '内置',
   'Shared default storage · system User-Agent':
@@ -485,9 +485,9 @@ export const zh: Record<string, string> = {
   Hide: '隐藏',
 
   // --- main/rendererRecovery(崩溃自愈 give-up 弹窗) ---
-  'OkWork keeps crashing': 'OkWork 持续崩溃',
-  'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWork.':
-    '多次崩溃后已停止自动恢复。按 ⌘R 手动重试；若仍反复失败，请退出并重新打开 OkWork。',
+  'OkWorkPro keeps crashing': 'OkWorkPro 持续崩溃',
+  'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWorkPro.':
+    '多次崩溃后已停止自动恢复。按 ⌘R 手动重试；若仍反复失败，请退出并重新打开 OkWorkPro。',
   OK: '好',
 
   // --- main/main 右键菜单 ---
@@ -579,15 +579,15 @@ export const zh: Record<string, string> = {
     '本地密码库暂时不可用。未返回或更改任何密码。',
   'This list contains metadata only. Passwords stay encrypted and bound to an exact site and Profile.':
     '此列表仅包含元数据。密码保持加密，并精确绑定到网站和 Profile。',
-  'OkWork will not save, fill, reveal or copy passwords until system encryption is available.':
-    '系统加密恢复可用前，OkWork 不会保存、填充、显示或复制密码。',
+  'OkWorkPro will not save, fill, reveal or copy passwords until system encryption is available.':
+    '系统加密恢复可用前，OkWorkPro 不会保存、填充、显示或复制密码。',
   Disabled: '已停用',
   Unknown: '未知',
 
   'Trusted password window': '受信任密码窗口',
   'Loading saved password…': '正在加载已保存的密码…',
-  'Isolated presentation · ordinary OkWork pages cannot trigger decryption':
-    '隔离展示 · 普通 OkWork 页面无法触发解密',
+  'Isolated presentation · ordinary OkWorkPro pages cannot trigger decryption':
+    '隔离展示 · 普通 OkWorkPro 页面无法触发解密',
   'Password safety notes': '密码安全说明',
   'Only your explicit click in this window can decrypt and copy this password.':
     '只有你在此窗口中的明确点击才能解密和复制这个密码。',
@@ -608,10 +608,10 @@ export const zh: Record<string, string> = {
     '剪贴板清除倒计时：剩余 {seconds} 秒',
   'Copied. It will be cleared in {seconds} seconds only if the clipboard has not changed.':
     '已复制。如果剪贴板内容未被更改，将在 {seconds} 秒后清除。',
-  'Copying exports the password to the system clipboard. Other apps and ordinary OkWork pages may read it.':
-    '复制会将密码导出到系统剪贴板，其他应用和普通 OkWork 页面可能读取它。',
-  'Other apps and ordinary OkWork pages may read the exported value until it is cleared.':
-    '导出的内容被清除前，其他应用和普通 OkWork 页面可能读取它。',
+  'Copying exports the password to the system clipboard. Other apps and ordinary OkWorkPro pages may read it.':
+    '复制会将密码导出到系统剪贴板，其他应用和普通 OkWorkPro 页面可能读取它。',
+  'Other apps and ordinary OkWorkPro pages may read the exported value until it is cleared.':
+    '导出的内容被清除前，其他应用和普通 OkWorkPro 页面可能读取它。',
   'System encryption is unavailable. The password was not released.':
     '系统加密不可用，密码未被释放。',
   'This password could not be decrypted. It was not released.':
@@ -625,8 +625,8 @@ export const zh: Record<string, string> = {
   'Password vault · this device': '密码库 · 此设备',
   'Filled values are readable by this page and connected OkBrowser Agents':
     '填充值可被此页面及已连接的 OkBrowser Agent 读取',
-  'After an explicit copy, other local apps and ordinary OkWork pages may read the password from the system clipboard; OkWork clears it after 60 seconds only if unchanged.':
-    '用户明确复制后，其他本机应用和普通 OkWork 页面可能从系统剪贴板读取密码；仅当内容未变化时，OkWork 才会在 60 秒后清除。',
+  'After an explicit copy, other local apps and ordinary OkWorkPro pages may read the password from the system clipboard; OkWorkPro clears it after 60 seconds only if unchanged.':
+    '用户明确复制后，其他本机应用和普通 OkWorkPro 页面可能从系统剪贴板读取密码；仅当内容未变化时，OkWorkPro 才会在 60 秒后清除。',
   'Password filled from {profile}': '已从 {profile} 填充密码',
   'Account: {username}': '账号：{username}',
   'Saved account filled': '已填充保存的账号',
@@ -646,8 +646,8 @@ export const zh: Record<string, string> = {
     '无法确认登录成功 · 未保存密码',
   'Any existing saved password remains unchanged.': '现有已保存密码保持不变。',
   'Password protection is unavailable': '密码保护不可用',
-  'OkWork will not save, fill, reveal or copy passwords.':
-    'OkWork 不会保存、填充、显示或复制密码。',
+  'OkWorkPro will not save, fill, reveal or copy passwords.':
+    'OkWorkPro 不会保存、填充、显示或复制密码。',
   'The page session may continue, but password save and fill are paused.':
     '页面会话可继续使用，但密码保存与填充已暂停。',
   'Password features are disabled on this HTTP page':
@@ -677,8 +677,8 @@ export const zh: Record<string, string> = {
     '无法安全打开远程密码存储，未返回任何密码。',
   'Update the Remote Host before using password storage.':
     '请先升级远程机，再使用密码存储。',
-  'The selected password storage is unavailable. OkWork will not save, fill, reveal or copy passwords until it reconnects.':
-    '所选密码存储不可用。恢复连接前，OkWork 不会保存、填充、显示或复制密码。',
+  'The selected password storage is unavailable. OkWorkPro will not save, fill, reveal or copy passwords until it reconnects.':
+    '所选密码存储不可用。恢复连接前，OkWorkPro 不会保存、填充、显示或复制密码。',
   'Some password storage locations are unavailable': '部分密码存储位置不可用',
   'Unavailable Profiles are hidden. Reconnect their Remote Host, then retry.':
     '不可用的 Profile 已隐藏，请重新连接对应远程机后重试。',
@@ -686,6 +686,7 @@ export const zh: Record<string, string> = {
 
   // --- 应用菜单(main · buildMenu) ---
   'New Tab': '新建 Tab',
+  'About {name}': '关于 {name}',
   'Quit {name}': '退出 {name}',
   File: '文件',
 
@@ -708,7 +709,7 @@ export const zh: Record<string, string> = {
   'Browser network exit: {name}': '浏览器网络出口:{name}',
   "Preview tabs stay on their project's machine":
     '预览标签固定使用所属机器的网络出口',
-  // OkWork 技能横条(okwork skill)
+  // OkWorkPro 技能横条(okwork skill)
   'Install the okwork skill to let the AI operate the built-in browser':
     '安装 okwork 技能,让 AI 能操作内置浏览器',
   'An update to the okwork skill is available': 'okwork 技能有可用更新',

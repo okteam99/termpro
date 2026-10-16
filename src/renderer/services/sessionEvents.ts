@@ -104,7 +104,7 @@ export function routeSessionEvent(
             ? t('{label} · Command finished', { label })
             : t('{label} · Command finished (exit code {code})', { label, code: ec });
         s.pushNotification({ workspaceId: ws.id, tabId, kind: 'done', text });
-        osNotify(t('OkWork · Done'), text, ws.id, tabId);
+        osNotify(t('OkWorkPro · Done'), text, ws.id, tabId);
       }
       break;
     }
@@ -123,7 +123,7 @@ export function routeSessionEvent(
       waitingNotified.add(tabId);
       const text = t('{label} · Bell rang (may be waiting for input)', { label });
       s.pushNotification({ workspaceId: ws.id, tabId, kind: 'bell', text });
-      osNotify(t('OkWork · Attention'), text, ws.id, tabId);
+      osNotify(t('OkWorkPro · Attention'), text, ws.id, tabId);
       break;
     }
 
@@ -139,7 +139,7 @@ export function routeSessionEvent(
       if (waitingNotified.has(tabId)) break;
       waitingNotified.add(tabId);
       s.pushNotification({ workspaceId: ws.id, tabId, kind: 'notify', text });
-      osNotify(event.title || 'OkWork', event.body, ws.id, tabId);
+      osNotify(event.title || 'OkWorkPro', event.body, ws.id, tabId);
       break;
     }
 

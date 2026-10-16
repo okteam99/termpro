@@ -21,7 +21,7 @@ import {
 const STAT_CACHE_MS = 5_000;
 const CWD_CACHE_MS = 2_500;
 
-// 交给系统打开的扩展名(媒体/压缩包等);图片与文本进 OkWork 文件窗口
+// 交给系统打开的扩展名(媒体/压缩包等);图片与文本进 OkWorkPro 文件窗口
 // export:权威集合单源,测试 import 校验文件分流边界(不硬编码列表)
 export const SYSTEM_OPEN_EXT =
   /\.(icns|pdf|zip|gz|tgz|tar|7z|dmg|app|mp4|mov|avi|mkv|mp3|wav|flac|woff2?|ttf|otf|eot)$/i;
@@ -63,7 +63,7 @@ export async function openTargetInFilePanelFirst(
 }
 
 // 链接激活路由:目录回 File Panel 定位优先(留在工作面看上下文/git);
-// 单个文件直接打开——文本/图片进 OkWork 窗口,媒体/系统扩展名走系统打开,
+// 单个文件直接打开——文本/图片进 OkWorkPro 窗口,媒体/系统扩展名走系统打开,
 // 不再因落在 root/worktree 内就降级成「只定位」。
 // hostId = 该终端绑定 workspace 的路由键(缺省/'local' = 本机)。
 export function openTarget(

@@ -125,6 +125,17 @@ process.stderr?.on?.('error', () => undefined);
 // DEV 渠道:npm start(未打包)或 make:dev 出的 "OkWork Dev" 包。
 // 独立 userData、不查更新、UI 显示红色 DEV 徽标,与正式版可同时安装。
 const isDevChannel = !app.isPackaged || app.getName().includes('Dev');
+// 展示名 OkWorkPro(菜单/About/对话框)。品牌改名(OkWork → OkWorkPro)刻意不动
+// 存储身份:app name 决定 userData 目录与 macOS 钥匙串条目("<name> Safe Storage"),
+// 改了会让已存密码、远程机凭据的密文全部解不开。故打包态把 app name 钉回旧值,
+// userData 显式指回旧目录;下方 dev/E2E 分支会再各自覆盖。
+const APP_DISPLAY_NAME = isDevChannel && app.isPackaged ? 'OkWorkPro Dev' : 'OkWorkPro';
+if (app.isPackaged) {
+  const STORAGE_APP_NAME = app.getName().includes('Dev') ? 'OkWork Dev' : 'OkWork';
+  app.setName(STORAGE_APP_NAME);
+  app.setPath('userData', path.join(app.getPath('appData'), STORAGE_APP_NAME));
+}
+app.setAboutPanelOptions({ applicationName: APP_DISPLAY_NAME });
 // E2E only: an explicit, absolute, caller-owned temporary directory makes
 // browser journeys reproducible without touching a developer's real profile.
 // Packaged builds deliberately ignore it, and malformed/relative input falls
@@ -279,7 +290,7 @@ const browserProfileStore = new BrowserProfileStore(
 );
 const defaultBrowserProfile = (): BrowserProfile => ({
   id: DEFAULT_PROFILE_ID,
-  name: t('OkWork (built-in)'),
+  name: t('OkWorkPro (built-in)'),
   createdAt: 0,
 });
 const profileCatalog = new ProfileCatalogStore({
@@ -749,7 +760,7 @@ async function listBrowserProfileSummaries(): Promise<BrowserProfileSummary[]> {
     profiles.map(async (profile) => {
       const named =
         profile.id === DEFAULT_PROFILE_ID
-          ? { ...profile, name: t('OkWork (built-in)') }
+          ? { ...profile, name: t('OkWorkPro (built-in)') }
           : profile;
       if (profile.storage.kind !== 'remote') {
         return {
@@ -2076,9 +2087,9 @@ function buildMenu(): void {
   };
 
   const appMenu = (): Electron.MenuItemConstructorOptions => ({
-    label: app.getName(),
+    label: APP_DISPLAY_NAME,
     submenu: [
-      { role: 'about' },
+      { role: 'about', label: t('About {name}', { name: APP_DISPLAY_NAME }) },
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -2087,7 +2098,7 @@ function buildMenu(): void {
       { role: 'unhide' },
       { type: 'separator' },
       {
-        label: t('Quit {name}', { name: app.getName() }),
+        label: t('Quit {name}', { name: APP_DISPLAY_NAME }),
         accelerator: 'Command+Q',
         click: requestAppQuit,
       },
@@ -2592,9 +2603,9 @@ const createWindow = () => {
       // 终局。弹窗告知手动出路(⌘R 走 viewMenu role,不经本 handler,恒可用)。
       void dialog.showMessageBox(mainWindow, {
         type: 'error',
-        title: t('OkWork keeps crashing'),
+        title: t('OkWorkPro keeps crashing'),
         message: t(
-          'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWork.',
+          'Automatic recovery was stopped after repeated crashes. Press ⌘R to retry manually; if it keeps failing, quit and relaunch OkWorkPro.',
         ),
         buttons: [t('OK')],
         defaultId: 0,

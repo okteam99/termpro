@@ -74,14 +74,16 @@ const config: ForgeConfig = {
     asar: { unpack: '**/node_modules/node-pty/**' },
     // BL-003 SSH-5:三架构 host standalone 部署产物,见上 hostBundlesDir 注释。
     extraResource: hasHostBundles ? [hostBundlesDir] : [],
-    name: isDevBuild ? 'OkWork Dev' : 'OkWork',
-    // 品牌改名(TermPro → OkWork)刻意保留旧 bundleId:改了会重置 macOS TCC
+    // 展示名(.app / CFBundleName)。存储身份(userData 目录、钥匙串条目)仍是
+    // "OkWork",由 main.ts 启动时 setName 钉住,见 STORAGE_APP_NAME 注释。
+    name: isDevBuild ? 'OkWorkPro Dev' : 'OkWorkPro',
+    // 品牌改名(TermPro → OkWork → OkWorkPro)刻意保留旧 bundleId:改了会重置 macOS TCC
     // 权限、割裂 Squirrel 升级连续性,存量安装无法平滑升级。勿改。
     appBundleId: isDevBuild
       ? 'com.okteam99.termpro.dev'
       : 'com.okteam99.termpro',
     icon: './assets/icon', // packager 自动按平台补 .icns/.ico
-    // Markdown 文件关联:Finder「打开方式」推荐 OkWork(Alternate = 不抢默认,
+    // Markdown 文件关联:Finder「打开方式」推荐 OkWorkPro(Alternate = 不抢默认,
     // 仅进候选列表);双击 .md 由 main 的 open-file 事件路由到查看器窗口。
     // 仅对打包后的 .app 生效(Launch Services 扫描 bundle);dev 模式不注册。
     extendInfo: {

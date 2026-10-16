@@ -401,7 +401,7 @@ export class LocalProfileProvider implements ProfileDataProvider {
         return (
           this.deps.defaultProfile ?? {
             id: DEFAULT_PROFILE_ID,
-            name: 'OkWork (built-in)',
+            name: 'OkWorkPro (built-in)',
             createdAt: 0,
           }
         );

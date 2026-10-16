@@ -179,8 +179,8 @@ export function FilesWindow({
 
   useEffect(() => {
     document.title = active
-      ? `${basename(active.path)}${active.dirty ? ' ●' : ''} — OkWork`
-      : 'OkWork';
+      ? `${basename(active.path)}${active.dirty ? ' ●' : ''} — OkWorkPro`
+      : 'OkWorkPro';
   }, [active]);
 
   if (error) {

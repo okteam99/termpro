@@ -1,5 +1,5 @@
 // AI 浏览器控制服务(渲染层 · 2026-07-15):session 内的 AI 经 MCP → main → 本服务
-// 驱动 OkWork 内置浏览器(真实 persist:browser 登录窗格)。控制原语(导航/执行 JS/
+// 驱动 OkWorkPro 内置浏览器(真实 persist:browser 登录窗格)。控制原语(导航/执行 JS/
 // 截图/取 DOM)走 webview 元素方法;标签管理走 store action。目标按 terminalTabId
 // 定位其活跃浏览器窗格,或显式 browserTabId。
 //
@@ -100,7 +100,7 @@ function requireView(terminalTabId: string, browserTabId?: string): HTMLWebViewE
 
 /**
  * MCP 工具显式选表面,不再按 host 自动分流。
- * inner → 本机 OkWork 内置 webview(即使用户在远程 session)。
+ * inner → 本机 OkWorkPro 内置 webview(即使用户在远程 session)。
  * headless-remote → 远端 Chromium;本机 session / 没装浏览器 / 旧 host 直接报错。
  */
 async function backendFor(
@@ -114,7 +114,7 @@ async function backendFor(
   if (!pane) throw new Error(`terminal tab not found: ${terminalTabId}`);
   if (!pane.ownerHostId || pane.ownerHostId === 'local') {
     throw new Error(
-      'headless remote browser is only available in a remote OkWork session',
+      'headless remote browser is only available in a remote OkWorkPro session',
     );
   }
   const backend = await resolveBrowserBackend(pane.ownerHostId);

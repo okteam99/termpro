@@ -216,7 +216,7 @@ describe('browserControl 显式表面分流', () => {
   it('headless-remote 在本机 session → 报错', async () => {
     seedWorkspace('local');
     await expect(bc.navigate(TERM, 'https://x.test', undefined, remote)).rejects.toThrow(
-      /only available in a remote OkWork session/,
+      /only available in a remote OkWorkPro session/,
     );
   });
 

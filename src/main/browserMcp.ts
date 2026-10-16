@@ -1,8 +1,8 @@
 // AI 浏览器控制 MCP server(main · 阶段2b):把 browserControl 的能力暴露成 MCP 工具,
-// session 内的 agent(Claude Code/Codex)连上即可驱动 OkWork 内置浏览器(真实登录会话)。
+// session 内的 agent(Claude Code/Codex)连上即可驱动 OkWorkPro 内置浏览器(真实登录会话)。
 //
 // 绑定(用户选 A):每个连接绑一个【终端 tab】——URL 路径 /mcp/<terminalTabId> 携带,
-// 工具默认操作该 tab 的浏览器窗格。OkWork spawn 终端时把该 URL 经 env 注入(接线见 main.ts)。
+// 工具默认操作该 tab 的浏览器窗格。OkWorkPro spawn 终端时把该 URL 经 env 注入(接线见 main.ts)。
 // 传输:MCP streamable HTTP(stateful,按 mcp-session-id 路由),经 SDK。工具执行走
 // invokeBrowserControl → 渲染层 browserControl。
 
@@ -40,7 +40,7 @@ function toolsFor(surface: BrowserSurface): ToolDef[] {
   const prefix = surface === 'inner' ? 'inner_browser' : 'headless_remote_browser';
   const where =
     surface === 'inner'
-      ? 'OkWork built-in browser (the user\'s real logged-in session on this machine)'
+      ? 'OkWorkPro built-in browser (the user\'s real logged-in session on this machine)'
       : 'headless Chromium on the remote machine (not the laptop webview)';
   return [
     {

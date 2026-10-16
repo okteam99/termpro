@@ -17,7 +17,7 @@ const LINK_MODE_OPTIONS: {
   {
     mode: 'builtin',
     label: () => t('Built-in browser'),
-    desc: () => t('Terminal links open in OkWork’s own browser.'),
+    desc: () => t('Terminal links open in OkWorkPro’s own browser.'),
   },
   {
     mode: 'system',

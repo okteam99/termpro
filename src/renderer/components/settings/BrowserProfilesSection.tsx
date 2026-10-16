@@ -92,7 +92,7 @@ export function BrowserProfilesSection() {
     return [
       {
         id: DEFAULT_PROFILE_ID,
-        name: t('OkWork (built-in)'),
+        name: t('OkWorkPro (built-in)'),
         createdAt: 0,
         storage: { kind: 'local' },
         storageLabel: t('This device'),

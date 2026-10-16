@@ -100,7 +100,7 @@ function presentation(
           ? t(
               'The page session may continue, but password save and fill are paused.',
             )
-          : t('OkWork will not save, fill, reveal or copy passwords.'),
+          : t('OkWorkPro will not save, fill, reveal or copy passwords.'),
         tone: 'danger',
       };
     case 'insecure_origin':

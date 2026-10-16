@@ -120,7 +120,7 @@ export function WorkspaceEditModal({
             value={profileId}
             onChange={(e) => setProfileId(e.target.value)}
           >
-            <option value={DEFAULT_PROFILE_ID}>{t('OkWork (built-in)')}</option>
+            <option value={DEFAULT_PROFILE_ID}>{t('OkWorkPro (built-in)')}</option>
             {profiles
               .filter((profile) => profile.id !== DEFAULT_PROFILE_ID)
               .map((profile) => (

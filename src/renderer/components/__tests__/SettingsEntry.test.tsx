@@ -286,7 +286,7 @@ describe('settingsEntry_about_click_opens_modal_and_closes_menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
 
     // Modal is open
-    expect(screen.getByText('OkWork')).toBeInTheDocument();
+    expect(screen.getByText('OkWorkPro')).toBeInTheDocument();
 
     // Menu is closed
     expect(screen.queryByRole('menu')).toBeNull();
@@ -304,7 +304,7 @@ describe('settingsEntry_no_menu_behind_open_about_modal', () => {
 
     // Modal is open, menu is gone
     expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByText('OkWork')).toBeInTheDocument();
+    expect(screen.getByText('OkWorkPro')).toBeInTheDocument();
   });
 });
 
@@ -365,7 +365,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
     fireEvent.click(closeBtn);
 
     // Modal closed
-    expect(screen.queryByText('OkWork')).toBeNull();
+    expect(screen.queryByText('OkWorkPro')).toBeNull();
     // Focus restored to the Settings entry
     expect(document.activeElement).toBe(entryBtn);
   });
@@ -379,10 +379,10 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
 
     fireEvent.click(entryBtn);
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
-    expect(screen.getByText('OkWork')).toBeInTheDocument();
+    expect(screen.getByText('OkWorkPro')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByText('OkWork')).toBeNull();
+    expect(screen.queryByText('OkWorkPro')).toBeNull();
     // Focus restored to the Settings entry
     expect(document.activeElement).toBe(entryBtn);
   });
@@ -402,7 +402,7 @@ describe('aboutModal_closes_via_esc_backdrop_button_and_restores_focus', () => {
 
     // Clicking backdrop itself (not the card)
     fireEvent.mouseDown(backdrop);
-    expect(screen.queryByText('OkWork')).toBeNull();
+    expect(screen.queryByText('OkWorkPro')).toBeNull();
     // Focus restored to the Settings entry
     expect(document.activeElement).toBe(entryBtn);
   });
@@ -421,7 +421,7 @@ describe('settingsEntry_remote_hosts_click_opens_page_and_closes_menu', () => {
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
     expect(screen.getAllByText('Remote Hosts').length).toBeGreaterThan(0);
     expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.queryByText('OkWork')).toBeNull();
+    expect(screen.queryByText('OkWorkPro')).toBeNull();
 
     // list() called on mount (async effect)
     await Promise.resolve();
@@ -484,11 +484,11 @@ describe('settingsEntry_deep_link_replaces_open_about', () => {
     render(<SettingsEntry />);
     fireEvent.click(screen.getByTitle('Login'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'About' }));
-    expect(screen.getByText('OkWork')).toBeInTheDocument();
+    expect(screen.getByText('OkWorkPro')).toBeInTheDocument();
     act(() => {
       useAppStore.getState().openRemoteHostsPage();
     });
-    expect(screen.queryByText('OkWork')).toBeNull();
+    expect(screen.queryByText('OkWorkPro')).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
   });
 });

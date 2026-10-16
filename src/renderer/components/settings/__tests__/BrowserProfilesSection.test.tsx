@@ -161,7 +161,7 @@ describe('BrowserProfilesSection', () => {
     });
     render(<BrowserProfilesSection />);
 
-    expect(screen.getByText('OkWork (built-in)')).toBeInTheDocument();
+    expect(screen.getByText('OkWorkPro (built-in)')).toBeInTheDocument();
     expect(screen.getByText('Built-in')).toBeInTheDocument();
     expect(screen.getAllByText('Storage location: This device')).toHaveLength(
       3,

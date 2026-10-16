@@ -76,8 +76,8 @@ export function BrowserPaneShellWindow({ terminalTabId }: { terminalTabId: strin
   const profiles = useAppStore((s) => s.browserProfiles);
   const profileName =
     boundProfileId === DEFAULT_PROFILE_ID
-      ? t('OkWork (built-in)')
-      : (profiles.find((p) => p.id === boundProfileId)?.name ?? t('OkWork (built-in)'));
+      ? t('OkWorkPro (built-in)')
+      : (profiles.find((p) => p.id === boundProfileId)?.name ?? t('OkWorkPro (built-in)'));
 
   // AI 浏览器控制:窗格弹出后 webview 活在本壳窗,main 把该 tab 的 browserControl:invoke
   // 改路由到本窗(见 main.invokeBrowserControl)。故壳窗也要挂控制桥,让 MCP 能驱动弹出窗口。

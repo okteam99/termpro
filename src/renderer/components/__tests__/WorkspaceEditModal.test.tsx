@@ -70,7 +70,7 @@ describe('WorkspaceEditModal', () => {
     );
 
     expect(screen.getByDisplayValue('my-project')).toBeInTheDocument();
-    expect(screen.getByText('OkWork (built-in)')).toBeInTheDocument();
+    expect(screen.getByText('OkWorkPro (built-in)')).toBeInTheDocument();
     expect(screen.getByText('Work')).toBeInTheDocument();
     expect(screen.getByText('Personal')).toBeInTheDocument();
     expect(screen.queryByText('Deleting')).toBeNull();
