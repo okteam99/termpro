@@ -4,7 +4,7 @@
 #
 # matrix:
 #   self-hosted macOS ARM64 → darwin-arm64
-#   ubuntu-ci linux-x64     → linux-x64
+#   self-hosted Linux X64   → linux-x64
 #   ubuntu-24.04-arm        → linux-arm64(GitHub 托管 ARM Linux,公开仓库免费;
 #     node-pty 1.1.0 无 linux prebuilds,必须在原生 arm64 上源码编译)
 #
@@ -31,7 +31,7 @@ jobs:
         include:
           - runner: [self-hosted, macOS, ARM64]
             platform: darwin-arm64
-          - runner: [ubuntu-ci, linux-x64]
+          - runner: [self-hosted, Linux, X64]
             platform: linux-x64
           - runner: ubuntu-24.04-arm
             platform: linux-arm64
