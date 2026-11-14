@@ -171,11 +171,8 @@ export function TabBar() {
 
   return (
     <div className="tabbar">
-      {/* 可横向滚动的标签列表 */}
-      <div
-        className="tabbar-tabs"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
+      {/* 标签列表:放不下自动换行 */}
+      <div className="tabbar-tabs">
         {ws.tabs.map((tab, idx) => {
           const isActive = tab.id === ws.activeTabId;
           const isDragging = tab.id === draggingId;

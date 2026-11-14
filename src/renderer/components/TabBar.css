@@ -1,12 +1,12 @@
 .tabbar {
-  height: 52px;
+  /* 单行时保持 52px(与 Sidebar / FilePanel 顶栏对齐);标签多了换行,高度随行数增长 */
+  min-height: 52px;
   display: flex;
   flex-direction: row;
   align-items: center;
-  padding: 0 8px;
+  padding: 6px 8px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
-  overflow: hidden;
   flex-shrink: 0;
 }
 
@@ -14,22 +14,17 @@
   width: 100%;
 }
 
-/* 横向可滚动标签容器,隐藏滚动条。可收缩(min-width:0):空间不足时标签区内部
-   滚动,不被 overflow:hidden 裁掉。文件面板/浏览器开关已迁至 SideRail(独立于
-   tabbar 之外的竖直图标栏),不再挤占这一行的空间 */
+/* 标签容器:放不下就换行,全部标签始终可见,不再横向滚动(用户指令 2026-11-14)。
+   容器本身是窗口拖拽区(末行空白处可拖窗),标签/按钮各自 no-drag */
 .tabbar-tabs {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none; /* Firefox */
+  gap: 4px 6px;
   flex: 0 1 auto;
   min-width: 0;
-}
-
-.tabbar-tabs::-webkit-scrollbar {
-  display: none;
+  -webkit-app-region: drag;
 }
 
 /* 单个标签:胶囊(pill) */
@@ -37,8 +32,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 12px;
-  height: 32px;
+  padding: 0 10px;
+  height: 24px;
   font-size: 12px;
   cursor: default;
   white-space: nowrap;
@@ -62,10 +57,17 @@
 }
 
 /* 活跃标签:填充底色胶囊 */
-.tabbar-tab--active {
-  background: var(--bg-active);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: var(--fg);
+.tabbar-tab--active,
+.tabbar-tab--active:hover {
+  /* 与非活跃标签拉开对比:更亮的填充 + accent 色描边(用户指令 2026-11-14) */
+  background: rgba(255, 255, 255, 0.14);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: #fff;
+}
+
+.tabbar-tab--active .tab-icon {
+  opacity: 1;
+  color: var(--accent);
 }
 
 /* exited 状态:整体半透明 */
@@ -152,8 +154,8 @@
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border-radius: 50%;
   opacity: 0;
@@ -182,8 +184,8 @@
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border-radius: 50%;
   display: flex;
@@ -204,6 +206,7 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }
 
 /* ▾ 触发按钮,与 + 相同的扁平风格 */
@@ -267,6 +270,6 @@
 .tabbar-drag-strip {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  align-self: stretch;
   -webkit-app-region: drag;
 }
