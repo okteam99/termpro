@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { healWorkspaceProfile } from '../profileHeal';
+import { execFileSync } from 'node:child_process';
+import { ensureLocalBinProfile, healWorkspaceProfile } from '../profileHeal';
 
 const OLD = `# okwork-node: login shells start in /workspace (mount a host folder there).
 [ -d /workspace ] && cd /workspace
@@ -49,5 +50,44 @@ describe('healWorkspaceProfile', () => {
 
   it('文件不存在(本机/非 okwork-node 容器)→ absent', () => {
     expect(healWorkspaceProfile(path.join(dir, 'nope.sh'))).toBe('absent');
+  });
+});
+
+describe('ensureLocalBinProfile', () => {
+  it('非 okwork-node 环境(标记文件不存在)→ absent 且不写', () => {
+    const p = path.join(dir, 'lb-absent.sh');
+    expect(ensureLocalBinProfile(p, path.join(dir, 'no-marker.sh'))).toBe('absent');
+    expect(fs.existsSync(p)).toBe(false);
+  });
+
+  it('okwork-node 容器缺脚本 → written;再跑 → ok 且内容不变', () => {
+    const marker = file('marker.sh', '# marker\n');
+    const p = path.join(dir, 'lb.sh');
+    expect(ensureLocalBinProfile(p, marker)).toBe('written');
+    const before = fs.readFileSync(p, 'utf8');
+    expect(ensureLocalBinProfile(p, marker)).toBe('ok');
+    expect(fs.readFileSync(p, 'utf8')).toBe(before);
+  });
+
+  it('已存在的用户改写版 → ok 不动', () => {
+    const marker = file('marker.sh', '# marker\n');
+    const p = file('lb-custom.sh', 'export FOO=bar\n');
+    expect(ensureLocalBinProfile(p, marker)).toBe('ok');
+    expect(fs.readFileSync(p, 'utf8')).toBe('export FOO=bar\n');
+  });
+
+  it('脚本行为:~/.local/bin 存在才前置进 PATH,且不重复', () => {
+    const marker = file('marker.sh', '# marker\n');
+    const p = path.join(dir, 'lb-run.sh');
+    ensureLocalBinProfile(p, marker);
+    const home = fs.mkdtempSync(path.join(dir, 'home-'));
+    const run = (): string =>
+      execFileSync('/bin/sh', ['-c', `. "${p}"; . "${p}"; printf %s "$PATH"`], {
+        env: { HOME: home, PATH: '/usr/bin:/bin' },
+        encoding: 'utf8',
+      });
+    expect(run()).toBe('/usr/bin:/bin');
+    fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
+    expect(run()).toBe(`${home}/.local/bin:/usr/bin:/bin`);
   });
 });

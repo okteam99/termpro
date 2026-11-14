@@ -41,3 +41,45 @@ export function healWorkspaceProfile(
     return 'failed';
   }
 }
+
+// ── ~/.local/bin 入 PATH(2026-11-14)──
+// pty.spawn 起的是登录 shell(bash -l),只读 /etc/profile 与 ~/.bash_profile →
+// ~/.bash_login → ~/.profile 中首个存在者,**不读 ~/.bashrc**。容器里那条链一断
+// (存在 ~/.bash_profile / ~/.profile 缺失),用户写进 .bashrc 的 PATH 就只在手动
+// source 过的 tab 生效 → 新 tab `claude: command not found`(native installer、pipx、
+// uv 等都装在 ~/.local/bin)。/etc/profile.d 是登录 shell 必读处,不依赖用户 dotfiles。
+
+export const OKWORK_LOCAL_BIN_PROFILE_PATH = '/etc/profile.d/30-okwork-local-bin.sh';
+
+// 与 docker/okwork-node/Dockerfile 写入的逐字一致
+const LOCAL_BIN = `# okwork-node: user-local bins (Claude Code native installer, pipx, uv, ...) on PATH
+# for login shells, which do not read ~/.bashrc.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" ;;
+esac
+export PATH
+`;
+
+/**
+ * okwork-node 容器(以 10-okwork-workspace.sh 存在为标记)缺该脚本则补写。
+ * 已存在一律不动(含用户改过的);非 okwork-node 环境不往别人机器的 /etc 写东西。
+ * written=已补写 · ok=已存在 · absent=非 okwork-node 环境 · failed=无写权限等。
+ */
+export function ensureLocalBinProfile(
+  path = OKWORK_LOCAL_BIN_PROFILE_PATH,
+  markerPath = OKWORK_PROFILE_PATH,
+): 'written' | 'ok' | 'absent' | 'failed' {
+  if (!fs.existsSync(markerPath)) return 'absent';
+  if (fs.existsSync(path)) return 'ok';
+  try {
+    fs.writeFileSync(path, LOCAL_BIN, { mode: 0o644 });
+    return 'written';
+  } catch (err) {
+    console.warn(
+      '[host] local-bin profile write failed:',
+      err instanceof Error ? err.message : String(err),
+    );
+    return 'failed';
+  }
+}

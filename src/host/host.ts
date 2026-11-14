@@ -16,7 +16,12 @@ import { runRemoteProfileRpc } from './profileStoreRpc';
 process.stdout?.on?.('error', () => undefined);
 process.stderr?.on?.('error', () => undefined);
 import { gitInfo } from './gitService';
-import { healWorkspaceProfile, OKWORK_PROFILE_PATH } from './profileHeal';
+import {
+  ensureLocalBinProfile,
+  healWorkspaceProfile,
+  OKWORK_LOCAL_BIN_PROFILE_PATH,
+  OKWORK_PROFILE_PATH,
+} from './profileHeal';
 import { resolveToken, writeIdentityTokenFile } from './token';
 import { startWsServer } from './wsServer';
 
@@ -71,6 +76,11 @@ function runInteractiveHost(): void {
         '[host] healed stale %s (unconditional cd /workspace)',
         OKWORK_PROFILE_PATH,
       );
+    }
+    // 登录 shell 不读 ~/.bashrc:存量容器补一个 profile.d 把 ~/.local/bin 放进 PATH
+    // (否则新 tab 找不到 native 安装的 claude)。同样须在任何 pty.spawn 之前。
+    if (ensureLocalBinProfile() === 'written') {
+      console.log('[host] wrote %s (~/.local/bin on PATH)', OKWORK_LOCAL_BIN_PROFILE_PATH);
     }
     const { host, port } = parseListen(process.argv);
     // configId 自证标签(远程编排注入):仅写入端口文件/日志供 main 侧 reap 双验识别

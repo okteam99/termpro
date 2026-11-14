@@ -81,6 +81,19 @@ RUN printf '%s\n' '# okwork-node: mark the container as an agent sandbox so Clau
         'export IS_SANDBOX=1' \
         > /etc/profile.d/20-okwork-agent.sh
 
+# Login shells (OkWork spawns `bash -l` per tab) do not read ~/.bashrc, so a PATH line
+# appended there by an installer never reaches a new tab. Put ~/.local/bin (Claude Code
+# native installer, pipx, uv, ...) on PATH from profile.d instead.
+# Keep byte-identical with LOCAL_BIN in src/host/profileHeal.ts.
+RUN printf '%s\n' '# okwork-node: user-local bins (Claude Code native installer, pipx, uv, ...) on PATH' \
+        '# for login shells, which do not read ~/.bashrc.' \
+        'case ":$PATH:" in' \
+        '  *":$HOME/.local/bin:"*) ;;' \
+        '  *) [ -d "$HOME/.local/bin" ] && PATH="$HOME/.local/bin:$PATH" ;;' \
+        'esac' \
+        'export PATH' \
+        > /etc/profile.d/30-okwork-local-bin.sh
+
 # Inner dockerd storage must not sit on the container's own overlayfs
 # (overlay-on-overlay is unsupported and falls back to vfs). Declare a volume
 # so an anonymous one is used even when -v doesn't name one explicitly.
